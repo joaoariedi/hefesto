@@ -1,5 +1,6 @@
 ---
 name: "Pipeline Security Tooling"
+user-invocable: false
 description: |
   Reference for evaluating or recommending security tooling across the CI/CD
   pipeline: SAST, DAST, SCA, secrets, and ASPM platforms — managed services and

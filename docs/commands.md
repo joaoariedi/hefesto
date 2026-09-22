@@ -10,12 +10,12 @@
 | `/hef.mutate` | `[paths]` | Mutation-test the changed code; raise-only score ratchet; every survivor becomes a test |
 | `/hef.release` | `<X.Y.Z> [date]` | Move every version declaration together and scaffold the CHANGELOG entry; never commits or tags |
 | `/hef.context` | — | Analyze project tech stack, tools, and structure |
-| `/hef.pr-summary` | — | Generate PR description from current branch diff |
 | `/hef.review` | `[focus]` | Two-stage review — spec compliance, then code quality (spawns code-reviewer) |
-| `/hef.pr` | `[--draft] [target]` | Open or update the PR via review-coordinator; never merges |
+| `/hef.pr` | `[--summary-only] [--draft] [target]` | Open or update the PR via review-coordinator; never merges. `--summary-only` writes just the description (the former `/hef.pr-summary`) |
+| `/hef.adr` | `<title> [--status …]` | Record a decision under `reports/` with MADR frontmatter |
 | `/hef.quality` | — | Run comprehensive quality checks (spawns quality-guardian) |
 | `/hef.security-scan` | — | Scan staged changes for secrets, SQLi, XSS |
-| `/hef.sync` | — | Report drift between the installed plugin clone, the global rules, and upstream |
+| `/hef.doctor` | `[--eval]` | Framework self-check: the three copies in sync, hooks linted, manifest valid; `--eval` scores the plugin's own prompts (the former `/hef.sync`, plus the checks) |
 | `/speckit.init` | — | Bootstrap `.specify/` directory in current project |
 | `/speckit.constitution` | — | Create/update project governance principles |
 | `/speckit.brainstorm` | `<idea>` | Socratic design exploration before specification |

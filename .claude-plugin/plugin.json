@@ -1,7 +1,7 @@
 {
   "name": "hefesto",
   "displayName": "Hefesto",
-  "version": "6.2.0",
+  "version": "7.0.0",
   "description": "Spec-driven development for Claude Code: quality gates, custom agents, security guardrails, and a full specification pipeline. Ships its hooks — including a TaskCompleted gate that mechanically enforces the Verification Iron Law.",
   "author": {
     "name": "joaoariedi",

@@ -1,16 +1,16 @@
 # Graph Report - hefesto  (2026-09-22)
 
 ## Corpus Check
-- 110 files · ~141,393 words
+- 111 files · ~143,609 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1088 nodes · 1045 edges · 120 communities (100 shown, 20 thin omitted)
+- 1098 nodes · 1054 edges · 121 communities (102 shown, 19 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 4 edges (avg confidence: 0.5)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e7648fad`
+- Built from commit: `4bec6b3c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -39,7 +39,7 @@
 - Security & DevSecOps Research
 - Workflow Resilience Research Spikes
 - Agent Topology & Orchestration
-- Multi-Repo Overload Field Report
+- Field Report: speckit-workflow — Multi-Repo Support & Overload Resilience
 - Task Effort Estimation Skill
 - Pre-Flight
 - Spec-Driven Development Guide
@@ -56,15 +56,15 @@
 - Repo Scout Agent
 - Project Context Command
 - Instructions
-- Agents Documentation
-- Hefesto v6.2
-- Framework Sync Check
+- 🕵️ Agents
+- Hefesto v7.0
+- Doctor
 - Slash Commands Documentation
 - Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane
 - Speckit Constitution Command
 - Speckit Specify Command
 - Speckit Tasks Command
-- mcp.md
+- [3.0.0] - 2025-09-04
 - Workflow Resilience Task List
 - Plan Template
 - Spec Template
@@ -72,7 +72,7 @@
 - Code Reviewer Agent
 - [Unreleased]
 - User Scenarios
-- Live Branch Data
+- Decision record
 - Speckit Checklist Command
 - Speckit Clarify Command
 - ⚙️ Hooks
@@ -94,7 +94,7 @@
 - [4.0.0] - 2026-02-23
 - [4.5.0] - 2026-07-13
 - [5.1.0] - 2026-07-16
-- [6.0.0] - 2026-08-19
+- [7.0.0] - 2026-09-22
 - Speckit Helper Script
 - Performance Audit Skill
 - [5.2.0] - 2026-07-17
@@ -126,7 +126,7 @@
 - audit-config-change.sh
 - precompact-progress.sh
 - session-start-context.sh
-- [3.0.0] - 2025-09-04
+- [6.1.0] - 2026-09-22
 - Release
 - [6.2.0] - 2026-09-22
 - release.sh
@@ -134,7 +134,7 @@
 - merge-tree-probe.sh
 
 ## God Nodes (most connected - your core abstractions)
-1. `Changelog` - 23 edges
+1. `Changelog` - 24 edges
 2. `Plan: speckit-workflow-resilience` - 15 edges
 3. `Quality Tooling by Language` - 14 edges
 4. `Code Quality Standards` - 11 edges
@@ -142,8 +142,8 @@
 6. `Claude Code Harness Capabilities` - 11 edges
 7. `Task Effort Estimation Skill` - 11 edges
 8. `SETUP — install or update the Hefesto on this machine` - 10 edges
-9. `Security & DevSecOps for Agents` - 10 edges
-10. `User Scenarios` - 9 edges
+9. `🕵️ Agents` - 10 edges
+10. `Security & DevSecOps for Agents` - 10 edges
 
 ## Surprising Connections (you probably didn't know these)
 - None detected - all connections are within the same source files.
@@ -151,7 +151,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (120 total, 20 thin omitted)
+## Communities (121 total, 19 thin omitted)
 
 ### Community 0 - "Security Forensics Agent"
 Cohesion: 0.06
@@ -223,15 +223,15 @@ Nodes (14): Constitution, Current branch, Existing code, Instructions, Pre-Fligh
 
 ### Community 17 - "Changelog"
 Cohesion: 0.14
-Nodes (13): [3.0.0] - 2025-09-04, [4.0.2] - 2026-03-10, [5.0.0] - 2026-07-13, [6.1.0] - 2026-09-22, Added, Added, Changed, Changed (+5 more)
+Nodes (13): [3.0.0] - 2025-09-04, [4.0.2] - 2026-03-10, [5.0.0] - 2026-07-13, [6.0.0] - 2026-08-19, Added, Added, Changed, Changed - BREAKING (+5 more)
 
 ### Community 18 - "Context Window Management"
 Cohesion: 0.14
 Nodes (13): Compact Context Priorities, Context Management, Context Scaling by Project Size, Document & Clear Pattern, How to Resume from a Progress File, Large Projects (100+ source files, monorepo or multi-service), Medium Projects (10-100 source files, 1-2 languages), Polyglot / Multi-Service Patterns (+5 more)
 
 ### Community 19 - "README.md"
-Cohesion: 0.25
-Nodes (7): 📚 Documentation, 📦 Install, 📄 License, 🧩 Requirements, 🗂️ Structure, ⚙️ What happens without you asking, 🎯 What it is
+Cohesion: 0.18
+Nodes (9): MCP Integration, 🔌 MCP Integration, 📚 Documentation, 📦 Install, 📄 License, 🧩 Requirements, 🗂️ Structure, ⚙️ What happens without you asking (+1 more)
 
 ### Community 20 - "CLAUDE.md Authoring Patterns"
 Cohesion: 0.14
@@ -249,7 +249,7 @@ Nodes (13): Affected Modules, Existing Patterns & Conventions, Open Questions, R
 Cohesion: 0.15
 Nodes (12): Agent Teams: Peer-to-Peer Mesh Orchestration, Agent Topology and Orchestration, Canonical Orchestration Patterns, Cognitive Memory Architectures for Deep Agents, Comparison, Liveness Timeouts Are Non-Negotiable, Retain, Recall, Reflect, Skills: Encapsulated Deterministic Workflows (+4 more)
 
-### Community 24 - "Multi-Repo Overload Field Report"
+### Community 24 - "Field Report: speckit-workflow — Multi-Repo Support & Overload Resilience"
 Cohesion: 0.15
 Nodes (12): Field Report: speckit-workflow — Multi-Repo Support & Overload Resilience, Finding 1 — The single-repo `projectRoot` assumption, Finding 2 — Overload from fan-out amplitude (429 / 529), Finding 3 — One transient agent failure aborts the whole run, Recommendation, Recommendation, Recommendation, Suggested rollout order (+4 more)
 
@@ -317,17 +317,17 @@ Nodes (6): Active branch, Analysis Steps, Directory structure (top 2 levels), Li
 Cohesion: 0.18
 Nodes (10): Change scope, Current branch, If NOT Trivial (fails the gate), If Trivial (passes the gate), Instructions, Pre-Flight, Spec-Kit: Fix, Triviality Gate (+2 more)
 
-### Community 41 - "Agents Documentation"
-Cohesion: 0.20
-Nodes (9): 🕵️ Agents, Agents & Parallelism, 🔍 code-reviewer, 🔒 forensic-specialist, 🤝 Parallelism: Three Primitives, 🛡️ quality-guardian, 🔭 repo-scout, 📝 review-coordinator (+1 more)
+### Community 41 - "🕵️ Agents"
+Cohesion: 0.17
+Nodes (11): Agent memory, 🕵️ Agents, Agents & Parallelism, 🔍 code-reviewer, Doc gardening as a routine, 🔒 forensic-specialist, 🤝 Parallelism: Three Primitives, 🛡️ quality-guardian (+3 more)
 
-### Community 42 - "Hefesto v6.2"
+### Community 42 - "Hefesto v7.0"
 Cohesion: 0.22
-Nodes (8): Core Rules, Custom Agents, graphify, Hefesto v6.2, Multi-Environment Workflows, Performance & Model Selection, Task Management API, Tool Usage
+Nodes (8): Core Rules, Custom Agents, graphify, Hefesto v7.0, Multi-Environment Workflows, Performance & Model Selection, Task Management API, Tool Usage
 
-### Community 43 - "Framework Sync Check"
-Cohesion: 0.29
-Nodes (6): 1. Locate the installed clone, 2. Installed clone vs upstream, 3. Global rules vs upstream, Check Steps, Output Format, Remediation Rules
+### Community 43 - "Doctor"
+Cohesion: 0.17
+Nodes (11): 1. The three copies, 2. The hooks, 3. The manifest, 4. Skill hygiene (report only), 5. Evals — only with `--eval`, Doctor, Global rules vs upstream, Installed clone vs upstream (+3 more)
 
 ### Community 45 - "Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane"
 Cohesion: 0.25
@@ -344,6 +344,10 @@ Nodes (7): Constitution, Existing specs, Git status, Instructions, Pre-Flight, P
 ### Community 48 - "Speckit Tasks Command"
 Cohesion: 0.25
 Nodes (7): Auto-detect spec branch, Current branch, Instructions, Load plan, Load spec, Pre-Flight, Spec-Kit: Tasks
+
+### Community 49 - "[3.0.0] - 2025-09-04"
+Cohesion: 0.33
+Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
 
 ### Community 50 - "Workflow Resilience Task List"
 Cohesion: 0.25
@@ -373,9 +377,9 @@ Nodes (7): Added, Changed, Deprecated, Fixed, Removed, Security, [Unreleased]
 Cohesion: 0.13
 Nodes (14): Clarifications, Functional Requirements, Overview, Spec: harness-review-tiers, Success Criteria, US1: Requirement traceability after implementation [P1], US2: Tests cannot shrink during implementation [P1], US3: The review agents are one command away [P1] (+6 more)
 
-### Community 57 - "Live Branch Data"
-Cohesion: 0.29
-Nodes (6): Commits on this branch, Diff stats, Files changed, Live Branch Data, Output Format, Untrusted input
+### Community 57 - "Decision record"
+Cohesion: 0.50
+Nodes (3): Decision record, Instructions, Pre-Flight
 
 ### Community 58 - "Speckit Checklist Command"
 Cohesion: 0.29
@@ -461,9 +465,9 @@ Nodes (5): [4.5.0] - 2026-07-13, Added, Changed, Fixed, Known limitation
 Cohesion: 0.40
 Nodes (5): [5.1.0] - 2026-07-16, Added, Changed, Fixed, Known issues
 
-### Community 79 - "[6.0.0] - 2026-08-19"
-Cohesion: 0.67
-Nodes (3): [6.0.0] - 2026-08-19, Added, Changed - BREAKING
+### Community 79 - "[7.0.0] - 2026-09-22"
+Cohesion: 0.50
+Nodes (4): [7.0.0] - 2026-09-22, Added, Changed - BREAKING, Migration
 
 ### Community 80 - "Speckit Helper Script"
 Cohesion: 0.70
@@ -529,9 +533,9 @@ Nodes (4): Phase 1: Tier 1 — 6.1.0 (additive), Phase 2: Tier 2 — 6.2.0 (addi
 Cohesion: 0.67
 Nodes (3): [1.0.0] - 2025-09-02, Added, Created
 
-### Community 114 - "[3.0.0] - 2025-09-04"
-Cohesion: 0.33
-Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
+### Community 114 - "[6.1.0] - 2026-09-22"
+Cohesion: 0.67
+Nodes (3): [6.1.0] - 2026-09-22, Added, Changed
 
 ### Community 115 - "Release"
 Cohesion: 0.40
@@ -542,15 +546,15 @@ Cohesion: 0.50
 Nodes (4): [6.2.0] - 2026-09-22, Added, Changed, Decided against
 
 ## Knowledge Gaps
-- **717 isolated node(s):** `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `merge-tree-probe.sh script` (+712 more)
+- **723 isolated node(s):** `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `merge-tree-probe.sh script` (+718 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **20 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **19 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **What connects `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script` to the rest of the system?**
-  _717 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _723 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Security Forensics Agent` be split into smaller, more focused modules?**
   _Cohesion score 0.05714285714285714 - nodes in this community are weakly interconnected._
 - **Should `Development Workflow Phases` be split into smaller, more focused modules?**

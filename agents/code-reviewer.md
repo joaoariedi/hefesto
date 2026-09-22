@@ -2,6 +2,7 @@
 model: fable
 name: code-reviewer
 description: Use PROACTIVELY for code review before PR creation. Two-stage review specialist for spec compliance and code quality. Separate from review-coordinator (which handles PR lifecycle). Examples: <example>Context: Pre-PR review. user: 'Review the code before we create a PR' assistant: 'I'll use code-reviewer for a two-stage review' <commentary>Dedicated review before PR lifecycle.</commentary></example> <example>Context: Plan compliance check. user: 'Does this implementation match the spec?' assistant: 'Let me use code-reviewer for spec compliance analysis' <commentary>Validates implementation against original plan.</commentary></example>
+memory: project
 color: green
 ---
 

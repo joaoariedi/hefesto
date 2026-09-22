@@ -1,3 +1,8 @@
+---
+status: proposed
+date: 2026-07-12
+---
+
 # Codebase Retrieval at Scale
 
 How AI systems index and retrieve from multi-million-line repositories: why syntax-agnostic text RAG fails on source code, and the two structural remedies — **cAST** for file-level chunking and **HCAG** for macro-architectural comprehension. This is the single least-adopted subject in the corpus: the framework currently has no indexed retrieval layer at all, relying instead on Claude Code's native Grep/Glob/Explore over the live filesystem.

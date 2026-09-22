@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-09-22
+---
+
 # Harness Review, September 2026: Toolbox, Drift, and the Evidence Behind Each Change
 
 A structural audit of the framework's own commands, agents, skills, hooks, and rules, cross-checked

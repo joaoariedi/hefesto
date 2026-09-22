@@ -6,17 +6,17 @@
 
 A skill is a **directory containing `SKILL.md`**, never a bare `.md` file — a bare `foo.md` is silently ignored and never loads. This plugin ships them at `skills/<name>/SKILL.md`; in your own project they go under `.claude/skills/<name>/SKILL.md`. Verify with the `/` menu: a skill that does not appear there is not registered.
 
-The framework ships three action skills plus four **reference skills** promoted from always-loaded rules — moving reference material to on-demand loading (progressive disclosure) so only a one-line description stays resident:
+The framework ships three **action skills** — things a person invokes — and four **knowledge skills** promoted from always-loaded rules. Since 7.0 the knowledge skills are `user-invocable: false`: Claude loads them when relevant, but they no longer appear as commands in the `/` menu, because `/quality-tooling` was never a meaningful action for a person to take. The invocable surface is the toolbox; knowledge stays knowledge.
 
-| Skill | Purpose | Auto-invoked? |
-|-------|---------|---------------|
-| 🐛 `systematic-debugging` | 4-phase root cause investigation (read → reproduce → evidence → fix) with Iron Law | Yes — proactively on bugs |
-| 📐 `task-effort-estimation` | Deterministic change sizing — Pfeiffer Contribution Complexity from git metadata, plus AI-native risk flags | Yes — on "how big / how long is this?" |
-| ⚡ `performance-audit` | N+1 queries, blocking I/O, memory leaks, algorithm complexity | No — explicit only |
-| 🔧 `quality-tooling` | Per-language lint/format/type-check/test/security commands, tiered validation, RTK, Lefthook | Yes — on quality-check work |
-| 🔐 `pipeline-security` | SAST/DAST/SCA/secrets/ASPM tooling by team size, budget, and pipeline tier | Yes — when recommending security tools |
-| 🔌 `mcp-security` | MCP server auth, input validation, tool-poisoning defense, curation | Yes — when configuring MCP |
-| 🤝 `agent-collaboration` | Subagents vs teams vs workflows, one-shot design rules, team composition | Yes — when parallelizing work |
+| Skill | Purpose | Who invokes it |
+|-------|---------|----------------|
+| 🐛 `systematic-debugging` | 4-phase root cause investigation (read → reproduce → evidence → fix) with Iron Law | You or Claude — proactively on bugs |
+| 📐 `task-effort-estimation` | Deterministic change sizing — Pfeiffer Contribution Complexity from git metadata, plus AI-native risk flags | You or Claude — on "how big is this?"; `/hef.agent` uses it to route |
+| ⚡ `performance-audit` | N+1 queries, blocking I/O, memory leaks, algorithm complexity | You — explicit only |
+| 🔧 `quality-tooling` | Per-language lint/format/type-check/test/security commands, AI-defect gates, mutation ratchet, RTK, Lefthook | Claude only (knowledge) |
+| 🔐 `pipeline-security` | SAST/DAST/SCA/secrets/ASPM tooling by team size, budget, and pipeline tier | Claude only (knowledge) |
+| 🔌 `mcp-security` | MCP server auth, tool-poisoning defense, and the skill/plugin/agent vetting checklist | Claude only (knowledge) |
+| 🤝 `agent-collaboration` | Subagents vs teams vs workflows, one-shot design rules, team composition | Claude only (knowledge) |
 
 **Deliberately NOT reimplemented.** A project skill *overrides* a bundled one of the same name, so shipping a `security-review` skill would shadow Claude Code's own — which is better. Use the built-ins:
 

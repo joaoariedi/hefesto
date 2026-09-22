@@ -1,5 +1,6 @@
 ---
 name: "Quality Tooling by Language"
+user-invocable: false
 description: |
   Lint, format, type-check, test, and security commands per language
   (JavaScript/TypeScript, Python, Rust, Go, Java), plus the tiered validation

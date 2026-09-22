@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-12
+---
+
 # Quality Gates: Hooks, CI/CD, Testing, and Dependencies
 
 This file covers **where in the lifecycle a check executes** — the deterministic hook points inside the agent loop, the local pre-commit/pre-push boundary, and the CI pipeline shape — plus the empirical evidence from four production repos (FrankYomik, FrankSherlock, FrankMD, FrankMega) that produced the framework's tiering rules.

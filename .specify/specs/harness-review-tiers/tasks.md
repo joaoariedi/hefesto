@@ -22,12 +22,12 @@
 - [x] T017 [FR-008] docs + CHANGELOG 6.2.0 + versions
 
 ## Phase 3: Tier 3 — 7.0.0 (breaking)
-- [ ] T018 [FR-015] `hef.sync` → `hef.doctor`; `hef.pr-summary` → `hef.pr`
-- [ ] T019 [FR-016] knowledge skills `user-invocable: false`
-- [ ] T020 [FR-017] `reports/` MADR frontmatter + `commands/hef.adr.md`
-- [ ] T021 [FR-018] `AGENTS.md` shim; doc-gardening routine in docs
-- [ ] T022 [FR-019] `memory: project` on forensic-specialist and code-reviewer
-- [ ] T023 [FR-008] docs + CHANGELOG 7.0.0 + versions + migration note
+- [x] T018 [FR-015] `hef.sync` → `hef.doctor`; `hef.pr-summary` → `hef.pr`
+- [x] T019 [FR-016] knowledge skills `user-invocable: false`
+- [x] T020 [FR-017] `reports/` MADR frontmatter + `commands/hef.adr.md`
+- [x] T021 [FR-018] `AGENTS.md` shim; doc-gardening routine in docs
+- [x] T022 [FR-019] `memory: project` on forensic-specialist and code-reviewer
+- [x] T023 [FR-008] docs + CHANGELOG 7.0.0 + versions + migration note
 
 ---
 Legend: `[FR-NNN]` = functional requirement ref

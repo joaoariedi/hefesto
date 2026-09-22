@@ -1,3 +1,8 @@
+---
+status: rejected
+date: 2026-09-22
+---
+
 # Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane
 
 Everything measured about [trailhq/Graft](https://github.com/trailhq/Graft) (`@nanonets/graft` 0.17.0, TypeScript, MIT, pre-1.0): what it is, where it would slot into the framework's optional provider lane next to graphify, and whether it is worth adopting. **Adoption status: evaluated 2026-09-06, not adopted.** Nothing described here is wired into the framework — no rule, hook, skill, or manifest entry references Graft, and the decision on record is that it does not add enough real gain over the existing graphify lane to justify a second code-graph tool now. It stays documented as a possible future enhancement.

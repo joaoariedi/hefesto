@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-12
+---
+
 # The AI Protocol Stack
 
 This file covers the wire-level standards that let agents talk to tools, to each other, to shared memory, and to human interfaces: MCP, A2A, Akashik, and AG-UI/A2UI. It owns protocol *mechanics* — transports, message shapes, discovery, and the token economics of tool schemas.

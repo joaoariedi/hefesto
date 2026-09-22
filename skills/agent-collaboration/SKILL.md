@@ -1,5 +1,6 @@
 ---
 name: "Agent Collaboration & Parallelism"
+user-invocable: false
 description: |
   How to parallelize work across subagents, agent teams, and workflows: one-shot
   subagent design rules and context-reduction discipline, choosing a parallelism

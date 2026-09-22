@@ -35,6 +35,56 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.0.0] - 2026-09-22
+
+**Tier 3 of the 2026-09 harness review: the toolbox is shaped by lifecycle, knowledge stops
+pretending to be commands, and every decision on record carries a machine-readable status.**
+Major per the versioning policy above — two commands are renamed, one is folded into another —
+so an existing install needs the migration below. `reports/14` and
+`.specify/specs/harness-review-tiers/` carry the evidence and the task list.
+
+### Changed - BREAKING
+
+- **`/hef.sync` is now `/hef.doctor`.** Same three-copies drift report, plus what a check-up
+  should have always included: every hook `bash -n`-parsed (and `shellcheck`ed when present), the
+  manifest validated with `claude plugin validate`, a pointer to the built-in `/skill-doctor`, and
+  `--eval` to score the plugin's own prompts with `claude plugin eval` (opt-in; spends tokens).
+- **`/hef.pr-summary` is folded into `/hef.pr --summary-only`.** Same description format, plus a
+  Verification line that names what `/speckit.verify`, `/hef.quality`, and `/hef.review` reported
+  — or "not run". The untrusted-input rule travels with it.
+- **The four knowledge skills — `quality-tooling`, `pipeline-security`, `mcp-security`,
+  `agent-collaboration` — are `user-invocable: false`.** Claude still loads them when relevant;
+  they no longer appear in the `/` menu as commands nobody should run. The three action skills
+  (`systematic-debugging`, `performance-audit`, `task-effort-estimation`) are unchanged. If you
+  typed `/hefesto:quality-tooling` on purpose, ask for the recipe in prose instead.
+
+### Migration
+
+1. `git -C ~/.claude-framework pull` and `claude plugin marketplace update hefesto`, then restart
+   Claude Code — the old command names are gone from the tree, so nothing stale keeps registering.
+2. Replace `/hef.sync` with `/hef.doctor` and `/hef.pr-summary` with `/hef.pr --summary-only` in
+   any notes, scripts, or `CLAUDE.md` files of your own. The framework's own copies are updated.
+3. If your global gitignore ignores `.claude/` and you want the two agents' memory shared, add
+   `!.claude/agent-memory/` to the project's `.gitignore` (see `docs/agents.md`).
+4. Re-copy `.claude/rules/` and `.claude/CLAUDE.md` into your profile as usual — `llm-security.md`
+   and the tier table changed in 6.1–7.0.
+
+### Added
+
+- **`/hef.adr`** — a decision record under `reports/` with MADR frontmatter (`status`, `date`,
+  `supersedes`). **Every existing report now carries that frontmatter** (05 and 08 `proposed`, 09 and
+  13 `rejected`, the rest `accepted`), and the smoke suite rejects a report without a valid status. A
+  fail-open parser once misread 59 of 98 ADRs by inferring state from prose; state lives in
+  frontmatter only.
+- **`AGENTS.md`** at the repository root — the Linux Foundation cross-tool standard, as a shim that
+  points Codex, Cursor, Copilot, and Gemini CLI at `CLAUDE.md`, the rules, and the constitution.
+- `forensic-specialist` and `code-reviewer` declare **`memory: project`**: recurring findings and
+  project-specific false positives persist under `.claude/agent-memory/<name>/`. Memory holds facts
+  and decisions, never instructions to a future session.
+- `docs/agents.md`: agent memory rules, and **doc gardening as a routine** — a scheduled
+  `claude -p` brief that reads docs, reports, and rules against the tree and proposes the minimal
+  edits; the smoke suite's docs-honesty checks are its acceptance test.
+
 ## [6.2.0] - 2026-09-22
 
 **Tier 2 of the 2026-09 harness review: the rules that agents honour least become gates, the

@@ -1,5 +1,6 @@
 ---
 name: "MCP Server Security"
+user-invocable: false
 description: |
   Guidelines for evaluating, configuring, and securing Model Context Protocol
   servers — and the rest of the agent supply chain (skills, plugins, agents):

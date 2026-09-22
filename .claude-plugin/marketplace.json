@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Spec-driven development for Claude Code: quality gates, custom agents, security guardrails, and a full specification pipeline.",
-    "version": "6.2.0"
+    "version": "7.0.0"
   },
   "plugins": [
     {
       "name": "hefesto",
       "source": "./",
       "description": "Spec-driven development for Claude Code: quality gates, custom agents, security guardrails, and a full specification pipeline. Ships its hooks — including a TaskCompleted gate that mechanically enforces the Verification Iron Law.",
-      "version": "6.2.0",
+      "version": "7.0.0",
       "author": {
         "name": "joaoariedi",
         "url": "https://github.com/joaoariedi"

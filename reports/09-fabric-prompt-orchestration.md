@@ -1,3 +1,8 @@
+---
+status: rejected
+date: 2026-07-12
+---
+
 # Fabric: Prompt Orchestration as a Complementary Layer
 
 Everything the corpus has to say about [danielmiessler/fabric](https://github.com/danielmiessler/fabric) (v1.4.437, 40k+ stars, Go, MIT): what it is, where it would slot into the AI Development Framework v4.4, and whether it is worth adopting. **Adoption status: evaluated, not adopted.** Nothing described here is currently wired into the framework — no rule, hook, agent, or skill invokes Fabric today, and this file describes a proposal, not the status quo.

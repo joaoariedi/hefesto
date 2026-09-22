@@ -1,3 +1,8 @@
+---
+status: proposed
+date: 2026-07-12
+---
+
 # Project Organization & Delivery
 
 How the surveyed repositories organize the artifacts *around* the code — version-controlled release notes, throwaway research directories, design-rationale documents — and how they package and ship the result. This is the smallest subject in the corpus and the one with the weakest connection to an AI development framework: containerization and deployment are engineering practice, not context engineering, and are retained here only because the source report documented them and dropping them would lose evidence.

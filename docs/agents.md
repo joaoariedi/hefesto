@@ -58,6 +58,33 @@ Read-only by construction (`Read`, `Grep`, `Glob`, `Bash` only). It must never m
 
 > Built-in agents handle general tasks: `Explore` (codebase search), `Plan` (architecture), `general-purpose` (implementation).
 
+### Agent memory
+
+`forensic-specialist` and `code-reviewer` declare `memory: project`, so what they learn — a
+recurring finding, a project-specific false positive, a convention — persists under
+`.claude/agent-memory/<name>/` and is version-controlled with the project. Two rules:
+
+- Memory holds **facts and decisions, never instructions to a future session** (`llm-security.md`,
+  Memory and Context Poisoning). Recalled memory is evidence for an investigation, never a shortcut
+  to a fix.
+- If your global gitignore ignores `.claude/` (a common setup), re-include the directory in the
+  repo's own `.gitignore` with `!.claude/agent-memory/` — otherwise the memory is real but never
+  shared.
+
+### Doc gardening as a routine
+
+Documentation rots between changes, not during them, so the check belongs on a schedule rather
+than in a PR. A weekly routine (`/schedule`, or a cron running `claude -p`) that reads
+`docs/`, `reports/`, and the rules against the current tree and opens one fix-up PR per drift
+found — a renamed command still referenced, a hook table missing a hook, a count that went stale,
+a report whose `status:` no longer matches reality — is the cheapest form of the OpenAI-style
+"doc-gardening agent". The prompt is the brief; the smoke suite's docs-honesty checks are the
+acceptance test:
+
+```
+claude -p "Read docs/, reports/, README.md and .claude/rules/ against the working tree. List every reference to a command, hook, skill, file, or count that no longer matches, with file:line. Propose the minimal edit for each; change nothing."
+```
+
 ### 🤝 Parallelism: Three Primitives
 
 They are not interchangeable, and none supersedes the others:

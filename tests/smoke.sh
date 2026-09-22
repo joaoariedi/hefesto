@@ -270,25 +270,26 @@ else
   bad "block-destructive-commands.sh is not registered in hooks.json — it will never fire"
 fi
 
-# --- Tier 1: hef.sync prescribes cp, never mv ---------------------------------------
-head_ "hef.sync stow safety"
+# --- Tier 1: hef.doctor prescribes cp, never mv ---------------------------------------
+head_ "hef.doctor stow safety"
 
 # `mv` onto a stow symlink under ~/.claude/ replaces the symlink with a regular file and
 # the dotfiles repo silently stops receiving updates — this bit for real (settings.json).
-# hef.sync exists to FIX drift; it must never prescribe the command that causes it.
-sync_fenced="$(awk '/^```/{f=!f; next} f' "$REPO/commands/hef.sync.md" || true)"
+# hef.doctor (né hef.sync, 7.0) exists to FIX drift; it must never prescribe the command that
+# causes it.
+sync_fenced="$(awk '/^```/{f=!f; next} f' "$REPO/commands/hef.doctor.md" || true)"
 # `.*` not `[^\n]*` — grep is already line-based, and inside a bracket expression \n is
 # LITERAL backslash+n, so [^\n]* cannot cross any filename containing an 'n'. That version
 # passed its own mutation test's absence and missed a planted `mv new-rules.md ~/.claude/`.
 if grep -qE '(^|[[:space:]])mv[[:space:]].*~/\.claude/' <<<"$sync_fenced"; then
-  bad "hef.sync.md prescribes 'mv' into ~/.claude/ — that replaces a stow symlink with a plain file"
+  bad "hef.doctor.md prescribes 'mv' into ~/.claude/ — that replaces a stow symlink with a plain file"
 else
-  ok "hef.sync.md never prescribes mv into ~/.claude/"
+  ok "hef.doctor.md never prescribes mv into ~/.claude/"
 fi
-if grep -qF 'Never `mv`' "$REPO/commands/hef.sync.md"; then
-  ok "hef.sync.md carries the stow-mv trap warning"
+if grep -qF 'Never `mv`' "$REPO/commands/hef.doctor.md"; then
+  ok "hef.doctor.md carries the stow-mv trap warning"
 else
-  bad "hef.sync.md lost the stow-mv trap warning — the next editor will prescribe mv"
+  bad "hef.doctor.md lost the stow-mv trap warning — the next editor will prescribe mv"
 fi
 
 # --- Tier 1: the #7 regression guard ------------------------------------------------
@@ -1169,6 +1170,60 @@ else
   printf '  \033[33mskip\033[0m shellcheck not installed — hooks were only bash -n checked at commit time\n'
 fi
 
+# --- Tier 3: the 7.0 shape (FR-015, FR-016, FR-017, FR-018, FR-019) ---------------------
+head_ "7.0 toolbox shape"
+
+# Renames are why 7.0 is major. The old names must be GONE (a stale file would silently keep
+# registering a command the docs no longer mention), the new ones present and wired.
+t3_fail=0
+[ -f "$REPO/commands/hef.doctor.md" ] || { bad "commands/hef.doctor.md is missing (FR-015)"; t3_fail=1; }
+[ -e "$REPO/commands/hef.sync.md" ] && { bad "commands/hef.sync.md still exists — the 7.0 rename left the old command registered (FR-015)"; t3_fail=1; }
+[ -e "$REPO/commands/hef.pr-summary.md" ] && { bad "commands/hef.pr-summary.md still exists — it was folded into /hef.pr --summary-only (FR-015)"; t3_fail=1; }
+grep -qF -- '--summary-only' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr lost --summary-only, the replacement for /hef.pr-summary (FR-015)"; t3_fail=1; }
+grep -qF 'shellcheck' "$REPO/commands/hef.doctor.md" 2>/dev/null && grep -qF 'claude plugin eval' "$REPO/commands/hef.doctor.md" 2>/dev/null \
+  || { bad "/hef.doctor no longer lints the hooks or offers the eval suite (FR-015)"; t3_fail=1; }
+[ "$t3_fail" -eq 0 ] && ok "hef.sync → hef.doctor and hef.pr-summary → hef.pr --summary-only, old names gone (FR-015)"
+
+# Knowledge skills are not commands; action skills still are. Both directions.
+inv_fail=0
+for s in quality-tooling pipeline-security mcp-security agent-collaboration; do
+  fm="$(sed -n '/^---$/,/^---$/p' "$REPO/skills/$s/SKILL.md")"
+  grep -qE '^user-invocable: false' <<<"$fm" || { bad "knowledge skill $s is still user-invocable — it shows up as a command nobody should run (FR-016)"; inv_fail=1; }
+done
+for s in systematic-debugging performance-audit task-effort-estimation; do
+  fm="$(sed -n '/^---$/,/^---$/p' "$REPO/skills/$s/SKILL.md")"
+  grep -qE '^user-invocable: false' <<<"$fm" && { bad "action skill $s was demoted to knowledge — users can no longer invoke it (FR-016)"; inv_fail=1; }
+done
+[ "$inv_fail" -eq 0 ] && ok "the four knowledge skills are user-invocable: false; the three action skills remain invocable (FR-016)"
+
+# Every report carries a machine-readable decision status. Inferring it from prose is how a repo
+# of 98 ADRs misread 59 of them.
+adr_fail=0
+for r in "$REPO"/reports/*.md; do
+  fm="$(sed -n '1,/^---$/p' "$r" | sed -n '2,$p')"
+  [ "$(head -1 "$r")" = "---" ] || { bad "$(basename "$r") has no frontmatter (FR-017)"; adr_fail=1; continue; }
+  grep -qE '^status: (proposed|accepted|rejected|deprecated|superseded)$' <<<"$fm" || { bad "$(basename "$r") status is missing or not in the MADR enum (FR-017)"; adr_fail=1; }
+  grep -qE '^date: [0-9]{4}-[0-9]{2}-[0-9]{2}$' <<<"$fm" || { bad "$(basename "$r") has no date (FR-017)"; adr_fail=1; }
+done
+grep -qE '^   status: proposed' "$REPO/commands/hef.adr.md" 2>/dev/null || { bad "/hef.adr does not write MADR frontmatter (FR-017)"; adr_fail=1; }
+[ "$adr_fail" -eq 0 ] && ok "every report carries MADR status + date frontmatter, and /hef.adr writes it (FR-017)"
+
+# The cross-tool shim and the routine.
+if [ -f "$REPO/AGENTS.md" ] && grep -qF 'CLAUDE.md' "$REPO/AGENTS.md" && grep -qF '.claude/rules' "$REPO/AGENTS.md"; then
+  ok "AGENTS.md exists and points other tools at CLAUDE.md and the rules (FR-018)"
+else
+  bad "AGENTS.md is missing or does not point at CLAUDE.md + .claude/rules (FR-018)"
+fi
+grep -qiF 'doc gardening' "$REPO/docs/agents.md" && ok "the doc-gardening routine is documented (FR-018)" || bad "docs/agents.md lost the doc-gardening routine (FR-018)"
+
+# Persistent memory on the two agents whose findings recur across runs.
+mem_fail=0
+for a in forensic-specialist code-reviewer; do
+  fm="$(sed -n '/^---$/,/^---$/p' "$REPO/agents/$a.md")"
+  grep -qE '^memory: project$' <<<"$fm" || { bad "agent $a does not declare memory: project (FR-019)"; mem_fail=1; }
+done
+[ "$mem_fail" -eq 0 ] && ok "forensic-specialist and code-reviewer declare memory: project (FR-019)"
+
 # --- Tier 1: the review agents have commands (FR-002) ------------------------------------
 head_ "Command → agent wiring"
 
@@ -1190,7 +1245,7 @@ gw_fail=0
 grep -qF 'jscpd' "$REPO/agents/quality-guardian.md" || { bad "quality-guardian lost the duplication-baseline recipe (FR-004)"; gw_fail=1; }
 grep -qiF 'mock budget' "$REPO/agents/test-specialist.md" || { bad "test-specialist lost the mock budget (FR-005)"; gw_fail=1; }
 grep -qF 'Agentic' "$REPO/.claude/rules/llm-security.md" || { bad "llm-security.md no longer covers the Agentic Top 10 (FR-007)"; gw_fail=1; }
-for c in hef.pr hef.pr-summary speckit.fix; do
+for c in hef.pr speckit.fix; do   # hef.pr-summary folded into hef.pr --summary-only in 7.0
   grep -qF '## Untrusted input' "$REPO/commands/$c.md" || { bad "/$c lost its untrusted-input section (FR-007)"; gw_fail=1; }
 done
 grep -qF 'Skills, Plugins, and Agents Are a Supply Chain' "$REPO/skills/mcp-security/SKILL.md" || { bad "mcp-security lost the skill vetting checklist (FR-007)"; gw_fail=1; }

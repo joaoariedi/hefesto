@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-12
+---
+
 # Parametric Software Effort Estimation in Generative AI-Assisted Workflows
 
 > Deterministic effort estimation for AI-assisted software development: how to size a proposed code change using static analysis, version-control metadata, and AI-native cost models rather than SLOC-based proxies for human keyboard time.

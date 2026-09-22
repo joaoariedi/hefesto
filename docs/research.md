@@ -25,6 +25,8 @@
 
 Files 05, 08, 09, and 13 carry no pointers because their subject is genuinely unadopted, and each says so in its own header — an unadopted idea is recorded as prior art, not smuggled in as current practice.
 
+Every report opens with MADR frontmatter — `status: proposed | accepted | rejected | deprecated | superseded` and `date`, plus `supersedes:` when it replaces another — so an agent can tell a live decision from a dead one without inferring it from prose (a fail-open parser once misread 59 of 98 records that way). `/hef.adr` creates a new one; the smoke suite rejects a report without a valid status. Statuses today: 05 and 08 `proposed` (research not yet codified), 09 and 13 `rejected` (evaluated, not adopted), the rest `accepted`.
+
 The five original research documents that produced this corpus are no longer carried in the tree — the topic files above supersede them. They remain recoverable from git history (`git show b515e2f:reports/sources/`) if a claim ever needs tracing back to the document that made it.
 
 ---
