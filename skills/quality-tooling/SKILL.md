@@ -26,6 +26,26 @@ when_to_use: |
 - **All-in-one scanning**: `trivy fs .` — combines SCA, secrets, IaC, and SBOM in one tool
 - Config files: `.gitleaks.toml`, `.semgrep.yml`, `.trivyignore`
 
+## AI-Code Defect Profile — Gates That Match How Agent Code Actually Fails
+
+Agent-written code is measurably more **duplicated**, more **dead**, more **error-swallowing**, and
+more **over-mocked** than human code — and not more complex (GitClear 2025/2026; arXiv 2508.21634;
+arXiv 2602.00409). Cyclomatic gates therefore catch the least of it. Add these, as **delta** gates
+(fail on what the change *added*, never on pre-existing debt):
+
+| Defect | Tool | Recipe |
+|---|---|---|
+| New duplication | `jscpd` (any language) | `jscpd --min-lines 10 --exitCode 1 .` with a committed `.jscpd.json` ignore list as the baseline; v5 ships SARIF |
+| Dead code | `knip` (JS/TS), `vulture` (Python), `deadcode` (Go), `ruff --select F401,F841` | run on the diff's files; brownfield needs a one-time ignore list |
+| Swallowed errors | `ruff --select BLE001,S110,S112`, eslint `no-empty`, Go `errcheck` | an empty handler added to make a check pass is blocking |
+| Patch coverage | `diff-cover coverage.xml --compare-branch=origin/main --fail-under=80` | gates the changed lines; the total stays visible, non-blocking |
+| Weak assertions | mutation testing (`mutmut`, Stryker) | the ratchet lives in `/hef.mutate` (6.2) |
+| Complexity drift | `radon cc` / `xenon`, eslint `complexity`, `gocyclo`, `lizard` (polyglot) | fail when a changed function's CC rose by ≥3, not on an absolute cap |
+
+Hallucinated packages: install only from the lockfile in CI, and treat a dependency that did not
+exist in the lockfile before the change as a review item (5–22% of LLM-suggested packages do not
+exist; the names repeat across runs, so they are squattable — USENIX Security 2025).
+
 ## CLI Output Compression (RTK) — Use When Available
 
 `rtk` is a CLI proxy that strips boilerplate, deduplicates repeated lines, and groups

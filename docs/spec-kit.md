@@ -33,11 +33,22 @@ The full spec-driven development pipeline from idea to implementation:
 /speckit.tasks        → 📋 generate task list (phased, with dependencies)
 /speckit.checklist    → ✅ pre-implementation gate (optional)
 /speckit.analyze      → 🔬 consistency check (optional)
-/speckit.implement    → 🧪 TDD execution (red-green cycle)
+/speckit.implement    → 🧪 TDD execution (red-green cycle; the test guard is armed)
 hefesto:speckit-workflow
-                      → ⚡ same, as a Workflow: parallel + adversarially verified ← NEW
-/hef.quality              → 🛡️ final quality gate
+                      → ⚡ same, as a Workflow: parallel + adversarially verified
+/speckit.verify       → 🔗 traceability gate: FR → tests (mechanical) + spec-compliance review ← NEW
+/hef.quality          → 🛡️ quality gate
+/hef.review           → 🔍 two-stage code review ← NEW
+/hef.pr               → 📝 the pull request, evidence attached ← NEW
 ```
+
+**Why `/speckit.verify` exists.** `/speckit.analyze` maps requirements to *tasks* before code exists.
+Nothing checked requirements against *tests* after it did — the implement report's "coverage
+mapping" was prose the model wrote about its own work. `speckit-helper.sh req-coverage` now scans
+the test files for each `FR-NNN` token the spec declares and fails on an uncovered requirement or an
+id the spec never declared. Tests cite their requirement with a marker, a `describe` title, or a
+comment; the match is lexical on purpose (zero dependencies, any language, impossible to satisfy by
+accident).
 
 Specifications live in `.specify/specs/<branch>/` and are committed to version control. A constitution in `.specify/memory/constitution.md` defines project-level governance principles that every plan is validated against.
 

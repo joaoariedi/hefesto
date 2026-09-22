@@ -33,6 +33,61 @@ disagree — that check exists because nothing else would notice a half-bumped r
 7. Tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, then cut a GitHub Release from the
    entry above.
 
+## [6.1.0] - 2026-09-22
+
+**Tier 1 of the 2026-09 harness review: the traceability chain gets its last link, the review agents
+get commands, and tests can no longer shrink to go green.** Additive — no command renamed, no path
+moved, no permission rule to edit; 6.0.0 installs pick this up with `git pull`. Every item traces to
+`reports/14` (the review) and to `.specify/specs/harness-review-tiers/`.
+
+### Added
+
+- **`/speckit.verify`** — the post-implementation gate. `speckit-helper.sh req-coverage` maps every
+  `FR-NNN` in `spec.md` to the test files that cite it (marker, `describe` title, or comment; the
+  match is lexical on purpose) and exits non-zero on an `UNCOVERED` requirement or an `UNKNOWN` id;
+  the command then runs `code-reviewer` stage 1 on the diff. Before this, the implement report's
+  "coverage mapping" was prose the model wrote about its own work — exactly what the Iron Law says
+  is not evidence. `/speckit.analyze` mapped FR → tasks *before* code existed; nothing mapped
+  FR → tests after.
+- **`/hef.review`** and **`/hef.pr`** — `code-reviewer` and `review-coordinator` were reachable by no
+  command; the documented chain `implement → code-reviewer → quality-guardian → review-coordinator`
+  had no entry point for its first link. `/hef.pr` never merges and carries the untrusted-input rule.
+- **`implement-phase-test-guard.sh`** (PreToolUse on `Bash` and `Edit|Write`). While
+  `/speckit.implement` is active (`.specify/.implement-in-progress`, set/cleared by the new helper
+  trio `implement-phase-{start,end,status}`), an edit that leaves a test file with fewer assertions,
+  a whole-file overwrite of an existing test, or an `rm` of a test file is blocked. Snapshot-update
+  flags (`jest -u`, `pytest --snapshot-update`, `UPDATE_SNAPSHOTS=1`…) are blocked regardless of
+  phase; `CLAUDE_ALLOW_SNAPSHOT_UPDATE=1` bypasses visibly. Why a hook: TDD *instructions* without a
+  mechanism made agent regressions worse in a controlled study (arXiv 2603.17973), and the
+  documented failure mode is an agent deleting the test it cannot pass.
+- **`session-start-context.sh`** (SessionStart) and **`precompact-progress.sh`** (PreCompact) — the
+  session-start ritual and the progress checkpoint that `context-management.md` asked the model to
+  perform by hand, performed by hooks instead. The checkpoint lands in `~/.cache/hefesto/progress/`,
+  never in the repo.
+- **`audit-config-change.sh`** (ConfigChange) — announces a settings rewrite mid-session, the
+  escalation path a compromised skill or plugin would take.
+- `quality-guardian` and the `quality-tooling` skill: the AI-code defect profile — new-duplication
+  baseline (`jscpd`), dead code (`knip`/`vulture`/`deadcode`), error-swallowing lint, patch coverage
+  (`diff-cover`) — as delta gates. The measured failure modes of agent code are duplication, dead
+  code, swallowed errors, and over-mocking, not complexity.
+- `test-specialist`: a **mock budget** — named fakes at I/O boundaries only, mock-only assertions
+  flagged, and every spec test cites its FR id.
+- `mcp-security` skill: a vetting checklist for third-party **skills, plugins, and agents** (dynamic
+  `` !` `` blocks, permission grabs, hooks, pinning).
+- `docs/install.md`: how to turn on `/sandbox`, and why the string-matching hooks are not the
+  boundary.
+
+### Changed
+
+- `llm-security.md` now maps to the OWASP GenAI LLM Top 10 (2026) and the Top 10 for Agentic
+  Applications (Goal Hijack, Tool Misuse, Agentic Supply Chain, Unexpected Code Execution, Memory
+  Poisoning), and states the sandbox-is-the-boundary rule.
+- `/hef.pr-summary`, `/speckit.fix`, and `review-coordinator` treat fetched issue/PR/commit text as
+  delimited data, never instructions.
+- `code-reviewer`: evidence over assertion; flag only correctness, security, and requirement gaps.
+- `/speckit.implement` arms the test guard in pre-flight, tells every test to cite its FR, runs
+  `req-coverage` in the final gate, and points at `/speckit.verify`.
+
 ## [6.0.0] - 2026-08-19
 
 ### Changed - BREAKING

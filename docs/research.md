@@ -4,7 +4,7 @@
 
 ## 📚 Research Corpus
 
-`reports/` holds the research behind the framework, split into eleven single-subject files with no overlap between them. It is the **"why" layer**: `.claude/rules/` states *what* to do, and `reports/` records the evidence, benchmark, or threat model that produced the rule. Where a finding is already codified, the report points at the rule with a `> **Codified in**` callout instead of restating it — so no text lives in two places.
+`reports/` holds the research behind the framework, split into fourteen files with no overlap between them — eleven single-subject topic files, one field report, one tool evaluation, and one harness review. It is the **"why" layer**: `.claude/rules/` states *what* to do, and `reports/` records the evidence, benchmark, or threat model that produced the rule. Where a finding is already codified, the report points at the rule with a `> **Codified in**` callout instead of restating it — so no text lives in two places.
 
 | # | Subject | Codified in |
 |---|---------|-------------|
@@ -19,8 +19,11 @@
 | 09 | Fabric — prompt orchestration, evaluated but **not adopted** | *not yet codified* |
 | 10 | Deterministic effort estimation — Pfeiffer Contribution Complexity, Epoch, LOCOMO | `task-effort-estimation` skill |
 | 11 | Claude Code harness capabilities — skill loading rules, invocation control, `context: fork`, bundled skills | the `.claude/skills/` layer |
+| 12 | Field report — `speckit-workflow` on a real two-repo feature: multi-repo roots, 429/529 overload, transient-failure aborts | `workflows/speckit-workflow.js` (multi-repo opts, bounded retry, concurrency cap) |
+| 13 | Graft — code-context graph for agents, measured against the graphify lane, evaluated but **not adopted** | *not yet codified* |
+| 14 | Harness review 2026-09 — toolbox, drift, and the evidence behind each change; the `harness-review-tiers` program (6.1 → 6.2 → 7.0) | `speckit.verify`, `hef.review`/`hef.pr`, the implement-phase test guard, the lifecycle hooks, `llm-security.md` |
 
-Files 05, 08, and 09 carry no pointers because their subject is genuinely unadopted, and each says so in its own header — an unadopted idea is recorded as prior art, not smuggled in as current practice.
+Files 05, 08, 09, and 13 carry no pointers because their subject is genuinely unadopted, and each says so in its own header — an unadopted idea is recorded as prior art, not smuggled in as current practice.
 
 The five original research documents that produced this corpus are no longer carried in the tree — the topic files above supersede them. They remain recoverable from git history (`git show b515e2f:reports/sources/`) if a claim ever needs tracing back to the document that made it.
 

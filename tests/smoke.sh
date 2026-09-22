@@ -373,7 +373,7 @@ for doc in "$REPO"/README.md "$REPO"/docs/*.md; do
 done
 [ "$stow_bad" -eq 0 ] && ok "no doc prescribes the dead stow install path"
 
-# --- docs stay honest -----------------------------------------------------------------
+# --- docs stay honest (FR-008) ---------------------------------------------------------
 # Two ways a split README rots: a command ships with no entry in the reference, and a link
 # points at a doc that was renamed or never written. Both are silent.
 undocumented=0
@@ -803,6 +803,212 @@ else
   head_ "Live install"
   printf '  \033[33mskip\033[0m SMOKE_LIVE=1 to install the plugin into a throwaway config and exercise it\n'
 fi
+
+# --- Tier 1: implement-phase test guard (FR-003) ---------------------------------------
+head_ "Implement-phase test guard"
+
+# Tests may grow during /speckit.implement, never shrink. Both directions are guarded, like the
+# destructive-command hook: the denials (or the rule is prose again) AND the allows (a guard that
+# blocks adding a test gets disarmed, which is worse than never shipping it).
+#
+# Mutation-checked 2026-09-22, each mutation applied, run, restored:
+#   * `-lt` → `-le` on the assertion compare → "equal assertion count (a rename)" went red.
+#   * `-u|` dropped from the snapshot regex → "denies jest -u" went red.
+#   * the Edit arm's marker test replaced with `true` → "assertion-removing edit when no phase is
+#     active" went red. The FIRST attempt mutated the Bash arm's marker test instead and nothing
+#     went red — which is how the "rm … when no phase is active" case below came to exist.
+IPG="$REPO/hooks/implement-phase-test-guard.sh"
+ipg_t="$(mktemp -d)"; mkdir -p "$ipg_t/.specify" "$ipg_t/tests"; : > "$ipg_t/tests/test_a.py"
+ipg_case() { # expected-exit description json
+  local exp="$1" desc="$2" json="$3" rc=0
+  printf '%s' "$json" | bash "$IPG" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$exp" ]; then ok "$desc"; else bad "$desc (want exit $exp, got $rc)"; fi
+}
+ipg_edit() { jq -nc --arg c "$ipg_t" --arg f "$1" --arg o "$2" --arg n "$3" '{tool_name:"Edit",cwd:$c,tool_input:{file_path:($c+"/"+$f),old_string:$o,new_string:$n}}'; }
+ipg_bash() { jq -nc --arg c "$ipg_t" --arg k "$1" '{tool_name:"Bash",cwd:$c,tool_input:{command:$k}}'; }
+# Unconditional: snapshot regeneration.
+ipg_case 2 "denies jest -u (snapshot regeneration) with no phase active"      "$(ipg_bash 'npx jest -u')"
+ipg_case 2 "denies pytest --snapshot-update"                                  "$(ipg_bash 'pytest --snapshot-update')"
+ipg_case 0 "allows the visible bypass CLAUDE_ALLOW_SNAPSHOT_UPDATE=1"         "$(ipg_bash 'CLAUDE_ALLOW_SNAPSHOT_UPDATE=1 npx jest -u')"
+ipg_case 0 "allows git add -u (not a snapshot flag)"                          "$(ipg_bash 'git add -u && git commit -m x')"
+# Phase-gated: nothing without the marker…
+ipg_case 0 "allows an assertion-removing edit when no implement phase is active" "$(ipg_edit tests/test_a.py $'assert a\nassert b' 'assert a')"
+ipg_case 0 "allows rm of a test file when no implement phase is active"          "$(ipg_bash 'rm tests/test_a.py')"
+touch "$ipg_t/.specify/.implement-in-progress"
+# …and the rule with it.
+ipg_case 2 "denies an edit that removes assertions from a test file"          "$(ipg_edit tests/test_a.py $'assert a\nassert b' 'assert a')"
+ipg_case 0 "allows an edit that adds assertions"                              "$(ipg_edit tests/test_a.py 'assert a' $'assert a\nassert b')"
+ipg_case 0 "allows an edit with equal assertion count (a rename)"             "$(ipg_edit tests/test_a.py 'expect(x).toBe(1)' 'expect(y).toBe(1)')"
+ipg_case 0 "allows an assertion-removing edit to a NON-test file"             "$(ipg_edit src/app.py $'assert a\nassert b' 'x')"
+ipg_case 0 "allows an edit to a spec under .specify/ named *spec.md"          "$(ipg_edit .specify/specs/x/spec.md $'assert a\nassert b' 'x')"
+ipg_case 2 "denies Write over an existing test file"                          "$(jq -nc --arg c "$ipg_t" '{tool_name:"Write",cwd:$c,tool_input:{file_path:($c+"/tests/test_a.py"),content:"pass"}}')"
+ipg_case 0 "allows Write of a NEW test file"                                  "$(jq -nc --arg c "$ipg_t" '{tool_name:"Write",cwd:$c,tool_input:{file_path:($c+"/tests/test_new.py"),content:"assert 1"}}')"
+ipg_case 2 "denies rm of a test file"                                         "$(ipg_bash 'rm tests/test_a.py')"
+ipg_case 0 "allows rm of a non-test file"                                     "$(ipg_bash 'rm build/out.txt')"
+rm -rf "$ipg_t"
+# Registered on BOTH matchers, or it exists and never fires (this suite's founding failure mode).
+ipg_reg_bash="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command' "$REPO/hooks/hooks.json")"
+ipg_reg_edit="$(jq -r '.hooks.PreToolUse[] | select(.matcher | test("Edit")) | .hooks[].command' "$REPO/hooks/hooks.json")"
+if grep -qF 'implement-phase-test-guard.sh' <<<"$ipg_reg_bash" && grep -qF 'implement-phase-test-guard.sh' <<<"$ipg_reg_edit"; then
+  ok "test guard is registered on both the Bash and the Edit|Write matchers"
+else
+  bad "implement-phase-test-guard.sh is not registered on both matchers — one side of the rule never fires"
+fi
+# …and /speckit.implement must arm and disarm it, or the marker is never set and the guard is dead code.
+impl_src="$(cat "$REPO/commands/speckit.implement.md")"
+if grep -qF 'implement-phase-start' <<<"$impl_src" && grep -qF 'implement-phase-end' <<<"$impl_src"; then
+  ok "/speckit.implement arms the test guard in pre-flight and disarms it at completion"
+else
+  bad "/speckit.implement does not set/clear .specify/.implement-in-progress — the guard would never activate"
+fi
+
+# --- Tier 1: requirement traceability (FR-001) ------------------------------------------
+head_ "Requirement traceability"
+
+# req-coverage is a PREDICATE: the matrix on stdout, the verdict in the exit code. Driven in a
+# fixture because the three outcomes (covered / uncovered / unknown) must each be provoked.
+#
+# Mutation-checked 2026-09-22, each mutation applied, run, restored:
+#   * the UNKNOWN branch disabled (`if false`) → the combined case went red.
+#   * `[ "$uncovered" -eq 0 ] &&` deleted from the verdict → NOTHING went red on the first attempt:
+#     the combined fixture's UNKNOWN id kept the exit non-zero on its own. The uncovered-ONLY case
+#     below exists because of that; with it, the same mutation goes red.
+rc_t="$(mktemp -d)"
+(
+  cd "$rc_t" && git init -q . && git checkout -q -b feature/demo
+  mkdir -p .specify/specs/demo tests
+  printf '| FR-001 | a |\n| FR-002 | b |\n' > .specify/specs/demo/spec.md
+  printf '# FR-001\n# FR-009\n' > tests/test_x.sh
+) >/dev/null 2>&1
+rc_out="$(cd "$rc_t" && "$HELPER" req-coverage 2>/dev/null)"; rc_rc=$?
+if [ "$rc_rc" -ne 0 ] && grep -qE '^FR-002 +UNCOVERED' <<<"$rc_out" && grep -qE '^FR-009 +UNKNOWN' <<<"$rc_out"; then
+  ok "req-coverage reports an UNCOVERED requirement and an UNKNOWN id, and fails"
+else
+  bad "req-coverage did not flag FR-002 UNCOVERED + FR-009 UNKNOWN with a non-zero exit (rc=$rc_rc)"
+fi
+# Uncovered ONLY — no unknown id to carry the exit code. The verdict must fail on this alone.
+printf '# FR-001\n' > "$rc_t/tests/test_x.sh"
+rc_out="$(cd "$rc_t" && "$HELPER" req-coverage 2>/dev/null)"; rc_rc=$?
+if [ "$rc_rc" -ne 0 ] && grep -qE '^FR-002 +UNCOVERED' <<<"$rc_out" && ! grep -qE 'UNKNOWN' <<<"$rc_out"; then
+  ok "req-coverage fails on an uncovered requirement alone (no unknown id in play)"
+else
+  bad "req-coverage must fail on an UNCOVERED requirement by itself (rc=$rc_rc): $rc_out"
+fi
+printf '# FR-001\n# FR-002\n' > "$rc_t/tests/test_x.sh"
+rc_out="$(cd "$rc_t" && "$HELPER" req-coverage 2>/dev/null)"; rc_rc=$?
+if [ "$rc_rc" -eq 0 ] && grep -qE '^FR-002 +COVERED +\./tests/test_x\.sh:2' <<<"$rc_out"; then
+  ok "req-coverage passes when every FR is cited, and names file:line"
+else
+  bad "req-coverage should pass with every FR cited and print file:line (rc=$rc_rc): $rc_out"
+fi
+rc_out="$(cd "$rc_t" && git checkout -q -b feature/nospec && "$HELPER" req-coverage 2>/dev/null)"; rc_rc=$?
+if [ "$rc_rc" -ne 0 ] && [ -z "$rc_out" ]; then
+  ok "req-coverage with no spec fails loudly: non-zero, nothing on stdout (#27 contract)"
+else
+  bad "req-coverage printed '$rc_out' at exit $rc_rc with the spec absent"
+fi
+rm -rf "$rc_t"
+# Dogfood (SC-002): when THIS repo is on a branch that has a spec, the suite's own checks must cite
+# the FRs they cover — the block headers carry `(FR-NNN)` for that reason. Strictness follows
+# tasks.md: an FR whose tasks are all still `[ ]` is PENDING (reported, not failing); an FR with a
+# `[x]` task must be cited, and an UNKNOWN id always fails. Skipped on main, where no spec exists.
+own_branch="$(git -C "$REPO" branch --show-current 2>/dev/null | sed 's|^feature/||')"
+own_spec="$REPO/.specify/specs/$own_branch"
+if [ -f "$own_spec/spec.md" ]; then
+  own_out="$(cd "$REPO" && "$HELPER" req-coverage 2>/dev/null || true)"
+  done_frs="$(grep -E '^\s*- \[x\]' "$own_spec/tasks.md" 2>/dev/null | grep -oE 'FR-[0-9]+' | sort -u || true)"
+  own_bad=0
+  while read -r fr; do
+    [ -z "$fr" ] && continue
+    if grep -qE "^$fr +UNCOVERED" <<<"$own_out"; then
+      bad "$fr has a task marked done but no test in this suite cites it (SC-002)"; own_bad=1
+    fi
+  done <<<"$done_frs"
+  if grep -qE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out"; then bad "the suite cites an FR the spec does not declare"; own_bad=1; fi
+  pending="$(grep -cE '^FR-[0-9]+ +UNCOVERED' <<<"$own_out" || true)"
+  [ "$own_bad" -eq 0 ] && ok "every completed requirement on this branch is cited by a check ($pending pending, not yet implemented)"
+fi
+# The command exists and calls the helper it is built on.
+if grep -qF 'speckit-helper.sh req-coverage' "$REPO/commands/speckit.verify.md" 2>/dev/null; then
+  ok "/speckit.verify runs req-coverage in pre-flight"
+else
+  bad "/speckit.verify does not call req-coverage — the mechanical half of the gate is missing"
+fi
+
+# --- Tier 1: session lifecycle + config audit hooks (FR-006, FR-007) --------------------
+head_ "Lifecycle hooks"
+
+# SessionStart stdout IS context. It must say something useful in a repo and nothing outside one.
+# PreCompact must leave a checkpoint the next session can find, outside the working tree.
+# Mutation-checked 2026-09-22: session-start's git-repo test replaced with `true` → "silent outside
+# a git repo" went red. Restored.
+lc_t="$(mktemp -d)"; lc_cache="$(mktemp -d)"
+(
+  cd "$lc_t" && git init -q . && git checkout -q -b feature/demo
+  git -c user.email=s@t -c user.name=s commit -q --allow-empty -m init
+  mkdir -p .specify/specs/demo && printf -- '- [ ] T001 open\n- [x] T002 done\n' > .specify/specs/demo/tasks.md
+) >/dev/null 2>&1
+ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$lc_t" | bash "$REPO/hooks/session-start-context.sh" 2>/dev/null)"
+if grep -qF 'branch feature/demo' <<<"$ss_out" && grep -qF 'T001 open' <<<"$ss_out"; then
+  ok "session-start hook injects the branch and the open tasks"
+else
+  bad "session-start hook output lacks branch/open-task lines: $ss_out"
+fi
+lc_n="$(mktemp -d)"
+ss_none="$(printf '{"cwd":"%s"}' "$lc_n" | bash "$REPO/hooks/session-start-context.sh" 2>/dev/null)"
+if [ -z "$ss_none" ]; then ok "session-start hook is silent outside a git repo (costs no context)"
+else bad "session-start hook printed outside a git repo: $ss_none"; fi
+rm -rf "$lc_n"
+XDG_CACHE_HOME="$lc_cache" bash "$REPO/hooks/precompact-progress.sh" <<<"$(printf '{"cwd":"%s","trigger":"auto"}' "$lc_t")" >/dev/null 2>&1
+ck="$(ls "$lc_cache"/hefesto/progress/*.md 2>/dev/null | head -1)"
+if [ -n "$ck" ] && grep -qF 'T001 open' "$ck" && [ -z "$(git -C "$lc_t" status --short | grep -v '.specify')" ]; then
+  ok "precompact hook writes a checkpoint with the open tasks, outside the working tree"
+else
+  bad "precompact hook did not write a usable checkpoint outside the repo"
+fi
+rm -rf "$lc_t" "$lc_cache"
+ac_out="$(printf '{"file_path":"/x/settings.json"}' | bash "$REPO/hooks/audit-config-change.sh" 2>&1 >/dev/null)"
+if grep -qF '/x/settings.json' <<<"$ac_out"; then ok "config-audit hook names the changed file"
+else bad "config-audit hook did not name the changed file: $ac_out"; fi
+for h in session-start-context precompact-progress audit-config-change implement-phase-test-guard; do
+  if printf '{}' | bash "$REPO/hooks/$h.sh" >/dev/null 2>&1; then ok "$h survives empty input"
+  else bad "$h crashes on empty input — a hook that dies on a malformed event breaks the tool call"; fi
+done
+for ev in SessionStart PreCompact ConfigChange; do
+  if jq -e --arg e "$ev" '.hooks[$e] | length > 0' "$REPO/hooks/hooks.json" >/dev/null 2>&1; then
+    ok "a hook is registered on $ev"
+  else
+    bad "no hook registered on $ev — the script exists and never fires"
+  fi
+done
+
+# --- Tier 1: the review agents have commands (FR-002) ------------------------------------
+head_ "Command → agent wiring"
+
+# code-reviewer and review-coordinator existed for four releases with no command that dispatched
+# them; the documented chain had no entry point for its first link. A command that names the wrong
+# agent, or none, is the same bug back.
+cw_fail=0
+grep -qF 'code-reviewer' "$REPO/commands/hef.review.md" 2>/dev/null || { bad "/hef.review does not dispatch code-reviewer"; cw_fail=1; }
+grep -qF 'review-coordinator' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr does not dispatch review-coordinator"; cw_fail=1; }
+grep -qiE 'not merge|never merge' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr must state that it never merges"; cw_fail=1; }
+grep -qF 'code-reviewer' "$REPO/commands/speckit.verify.md" 2>/dev/null || { bad "/speckit.verify does not run code-reviewer stage 1"; cw_fail=1; }
+[ "$cw_fail" -eq 0 ] && ok "hef.review → code-reviewer, hef.pr → review-coordinator (no merge), speckit.verify → code-reviewer stage 1 (FR-002)"
+
+# --- Tier 1: prose that must exist because a hook points at it (FR-004, FR-005, FR-007) ---
+head_ "Guidance wiring"
+
+# Each of these is a rule a hook or command cites by name. If the prose goes, the reference dangles.
+gw_fail=0
+grep -qF 'jscpd' "$REPO/agents/quality-guardian.md" || { bad "quality-guardian lost the duplication-baseline recipe (FR-004)"; gw_fail=1; }
+grep -qiF 'mock budget' "$REPO/agents/test-specialist.md" || { bad "test-specialist lost the mock budget (FR-005)"; gw_fail=1; }
+grep -qF 'Agentic' "$REPO/.claude/rules/llm-security.md" || { bad "llm-security.md no longer covers the Agentic Top 10 (FR-007)"; gw_fail=1; }
+for c in hef.pr hef.pr-summary speckit.fix; do
+  grep -qF '## Untrusted input' "$REPO/commands/$c.md" || { bad "/$c lost its untrusted-input section (FR-007)"; gw_fail=1; }
+done
+grep -qF 'Skills, Plugins, and Agents Are a Supply Chain' "$REPO/skills/mcp-security/SKILL.md" || { bad "mcp-security lost the skill vetting checklist (FR-007)"; gw_fail=1; }
+grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells users to enable the sandbox (FR-007)"; gw_fail=1; }
+[ "$gw_fail" -eq 0 ] && ok "every hook-cited rule and section is present (FR-004, FR-005, FR-007)"
 
 # --- Result --------------------------------------------------------------------------
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

@@ -38,6 +38,16 @@ Your primary responsibility is to serve as the quality gate for all code changes
    - Validate code formatting and style compliance
    - Check for code complexity violations and standards adherence
    - Analyze code maintainability and technical debt
+   - **Check the AI-code defect profile, not just complexity.** The measured failure modes of
+     agent-written code are duplication, dead code, swallowed errors, and mock-only tests — not
+     higher cyclomatic complexity (GitClear 2025/2026 on 600M+ changed lines; arXiv 2508.21634).
+     The `quality-tooling` skill carries the recipes; run the ones the project's tooling allows:
+     - **New duplication** — `jscpd` against a committed baseline, fail only on *added* clones
+     - **Dead code** — `knip` (JS/TS), `vulture` (Python), `deadcode` (Go), `ruff F401/F841`
+     - **Error swallowing** — `ruff BLE001 S110 S112`, eslint `no-empty`, Go `errcheck`; an empty
+       `catch`/`except: pass` added to make a check pass is a blocking finding
+     - **Patch coverage** — `diff-cover` on changed lines instead of a total-coverage number;
+       legacy debt stays visible but non-blocking
 
 4. **Security Assessment**
    - Run the built-in `/security-review` skill (secrets, SAST, SQLi, XSS, auth, supply chain)
@@ -119,9 +129,12 @@ Your primary responsibility is to serve as the quality gate for all code changes
 **Code Quality Metrics:**
 - Maximum function complexity: 10 (cyclomatic complexity)
 - Maximum function length: 50 lines
-- Maximum file length: 500 lines
-- Code duplication threshold: <5%
+- Maximum file length: 500 lines of code
+- Code duplication: **no new clones** versus the baseline (an absolute % gate blocks unrelated
+  changes on brownfield code; a delta gate blocks the change that introduced the clone)
 - Maintainability index: >70
+- Apply complexity and length as **delta** gates on existing code — fail when a changed function
+  got worse, not because a file was already large before the PR
 
 **Performance Benchmarks:**
 - API response times: <200ms for standard operations
@@ -152,6 +165,10 @@ Your primary responsibility is to serve as the quality gate for all code changes
 gitleaks detect --staged
 # Cross-language SAST
 semgrep scan --config auto
+# New duplication only (commit the baseline once; fails on added clones)
+jscpd --min-lines 10 --reporters console --exitCode 1 --ignore '**/node_modules/**' .
+# Patch coverage on changed lines (after a coverage run produced coverage.xml)
+diff-cover coverage.xml --compare-branch=origin/main --fail-under=80
 # Supply chain (release builds)
 syft . -o cyclonedx-json > sbom.json && grype sbom:sbom.json
 ```

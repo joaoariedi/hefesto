@@ -100,6 +100,21 @@ Two things the plugin cannot ship, because they are machine-local by design:
 
 Export `GITHUB_TOKEN` if you want the bundled GitHub MCP server to connect.
 
+#### Turn on the sandbox
+
+The hooks are string matchers. `block-destructive-commands.sh` denies `git push --force` in every
+spelling it can see — but Claude Code's own documentation says a Bash deny rule *"isn't a security
+boundary"*: `sh -c "git push --force"` and `/usr/bin/git reset --hard` compose around any pattern.
+The hook's header says the same. The boundary is the OS sandbox:
+
+```
+/sandbox            # inside a session — enables filesystem + network isolation for shell tools
+```
+
+or set it in project settings so every session gets it. With the sandbox on, the hooks catch the
+careless path and the sandbox catches the determined one. Without it, the hooks are a very good
+seatbelt in a car with no doors.
+
 ### 3️⃣ Verify the Installation
 
 ```bash
@@ -123,11 +138,14 @@ The framework's core loop is **spec first, then code, then a gate you cannot tal
 /speckit.specify  add user login # → a spec: scenarios, requirements, success criteria
 /speckit.plan                    # → an implementation plan (writes are blocked outside .specify/)
 /speckit.tasks                   # → a phased, dependency-ordered task list
-/speckit.implement               # → TDD execution, red-green, one task at a time
+/speckit.implement               # → TDD execution, red-green, one task at a time (tests may grow, not shrink)
+/speckit.verify                  # → every FR mapped to the tests that cite it, then spec-compliance review
 /hef.quality                         # → lint, types, secrets, SOLID — before you commit
+/hef.review                          # → two-stage code review
+/hef.pr                              # → the pull request, with the evidence attached
 ```
 
-For a **large** task list, swap the last implementation step for the workflow, which runs independent tasks in parallel and has every task adversarially verified by agents that did not write it:
+For a **large** task list, swap the implementation step for the workflow, which runs independent tasks in parallel and has every task adversarially verified by agents that did not write it:
 
 ```
 hefesto:speckit-workflow

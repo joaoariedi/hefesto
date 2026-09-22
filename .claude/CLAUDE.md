@@ -1,4 +1,4 @@
-# Hefesto v6.0
+# Hefesto v6.1
 
 ## Custom Agents
 
@@ -34,7 +34,7 @@ For general tasks, use built-in agents: `Explore` (codebase search), `Plan` (arc
 - **Fast Mode**: Toggle with `/fast` for faster Opus output on quick iterations, bug fixes, and exploration (uses Opus, not a smaller model)
 - **Ultrathink**: Type `ultrathink` in any prompt to bump that turn to high reasoning effort (reverts after response)
 - Effort levels: `max` (via `/model` only) > `high` (ultrathink keyword) > `medium` (default) > `low`
-- **Model-tier routing (deliberate policy)**: aliases name tiers, not models. The rule is **cheap generation, expensive judgment** — pin `fable` only where the output is short, it gates everything downstream, and nothing later re-checks it: `speckit.brainstorm|specify|clarify|review|constitution`, `code-reviewer`, `forensic-specialist`. Everything that reads a lot to produce a draft someone reviews is `opus` (Fable costs 2x on input volume, which is where the spend goes): `speckit.plan|tasks|checklist|analyze|baseline|implement|fix`, `hef.agent|quality|security-scan`, all workflow spawns. `sonnet` is mechanical: `speckit.init`, `hef.pr-summary|sync|context`, `repo-scout`. Note `/fast` is priced at Fable's rate — it buys throughput, not savings. Commands, agents, and workflow spawns pin tiers via alias frontmatter/opts
+- **Model-tier routing (deliberate policy)**: aliases name tiers, not models. The rule is **cheap generation, expensive judgment** — pin `fable` only where the output is short, it gates everything downstream, and nothing later re-checks it: `speckit.brainstorm|specify|clarify|review|constitution`, `code-reviewer`, `forensic-specialist`. Everything that reads a lot to produce a draft someone reviews is `opus` (Fable costs 2x on input volume, which is where the spend goes): `speckit.plan|tasks|checklist|analyze|baseline|implement|verify|fix`, `hef.agent|quality|security-scan`, all workflow spawns. `sonnet` is mechanical: `speckit.init`, `hef.pr-summary|pr|review|sync|context`, `repo-scout` (`hef.review`/`hef.pr` only dispatch a `fable`/`opus` agent, so the command itself is mechanical). Note `/fast` is priced at Fable's rate — it buys throughput, not savings. Commands, agents, and workflow spawns pin tiers via alias frontmatter/opts
 - NEVER put a concrete model ID in framework frontmatter or workflow opts — each environment binds the aliases: personal `claude` uses the built-in mappings + the Fable 5 session default; `claude-bedrock()` remaps them via `ANTHROPIC_DEFAULT_{FABLE,OPUS,SONNET,HAIKU}_MODEL` to Bedrock-available models. An alias a backend can't serve silently falls back to the session model — benign by design
 - Use `haiku` for lightweight tasks (search, simple edits); `sonnet` for standard work; `opus` for complex architecture
 
@@ -49,7 +49,7 @@ For general tasks, use built-in agents: `Explore` (codebase search), `Plan` (arc
 - Use Glob to discover project structure
 - Use Bash only for system commands and terminal operations
 - Use EnterPlanMode/ExitPlanMode for complex features requiring user approval
-- For spec-driven development (SDD), use `/speckit.init` to bootstrap, then: brainstorm → specify → plan → (clarify) → review → tasks → (checklist, analyze) → implement
+- For spec-driven development (SDD), use `/speckit.init` to bootstrap, then: brainstorm → specify → plan → (clarify) → review → tasks → (checklist, analyze) → implement → **verify** (`/speckit.verify`: FR → tests mechanically, then spec-compliance review) → `/hef.quality` → `/hef.review` → `/hef.pr`
 - For a LARGE task list, run `hefesto:speckit-workflow` instead of `/speckit.implement`: it executes tasks.md as a deterministic Workflow — phase order enforced in code, independent tasks in parallel, every task adversarially verified by agents that did not write it. It must be invoked by that full namespaced name; a bare `speckit-workflow` does not resolve. Run it only AFTER the human gates (clarify/review/checklist), which a workflow cannot perform.
 - For trivial changes (typos, config), use `/speckit.fix` to bypass the full pipeline
 - For brownfield projects, use `/speckit.baseline` to reverse-engineer specs from existing code

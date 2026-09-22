@@ -251,6 +251,84 @@ case "$1" in
     fi
     ;;
 
+  # --- Implement phase marker (test guard) ---
+  # .specify/.implement-in-progress arms implement-phase-test-guard.sh: while it exists, test files
+  # may grow but not shrink (no assertion-removing edits, no overwrites, no rm). speckit.implement
+  # sets it in pre-flight and clears it in the completion step.
+  implement-phase-start)
+    mkdir -p .specify
+    touch .specify/.implement-in-progress
+    echo "IMPLEMENT_PHASE_STARTED: test guard active — tests may grow, not shrink"
+    ;;
+  implement-phase-end)
+    rm -f .specify/.implement-in-progress
+    echo "IMPLEMENT_PHASE_ENDED: test guard cleared"
+    ;;
+  implement-phase-status)
+    if [ -f .specify/.implement-in-progress ]; then
+      echo "IMPLEMENT_PHASE_ACTIVE"
+    else
+      echo "IMPLEMENT_PHASE_INACTIVE"
+    fi
+    ;;
+
+  # --- Requirement traceability ---
+  # PREDICATE. Prints the FR → test matrix on stdout AND answers with the exit code: 0 when every
+  # FR-NNN in spec.md is cited by at least one test file and no test cites an id the spec does not
+  # declare; 1 otherwise. A missing spec is a fetcher failure (stderr, non-zero), per principle 5.
+  #
+  # "Cites" is lexical: the token FR-NNN appears in a test file — a pytest marker, a describe()
+  # title, or a comment all count. Zero-dependency and language-agnostic on purpose; and because
+  # nobody types FR-007 into a test by accident, a hit is a claim someone made.
+  #
+  # This is the half of the traceability chain nothing checked before: /speckit.analyze maps FR →
+  # tasks BEFORE code exists; the implement report's "coverage mapping" was prose the model wrote.
+  req-coverage)
+    spec=".specify/specs/$BRANCH/spec.md"
+    [ -f "$spec" ] || missing_artifact spec.md
+    ids="$(grep -oE '\bFR-[0-9]+\b' "$spec" | sort -u)"
+    [ -n "$ids" ] || die "req-coverage: $spec declares no FR-NNN ids — nothing to trace. Add functional requirements to the spec first."
+    # Test files: code extensions only, inside a test location or with a test-ish name. Excludes
+    # .specify/ (spec.md would otherwise self-cite every id) and vendored trees.
+    files="$(find . -type f \
+      \( -name '*.py' -o -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' -o -name '*.go' \
+         -o -name '*.rs' -o -name '*.java' -o -name '*.kt' -o -name '*.rb' -o -name '*.sh' -o -name '*.bats' \) \
+      \( -path '*/tests/*' -o -path '*/test/*' -o -path '*/__tests__/*' -o -path '*/spec/*' \
+         -o -name '*test*' -o -name '*spec*' \) \
+      -not -path '*/.specify/*' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' \
+      -not -path '*/target/*' -not -path '*/dist/*' -not -path '*/build/*' -not -path '*/.venv/*' \
+      -not -path '*/graphify-out/*' 2>/dev/null | sort)"
+    echo "REQUIREMENT COVERAGE — $BRANCH"
+    echo "spec: $spec · test files scanned: $(printf '%s\n' "$files" | grep -c . || true)"
+    uncovered=0; total=0
+    while read -r id; do
+      [ -z "$id" ] && continue
+      total=$((total + 1))
+      hits=""
+      [ -n "$files" ] && hits="$(printf '%s\n' "$files" | xargs grep -nHwF -- "$id" 2>/dev/null | cut -d: -f1,2 | head -5 | tr '\n' ' ')"
+      if [ -n "$hits" ]; then
+        printf '%-8s COVERED    %s\n' "$id" "$hits"
+      else
+        printf '%-8s UNCOVERED  —\n' "$id"
+        uncovered=$((uncovered + 1))
+      fi
+    done <<<"$ids"
+    unknown=0
+    if [ -n "$files" ]; then
+      cited="$(printf '%s\n' "$files" | xargs grep -ohwE 'FR-[0-9]+' 2>/dev/null | sort -u)"
+      while read -r c; do
+        [ -z "$c" ] && continue
+        if ! grep -qxF "$c" <<<"$ids"; then
+          where="$(printf '%s\n' "$files" | xargs grep -nHwF -- "$c" 2>/dev/null | cut -d: -f1,2 | head -3 | tr '\n' ' ')"
+          printf '%-8s UNKNOWN    %s(not declared in spec.md)\n' "$c" "$where"
+          unknown=$((unknown + 1))
+        fi
+      done <<<"$cited"
+    fi
+    echo "summary: $((total - uncovered))/$total requirements covered, $unknown unknown id(s) cited"
+    [ "$uncovered" -eq 0 ] && [ "$unknown" -eq 0 ]
+    ;;
+
   # --- RTK CLI output compression (optional, auto-detected) ---
   rtk-available)
     # PREDICATE. The answer is BOTH the string and the exit code.
@@ -298,6 +376,7 @@ case "$1" in
     echo "  detect-stack, detect-test-framework, list-config-files, list-rules, readme-head,"
     echo "  check-plan-review, detect-existing-code, trivial-change-check,"
     echo "  plan-phase-start, plan-phase-end, plan-phase-status,"
+    echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage,"
     echo "  rtk-available, rtk-run"
     exit 1
     ;;

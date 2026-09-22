@@ -120,6 +120,11 @@ Scope: [CLEAN / CREEP DETECTED — list unexpected changes]
 
 ## Critical Rules
 
+0. **Evidence over assertion, and scope over volume.** A reviewer prompted to find gaps will
+   report some even when the work is sound — so flag only what affects correctness, security, or
+   the stated requirements, and back every finding with something you ran (a test, a command, a
+   `file:line` you read), not something you inferred. If `/speckit.verify` produced a coverage
+   matrix, start from it rather than re-deriving it
 1. **Always complete both stages** — do not skip spec compliance even if no artifacts exist
 2. **When no spec-kit artifacts exist**, review against PR description, commit messages, or task descriptions
 3. **Enforce the Verification Iron Law** (`rules/code-quality.md`) — every claim backed by fresh command output; `/verify` exercises the real app

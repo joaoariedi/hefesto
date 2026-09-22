@@ -1,16 +1,16 @@
-# Graph Report - hefesto  (2026-08-25)
+# Graph Report - hefesto  (2026-09-22)
 
 ## Corpus Check
-- 93 files · ~120,303 words
+- 105 files · ~134,053 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 953 nodes · 916 edges · 100 communities (88 shown, 12 thin omitted)
+- 1054 nodes · 1009 edges · 114 communities (97 shown, 17 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 4 edges (avg confidence: 0.5)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `bc9843ff`
+- Built from commit: `50cee3af`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -23,16 +23,16 @@
 - Workflow Test Harness
 - Workflow Resilience Plan
 - Fabric Prompt Orchestration
-- Per-Language Quality Tooling
+- Quality Tooling by Language
 - Workflow Resilience Spec
 - Code Quality Standards
 - Speckit Brainstorm Command
 - CI/CD Security Tooling
 - Agent Collaboration & Parallelism
-- LLM Security Mitigations
+- LLM Security (OWASP GenAI Top 10 for LLM Applications 2026 + Top 10 for Agentic Applications)
 - Speckit Cross-Artifact Analysis
 - Speckit Brownfield Baseline
-- Release Changelog
+- Changelog
 - Context Window Management
 - README.md
 - CLAUDE.md Authoring Patterns
@@ -41,7 +41,7 @@
 - Agent Topology & Orchestration
 - Multi-Repo Overload Field Report
 - Task Effort Estimation Skill
-- Speckit TDD Implementation
+- Pre-Flight
 - Spec-Driven Development Guide
 - Codebase Retrieval At Scale
 - Quality Gates & CI Research
@@ -55,53 +55,60 @@
 - Systematic Debugging Skill
 - Repo Scout Agent
 - Project Context Command
-- Speckit Quick Fix
+- Instructions
 - Agents Documentation
-- Framework Core Instructions
+- Hefesto v6.1
 - Framework Sync Check
 - Slash Commands Documentation
+- Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane
 - Speckit Constitution Command
 - Speckit Specify Command
 - Speckit Tasks Command
+- mcp.md
 - Workflow Resilience Task List
 - Plan Template
 - Spec Template
 - Tasks Template
 - Code Reviewer Agent
-- Unreleased Changelog Section
-- Changelog 3.0.0 Release
-- PR Summary Command
+- [Unreleased]
+- User Scenarios
+- Live Branch Data
 - Speckit Checklist Command
 - Speckit Clarify Command
-- Hooks & Quality Gates
+- ⚙️ Hooks
 - Performance & Reasoning Docs
 - rules.md
 - MCP Server Security
-- Changelog 2.1.0 Release
+- [2.1.0] - 2025-01-09
 - Brand Assets & Palette
-- Changelog 4.4.0 Release
+- [4.4.0] - 2026-07-12
 - Git Workflow Rules
 - Usage Entry Paths
 - Security Scan Command
 - Speckit Project Init
 - Destructive Command Blocker
 - Project Constitution
-- Smoke Test Script
-- Changelog 2.0.0 Release
-- Changelog 3.1.0 Release
-- Changelog 4.0.0 Release
-- Changelog 4.5.0 Release
-- Changelog 5.1.0 Release
-- Changelog 6.0.0 Release
+- smoke.sh
+- [2.0.0] - 2025-09-02
+- [3.1.0] - 2025-11-26
+- [4.0.0] - 2026-02-23
+- [4.5.0] - 2026-07-13
+- [5.1.0] - 2026-07-16
+- [6.0.0] - 2026-08-19
 - Speckit Helper Script
 - Performance Audit Skill
-- Changelog 5.2.0 Release
+- [5.2.0] - 2026-07-17
+- Instructions
+- Findings by area, with evidence
 - Research Corpus & Credits
 - Requirements Quality Checklist
-- Changelog 4.1.0 Release
-- Changelog 4.3.0 Release
+- [4.1.0] - 2026-03-30
+- [4.3.0] - 2026-03-31
+- Plan: harness-review-tiers
+- [3.0.0] - 2025-09-04
 - Checklist Template
 - Project Graphify Instructions
+- Pull Request
 - Sensitive File Write Blocker
 - Post-Edit Formatting Hook
 - Block Notification Hook
@@ -111,11 +118,18 @@
 - Stop Quality Check Hook
 - Task Completion Verify Hook
 - MCP Server Configuration
+- Review
+- Tasks: harness-review-tiers
+- implement-phase-test-guard.sh
+- [1.0.0] - 2025-09-02
+- audit-config-change.sh
+- precompact-progress.sh
+- session-start-context.sh
 
 ## God Nodes (most connected - your core abstractions)
-1. `Changelog` - 21 edges
+1. `Changelog` - 22 edges
 2. `Plan: speckit-workflow-resilience` - 15 edges
-3. `Quality Tooling by Language` - 13 edges
+3. `Quality Tooling by Language` - 14 edges
 4. `Code Quality Standards` - 11 edges
 5. `Forensic Specialist Agent - Cybersecurity Defense & Digital Forensics` - 11 edges
 6. `Claude Code Harness Capabilities` - 11 edges
@@ -130,7 +144,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (100 total, 12 thin omitted)
+## Communities (114 total, 17 thin omitted)
 
 ### Community 0 - "Security Forensics Agent"
 Cohesion: 0.06
@@ -164,9 +178,9 @@ Nodes (21): Affected Files, API Contracts, Code Sketches (Mental Alignment), Con
 Cohesion: 0.10
 Nodes (20): 1. Knowledge extraction for context engineering (Phase 1, Steps 1–4), 2. Spec-kit pipeline pre-processing (Phase 1), 3. Security artifact generation (Phase 2, Steps 5–10), 4. Git workflow augmentation (Phase 3, Steps 11–16), 5. Retrospective support (Phase 4, Steps 17–18), 6. Multi-model cost optimization (cross-phase), 7. Custom pattern library (cross-phase), Architecture (+12 more)
 
-### Community 8 - "Per-Language Quality Tooling"
+### Community 8 - "Quality Tooling by Language"
 Cohesion: 0.10
-Nodes (19): CI/CD Best Practices, CLI Output Compression (RTK) — Use When Available, Go, Java, JavaScript/TypeScript, Lefthook (Recommended for Teams), Other Languages, Pre-commit vs Pre-push Separation (+11 more)
+Nodes (20): AI-Code Defect Profile — Gates That Match How Agent Code Actually Fails, CI/CD Best Practices, CLI Output Compression (RTK) — Use When Available, Go, Java, JavaScript/TypeScript, Lefthook (Recommended for Teams), Other Languages (+12 more)
 
 ### Community 9 - "Workflow Resilience Spec"
 Cohesion: 0.10
@@ -188,9 +202,9 @@ Nodes (16): AI-Native / Specialized, Application Security Posture Management (AS
 Cohesion: 0.12
 Nodes (15): Agent Collaboration & Parallelism, Agent Teams (Experimental), Choosing a Parallelism Primitive, Common Anti-Patterns, Design Rules (Non-Negotiable), Existing One-Shot Agents, One-Shot Subagents (Context Reduction), Rules (+7 more)
 
-### Community 14 - "LLM Security Mitigations"
-Cohesion: 0.13
-Nodes (14): Defense in Depth, LLM01: Prompt Injection, LLM02/LLM07: Data Leakage, LLM03: Training Data Poisoning (Supply Chain), LLM06: Excessive Agency, LLM Security (OWASP Top 10), Mitigations, Mitigations (+6 more)
+### Community 14 - "LLM Security (OWASP GenAI Top 10 for LLM Applications 2026 + Top 10 for Agentic Applications)"
+Cohesion: 0.11
+Nodes (17): Defense in Depth, Excessive Agency (LLM03) / Tool Misuse (ASI02) / Unexpected Code Execution (ASI05), LLM Security (OWASP GenAI Top 10 for LLM Applications 2026 + Top 10 for Agentic Applications), Memory and Context Poisoning (ASI06), Mitigations, Mitigations, Mitigations, Mitigations (+9 more)
 
 ### Community 15 - "Speckit Cross-Artifact Analysis"
 Cohesion: 0.13
@@ -200,17 +214,17 @@ Nodes (14): Checklists, Constitution, Current branch, Instructions, Load all art
 Cohesion: 0.13
 Nodes (14): Constitution, Current branch, Existing code, Instructions, Pre-Flight, Spec-Kit: Baseline, .specify directory, Step 1: Inventory (+6 more)
 
-### Community 17 - "Release Changelog"
+### Community 17 - "Changelog"
 Cohesion: 0.14
-Nodes (13): [1.0.0] - 2025-09-02, [3.0.0] - 2025-09-04, [4.0.2] - 2026-03-10, [5.0.0] - 2026-07-13, Added, Added, Changed, Changelog (+5 more)
+Nodes (13): [3.0.0] - 2025-09-04, [4.0.2] - 2026-03-10, [5.0.0] - 2026-07-13, [6.1.0] - 2026-09-22, Added, Added, Changed, Changed (+5 more)
 
 ### Community 18 - "Context Window Management"
 Cohesion: 0.14
 Nodes (13): Compact Context Priorities, Context Management, Context Scaling by Project Size, Document & Clear Pattern, How to Resume from a Progress File, Large Projects (100+ source files, monorepo or multi-service), Medium Projects (10-100 source files, 1-2 languages), Polyglot / Multi-Service Patterns (+5 more)
 
 ### Community 19 - "README.md"
-Cohesion: 0.18
-Nodes (9): MCP Integration, 🔌 MCP Integration, 📚 Documentation, 📦 Install, 📄 License, 🧩 Requirements, 🗂️ Structure, ⚙️ What happens without you asking (+1 more)
+Cohesion: 0.25
+Nodes (7): 📚 Documentation, 📦 Install, 📄 License, 🧩 Requirements, 🗂️ Structure, ⚙️ What happens without you asking, 🎯 What it is
 
 ### Community 20 - "CLAUDE.md Authoring Patterns"
 Cohesion: 0.14
@@ -236,9 +250,9 @@ Nodes (12): Field Report: speckit-workflow — Multi-Repo Support & Overload Res
 Cohesion: 0.15
 Nodes (12): Calibration — and the rule against inventing hours, Mode Selection, Output Format, Step 1 — Compute Contribution Complexity (Pfeiffer's algorithm), Step 2 — Test burden (deterministic), Step 3 — Edge-case density, Step 4 — Volatility hotspots, Step 5 — The Non-Local Context Check (never skip) (+4 more)
 
-### Community 26 - "Speckit TDD Implementation"
-Cohesion: 0.17
-Nodes (11): Checklists, Completion, Constitution, Current branch, Instructions, Load artifacts, Phase-by-Phase TDD Execution, Pre-Flight (+3 more)
+### Community 26 - "Pre-Flight"
+Cohesion: 0.15
+Nodes (12): Arm the test guard, Checklists, Completion, Constitution, Current branch, Instructions, Load artifacts, Phase-by-Phase TDD Execution (+4 more)
 
 ### Community 27 - "Spec-Driven Development Guide"
 Cohesion: 0.17
@@ -278,7 +292,7 @@ Nodes (10): Actionable Patterns for the Framework, Containerization & Deployment
 
 ### Community 36 - "SETUP — install or update the Hefesto on this machine"
 Cohesion: 0.06
-Nodes (28): Architecture, Currently In Use vs Available, 📁 Package Structure, 🖥️ Reference Deployment, 🔁 Request Flow & Stack Composition, 🛡️ Trust Boundaries, 🔀 Two-Machine Topology, What the flow reveals (+20 more)
+Nodes (29): Architecture, Currently In Use vs Available, 📁 Package Structure, 🖥️ Reference Deployment, 🔁 Request Flow & Stack Composition, 🛡️ Trust Boundaries, 🔀 Two-Machine Topology, What the flow reveals (+21 more)
 
 ### Community 37 - "Systematic Debugging Skill"
 Cohesion: 0.18
@@ -292,21 +306,25 @@ Nodes (9): Cost Discipline, Hard Rules (Non-Negotiable), Input Contract, Output 
 Cohesion: 0.29
 Nodes (6): Active branch, Analysis Steps, Directory structure (top 2 levels), Live Project Data, Output Format, Recent commits
 
-### Community 40 - "Speckit Quick Fix"
-Cohesion: 0.20
-Nodes (9): Change scope, Current branch, If NOT Trivial (fails the gate), If Trivial (passes the gate), Instructions, Pre-Flight, Spec-Kit: Fix, Triviality Gate (+1 more)
+### Community 40 - "Instructions"
+Cohesion: 0.18
+Nodes (10): Change scope, Current branch, If NOT Trivial (fails the gate), If Trivial (passes the gate), Instructions, Pre-Flight, Spec-Kit: Fix, Triviality Gate (+2 more)
 
 ### Community 41 - "Agents Documentation"
 Cohesion: 0.20
 Nodes (9): 🕵️ Agents, Agents & Parallelism, 🔍 code-reviewer, 🔒 forensic-specialist, 🤝 Parallelism: Three Primitives, 🛡️ quality-guardian, 🔭 repo-scout, 📝 review-coordinator (+1 more)
 
-### Community 42 - "Framework Core Instructions"
+### Community 42 - "Hefesto v6.1"
 Cohesion: 0.22
-Nodes (8): Core Rules, Custom Agents, graphify, Hefesto v6.0, Multi-Environment Workflows, Performance & Model Selection, Task Management API, Tool Usage
+Nodes (8): Core Rules, Custom Agents, graphify, Hefesto v6.1, Multi-Environment Workflows, Performance & Model Selection, Task Management API, Tool Usage
 
 ### Community 43 - "Framework Sync Check"
 Cohesion: 0.29
 Nodes (6): 1. Locate the installed clone, 2. Installed clone vs upstream, 3. Global rules vs upstream, Check Steps, Output Format, Remediation Rules
+
+### Community 45 - "Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane"
+Cohesion: 0.25
+Nodes (7): Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane, Measured Against graphify on the Same Repository, Not Yet Adopted, Telemetry, Data Egress, and Supply Chain, The Shape It Would Take If Ever Adopted, What a Default `graft init` Writes, and Why It Cannot Run Here, What Graft Is
 
 ### Community 46 - "Speckit Constitution Command"
 Cohesion: 0.25
@@ -340,17 +358,17 @@ Nodes (7): P1, P2, Phase 1: Setup, Phase 2: Foundational, Phase 3: User Stories 
 Cohesion: 0.29
 Nodes (6): Critical Rules, Framework Integration, Review Output Format, Stage 1: Spec Compliance Review, Stage 2: Code Quality Review, Verdict Criteria
 
-### Community 55 - "Unreleased Changelog Section"
+### Community 55 - "[Unreleased]"
 Cohesion: 0.29
 Nodes (7): Added, Changed, Deprecated, Fixed, Removed, Security, [Unreleased]
 
-### Community 56 - "Changelog 3.0.0 Release"
-Cohesion: 0.33
-Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
+### Community 56 - "User Scenarios"
+Cohesion: 0.13
+Nodes (14): Clarifications, Functional Requirements, Overview, Spec: harness-review-tiers, Success Criteria, US1: Requirement traceability after implementation [P1], US2: Tests cannot shrink during implementation [P1], US3: The review agents are one command away [P1] (+6 more)
 
-### Community 57 - "PR Summary Command"
-Cohesion: 0.33
-Nodes (5): Commits on this branch, Diff stats, Files changed, Live Branch Data, Output Format
+### Community 57 - "Live Branch Data"
+Cohesion: 0.29
+Nodes (6): Commits on this branch, Diff stats, Files changed, Live Branch Data, Output Format, Untrusted input
 
 ### Community 58 - "Speckit Checklist Command"
 Cohesion: 0.29
@@ -360,9 +378,9 @@ Nodes (6): Current branch, Existing checklists, Instructions, Load spec, Pre-Fli
 Cohesion: 0.29
 Nodes (6): Current branch, Existing clarifications, Instructions, Load spec, Pre-Flight, Spec-Kit: Clarify
 
-### Community 60 - "Hooks & Quality Gates"
-Cohesion: 0.29
-Nodes (6): 🛡️ Automated Quality Gates, ⚙️ Hooks, Hooks & Quality Gates, 🔐 Security Posture, The framework lints itself, The `TaskCompleted` gate
+### Community 60 - "⚙️ Hooks"
+Cohesion: 0.25
+Nodes (7): 🛡️ Automated Quality Gates, ⚙️ Hooks, Hooks & Quality Gates, 🔐 Security Posture, The framework lints itself, The implement-phase test guard, The `TaskCompleted` gate
 
 ### Community 61 - "Performance & Reasoning Docs"
 Cohesion: 0.29
@@ -373,10 +391,10 @@ Cohesion: 0.29
 Nodes (5): 📊 Quality Standards, 📏 Rules, Rules & Quality Standards, Skills, 🧠 Skills
 
 ### Community 63 - "MCP Server Security"
-Cohesion: 0.29
-Nodes (6): Authentication & Authorization, Human-in-the-Loop Requirements, Input Validation & Tool Poisoning Defense, MCP Server Security, Recommended Security MCP Servers, Server Curation
+Cohesion: 0.25
+Nodes (7): Authentication & Authorization, Human-in-the-Loop Requirements, Input Validation & Tool Poisoning Defense, MCP Server Security, Recommended Security MCP Servers, Server Curation, Skills, Plugins, and Agents Are a Supply Chain Too
 
-### Community 64 - "Changelog 2.1.0 Release"
+### Community 64 - "[2.1.0] - 2025-01-09"
 Cohesion: 0.33
 Nodes (6): [2.1.0] - 2025-01-09, Added, Changed, Enhanced, Fixed, Improved
 
@@ -384,7 +402,7 @@ Nodes (6): [2.1.0] - 2025-01-09, Added, Changed, Enhanced, Fixed, Improved
 Cohesion: 0.33
 Nodes (5): Files (delivered as SVG, transparent backgrounds, no font deps), Hefesto — logo & brand notes, Palette, README usage, Regenerating
 
-### Community 66 - "Changelog 4.4.0 Release"
+### Community 66 - "[4.4.0] - 2026-07-12"
 Cohesion: 0.33
 Nodes (6): [4.4.0] - 2026-07-12, Added, Changed, Fixed, Notes, Removed
 
@@ -412,31 +430,31 @@ Nodes (5): check_git_segment(), check_rm_segment(), deny(), has_word(), block-de
 Cohesion: 0.33
 Nodes (5): Architecture Constraints, Principles, Project Constitution, References, Tech Stack
 
-### Community 73 - "Smoke Test Script"
-Cohesion: 0.73
-Nodes (5): bad(), bdc_case(), head_(), ok(), smoke.sh script
+### Community 73 - "smoke.sh"
+Cohesion: 0.47
+Nodes (6): bad(), bdc_case(), head_(), ipg_case(), ok(), smoke.sh script
 
-### Community 74 - "Changelog 2.0.0 Release"
+### Community 74 - "[2.0.0] - 2025-09-02"
 Cohesion: 0.40
 Nodes (5): [2.0.0] - 2025-09-02, Added, Enhanced, Fixed, Updated
 
-### Community 75 - "Changelog 3.1.0 Release"
+### Community 75 - "[3.1.0] - 2025-11-26"
 Cohesion: 0.40
 Nodes (5): [3.1.0] - 2025-11-26, Added, Changed, Enhanced, Improved
 
-### Community 76 - "Changelog 4.0.0 Release"
+### Community 76 - "[4.0.0] - 2026-02-23"
 Cohesion: 0.40
 Nodes (5): [4.0.0] - 2026-02-23, Added, Changed, Enhanced, Removed
 
-### Community 77 - "Changelog 4.5.0 Release"
+### Community 77 - "[4.5.0] - 2026-07-13"
 Cohesion: 0.40
 Nodes (5): [4.5.0] - 2026-07-13, Added, Changed, Fixed, Known limitation
 
-### Community 78 - "Changelog 5.1.0 Release"
+### Community 78 - "[5.1.0] - 2026-07-16"
 Cohesion: 0.40
 Nodes (5): [5.1.0] - 2026-07-16, Added, Changed, Fixed, Known issues
 
-### Community 79 - "Changelog 6.0.0 Release"
+### Community 79 - "[6.0.0] - 2026-08-19"
 Cohesion: 0.67
 Nodes (3): [6.0.0] - 2026-08-19, Added, Changed - BREAKING
 
@@ -448,9 +466,17 @@ Nodes (3): die(), missing_artifact(), speckit-helper.sh script
 Cohesion: 0.40
 Nodes (4): Analysis Steps, Benchmark Commands, Output Format, Performance Audit Skill
 
-### Community 82 - "Changelog 5.2.0 Release"
+### Community 82 - "[5.2.0] - 2026-07-17"
 Cohesion: 0.50
 Nodes (4): [5.2.0] - 2026-07-17, Added, Changed, Fixed
+
+### Community 83 - "Instructions"
+Cohesion: 0.14
+Nodes (13): 1. Read the coverage matrix, 2. Run the tests the matrix names, 3. Spec-compliance review, 4. Report, 5. Next step, Artifacts, Current branch, Instructions (+5 more)
+
+### Community 85 - "Findings by area, with evidence"
+Cohesion: 0.15
+Nodes (12): Code quality, Documentation and context, Findings by area, with evidence, Harness capabilities (official docs, verified 2026-09-22), Harness Review, September 2026: Toolbox, Drift, and the Evidence Behind Each Change, Parallel development, Rejected, with cause, Security (+4 more)
 
 ### Community 86 - "Research Corpus & Credits"
 Cohesion: 0.50
@@ -460,26 +486,50 @@ Nodes (3): 🙏 Inspirations & Acknowledgments, 📚 Research Corpus, Research C
 Cohesion: 0.50
 Nodes (3): Checklist: requirements, Open concerns (2), Requirement Quality
 
-### Community 88 - "Changelog 4.1.0 Release"
+### Community 88 - "[4.1.0] - 2026-03-30"
 Cohesion: 0.67
 Nodes (3): [4.1.0] - 2026-03-30, Added, Enhanced
 
-### Community 89 - "Changelog 4.3.0 Release"
+### Community 89 - "[4.3.0] - 2026-03-31"
 Cohesion: 0.67
 Nodes (3): [4.3.0] - 2026-03-31, Added, Enhanced
 
+### Community 90 - "Plan: harness-review-tiers"
+Cohesion: 0.22
+Nodes (8): API Contracts, Constitution Compliance, Data Model, Implementation Approach, Plan: harness-review-tiers, Quick Start, Research Notes, Reviewed
+
+### Community 91 - "[3.0.0] - 2025-09-04"
+Cohesion: 0.33
+Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
+
+### Community 94 - "Pull Request"
+Cohesion: 0.33
+Nodes (5): Branch data, Instructions, Pre-Flight, Pull Request, Untrusted input
+
+### Community 107 - "Review"
+Cohesion: 0.40
+Nodes (4): Branch and diff, Instructions, Pre-Flight, Review
+
+### Community 108 - "Tasks: harness-review-tiers"
+Cohesion: 0.40
+Nodes (4): Phase 1: Tier 1 — 6.1.0 (additive), Phase 2: Tier 2 — 6.2.0 (additive), Phase 3: Tier 3 — 7.0.0 (breaking), Tasks: harness-review-tiers
+
+### Community 110 - "[1.0.0] - 2025-09-02"
+Cohesion: 0.67
+Nodes (3): [1.0.0] - 2025-09-02, Added, Created
+
 ## Knowledge Gaps
-- **634 isolated node(s):** `github`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `notify-on-block.sh script`, `plan-phase-write-block.sh script` (+629 more)
+- **700 isolated node(s):** `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `notify-on-block.sh script` (+695 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **12 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **17 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Changelog` connect `Release Changelog` to `Changelog 2.1.0 Release`, `Changelog 4.4.0 Release`, `Changelog 2.0.0 Release`, `Changelog 3.1.0 Release`, `Changelog 4.0.0 Release`, `Changelog 4.5.0 Release`, `Changelog 5.1.0 Release`, `Changelog 6.0.0 Release`, `Changelog 5.2.0 Release`, `Unreleased Changelog Section`, `Changelog 3.0.0 Release`, `Changelog 4.3.0 Release`, `Changelog 4.1.0 Release`?**
-  _High betweenness centrality (0.006) - this node is a cross-community bridge._
-- **What connects `github`, `block-sensitive-files.sh script`, `format-after-edit.sh script` to the rest of the system?**
-  _634 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `Changelog` connect `Changelog` to `[2.1.0] - 2025-01-09`, `[4.4.0] - 2026-07-12`, `[2.0.0] - 2025-09-02`, `[3.1.0] - 2025-11-26`, `[4.0.0] - 2026-02-23`, `[4.5.0] - 2026-07-13`, `[1.0.0] - 2025-09-02`, `[5.1.0] - 2026-07-16`, `[6.0.0] - 2026-08-19`, `[5.2.0] - 2026-07-17`, `[Unreleased]`, `[4.1.0] - 2026-03-30`, `[4.3.0] - 2026-03-31`, `[3.0.0] - 2025-09-04`?**
+  _High betweenness centrality (0.004) - this node is a cross-community bridge._
+- **What connects `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script` to the rest of the system?**
+  _700 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Security Forensics Agent` be split into smaller, more focused modules?**
   _Cohesion score 0.05714285714285714 - nodes in this community are weakly interconnected._
 - **Should `Development Workflow Phases` be split into smaller, more focused modules?**

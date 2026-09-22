@@ -21,9 +21,9 @@ Claude Code will happily write code from a one-line prompt. That works until the
 enough that "what were we building?" stops having an obvious answer — and then it fails quietly,
 by building the wrong thing well.
 
-This framework adds the missing middle. A feature goes **idea → spec → plan → tasks → code**, with
-a human gate at each seam, and the pipeline refuses to skip ahead. Around that sit six specialist
-agents, nine hooks, and a set of rules that load into every session.
+This framework adds the missing middle. A feature goes **idea → spec → plan → tasks → code →
+verification**, with a human gate at each seam, and the pipeline refuses to skip ahead. Around that
+sit six specialist agents, thirteen hooks, and a set of rules that load into every session.
 
 The parts that matter are the ones you cannot talk your way past:
 
@@ -32,6 +32,10 @@ The parts that matter are the ones you cannot talk your way past:
 - 🔐 **A pre-commit hook runs secrets detection and linting**, and blocks the commit if they fail.
 - 🚧 **A plan-phase hook blocks edits outside `.specify/`** while a plan is being written, so the
   agent cannot start coding "just to check something."
+- 🧷 **An implement-phase hook lets tests grow but never shrink** — no assertion removed, no test
+  overwritten, no snapshot regenerated to get to green.
+- 🔗 **`/speckit.verify` maps every requirement to the tests that cite it**, mechanically, and fails
+  on the one that none does.
 
 Everything else — the agents, the skills, the research corpus — is support for that spine.
 
@@ -71,9 +75,9 @@ an upgrade — see [`docs/install.md`](docs/install.md).
 
 | Directory | What lives there |
 |---|---|
-| 🛠️ `commands/` | The 19 slash commands. All namespaced (`hef.*`, `speckit.*`) so no built-in can shadow them. |
+| 🛠️ `commands/` | The 22 slash commands. All namespaced (`hef.*`, `speckit.*`) so no built-in can shadow them. |
 | 🕵️ `agents/` | Six specialist subagents — testing, quality, review, security, PR coordination, recon. |
-| ⚙️ `hooks/` | Nine hooks, plus `speckit-helper.sh` (34 subcommands) that the commands call for live git data. |
+| ⚙️ `hooks/` | Thirteen hooks, plus `speckit-helper.sh` (38 subcommands) that the commands call for live git data and requirement traceability. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `speckit-workflow.js` — executes a task list as a deterministic Workflow. |
 | 📏 `.claude/rules/` | The rules loaded into every session. **Not shipped by the plugin** — copy them yourself. |
@@ -103,8 +107,11 @@ Full spec-driven development. Every gate, in order.
 /speckit.checklist                   # ← HUMAN GATE: requirement quality
 /speckit.analyze                     # optional: cross-artifact consistency
 
-/speckit.implement                   # TDD execution, red-green, one task at a time
+/speckit.implement                   # TDD execution, red-green, one task at a time (tests may grow, not shrink)
+/speckit.verify                      # FR → tests, mechanically; then spec-compliance review of the diff
 /hef.quality                         # lint, types, secrets, SOLID — before you commit
+/hef.review                          # two-stage code review (code-reviewer)
+/hef.pr                              # the pull request, with the evidence attached (review-coordinator)
 ```
 
 For a **large** task list, swap the implementation step for the workflow, which runs independent
@@ -136,8 +143,10 @@ It must be called by that full name; a bare `speckit-workflow` does not resolve.
 /speckit.review                      # ← HUMAN GATE
 /speckit.tasks
 /speckit.implement
+/speckit.verify                      # ← the traceability gate
 /hef.quality
-/hef.pr-summary                      # → PR description from the branch diff
+/hef.review
+/hef.pr                              # → the PR, opened by review-coordinator; you merge
 ```
 
 ### 🔧 3. A trivial fix
@@ -172,6 +181,9 @@ one, treat the module as scenario 2.
 | 🔒 `/hef.security-scan` | Secrets, SQLi, XSS in the staged changes. |
 | 🤝 `/hef.agent <task>` | Full workflow with planning and task tracking, for open-ended work. |
 | 🛡️ `/hef.quality` | The quality gate. Spawns `quality-guardian`. |
+| 🔍 `/hef.review` | Two-stage review. Spawns `code-reviewer`. |
+| 📝 `/hef.pr` | Open or update the PR. Spawns `review-coordinator`; never merges. |
+| 📄 `/hef.pr-summary` | Just the PR description, from the branch diff. |
 
 Full reference: [`docs/commands.md`](docs/commands.md).
 
@@ -185,6 +197,9 @@ The hooks ship with the plugin — you do not register them:
 - 🔐 **On every `git commit`** — secrets detection and linting must pass, or the commit is blocked.
 - ✅ **On task completion** — the task cannot be marked done while the test suite fails.
 - 🚧 **During `/speckit.plan`** — edits outside `.specify/` are blocked.
+- 🧷 **During `/speckit.implement`** — tests may grow, never shrink; snapshot regeneration is always blocked.
+- 🧭 **On session start / before compaction** — context is injected, a checkpoint is written.
+- 👁️ **On a settings change mid-session** — it is announced.
 
 [`docs/hooks.md`](docs/hooks.md) explains each, and how to opt out deliberately when you must.
 
@@ -195,14 +210,14 @@ The hooks ship with the plugin — you do not register them:
 | | |
 |---|---|
 | 📦 [Installing & Configuring](docs/install.md) | Install, the permission rule, verification, updating, what the plugin cannot ship. |
-| 🛠️ [Commands](docs/commands.md) | All 19, with arguments. |
+| 🛠️ [Commands](docs/commands.md) | All 22, with arguments. |
 | 🕵️ [Agents & Parallelism](docs/agents.md) | The six agents; when to use a subagent vs. a team vs. a workflow. |
 | ⚙️ [Hooks & Quality Gates](docs/hooks.md) | Every hook, the Iron Laws, and the security posture. |
 | 🧬 [Spec-Driven Development](docs/spec-kit.md) | The lifecycle in depth, `.specify/` artifacts, task management. |
 | 🏗️ [Architecture](docs/architecture.md) | Package structure, request flow, the five-layer stack, deployment topology. |
 | 🧠 [Skills](docs/skills.md) · [Rules](docs/rules.md) · [MCP](docs/mcp.md) | Component reference. |
 | ⚡ [Performance & Reasoning](docs/performance.md) | Ultrathink, model selection, context management. |
-| 📖 [Research Corpus](docs/research.md) | The eleven reports the framework is built on, and acknowledgments. |
+| 📖 [Research Corpus](docs/research.md) | The reports the framework is built on, and acknowledgments. |
 
 ---
 
@@ -217,4 +232,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-**Framework Version**: 6.0.0 &nbsp;|&nbsp; **Last Updated**: 2026-07-17 &nbsp;|&nbsp; **Compatibility**: Claude Code with sub-agents, hooks, skills (`<name>/SKILL.md`), MCP, spec-kit, Agent Teams
+**Framework Version**: 6.1.0 &nbsp;|&nbsp; **Last Updated**: 2026-09-22 &nbsp;|&nbsp; **Compatibility**: Claude Code with sub-agents, hooks, skills (`<name>/SKILL.md`), MCP, spec-kit, Agent Teams

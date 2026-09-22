@@ -34,13 +34,13 @@ Two-stage code review specialist. **Stage 1** validates spec compliance (impleme
 
 Produces a structured review report with `APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION` verdict.
 
-**When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle).
+**When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle). Spawned by `/hef.review`; `/speckit.verify` runs its stage 1 with the mechanical coverage matrix in hand.
 
 ### 📝 review-coordinator
 
 Manages the PR lifecycle — creation, review coordination, feedback integration, and merge. Generates comprehensive PR descriptions with quality metrics. Supports GitHub and GitLab.
 
-**When to use**: When creating PRs or managing review workflows.
+**When to use**: When creating PRs or managing review workflows. Spawned by `/hef.pr`. It never merges — PRs are merged one at a time, by the user, each re-tested on the updated base.
 
 ### 🔒 forensic-specialist
 

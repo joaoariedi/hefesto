@@ -14,6 +14,10 @@ Hooks ship **inside the plugin** (`hooks/hooks.json`), so installing the plugin 
 | 🔒 `block-sensitive-files.sh` | PreToolUse on `Edit\|Write` | Blocks writes to `.env*`, `*.key`, `*.pem`, `credentials*`, `.git/*`, `secrets/` |
 | ⛔ `block-destructive-commands.sh` | PreToolUse on `Bash` | Hard-denies `git push --force` (allows `--force-with-lease`), `reset --hard`, `branch -D`, `clean -f`, and recursive `rm` of catastrophic targets. Bypass: `CLAUDE_ALLOW_DESTRUCTIVE=1` prefix, visible in the transcript |
 | 📐 `plan-phase-write-block.sh` | PreToolUse on `Edit\|Write` | Blocks writes outside `.specify/` while `/speckit.plan` is active |
+| 🧷 `implement-phase-test-guard.sh` | PreToolUse on `Bash` and `Edit\|Write` | While `/speckit.implement` is active: **blocks** edits that leave a test file with fewer assertions, overwrites of existing test files, and `rm` of test files. Always: blocks snapshot-update flags on test runners. Bypass: `CLAUDE_ALLOW_SNAPSHOT_UPDATE=1` prefix |
+| 🧭 `session-start-context.sh` | SessionStart | Injects branch, dirty-file count, spec artifacts, open tasks, phase markers, and the last checkpoint into context. Silent outside a git repo |
+| 💾 `precompact-progress.sh` | PreCompact | Writes the progress checkpoint `context-management.md` asks for — to `~/.cache/hefesto/progress/`, never into the repo |
+| 👁️ `audit-config-change.sh` | ConfigChange | Announces a settings rewrite mid-session — the escalation path a compromised skill or plugin would take |
 | 🎨 `format-after-edit.sh` | PostToolUse on `Edit\|Write` | Auto-formats edited files (ruff, biome/prettier, gofmt, rustfmt), 10s throttle |
 | 🧪 `run-tests-after-edit.sh` | PostToolUse on `Edit\|Write` | Auto-runs test suite after source edits, 15s throttle, non-blocking |
 | 🔔 `notify-on-block.sh` | Notification | Desktop alert when agent needs attention (notify-send / osascript) |
@@ -40,6 +44,21 @@ sudo pacman -S shellcheck && npm i -g markdownlint-cli2
 
 The **language** checks are scoped the same way — but only where the tool permits it. `ruff`, `eslint`, and `biome` take a file list, so they see staged files only. A **type checker cannot**: `tsc` needs the whole program graph to resolve an import, and `cargo clippy` analyses a crate, not a file. Those stay whole-unit, which is correct rather than lazy — they are simply gated on their language actually being staged, so they cost nothing otherwise.
 
+### The implement-phase test guard
+
+`speckit.implement` has always said *"never modify the test to make it pass."* Prose. The evidence
+says prose is not enough here: TDD *instructions* without a mechanism made agent regressions worse
+in a controlled study (9.9% vs 6.1% baseline — arXiv 2603.17973), and Kent Beck reports agents
+deleting tests to get to green. So `/speckit.implement` now arms a marker
+(`.specify/.implement-in-progress`), and while it is set the guard applies one rule: **tests may
+grow, never shrink** — no edit that removes assertions, no whole-file overwrite of an existing test,
+no `rm` of a test file. New test files and added cases pass through untouched. Snapshot-update flags
+(`jest -u`, `pytest --snapshot-update`, …) are blocked regardless of phase, because a regenerated
+baseline is a deleted test that still shows green.
+
+`speckit-helper.sh implement-phase-end` disarms it; `CLAUDE_ALLOW_SNAPSHOT_UPDATE=1` bypasses the
+snapshot block visibly.
+
 ### The `TaskCompleted` gate
 
 Every other quality mechanism in this framework is **advisory** — a rule the model can rationalize past, or a `Stop` hook that prints a reminder and exits 0. `verify-before-task-complete.sh` is the first one that is **mechanical**: exit 2 blocks the completion outright and feeds stderr back to the agent.
@@ -57,7 +76,7 @@ It is the enforcement the Verification Iron Law always claimed to have:
 
 ## 🛡️ Automated Quality Gates
 
-Nine hooks enforce quality automatically — and they ship with the plugin, so there is nothing to register:
+Thirteen hooks enforce quality automatically — and they ship with the plugin, so there is nothing to register:
 
 - 🔍 **Pre-commit** — secrets detection (gitleaks) + language-specific linting blocks the commit on errors
 - 🔒 **File protection** — writes to `.env`, `*.key`, `*.pem`, credentials, and `.git/` internals are blocked
@@ -68,6 +87,11 @@ Nine hooks enforce quality automatically — and they ship with the plugin, so t
 - 🔔 **Notifications** — desktop alerts when the agent needs human input (Linux/macOS)
 - 📐 **Plan-phase write-block** — while `/speckit.plan` is active, edits outside `.specify/` are blocked, so the planning phase cannot quietly become the implementation phase
 - ⛔ **Verification gate** (`TaskCompleted`) — a task **cannot be marked complete** while the test suite fails. This is the Iron Law made mechanical: every other quality mechanism in the framework is advisory, and this is the one the model cannot rationalize past
+- 🧷 **Implement-phase test guard** — while `/speckit.implement` runs, tests may grow but not shrink; snapshot regeneration is always blocked
+- 🧭 **Session context** — every session starts knowing its branch, spec state, and open tasks; every compaction leaves a checkpoint behind
+- 👁️ **Config audit** — a settings rewrite mid-session is announced, not silent
+
+The **boundary** under all of this is OS sandboxing, not string matching: a Bash deny rule can be composed around (`sh -c`, an absolute binary path — Claude Code's own docs say so), and the destructive-command hook documents that limit in its header. Enable `/sandbox` (see `docs/install.md`); the hooks catch the careless path, the sandbox catches the determined one.
 
 The `quality-guardian` agent validates before commit/PR/merge with secrets scanning, SAST, supply chain checks, SOLID architectural analysis, performance validation, and **Iron Law enforcement**.
 
