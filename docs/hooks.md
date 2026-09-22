@@ -18,6 +18,8 @@ Hooks ship **inside the plugin** (`hooks/hooks.json`), so installing the plugin 
 | 🧭 `session-start-context.sh` | SessionStart | Injects branch, dirty-file count, spec artifacts, open tasks, phase markers, and the last checkpoint into context. Silent outside a git repo |
 | 💾 `precompact-progress.sh` | PreCompact | Writes the progress checkpoint `context-management.md` asks for — to `~/.cache/hefesto/progress/`, never into the repo |
 | 👁️ `audit-config-change.sh` | ConfigChange | Announces a settings rewrite mid-session — the escalation path a compromised skill or plugin would take |
+| 🔀 `merge-tree-probe.sh` | PostToolUse on `Edit\|Write` | Once a minute: would this branch's committed state conflict with its base (`git merge-tree`)? How far has the base drifted? Advisory |
+| 🚀 `release.sh` | Run by `/hef.release` | Moves all six version declarations together and scaffolds the CHANGELOG entry (not a hook — a script) |
 | 🎨 `format-after-edit.sh` | PostToolUse on `Edit\|Write` | Auto-formats edited files (ruff, biome/prettier, gofmt, rustfmt), 10s throttle |
 | 🧪 `run-tests-after-edit.sh` | PostToolUse on `Edit\|Write` | Auto-runs test suite after source edits, 15s throttle, non-blocking |
 | 🔔 `notify-on-block.sh` | Notification | Desktop alert when agent needs attention (notify-send / osascript) |
@@ -34,6 +36,8 @@ Two manifest-free checks now run on **staged files only** (per the Tier 1 rule t
 |---|---|---|
 | **Shell** | `bash -n` — syntax must parse | `shellcheck -S error` |
 | **Markdown** | code fences must be balanced (an unclosed ``` silently breaks rendering) | `markdownlint-cli2` |
+| **Commit message** | conventional `<type>(<scope>)?: <description>` on the inline subject (`git-workflow.md`); bypass `CLAUDE_ALLOW_NONCONVENTIONAL=1` | — |
+| **Complexity delta** | *(none — no zero-dependency checker exists)* | `lizard`: a staged file may not gain functions over the `code-quality.md` limits versus `HEAD` |
 
 The zero-dependency baseline is the point. Guarding purely on `command -v shellcheck` would have reproduced the original bug on any machine without it installed — a check that only runs where it's already unnecessary is not a check. To get the stronger tier:
 
@@ -76,7 +80,7 @@ It is the enforcement the Verification Iron Law always claimed to have:
 
 ## 🛡️ Automated Quality Gates
 
-Thirteen hooks enforce quality automatically — and they ship with the plugin, so there is nothing to register:
+Fourteen hooks enforce quality automatically — and they ship with the plugin, so there is nothing to register:
 
 - 🔍 **Pre-commit** — secrets detection (gitleaks) + language-specific linting blocks the commit on errors
 - 🔒 **File protection** — writes to `.env`, `*.key`, `*.pem`, credentials, and `.git/` internals are blocked
@@ -90,6 +94,8 @@ Thirteen hooks enforce quality automatically — and they ship with the plugin, 
 - 🧷 **Implement-phase test guard** — while `/speckit.implement` runs, tests may grow but not shrink; snapshot regeneration is always blocked
 - 🧭 **Session context** — every session starts knowing its branch, spec state, and open tasks; every compaction leaves a checkpoint behind
 - 👁️ **Config audit** — a settings rewrite mid-session is announced, not silent
+- 🔀 **Merge-tree probe** — a branch that would conflict with its base, or has drifted far behind it, is told so while the diff is still small
+- 📏 **Complexity as a delta** — where `lizard` is installed, a change may not make a file's functions longer or more complex than the limits; existing debt is visible, not blocking
 
 The **boundary** under all of this is OS sandboxing, not string matching: a Bash deny rule can be composed around (`sh -c`, an absolute binary path — Claude Code's own docs say so), and the destructive-command hook documents that limit in its header. Enable `/sandbox` (see `docs/install.md`); the hooks catch the careless path, the sandbox catches the determined one.
 

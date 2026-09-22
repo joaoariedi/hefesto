@@ -13,13 +13,13 @@
 - [x] T010 [FR-008] docs/commands.md, docs/hooks.md, README, CLAUDE.md tier table, CHANGELOG 6.1.0, versions, smoke checks
 
 ## Phase 2: Tier 2 — 6.2.0 (additive)
-- [ ] T011 [FR-009] `commands/hef.mutate.md` + quality-tooling ratchet recipe
-- [ ] T012 [FR-010] complexity delta gates in `hooks/quality-before-commit.sh`; code-quality.md points at the gate
-- [ ] T013 [FR-011] `commands/hef.agent.md` router
-- [ ] T014 [FR-012] `owns:` in tasks template + workflow overlap check; `hooks/merge-tree-probe.sh`; review-coordinator sequential merges
-- [ ] T015 [FR-013] `hooks/release.sh`, `commands/hef.release.md`, conventional-commit check in pre-commit
-- [ ] T016 [FR-014] `tests/hooks.bats`, shellcheck in smoke, `evals/` suite
-- [ ] T017 [FR-008] docs + CHANGELOG 6.2.0 + versions
+- [x] T011 [FR-009] `commands/hef.mutate.md` + quality-tooling ratchet recipe
+- [x] T012 [FR-010] complexity delta gates in `hooks/quality-before-commit.sh`; code-quality.md points at the gate
+- [x] T013 [FR-011] `commands/hef.agent.md` router
+- [x] T014 [FR-012] `owns:` in tasks template + workflow overlap check; `hooks/merge-tree-probe.sh`; review-coordinator sequential merges
+- [x] T015 [FR-013] `hooks/release.sh`, `commands/hef.release.md`, conventional-commit check in pre-commit
+- [x] T016 [FR-014] `tests/hooks.bats`, shellcheck in smoke, `evals/` suite
+- [x] T017 [FR-008] docs + CHANGELOG 6.2.0 + versions
 
 ## Phase 3: Tier 3 — 7.0.0 (breaking)
 - [ ] T018 [FR-015] `hef.sync` → `hef.doctor`; `hef.pr-summary` → `hef.pr`

@@ -68,7 +68,7 @@ AI-written code, and the harness itself is only structurally tested. Every chang
 | FR-011 | `/hef.agent` routes by size: `task-effort-estimation` → `speckit.fix` / specify-only / full pipeline | P2 | US8 |
 | FR-012 | `[P]` tasks may declare `owns:` files; the workflow rejects overlapping owners; `merge-tree-probe.sh` warns on textual conflicts with the base branch after edits; `review-coordinator` merges sequentially | P2 | US6 |
 | FR-013 | `/hef.release` bumps every version declaration via `hooks/release.sh`, enforces conventional commit messages in `quality-before-commit.sh`, and scaffolds the changelog entry | P2 | US6 |
-| FR-014 | `tests/hooks.bats` drives every hook with stdin fixtures (incl. the documented bypass forms), `shellcheck` runs in the smoke suite when present, and `evals/` holds a `claude plugin eval` suite | P2 | US7 |
+| FR-014 | Hook fixtures (incl. the documented bypass forms) live in `tests/smoke.sh` — bats was rejected because it needs an install step (constitution 4); `shellcheck` runs in the smoke suite when present; `evals/` holds a `claude plugin eval` suite | P2 | US7 |
 | FR-015 | 7.0: `hef.sync` → `hef.doctor` (sync + shellcheck + eval + skill-doctor); `hef.pr-summary` folds into `hef.pr` | P3 | US8 |
 | FR-016 | 7.0: knowledge skills are `user-invocable: false`; action skills stay invocable | P3 | US8 |
 | FR-017 | 7.0: `reports/` carry MADR `status`/`supersedes` frontmatter; `/hef.adr` creates one | P3 | US8 |

@@ -46,6 +46,20 @@ Hallucinated packages: install only from the lockfile in CI, and treat a depende
 exist in the lockfile before the change as a review item (5–22% of LLM-suggested packages do not
 exist; the names repeat across runs, so they are squattable — USENIX Security 2025).
 
+### Mutation ratchet (`/hef.mutate`)
+
+| Stack | Tool | Incremental run |
+|---|---|---|
+| Python | `mutmut` 3.x | `mutmut run --paths-to-mutate src/changed_pkg && mutmut results` |
+| JS/TS | Stryker | `npx stryker run --incremental --mutate "src/changed/**"` (Vitest and Jest runners) |
+| Go | `gremlins` | `gremlins unleash ./pkg/changed` |
+| Rust | `cargo-mutants` | `cargo mutants --in-diff <(git diff origin/main)` |
+
+The mark (`.specify/mutation-score`, integer percent) is **raise-only** and moves only on the
+default branch; a PR must stay within 5 points of it. PR runs are scoped to changed directories;
+the full run is a nightly job. Every surviving mutant is a missing assertion — write it, cite the
+FR, and only then re-score.
+
 ## CLI Output Compression (RTK) — Use When Available
 
 `rtk` is a CLI proxy that strips boilerplate, deduplicates repeated lines, and groups

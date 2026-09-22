@@ -329,6 +329,44 @@ case "$1" in
     [ "$uncovered" -eq 0 ] && [ "$unknown" -eq 0 ]
     ;;
 
+  # --- Mutation-score ratchet ---
+  # The mark lives at .specify/mutation-score (an integer percent), committed with the code.
+  # mutation-score  — PREDICATE: prints the mark (exit 0) or NO_MARK (exit 1; a normal first-run
+  #                   state, which is why it is not a fetcher failure).
+  # mutation-ratchet <score> — PREDICATE: exit 0 when score ≥ mark − 5, else 1. Raise-only marks
+  #                   with a fixed floor: a fixed threshold drifts to aspirational; a PR-driven
+  #                   ratchet cascades failures across concurrent PRs; this is the middle.
+  # mutation-raise <score> — writes the mark when score > mark. The COMMAND decides whether the
+  #                   branch is allowed to raise (default branch only); the helper only writes.
+  mutation-score)
+    if [ -f .specify/mutation-score ]; then cat .specify/mutation-score; else echo "NO_MARK"; exit 1; fi
+    ;;
+  mutation-ratchet)
+    score="${2:-}"
+    [[ "$score" =~ ^[0-9]+$ ]] || die "mutation-ratchet: usage: mutation-ratchet <integer percent>, got '${score:-<none>}'"
+    mark="$(cat .specify/mutation-score 2>/dev/null || echo 0)"
+    [[ "$mark" =~ ^[0-9]+$ ]] || mark=0
+    floor=$((mark - 5)); [ "$floor" -lt 0 ] && floor=0
+    if [ "$score" -ge "$floor" ]; then
+      echo "RATCHET_PASS: score=$score mark=$mark floor=$floor"
+    else
+      echo "RATCHET_FAIL: score=$score mark=$mark floor=$floor — the tests noticed less than they used to"
+      exit 1
+    fi
+    ;;
+  mutation-raise)
+    score="${2:-}"
+    [[ "$score" =~ ^[0-9]+$ ]] || die "mutation-raise: usage: mutation-raise <integer percent>, got '${score:-<none>}'"
+    mark="$(cat .specify/mutation-score 2>/dev/null || echo 0)"
+    [[ "$mark" =~ ^[0-9]+$ ]] || mark=0
+    if [ "$score" -gt "$mark" ]; then
+      mkdir -p .specify && printf '%s\n' "$score" > .specify/mutation-score
+      echo "RAISED: $mark → $score (.specify/mutation-score)"
+    else
+      echo "NOT_RAISED: score=$score mark=$mark (the mark only moves up)"
+    fi
+    ;;
+
   # --- RTK CLI output compression (optional, auto-detected) ---
   rtk-available)
     # PREDICATE. The answer is BOTH the string and the exit code.
@@ -377,6 +415,7 @@ case "$1" in
     echo "  check-plan-review, detect-existing-code, trivial-change-check,"
     echo "  plan-phase-start, plan-phase-end, plan-phase-status,"
     echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage,"
+    echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>,"
     echo "  rtk-available, rtk-run"
     exit 1
     ;;

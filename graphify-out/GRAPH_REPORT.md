@@ -1,16 +1,16 @@
 # Graph Report - hefesto  (2026-09-22)
 
 ## Corpus Check
-- 105 files · ~134,053 words
+- 110 files · ~141,393 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1054 nodes · 1009 edges · 114 communities (97 shown, 17 thin omitted)
+- 1088 nodes · 1045 edges · 120 communities (100 shown, 20 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 4 edges (avg confidence: 0.5)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `50cee3af`
+- Built from commit: `e7648fad`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -57,7 +57,7 @@
 - Project Context Command
 - Instructions
 - Agents Documentation
-- Hefesto v6.1
+- Hefesto v6.2
 - Framework Sync Check
 - Slash Commands Documentation
 - Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane
@@ -99,13 +99,14 @@
 - Performance Audit Skill
 - [5.2.0] - 2026-07-17
 - Instructions
+- Route, then run
 - Findings by area, with evidence
 - Research Corpus & Credits
 - Requirements Quality Checklist
 - [4.1.0] - 2026-03-30
 - [4.3.0] - 2026-03-31
 - Plan: harness-review-tiers
-- [3.0.0] - 2025-09-04
+- Instructions
 - Checklist Template
 - Project Graphify Instructions
 - Pull Request
@@ -125,9 +126,15 @@
 - audit-config-change.sh
 - precompact-progress.sh
 - session-start-context.sh
+- [3.0.0] - 2025-09-04
+- Release
+- [6.2.0] - 2026-09-22
+- release.sh
+- evals/README.md
+- merge-tree-probe.sh
 
 ## God Nodes (most connected - your core abstractions)
-1. `Changelog` - 22 edges
+1. `Changelog` - 23 edges
 2. `Plan: speckit-workflow-resilience` - 15 edges
 3. `Quality Tooling by Language` - 14 edges
 4. `Code Quality Standards` - 11 edges
@@ -144,7 +151,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (114 total, 17 thin omitted)
+## Communities (120 total, 20 thin omitted)
 
 ### Community 0 - "Security Forensics Agent"
 Cohesion: 0.06
@@ -179,8 +186,8 @@ Cohesion: 0.10
 Nodes (20): 1. Knowledge extraction for context engineering (Phase 1, Steps 1–4), 2. Spec-kit pipeline pre-processing (Phase 1), 3. Security artifact generation (Phase 2, Steps 5–10), 4. Git workflow augmentation (Phase 3, Steps 11–16), 5. Retrospective support (Phase 4, Steps 17–18), 6. Multi-model cost optimization (cross-phase), 7. Custom pattern library (cross-phase), Architecture (+12 more)
 
 ### Community 8 - "Quality Tooling by Language"
-Cohesion: 0.10
-Nodes (20): AI-Code Defect Profile — Gates That Match How Agent Code Actually Fails, CI/CD Best Practices, CLI Output Compression (RTK) — Use When Available, Go, Java, JavaScript/TypeScript, Lefthook (Recommended for Teams), Other Languages (+12 more)
+Cohesion: 0.09
+Nodes (21): AI-Code Defect Profile — Gates That Match How Agent Code Actually Fails, CI/CD Best Practices, CLI Output Compression (RTK) — Use When Available, Go, Java, JavaScript/TypeScript, Lefthook (Recommended for Teams), Mutation ratchet (`/hef.mutate`) (+13 more)
 
 ### Community 9 - "Workflow Resilience Spec"
 Cohesion: 0.10
@@ -314,9 +321,9 @@ Nodes (10): Change scope, Current branch, If NOT Trivial (fails the gate), If Tr
 Cohesion: 0.20
 Nodes (9): 🕵️ Agents, Agents & Parallelism, 🔍 code-reviewer, 🔒 forensic-specialist, 🤝 Parallelism: Three Primitives, 🛡️ quality-guardian, 🔭 repo-scout, 📝 review-coordinator (+1 more)
 
-### Community 42 - "Hefesto v6.1"
+### Community 42 - "Hefesto v6.2"
 Cohesion: 0.22
-Nodes (8): Core Rules, Custom Agents, graphify, Hefesto v6.1, Multi-Environment Workflows, Performance & Model Selection, Task Management API, Tool Usage
+Nodes (8): Core Rules, Custom Agents, graphify, Hefesto v6.2, Multi-Environment Workflows, Performance & Model Selection, Task Management API, Tool Usage
 
 ### Community 43 - "Framework Sync Check"
 Cohesion: 0.29
@@ -431,8 +438,8 @@ Cohesion: 0.33
 Nodes (5): Architecture Constraints, Principles, Project Constitution, References, Tech Stack
 
 ### Community 73 - "smoke.sh"
-Cohesion: 0.47
-Nodes (6): bad(), bdc_case(), head_(), ipg_case(), ok(), smoke.sh script
+Cohesion: 0.45
+Nodes (8): bad(), bdc_case(), cc_case(), cx_case(), head_(), ipg_case(), ok(), smoke.sh script
 
 ### Community 74 - "[2.0.0] - 2025-09-02"
 Cohesion: 0.40
@@ -474,6 +481,10 @@ Nodes (4): [5.2.0] - 2026-07-17, Added, Changed, Fixed
 Cohesion: 0.14
 Nodes (13): 1. Read the coverage matrix, 2. Run the tests the matrix names, 3. Spec-compliance review, 4. Report, 5. Next step, Artifacts, Current branch, Instructions (+5 more)
 
+### Community 84 - "Route, then run"
+Cohesion: 0.33
+Nodes (5): 1. Size it, 2. Route, 3. Say it, then do it, Pre-Flight, Route, then run
+
 ### Community 85 - "Findings by area, with evidence"
 Cohesion: 0.15
 Nodes (12): Code quality, Documentation and context, Findings by area, with evidence, Harness capabilities (official docs, verified 2026-09-22), Harness Review, September 2026: Toolbox, Drift, and the Evidence Behind Each Change, Parallel development, Rejected, with cause, Security (+4 more)
@@ -498,9 +509,9 @@ Nodes (3): [4.3.0] - 2026-03-31, Added, Enhanced
 Cohesion: 0.22
 Nodes (8): API Contracts, Constitution Compliance, Data Model, Implementation Approach, Plan: harness-review-tiers, Quick Start, Research Notes, Reviewed
 
-### Community 91 - "[3.0.0] - 2025-09-04"
-Cohesion: 0.33
-Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
+### Community 91 - "Instructions"
+Cohesion: 0.20
+Nodes (9): 1. Pick the tool (never install one), 2. Score, 3. Ratchet, 4. Triage survivors — each one is a missing assertion, 5. Report, Branch and changed files, Instructions, Mutate (+1 more)
 
 ### Community 94 - "Pull Request"
 Cohesion: 0.33
@@ -518,18 +529,28 @@ Nodes (4): Phase 1: Tier 1 — 6.1.0 (additive), Phase 2: Tier 2 — 6.2.0 (addi
 Cohesion: 0.67
 Nodes (3): [1.0.0] - 2025-09-02, Added, Created
 
+### Community 114 - "[3.0.0] - 2025-09-04"
+Cohesion: 0.33
+Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
+
+### Community 115 - "Release"
+Cohesion: 0.40
+Nodes (4): Current state, Instructions, Pre-Flight, Release
+
+### Community 116 - "[6.2.0] - 2026-09-22"
+Cohesion: 0.50
+Nodes (4): [6.2.0] - 2026-09-22, Added, Changed, Decided against
+
 ## Knowledge Gaps
-- **700 isolated node(s):** `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `notify-on-block.sh script` (+695 more)
+- **717 isolated node(s):** `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `merge-tree-probe.sh script` (+712 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **17 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **20 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Changelog` connect `Changelog` to `[2.1.0] - 2025-01-09`, `[4.4.0] - 2026-07-12`, `[2.0.0] - 2025-09-02`, `[3.1.0] - 2025-11-26`, `[4.0.0] - 2026-02-23`, `[4.5.0] - 2026-07-13`, `[1.0.0] - 2025-09-02`, `[5.1.0] - 2026-07-16`, `[6.0.0] - 2026-08-19`, `[5.2.0] - 2026-07-17`, `[Unreleased]`, `[4.1.0] - 2026-03-30`, `[4.3.0] - 2026-03-31`, `[3.0.0] - 2025-09-04`?**
-  _High betweenness centrality (0.004) - this node is a cross-community bridge._
 - **What connects `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script` to the rest of the system?**
-  _700 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _717 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Security Forensics Agent` be split into smaller, more focused modules?**
   _Cohesion score 0.05714285714285714 - nodes in this community are weakly interconnected._
 - **Should `Development Workflow Phases` be split into smaller, more focused modules?**
@@ -540,3 +561,5 @@ _Questions this graph is uniquely positioned to answer:_
   _Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected._
 - **Should `Workflow Test Harness` be split into smaller, more focused modules?**
   _Cohesion score 0.12666666666666668 - nodes in this community are weakly interconnected._
+- **Should `Workflow Resilience Plan` be split into smaller, more focused modules?**
+  _Cohesion score 0.09090909090909091 - nodes in this community are weakly interconnected._

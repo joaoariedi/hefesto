@@ -44,7 +44,8 @@
         "matcher": "Edit|Write",
         "hooks": [
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/format-after-edit.sh", "timeout": 15 },
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-tests-after-edit.sh", "timeout": 30 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-tests-after-edit.sh", "timeout": 30 },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/merge-tree-probe.sh", "timeout": 10 }
         ]
       }
     ],

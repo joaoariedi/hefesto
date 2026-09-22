@@ -6,7 +6,9 @@
 
 | Command | Args | Description |
 |---------|------|-------------|
-| `/hef.agent` | `<task>` | Start full development workflow with planning and task tracking |
+| `/hef.agent` | `<task>` | Route by size and coupling (fix / light spec path / full pipeline), then run with planning and task tracking |
+| `/hef.mutate` | `[paths]` | Mutation-test the changed code; raise-only score ratchet; every survivor becomes a test |
+| `/hef.release` | `<X.Y.Z> [date]` | Move every version declaration together and scaffold the CHANGELOG entry; never commits or tags |
 | `/hef.context` | — | Analyze project tech stack, tools, and structure |
 | `/hef.pr-summary` | — | Generate PR description from current branch diff |
 | `/hef.review` | `[focus]` | Two-stage review — spec compliance, then code quality (spawns code-reviewer) |

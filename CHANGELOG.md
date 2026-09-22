@@ -20,18 +20,80 @@ are not tagged.
 
 ## Releasing
 
-Six declarations of the version are bumped **by hand**, and `tests/smoke.sh` fails if they
-disagree — that check exists because nothing else would notice a half-bumped release:
+Six declarations of the version move **together**, by script, and `tests/smoke.sh` fails if they
+disagree — that check exists because nothing else would notice a half-bumped release (#19), and
+it is what caught the hand-bumped era:
 
-1. `.claude-plugin/plugin.json` → `version`
-2. `.claude-plugin/marketplace.json` → `metadata.version` **and** `plugins[0].version`
-3. `README.md` → the title and the **Framework Version** footer
-4. `.claude/CLAUDE.md` → the title
-5. Write the entry here, dated.
-6. `tests/smoke.sh` (and `SMOKE_LIVE=1` if you are logged in — it is the only check that
+1. `hooks/release.sh X.Y.Z` (or `/hef.release X.Y.Z`) — bumps `.claude-plugin/plugin.json`,
+   `.claude-plugin/marketplace.json` (`metadata.version` **and** `plugins[0].version`), the
+   README **Framework Version** footer and date, and the `.claude/CLAUDE.md` title; then
+   scaffolds the entry here from the commits since the last tag.
+2. **Edit the scaffold.** It is a list of commit subjects; the entry is what changed for the
+   user, and why. Never let an agent write it without the diff in context.
+3. `tests/smoke.sh` (and `SMOKE_LIVE=1` if you are logged in — it is the only check that
    drives the plugin end to end).
-7. Tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, then cut a GitHub Release from the
-   entry above.
+4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
+   Release from the entry above. Untagged releases make the next scaffold reach too far back.
+
+## [6.2.0] - 2026-09-22
+
+**Tier 2 of the 2026-09 harness review: the rules that agents honour least become gates, the
+mutation ratchet the framework always recommended finally exists, and releases move as one.**
+Additive — no command renamed, no path moved, no permission rule to edit. `reports/14` and
+`.specify/specs/harness-review-tiers/` carry the evidence and the task list.
+
+Cut with `/hef.release` — this entry began as the script's commit-derived scaffold and was rewritten
+by hand, which is the point of the script stopping where it does. (The scaffold reached back to
+`v5.2.0`: 6.0.0 and 6.1.0 were never tagged. Tag releases.)
+
+### Added
+
+- **`/hef.mutate`** — mutation testing over the changed code (`mutmut`, Stryker incremental,
+  `gremlins`, `cargo-mutants` — detected, never installed) against a **raise-only score ratchet**:
+  `speckit-helper.sh mutation-score | mutation-ratchet <n> | mutation-raise <n>`, with the mark
+  committed at `.specify/mutation-score`. A PR must stay within 5 points of the mark; only the
+  default branch raises it (a PR-driven ratchet cascades failures across concurrent PRs). Every
+  surviving mutant is treated as the assertion that should have existed. Coverage says a line ran;
+  this says a test would notice.
+- **`/hef.release`** and **`hooks/release.sh`** — one command moves all six version declarations
+  and scaffolds the CHANGELOG entry from the commits since the last tag, grouped by conventional
+  type; then it stops for the human edit. It never commits, tags, or pushes.
+- **`merge-tree-probe.sh`** (PostToolUse on `Edit|Write`, once a minute) — `git merge-tree
+  --write-tree` says whether the branch's committed state would conflict with its base, and how
+  far the base has drifted. Advisory. Worktree isolation removes working-directory collisions but
+  not this; 27.7% of agent PRs conflict, most of them on the combined tree only.
+- **`evals/`** — four `claude plugin eval` cases seeded from the review's named failure modes
+  (spec-first routing, destructive-command refusal, root-cause before fix, effort sizing without
+  hours), each scored with and without the plugin. Opt-in: needs an authenticated CLI, spends
+  tokens; the smoke suite checks their structure only.
+- `owns:` on `[P]` tasks — the files a task claims exclusively. The template and `/speckit.tasks`
+  ask for it; the workflow parses it into the batcher's file list and now **names** any two `[P]`
+  tasks that own the same file instead of only counting them.
+
+### Changed
+
+- **`quality-before-commit.sh` enforces two more rules that were prose.** The commit subject must
+  be a conventional commit (`git-workflow.md`'s format; the heredoc style this repo uses is
+  understood; `CLAUDE_ALLOW_NONCONVENTIONAL=1` bypasses visibly). And where `lizard` is installed,
+  `code-quality.md`'s function-length and complexity limits run as a **delta** gate: a staged file
+  may not have more over-limit functions than its `HEAD` version. Aggregate rules like these were
+  measured at 31% violation as prose against 100% compliance for rules a linter enforces; existing
+  debt stays visible and non-blocking. `workflows/speckit-workflow.js` keeps its documented
+  exemption.
+- **`/hef.agent` routes before it runs.** It sizes the task with `task-effort-estimation`
+  (Projected mode) and picks `/speckit.fix`, a light spec path (specify → tasks → implement →
+  verify, plan/review/checklist skipped and said so), or the full pipeline — with any non-local-
+  context or high-coupling flag forcing the full path regardless of size. It was a one-line
+  EnterPlanMode wrapper.
+- `quality-tooling` skill: the mutation-ratchet recipes per stack; `code-quality.md` states which
+  of its limits are now mechanically enforced and how.
+- The "Releasing" procedure below now starts with `hooks/release.sh`.
+
+### Decided against
+
+- **bats** for hook fixtures: it needs an install step in CI, which constitution principle 4
+  forbids. The fixtures live in `tests/smoke.sh`, which already drives every hook by stdin, and
+  `shellcheck` runs there when present.
 
 ## [6.1.0] - 2026-09-22
 

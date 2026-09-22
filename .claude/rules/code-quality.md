@@ -17,6 +17,14 @@
 >
 > This is a clarification of intent, not a relaxation. If the *code* exceeds 500 lines, split the file.
 
+**Enforced, not just stated.** These are aggregate rules — no single edit violates them, which is
+exactly the class of rule agents honour least (a 31% violation rate was measured for such a rule
+present in every revision of a spec, against 100% for rules that name a file). So
+`quality-before-commit.sh` runs them as a **delta gate** wherever `lizard` is installed: a staged
+file may not have *more* functions over the limits than its `HEAD` version. Brownfield debt stays
+visible and non-blocking; the change that made it worse is blocked. `/hef.quality` reports the
+absolute picture.
+
 ### The one exemption: `workflows/speckit-workflow.js`
 
 The file limit's remedy is "split the file." For a Claude Code **Workflow script** that remedy does not

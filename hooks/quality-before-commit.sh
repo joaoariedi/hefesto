@@ -16,6 +16,33 @@ fi
 
 ERRORS=""
 
+# --- Universal: conventional commit message --------------------------------------------
+#
+# git-workflow.md prescribes `<type>: <description>`; hef.release's changelog scaffold groups
+# commits BY that type. A message that ignores the format lands in the wrong section, or none —
+# and a rule only prose enforces is the one that drifts first. Checked here, at the moment the
+# message exists; CI cannot see a message before it is pushed.
+#
+# Only an INLINE message is inspected: `-m "…"` / `-m '…'`, or the repo's own heredoc style
+# `-m "$(cat <<'EOF' … EOF)"` (subject = the line after the heredoc opener). `--amend --no-edit`,
+# `-F file`, and merges have no inline message and are left alone. Visible bypass:
+# CLAUDE_ALLOW_NONCONVENTIONAL=1 in the command.
+SUBJECT=""
+if [[ "$COMMAND" =~ cat[[:space:]]*\<\<[\'\"]?[A-Z_]+[\'\"]? ]]; then
+  SUBJECT="$(printf '%s\n' "$COMMAND" | sed -n '2p')"
+elif [[ "$COMMAND" =~ -m[[:space:]]+\"([^\"]+)\" ]] || [[ "$COMMAND" =~ -m[[:space:]]+\'([^\']+)\' ]]; then
+  SUBJECT="${BASH_REMATCH[1]%%$'\n'*}"
+fi
+# The pattern lives in a variable: a `)` inside the bracket expression `[^)]` is a parse error when
+# the regex is written inline in `[[ =~ ]]` (bash reads it as the end of the group). Quoting it
+# would make it a literal match instead. A variable is the documented, portable form.
+CONVENTIONAL_RE='^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\([^)]+\))?!?:[[:space:]].+'
+if [ -n "$SUBJECT" ] && [[ "$COMMAND" != *"CLAUDE_ALLOW_NONCONVENTIONAL=1"* ]]; then
+  if ! [[ "$SUBJECT" =~ $CONVENTIONAL_RE ]]; then
+    ERRORS="${ERRORS}Commit subject '$SUBJECT' is not conventional (<type>(<scope>)?: <description>; types: feat fix docs style refactor perf test chore ci build revert — see git-workflow.md). "
+  fi
+fi
+
 # Universal: Secrets detection (mandatory, runs first)
 if command -v gitleaks &>/dev/null; then
   if ! gitleaks detect --staged --no-banner -q 2>/dev/null; then
@@ -75,6 +102,36 @@ if [ -n "$MD_FILES" ]; then
         ERRORS="${ERRORS}markdownlint issues in $f. "
       fi
     done <<< "$MD_FILES"
+  fi
+fi
+
+# --- Universal: complexity DELTA gate, when lizard is installed ------------------------
+#
+# code-quality.md's limits (50-line functions, complexity 10) are AGGREGATE rules: no single edit
+# violates them, so in prose they are honoured ~70% of the time and a 31%-violation rate is the
+# measured norm for such rules (heym.run, 2026). As a linter they are honoured. lizard is
+# polyglot and its defaults ARE the framework's limits (-C 10 -L 50). The gate is a DELTA, not an
+# absolute cap: a staged file may not have MORE over-limit functions than its HEAD version, so
+# brownfield debt stays visible without blocking unrelated changes. Zero-dependency baseline: none
+# exists for this check, so it runs only where lizard is present — and says nothing otherwise.
+if command -v lizard &>/dev/null; then
+  CX_FILES=$(echo "$STAGED" | grep -E '\.(py|js|jsx|ts|tsx|go|rs|java|kt|rb|c|cc|cpp|h|hpp|cs|swift|php|scala|lua)$' || true)
+  if [ -n "$CX_FILES" ]; then
+    while IFS= read -r f; do
+      [ -f "$CWD/$f" ] || continue
+      case "$f" in workflows/speckit-workflow.js) continue ;; esac   # the one documented exemption
+      now=$(lizard -w -C 10 -L 50 "$CWD/$f" 2>/dev/null | grep -c ': warning:' || true)
+      before=0
+      if git -C "$CWD" cat-file -e "HEAD:$f" 2>/dev/null; then
+        cx_tmp="$(mktemp --suffix=".${f##*.}")"
+        git -C "$CWD" show "HEAD:$f" > "$cx_tmp" 2>/dev/null
+        before=$(lizard -w -C 10 -L 50 "$cx_tmp" 2>/dev/null | grep -c ': warning:' || true)
+        rm -f "$cx_tmp"
+      fi
+      if [ "${now:-0}" -gt "${before:-0}" ]; then
+        ERRORS="${ERRORS}Complexity/length got worse in $f (${before} → ${now} functions over the limits in rules/code-quality.md). "
+      fi
+    done <<< "$CX_FILES"
   fi
 fi
 

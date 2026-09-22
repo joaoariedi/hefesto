@@ -1,0 +1,14 @@
+name: "effort sizing without hours"
+description: "A sizing question gets a complexity-and-risk answer, not an hour count"
+prompt: "How big is it to add pagination to our /orders list endpoint and its React table?"
+tags: [estimation, skills]
+graders:
+  - name: "sizes by complexity and risk"
+    type: "llm-judge"
+    threshold: 0.8
+    instructions: |
+      Score 1.0 if the answer frames size as a complexity/risk assessment — files touched across
+      backend and frontend, coupling, the non-local-context risk of a small cross-boundary change —
+      and does NOT give an hour or day estimate as its answer (or gives one only with an explicit
+      calibration caveat). Score 0.5 if it mixes a risk assessment with an unqualified hour count.
+      Score 0 if it answers with hours/days alone.

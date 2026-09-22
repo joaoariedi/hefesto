@@ -982,6 +982,193 @@ for ev in SessionStart PreCompact ConfigChange; do
   fi
 done
 
+# --- Tier 2: conventional commit messages (FR-013) ---------------------------------------
+head_ "Conventional commits"
+
+# git-workflow.md prescribes the format; release.sh groups the changelog by it. Checked at commit
+# time, in the pre-commit hook, on the inline message only. Both directions: every documented
+# type passes, the heredoc style this repo uses passes, and a bare message is blocked.
+#
+# Mutation-checked 2026-09-22: `docs|` dropped from CONVENTIONAL_RE → the docs case went red;
+# the heredoc subject line changed from `2p` to `3p` → survived the first two heredoc cases (line 3
+# was empty or `EOF` in both), so the "body line looks conventional" case below was added; with it
+# the mutation goes red. Restored.
+QBC="$REPO/hooks/quality-before-commit.sh"
+cc_t="$(mktemp -d)"; git -C "$cc_t" init -q .
+cc_case() { # expected-exit description command
+  local exp="$1" desc="$2" cmd="$3" rc=0
+  jq -nc --arg c "$cmd" --arg d "$cc_t" '{tool_input:{command:$c},cwd:$d}' | bash "$QBC" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$exp" ]; then ok "$desc"; else bad "$desc (want exit $exp, got $rc)"; fi
+}
+cc_case 0 "allows 'feat: …'"                                   'git commit -m "feat: add thing"'
+cc_case 0 "allows 'docs: …' in single quotes"                  "git commit -m 'docs: note'"
+cc_case 0 "allows a scoped breaking 'fix(hooks)!: …'"          'git commit -m "fix(hooks)!: tighten"'
+cc_case 0 "allows the repo's heredoc commit style"             "$(printf 'git commit -q -m "$(cat <<%s\nfeat: thing\n\nbody\nEOF\n)"' "'EOF'")"
+cc_case 2 "blocks a bare message"                              'git commit -m "added thing"'
+cc_case 2 "blocks a bare heredoc subject"                      "$(printf 'git commit -m "$(cat <<%s\nMerged some stuff\nEOF\n)"' "'EOF'")"
+# The SUBJECT is line 2 of the command (the line after the heredoc opener), never a body line. A
+# check that read the wrong line would pass a bare subject whose body happens to look conventional.
+cc_case 2 "blocks a bare heredoc subject even when a body line looks conventional" "$(printf 'git commit -m "$(cat <<%s\nMerged stuff\ndocs: this is body text\nEOF\n)"' "'EOF'")"
+cc_case 0 "allows the visible bypass CLAUDE_ALLOW_NONCONVENTIONAL=1" 'CLAUDE_ALLOW_NONCONVENTIONAL=1 git commit -m "wip"'
+cc_case 0 "leaves --amend --no-edit alone (no inline subject)" 'git commit --amend --no-edit'
+rm -rf "$cc_t"
+
+# --- Tier 2: complexity DELTA gate (FR-010) ----------------------------------------------
+head_ "Complexity delta gate"
+
+# code-quality.md's limits are aggregate rules — the class agents honour least in prose. The
+# pre-commit hook runs them as a DELTA where lizard is installed: a staged file may not gain
+# over-limit functions versus HEAD. lizard is not on CI, so a stub on PATH drives the logic: one
+# warning per LIZARD_VIOLATION marker. This tests OUR delta, not lizard.
+#
+# Mutation-checked 2026-09-22: `-gt` → `-ge` on the compare → "unchanged count" went red — on the
+# SECOND attempt; the first fixture staged content identical to HEAD, so nothing was staged and the
+# gate never ran (see the case's comment). The exemption removed → the exemption case went red.
+# Restored.
+cx_t="$(mktemp -d)"; cx_b="$(mktemp -d)"
+printf '#!/bin/bash\nf="${@: -1}"; n=$(grep -c LIZARD_VIOLATION "$f" 2>/dev/null || true); for i in $(seq 1 ${n:-0}); do echo "$f:$i: warning: fn$i has 60 NLOC, 12 CCN"; done; exit 0\n' > "$cx_b/lizard"
+chmod +x "$cx_b/lizard"
+( cd "$cx_t" && git init -q . && printf 'x # LIZARD_VIOLATION\n' > a.py && git add a.py && git -c user.email=s@t -c user.name=s commit -q -m 'feat: base' ) >/dev/null 2>&1
+cx_case() { # expected-exit description
+  local exp="$1" desc="$2" rc=0
+  jq -nc --arg d "$cx_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | PATH="$cx_b:$PATH" bash "$QBC" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$exp" ]; then ok "$desc"; else bad "$desc (want exit $exp, got $rc)"; fi
+}
+( cd "$cx_t" && printf 'x # LIZARD_VIOLATION\ny # LIZARD_VIOLATION\n' > a.py && git add a.py ); cx_case 2 "blocks a staged file that GAINED an over-limit function (1 → 2)"
+# A REAL diff with the same count: identical content stages nothing, the gate never runs, and the
+# case passes vacuously — which is how the first `-gt`→`-ge` mutation survived. Measured.
+( cd "$cx_t" && printf 'y # LIZARD_VIOLATION\n' > a.py && git add a.py );                           cx_case 0 "passes a changed file whose violation count is unchanged (existing debt does not block)"
+( cd "$cx_t" && printf 'clean\n' > a.py && git add a.py );                                          cx_case 0 "passes a file that got better"
+( cd "$cx_t" && git checkout -q a.py 2>/dev/null; git reset -q; printf 'n # LIZARD_VIOLATION\n' > new.py && git add new.py ); cx_case 2 "blocks a NEW file with an over-limit function (0 → 1)"
+( cd "$cx_t" && git reset -q; rm -f new.py; mkdir -p workflows && printf 'v # LIZARD_VIOLATION\n' > workflows/speckit-workflow.js && git add workflows/speckit-workflow.js ); cx_case 0 "skips the one documented exemption (workflows/speckit-workflow.js)"
+( cd "$cx_t" && git reset -q; rm -rf workflows; printf 'x # LIZARD_VIOLATION\ny # LIZARD_VIOLATION\n' > a.py && git add a.py )
+rc=0; jq -nc --arg d "$cx_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | PATH="/usr/bin:/bin" bash "$QBC" >/dev/null 2>&1 || rc=$?
+if [ "$rc" -eq 0 ]; then ok "the gate is silent when lizard is not installed (degrades, never blocks)"
+else bad "the gate fired with lizard absent (rc=$rc) — a check that runs without its tool is a false positive factory"; fi
+rm -rf "$cx_t" "$cx_b"
+
+# --- Tier 2: release.sh moves every declaration together (FR-013) ------------------------
+head_ "Release script"
+
+# Six declarations, one command. Driven on a COPY of the declaration files so the real tree is
+# untouched; the assertion is the same one the Version block above makes — they all agree — plus
+# the changelog scaffold exists and the guards refuse a repeat and a malformed version.
+#
+# Mutation-checked 2026-09-22: `.plugins[0].version = $v` removed from the jq → "declarations
+# agree" went red. Restored.
+rl_t="$(mktemp -d)"
+mkdir -p "$rl_t/.claude-plugin" "$rl_t/.claude" "$rl_t/hooks"
+cp "$REPO/.claude-plugin/plugin.json" "$REPO/.claude-plugin/marketplace.json" "$rl_t/.claude-plugin/"
+cp "$REPO/.claude/CLAUDE.md" "$rl_t/.claude/"; cp "$REPO/README.md" "$REPO/CHANGELOG.md" "$rl_t/"; cp "$REPO/hooks/release.sh" "$rl_t/hooks/"
+( cd "$rl_t" && git init -q . && git add -A && git -c user.email=s@t -c user.name=s commit -q -m 'chore: import' && git tag v0.0.1 \
+  && printf 'x\n' > x && git add x && git -c user.email=s@t -c user.name=s commit -q -m 'feat: scaffold me' ) >/dev/null 2>&1
+if ( cd "$rl_t" && hooks/release.sh 99.1.2 2030-01-02 ) >/dev/null 2>&1; then
+  rl_p="$(jq -r .version "$rl_t/.claude-plugin/plugin.json")"
+  rl_m1="$(jq -r .metadata.version "$rl_t/.claude-plugin/marketplace.json")"
+  rl_m2="$(jq -r '.plugins[0].version' "$rl_t/.claude-plugin/marketplace.json")"
+  rl_r="$(grep -oE 'Framework Version\*\*: [0-9.]+' "$rl_t/README.md" | grep -oE '[0-9.]+$')"
+  rl_c="$(grep -m1 -oE 'Hefesto v[0-9]+\.[0-9]+' "$rl_t/.claude/CLAUDE.md" | grep -oE '[0-9.]+$')"
+  if [ "$rl_p" = 99.1.2 ] && [ "$rl_m1" = 99.1.2 ] && [ "$rl_m2" = 99.1.2 ] && [ "$rl_r" = 99.1.2 ] && [ "$rl_c" = 99.1 ]; then
+    ok "release.sh moved plugin.json, marketplace (×2), README footer, and the CLAUDE.md title together"
+  else
+    bad "release.sh left declarations disagreeing: plugin=$rl_p mkt=$rl_m1/$rl_m2 readme=$rl_r claude=$rl_c"
+  fi
+  if grep -qF '## [99.1.2] - 2030-01-02' "$rl_t/CHANGELOG.md" && grep -qF -- '- scaffold me' "$rl_t/CHANGELOG.md"; then
+    ok "release.sh scaffolded the CHANGELOG entry from the commits since the last tag"
+  else
+    bad "release.sh did not scaffold the CHANGELOG entry"
+  fi
+  if ( cd "$rl_t" && hooks/release.sh 99.1.2 ) >/dev/null 2>&1; then bad "release.sh re-ran for a version the CHANGELOG already has"
+  else ok "release.sh refuses a version the CHANGELOG already has"; fi
+  if ( cd "$rl_t" && hooks/release.sh 1.2 ) >/dev/null 2>&1; then bad "release.sh accepted a malformed version"
+  else ok "release.sh refuses a malformed version"; fi
+else
+  bad "release.sh failed on a clean copy of the declaration files"
+fi
+rm -rf "$rl_t"
+
+# --- Tier 2: mutation-score ratchet (FR-009) ---------------------------------------------
+head_ "Mutation ratchet"
+
+# Raise-only mark with a fixed floor. A fixed threshold drifts to aspirational; a PR-driven
+# ratchet cascades failures across concurrent PRs. Driven in a scratch dir.
+#
+# Mutation-checked 2026-09-22: `floor=$((mark - 5))` → `- 10` → "below the floor fails" went red;
+# `-gt "$mark"` → `-ge` in mutation-raise → "does not lower" went red. Restored.
+mr_t="$(mktemp -d)"
+mr_fail=0
+out="$(cd "$mr_t" && "$HELPER" mutation-score 2>/dev/null)"; rc=$?
+[ "$out" = "NO_MARK" ] && [ "$rc" -ne 0 ] || { bad "mutation-score with no mark must print NO_MARK and exit non-zero (got '$out'/$rc)"; mr_fail=1; }
+(cd "$mr_t" && "$HELPER" mutation-raise 62 >/dev/null 2>&1)
+[ "$(cd "$mr_t" && "$HELPER" mutation-score 2>/dev/null)" = "62" ] || { bad "mutation-raise did not record 62"; mr_fail=1; }
+(cd "$mr_t" && "$HELPER" mutation-ratchet 57 >/dev/null 2>&1) || { bad "a score AT the floor (mark−5) must pass"; mr_fail=1; }
+if (cd "$mr_t" && "$HELPER" mutation-ratchet 56 >/dev/null 2>&1); then bad "a score below the floor must fail the ratchet"; mr_fail=1; fi
+(cd "$mr_t" && "$HELPER" mutation-raise 50 >/dev/null 2>&1)
+[ "$(cd "$mr_t" && "$HELPER" mutation-score 2>/dev/null)" = "62" ] || { bad "mutation-raise lowered the mark — it must only move up"; mr_fail=1; }
+if (cd "$mr_t" && "$HELPER" mutation-ratchet abc >/dev/null 2>&1); then bad "mutation-ratchet accepted a non-integer"; mr_fail=1; fi
+rm -rf "$mr_t"
+[ "$mr_fail" -eq 0 ] && ok "mutation-score / mutation-ratchet / mutation-raise honour the raise-only, floor-5 contract"
+grep -qF 'speckit-helper.sh mutation-ratchet' "$REPO/commands/hef.mutate.md" 2>/dev/null \
+  && ok "/hef.mutate runs the ratchet" || bad "/hef.mutate does not call mutation-ratchet"
+
+# --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------
+head_ "Parallel-safety"
+
+# The probe reports a committed-state conflict with the base and stays silent on a clean branch,
+# on the base branch itself, and when throttled. The owns: contract is prose in three places the
+# workflow's batcher depends on.
+#
+# Mutation-checked 2026-09-22: the CONFLICT echo removed → "reports a conflict" went red. Restored.
+MTP="$REPO/hooks/merge-tree-probe.sh"
+mt_t="$(mktemp -d)"
+( cd "$mt_t" && git init -q -b main . && printf 'a\n' > f && git add f && git -c user.email=s@t -c user.name=s commit -q -m 'chore: base' \
+  && git checkout -q -b feature/x && printf 'b\n' > f && git -c user.email=s@t -c user.name=s commit -qam 'feat: x' \
+  && git checkout -q main && printf 'c\n' > f && git -c user.email=s@t -c user.name=s commit -qam 'fix: y' && git checkout -q feature/x ) >/dev/null 2>&1
+rm -f /tmp/.hefesto-merge-probe-* 2>/dev/null
+mt_out="$(printf '{"cwd":"%s"}' "$mt_t" | bash "$MTP" 2>&1 >/dev/null)"
+if grep -qF 'CONFLICT with main in: f' <<<"$mt_out"; then ok "merge-tree probe reports a committed-state conflict with the base, naming the file"
+else bad "merge-tree probe missed the conflict: $mt_out"; fi
+mt_out2="$(printf '{"cwd":"%s"}' "$mt_t" | bash "$MTP" 2>&1 >/dev/null)"
+[ -z "$mt_out2" ] && ok "merge-tree probe is throttled (second call within a minute is silent)" || bad "merge-tree probe ran twice inside the throttle window"
+rm -f /tmp/.hefesto-merge-probe-* 2>/dev/null
+( cd "$mt_t" && git checkout -q main ) >/dev/null 2>&1
+mt_out3="$(printf '{"cwd":"%s"}' "$mt_t" | bash "$MTP" 2>&1 >/dev/null)"
+[ -z "$mt_out3" ] && ok "merge-tree probe is silent on the base branch" || bad "merge-tree probe spoke on main: $mt_out3"
+rm -rf "$mt_t"
+if jq -e '.hooks.PostToolUse[] | select(.matcher | test("Edit")) | .hooks[] | select(.command | test("merge-tree-probe"))' "$REPO/hooks/hooks.json" >/dev/null 2>&1; then
+  ok "merge-tree probe is registered on PostToolUse Edit|Write"
+else
+  bad "merge-tree-probe.sh is not registered — it exists and never fires"
+fi
+owns_fail=0
+grep -qF 'owns:' "$REPO/.specify/templates/tasks.md" || { bad "tasks template lost the owns: field"; owns_fail=1; }
+grep -qF 'owns:' "$REPO/commands/speckit.tasks.md" || { bad "/speckit.tasks no longer asks [P] tasks to declare owns:"; owns_fail=1; }
+grep -qF 'owns:' "$REPO/workflows/speckit-workflow.js" || { bad "the workflow loader no longer parses owns:"; owns_fail=1; }
+grep -qF 'both own' "$REPO/workflows/speckit-workflow.js" || { bad "the workflow no longer names owns: overlaps"; owns_fail=1; }
+[ "$owns_fail" -eq 0 ] && ok "owns: is declared in the template, requested by /speckit.tasks, parsed and overlap-reported by the workflow"
+
+# --- Tier 2: router, evals, shellcheck (FR-011, FR-014) -----------------------------------
+head_ "Router and evals"
+
+grep -qF 'task-effort-estimation' "$REPO/commands/hef.agent.md" && grep -qF 'speckit.fix' "$REPO/commands/hef.agent.md" \
+  && ok "/hef.agent routes by size via task-effort-estimation (FR-011)" \
+  || bad "/hef.agent no longer routes by size"
+ev_fail=0; ev_n=0
+for c in "$REPO"/evals/*.yaml; do
+  [ -f "$c" ] || continue
+  ev_n=$((ev_n + 1))
+  grep -qE '^name:' "$c" && grep -qE '^prompt:' "$c" && grep -qE '^graders:' "$c" && grep -qE 'type: "?(tool_used|contains|llm-judge|rubric)"?' "$c" \
+    || { bad "eval case $(basename "$c") lacks name/prompt/graders or a known grader type"; ev_fail=1; }
+done
+[ "$ev_n" -ge 1 ] || { bad "no eval cases under evals/"; ev_fail=1; }
+[ "$ev_fail" -eq 0 ] && ok "$ev_n eval case(s) parse structurally: name, prompt, graders with a known type (FR-014)"
+if command -v shellcheck >/dev/null 2>&1; then
+  sc_bad="$(shellcheck -S warning "$REPO"/hooks/*.sh 2>&1 | grep -c '^In ' || true)"
+  [ "${sc_bad:-0}" -eq 0 ] && ok "shellcheck (warning+) is clean on every hook" || bad "shellcheck reports $sc_bad finding(s) in hooks/"
+else
+  printf '  \033[33mskip\033[0m shellcheck not installed — hooks were only bash -n checked at commit time\n'
+fi
+
 # --- Tier 1: the review agents have commands (FR-002) ------------------------------------
 head_ "Command → agent wiring"
 

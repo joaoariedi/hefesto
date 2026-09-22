@@ -9,7 +9,7 @@
 
 ## Phase 3: User Stories (by priority)
 ### P1
-- [ ] T003 [P] [US1] _Implementation task_ `path/to/file`
+- [ ] T003 [P] [US1] _Implementation task_ `path/to/file` owns: path/to/file, path/to/other
 
 ### P2
 - [ ] T004 [US2] _Implementation task_ `path/to/file`
@@ -18,4 +18,4 @@
 - [ ] T005 [US1] _Polish task_ `path/to/file`
 
 ---
-Legend: `[P]` = parallelizable | `[US#]` = user scenario ref
+Legend: `[P]` = parallelizable | `[US#]` = user scenario ref | `owns:` = files this task claims exclusively (two `[P]` tasks may not own the same file)

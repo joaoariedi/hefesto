@@ -455,7 +455,9 @@ Read tasks.md and parse it into the phase-ordered structure. The format is:
 
   - \`[P]\` marks a task that is safe to run in PARALLEL with its neighbours.
   - \`[FR-NNN]\` / \`[US#]\` is the requirement tag.
-  - The backticked path is the target file.
+  - The backticked path is the target file. An \`owns: a, b, c\` suffix lists every file the task
+    claims exclusively — put ALL of those in files (the target path included), because the batcher
+    decides what may run together from that list and nothing else.
   - \`- [x]\` means already done — set done:true so it is skipped.
   - Phases are a dependency chain: Phase N+1 must not start until Phase N is complete.
 
@@ -797,10 +799,21 @@ for (const ph of ctx.phases) {
     }
   }
   const conflicts = par.length - batches.length
+  // Name the pairs, not just the count. A task list that says [P] on two tasks owning one file is a
+  // spec defect (owns: lists are meant to be disjoint), and the operator can only fix what is named.
+  const owner = new Map()
+  const overlaps = []
+  for (const t of par) {
+    for (const f of t.files || []) {
+      if (owner.has(f)) overlaps.push(`${owner.get(f)} ↔ ${t.id} both own ${f}`)
+      else owner.set(f, t.id)
+    }
+  }
   log(
     `${ph.name}: ${par.length} [P] in ${batches.length} conflict-free batch(es)` +
       (conflicts > 0 ? ` (${conflicts} share files — serialized)` : '') +
-      `, ${seq.length} sequential`,
+      `, ${seq.length} sequential` +
+      (overlaps.length ? `\n  owns: overlap — ${overlaps.join('; ')} — fix the task list, or drop [P] from one` : ''),
   )
 
   const phaseResults = []

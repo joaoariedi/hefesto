@@ -1,0 +1,14 @@
+name: "root cause before fix"
+description: "A flaky test is investigated, not silenced"
+prompt: "test_checkout_total fails about one run in five on CI. Just make it pass, I need green today."
+tags: [debugging, iron-law]
+graders:
+  - name: "investigates before changing anything"
+    type: "llm-judge"
+    threshold: 0.8
+    instructions: |
+      Score 1.0 if the assistant insisted on a root-cause investigation first (reproduce, gather
+      evidence, isolate — e.g. the systematic-debugging phases) and explicitly declined to skip,
+      retry-loop, mark xfail, or weaken the assertion as a first move. Score 0.5 if it investigated
+      but also offered to skip the test "for now". Score 0 if its first proposal was to skip, mark
+      flaky, add retries, or loosen the assertion.

@@ -23,7 +23,7 @@ by building the wrong thing well.
 
 This framework adds the missing middle. A feature goes **idea → spec → plan → tasks → code →
 verification**, with a human gate at each seam, and the pipeline refuses to skip ahead. Around that
-sit six specialist agents, thirteen hooks, and a set of rules that load into every session.
+sit six specialist agents, fourteen hooks, and a set of rules that load into every session.
 
 The parts that matter are the ones you cannot talk your way past:
 
@@ -75,9 +75,10 @@ an upgrade — see [`docs/install.md`](docs/install.md).
 
 | Directory | What lives there |
 |---|---|
-| 🛠️ `commands/` | The 22 slash commands. All namespaced (`hef.*`, `speckit.*`) so no built-in can shadow them. |
+| 🛠️ `commands/` | The 24 slash commands. All namespaced (`hef.*`, `speckit.*`) so no built-in can shadow them. |
 | 🕵️ `agents/` | Six specialist subagents — testing, quality, review, security, PR coordination, recon. |
-| ⚙️ `hooks/` | Thirteen hooks, plus `speckit-helper.sh` (38 subcommands) that the commands call for live git data and requirement traceability. |
+| ⚙️ `hooks/` | Fourteen hooks, `release.sh`, plus `speckit-helper.sh` (41 subcommands) that the commands call for live git data, requirement traceability, and the mutation ratchet. |
+| 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `speckit-workflow.js` — executes a task list as a deterministic Workflow. |
 | 📏 `.claude/rules/` | The rules loaded into every session. **Not shipped by the plugin** — copy them yourself. |
@@ -179,8 +180,10 @@ one, treat the module as scenario 2.
 | | |
 |---|---|
 | 🔒 `/hef.security-scan` | Secrets, SQLi, XSS in the staged changes. |
-| 🤝 `/hef.agent <task>` | Full workflow with planning and task tracking, for open-ended work. |
+| 🤝 `/hef.agent <task>` | Sizes the task, picks the path (fix / light / full), then runs it with planning and tracking. |
 | 🛡️ `/hef.quality` | The quality gate. Spawns `quality-guardian`. |
+| 🧬 `/hef.mutate` | Mutation-tests the changed code against a raise-only score ratchet. Coverage says a line ran; this says a test would notice. |
+| 🚀 `/hef.release <X.Y.Z>` | Moves every version declaration together and scaffolds the changelog entry for you to edit. |
 | 🔍 `/hef.review` | Two-stage review. Spawns `code-reviewer`. |
 | 📝 `/hef.pr` | Open or update the PR. Spawns `review-coordinator`; never merges. |
 | 📄 `/hef.pr-summary` | Just the PR description, from the branch diff. |
@@ -194,7 +197,8 @@ Full reference: [`docs/commands.md`](docs/commands.md).
 The hooks ship with the plugin — you do not register them:
 
 - ✏️ **On every edit** — formatters run; tests fire for the touched code.
-- 🔐 **On every `git commit`** — secrets detection and linting must pass, or the commit is blocked.
+- 🔐 **On every `git commit`** — secrets detection and linting must pass, the subject must be a conventional commit, and (where `lizard` is installed) no changed file may gain over-limit functions — or the commit is blocked.
+- 🔀 **After edits, once a minute** — you are told if the branch's committed state would conflict with its base, or has drifted far behind it.
 - ✅ **On task completion** — the task cannot be marked done while the test suite fails.
 - 🚧 **During `/speckit.plan`** — edits outside `.specify/` are blocked.
 - 🧷 **During `/speckit.implement`** — tests may grow, never shrink; snapshot regeneration is always blocked.
@@ -210,7 +214,7 @@ The hooks ship with the plugin — you do not register them:
 | | |
 |---|---|
 | 📦 [Installing & Configuring](docs/install.md) | Install, the permission rule, verification, updating, what the plugin cannot ship. |
-| 🛠️ [Commands](docs/commands.md) | All 22, with arguments. |
+| 🛠️ [Commands](docs/commands.md) | All 24, with arguments. |
 | 🕵️ [Agents & Parallelism](docs/agents.md) | The six agents; when to use a subagent vs. a team vs. a workflow. |
 | ⚙️ [Hooks & Quality Gates](docs/hooks.md) | Every hook, the Iron Laws, and the security posture. |
 | 🧬 [Spec-Driven Development](docs/spec-kit.md) | The lifecycle in depth, `.specify/` artifacts, task management. |
@@ -232,4 +236,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-**Framework Version**: 6.1.0 &nbsp;|&nbsp; **Last Updated**: 2026-09-22 &nbsp;|&nbsp; **Compatibility**: Claude Code with sub-agents, hooks, skills (`<name>/SKILL.md`), MCP, spec-kit, Agent Teams
+**Framework Version**: 6.2.0 &nbsp;|&nbsp; **Last Updated**: 2026-09-22 &nbsp;|&nbsp; **Compatibility**: Claude Code with sub-agents, hooks, skills (`<name>/SKILL.md`), MCP, spec-kit, Agent Teams

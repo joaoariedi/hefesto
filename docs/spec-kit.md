@@ -118,7 +118,7 @@ Each feature generates artifacts in `.specify/specs/<branch>/`:
 |----------|-------------|---------|
 | `spec.md` | `/speckit.specify` or `/speckit.baseline` | User scenarios, functional requirements, success criteria |
 | `plan.md` | `/speckit.plan` | Design, affected files, constitution compliance |
-| `tasks.md` | `/speckit.tasks` | Phased task list with IDs and dependencies |
+| `tasks.md` | `/speckit.tasks` | Phased task list with IDs and dependencies; `[P]` tasks declare `owns:` — the files they claim exclusively, which is what the workflow batches by |
 | `research.md` | `/speckit.plan` | Resolved clarifications |
 | `checklists/*.md` | `/speckit.checklist` | Requirement quality checklists |
 | `data-model.md` | `/speckit.plan` | Schema changes (if applicable) |
