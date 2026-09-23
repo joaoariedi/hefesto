@@ -98,6 +98,18 @@ so an existing install needs the migration below. `reports/14` and
 - `forensic-specialist` and `code-reviewer` declare **`memory: project`**: recurring findings and
   project-specific false positives persist under `.claude/agent-memory/<name>/`. Memory holds facts
   and decisions, never instructions to a future session.
+- **`session-start-context.sh` states the routing rules** — two lines on every session start: a
+  feature-sized request goes to `/hef.spec` (`/hef.brainstorm`, `/hef.agent`), never to
+  implementation from the prompt alone; no fix before a root-cause investigation, and size by
+  complexity and risk, not hours. The first real `claude plugin eval` run showed why: with only the
+  plugin installed — no `CLAUDE.md`, no rules — the model answered "add JWT auth, go ahead" by
+  dispatching an implementation agent, in both ablation arms. Commands only route when invoked;
+  SessionStart is the one channel the plugin has to say which command to invoke. With the lines,
+  spec-first routing scores Δ +1.0 against the no-plugin arm.
+- **`evals/` now runs** — cases are `evals/<case>/case.yaml` in the CLI's real schema, each with a
+  `scaffold.sh` that builds a small git repo for the prompt to act on (the eval workspace is empty
+  otherwise, and both arms answered "there is no project here"). `evals/README.md` records the
+  flags and the sandbox requirement for a Bash grant.
 - `docs/agents.md`: agent memory rules, and **doc gardening as a routine** — a scheduled
   `claude -p` brief that reads docs, reports, and rules against the tree and proposes the minimal
   edits; the smoke suite's docs-honesty checks are its acceptance test.

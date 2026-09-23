@@ -955,6 +955,13 @@ if grep -qF 'branch feature/demo' <<<"$ss_out" && grep -qF 'T001 open' <<<"$ss_o
 else
   bad "session-start hook output lacks branch/open-task lines: $ss_out"
 fi
+# Eval 2026-09-23 (spec-first-routing, both arms 0/1): with only the plugin installed, nothing told
+# the model which command a feature-sized request goes to. The routing lines are that channel.
+if grep -qF '/hef.spec' <<<"$ss_out" && grep -qF 'root-cause' <<<"$ss_out"; then
+  ok "session-start hook states the routing rule (spec first) and the iron law (root cause first)"
+else
+  bad "session-start hook does not state the routing rules: $ss_out"
+fi
 lc_n="$(mktemp -d)"
 ss_none="$(printf '{"cwd":"%s"}' "$lc_n" | bash "$REPO/hooks/session-start-context.sh" 2>/dev/null)"
 if [ -z "$ss_none" ]; then ok "session-start hook is silent outside a git repo (costs no context)"
@@ -1158,8 +1165,14 @@ ev_fail=0; ev_n=0
 for c in "$REPO"/evals/*/case.yaml; do
   [ -f "$c" ] || continue
   ev_n=$((ev_n + 1))
-  grep -qE '^name:' "$c" && grep -qE '^prompt:' "$c" && grep -qE '^graders:' "$c" && grep -qE 'type: "?(tool_used|contains|llm-judge|rubric)"?' "$c" \
-    || { bad "eval case $(basename "$(dirname "$c")") lacks name/prompt/graders or a known grader type"; ev_fail=1; }
+  # The contract claude plugin eval 2.1.280 enforces (learned by running it: the first suite
+  # reported zero cases, the second "missing required field schema_version", the third an
+  # invalid grader discriminator). Each of those is now a red check here.
+  grep -qE '^schema_version: "1\.[0-9]+"' "$c" && grep -qE '^name:' "$c" && grep -qE '^execution:' "$c" \
+    && grep -qE '^\s+prompt:' "$c" && grep -qE '^graders:' "$c" \
+    && grep -qE '^\s+type: "?(regex|tool_used|tool_order|file_exists|llm|baseline)"?$' "$c" \
+    && ! grep -qE '^\s+type: "?(contains|llm-judge|rubric)"?' "$c" \
+    || { bad "eval case $(basename "$(dirname "$c")") does not match the case.yaml contract (schema_version 1.x, name, execution.prompt, graders with a real type)"; ev_fail=1; }
 done
 [ "$ev_n" -ge 1 ] || { bad "no eval cases under evals/"; ev_fail=1; }
 [ "$ev_fail" -eq 0 ] && ok "$ev_n eval case(s) parse structurally: name, prompt, graders with a known type (FR-014)"

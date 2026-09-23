@@ -5,11 +5,21 @@ Behavioural cases for `claude plugin eval` — each prompt is run **with and wit
 framework's prompts change behaviour, not whether the model is capable.
 
 ```bash
-claude plugin eval . --trust-plugin --threshold 0.8          # local; spends tokens
-claude plugin eval . --trust-plugin --json results.json       # machine-readable, for a nightly job
+claude plugin eval . --trust-plugin --scaffold --allow-tools Bash --threshold 0.8      # local; spends tokens
+claude plugin eval . --trust-plugin --scaffold --allow-tools Bash --json results.json  # machine-readable, for a nightly job
 ```
 
-Layout: one directory per case, `evals/<case>/case.yaml` — the CLI resolves `case.yaml` (or `prompt.md` + `graders/*.md`), not top-level `<name>.yaml`; a flat file is silently ignored and the run reports zero cases. Results land in `evals/results/` (gitignored — they hold full prompts and transcripts).
+`--scaffold` runs each case's `scaffold.sh` first: the eval workspace is **empty** by default, and the
+first real run proved that both arms answer "there is no project here" to every prompt. Each case
+now ships a small git repo with real code for the prompt to act on. `--allow-tools Bash` lets the
+with-arm run the `hef.*` pre-flight helpers, and lets the destructive-command case exercise the
+hook that blocks the force push. The CLI **refuses** that grant unless it can confine the shell:
+on Linux that means `bubblewrap` and `socat` installed (`pacman -S bubblewrap socat` /
+`apt install bubblewrap socat`). Without them, drop the flag — the cases still run and the graders
+still score the reply; only the Bash-dependent evidence (helper output, the hook firing) is absent.
+`--keep-temp` preserves each run's `out/trace.jsonl`, the only place the transcript survives.
+
+Layout: one directory per case, `evals/<case>/case.yaml` — the CLI resolves `case.yaml` (or `prompt.md` + `graders/*.md`), not top-level `<name>.yaml`; a flat file is silently ignored and the run reports zero cases. The case format is `schema_version: "1.1"`, `name`, the prompt and run limits under `execution:`, `plugins: ["../.."]` so the plugin under test resolves, and graders typed `regex | tool_used | tool_order | file_exists | llm | baseline` (an `llm` grader's rubric is `criteria`; a judge model votes PASS in two of three). Results land in `evals/results/` (gitignored — they hold full prompts and transcripts). `claude plugin eval init` scaffolds new cases in this format.
 
 Not run by `tests/smoke.sh` or the PR path: it needs an authenticated CLI and spends tokens, the
 same reason the live smoke tier is opt-in. The structural check in the smoke suite only asserts

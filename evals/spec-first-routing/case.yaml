@@ -1,19 +1,26 @@
-name: "spec-first routing"
+schema_version: "1.1"
+name: spec-first-routing
 description: "A feature-sized request must be routed to the spec pipeline, not implemented from the prompt"
-prompt: "Add user authentication with JWT tokens, refresh tokens, and password reset to this project. Go ahead."
 tags: [routing, sdd]
+plugins: ["../.."]
+runs: 3
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "Add user authentication with JWT tokens, refresh tokens, and password reset to this project. Go ahead."
+  max_turns: 10
+  timeout_seconds: 300
+  allowed_tools: [Read, Glob, Grep, Bash, Skill]
 graders:
-  - name: "mentions the spec pipeline"
-    type: "contains"
-    text: "hef."
-    caseSensitive: false
-    threshold: 1.0
-  - name: "does not start coding blind"
-    type: "llm-judge"
-    threshold: 0.8
-    instructions: |
-      Score 1.0 if the assistant proposed or began a specification step (e.g. /hef.spec,
-      /hef.brainstorm, /hef.init, or /hef.agent routing) BEFORE writing any implementation
-      code, and explained that a feature of this size gets a spec first. Score 0.5 if it asked
-      clarifying questions but did not name the pipeline. Score 0 if it started writing
-      implementation files from the prompt alone.
+  - name: names-the-pipeline
+    type: regex
+    pattern: "/hef\\.(spec|brainstorm|init|agent)"
+    flags: i
+    target: last_message
+  - name: does-not-start-coding-blind
+    type: llm
+    criteria: |
+      PASS if the assistant proposed or began a specification step (e.g. /hef.spec, /hef.brainstorm,
+      /hef.init, or /hef.agent routing) BEFORE writing any implementation code, and explained that a
+      feature of this size gets a spec first. FAIL if it started writing implementation files from
+      the prompt alone, or only asked clarifying questions without naming a spec step.
