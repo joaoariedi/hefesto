@@ -14,7 +14,7 @@ canon.
   512×512 icon
 - `hefesto-banner-light.svg` / `hefesto-banner-dark.svg` — 1280×320 README
   lockup: icon + "Hefesto" wordmark (converted to paths) + tagline
-  "Spec-driven development for Claude Code"
+  "A development harness for Claude Code"
 
 All five are built from SVG primitives only — no `<text>`, no `@font-face`, no
 `<image>`, no `<script>`, no filters — so GitHub's SVG sanitiser leaves them
