@@ -33,7 +33,27 @@ RUNNER_CMD=""
 PROBE=""
 if [ -f "$CWD/package.json" ] && jq -e '.scripts.test' "$CWD/package.json" >/dev/null 2>&1; then
   RUNNER="npm"; PROBE="npm --version"
-  RUNNER_CMD="npm test --prefix '$CWD' -- --passWithNoTests"
+  RUNNER_CMD="npm test --prefix '$CWD'"
+  # `--passWithNoTests` is forwarded only when the project's own script neither sets it nor
+  # delegates to one that might.
+  #
+  # Measured 2026-09-09: appending it unconditionally BLOCKS EVERY COMPLETION in a pnpm
+  # workspace whose packages already pass it. `npm test -- --passWithNoTests` becomes
+  # `pnpm -r --no-bail test --passWithNoTests`, pnpm forwards the extra arg to each package's
+  # `vitest run --passWithNoTests`, and vitest's CAC parser rejects the repeat:
+  #
+  #     Error: Expected a single value for option "passWithNoTests", received [true, true]
+  #
+  # That exits 1, this gate reads it as a failing suite, and the task can never be completed —
+  # on a tree whose tests are green. A gate that cannot verify must not block (see above); a
+  # gate that misreads its own invocation as a failure is worse, because it looks like a finding.
+  TEST_SCRIPT="$(jq -r '.scripts.test // ""' "$CWD/package.json" 2>/dev/null)"
+  case "$TEST_SCRIPT" in
+    # Already sets it, or hands off to per-package scripts we cannot see from here.
+    *passWithNoTests*|*" -r "*|*--workspaces*|*turbo*|*lerna*|*nx\ *) : ;;
+    # A direct runner that understands the flag and does not already carry it.
+    *vitest*|*jest*) RUNNER_CMD="$RUNNER_CMD -- --passWithNoTests" ;;
+  esac
 elif [ -f "$CWD/pyproject.toml" ] || [ -f "$CWD/setup.py" ]; then
   RUNNER="pytest"; PROBE="cd '$CWD' && pytest --version"
   RUNNER_CMD="cd '$CWD' && pytest -q --tb=line --no-header"
