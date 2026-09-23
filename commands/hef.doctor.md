@@ -1,6 +1,6 @@
 ---
 model: sonnet
-description: "Framework self-check: the three copies in sync, the hooks linted, the manifest valid, and (opt-in) the plugin's own prompts scored"
+description: "Framework self-check: the running copy against the clone and upstream, the rules against upstream, the hooks linted, the manifest valid, and (opt-in) the plugin's own prompts scored"
 argument-hint: "[--eval]  (opt-in: run the plugin eval suite; spends tokens)"
 ---
 
@@ -9,39 +9,38 @@ argument-hint: "[--eval]  (opt-in: run the plugin eval suite; spends tokens)"
 Everything that can go wrong with the framework *itself*, in one report. This command **reports
 only** — it proposes remediation commands but never runs them without the user's say-so.
 
-## 1. The three copies
+## 1. The four copies
 
-Three copies of this framework exist on a machine, and a change to one is inert in the others
+Four copies of this framework exist on a machine, and a change to one is inert in the others
 until deliberately propagated:
 
 1. **Upstream** — `origin/main` of the framework repository (source of truth).
-2. **Installed plugin clone** — the directory the marketplace install points at (the live hooks,
-   skills, commands, and agents run from here). Its path is the plugin root this command itself
-   loaded from.
-3. **Global rules** — `~/.claude/rules/*.md` (often stow-symlinked from a dotfiles repo). These
+2. **Installed clone** — the directory the marketplace record points at (`~/.claude-framework`
+   by convention). It is where installs are *copied from*, not what runs.
+3. **Running copy** — `$CLAUDE_CONFIG_DIR/plugins/cache/hefesto/hefesto/<version>/`, one per
+   profile. `plugin install` and `plugin update` copy the clone here; the hooks, commands, skills,
+   and agents a session loads come from *here*. It is a plain copy, not a git clone — this
+   command itself is running from it.
+4. **Global rules** — `~/.claude/rules/*.md` (often stow-symlinked from a dotfiles repo). These
    are NOT plugin payload; they are hand-synced and drift silently.
 
 > The commands below must be run with the Bash tool; they cannot be pre-executed in a
 > `!` block. A `!` block is permission-checked before the CLAUDE_PLUGIN_ROOT variable is
 > substituted, so it is rejected as "Contains expansion".
 
-### Locate the installed clone
-Run with the Bash tool: `git -C "${CLAUDE_PLUGIN_ROOT}" rev-parse --show-toplevel 2>/dev/null || echo NOT-A-GIT-CLONE`
+### Running copy vs clone vs upstream
+Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh doctor-copies`
 
-If the result is `NOT-A-GIT-CLONE`, the plugin was installed from a plain directory copy — report
-that staleness cannot be measured and skip to the global rules.
-
-### Installed clone vs upstream
-Run with the Bash tool (fetch is read-only):
-
-- `git -C "${CLAUDE_PLUGIN_ROOT}" fetch --quiet origin`
-- `git -C "${CLAUDE_PLUGIN_ROOT}" rev-list --count HEAD..origin/main` → commits **behind**
-- `git -C "${CLAUDE_PLUGIN_ROOT}" status --porcelain` → local modifications (should be none)
+It prints the profile, the running copy's version and commit (from that profile's plugin
+registry), the clone's version, commit, distance behind `origin/main`, and local modifications,
+and one `status:` line: `RUNNING_MATCHES_CLONE`, `RUNNING_BEHIND_CLONE`,
+`RUNNING_BEHIND_CLONE_SAME_VERSION`, or `UNMEASURABLE` (the marketplace source is not a git
+clone). Do not `git rev-parse` CLAUDE_PLUGIN_ROOT: it is the cache, and it is never a git clone.
 
 ### Global rules vs upstream
 Compare each `~/.claude/rules/*.md` against the same file at `origin/main` — via
-`git -C "${CLAUDE_PLUGIN_ROOT}" show origin/main:.claude/rules/<file>` piped to
-`diff - ~/.claude/rules/<file>` (or `HEAD:` if the clone has no remote). Also list files present
+`git -C <clone> show origin/main:.claude/rules/<file>` (the clone path is in the `doctor-copies`
+output) piped to `diff - ~/.claude/rules/<file>` (or `HEAD:` if the clone has no remote). Also list files present
 on one side only, and report `readlink ~/.claude/rules` / `readlink ~/.claude/rules/<file>` so
 the user can see whether stow manages them.
 
@@ -76,6 +75,7 @@ same with and without the plugin is a prompt that earns nothing — say so.
 ```
 FRAMEWORK DOCTOR
 ================
+Running copy:    [version @ sha] — [matches the clone | BEHIND the clone (update needed) | unmeasurable]
 Installed clone: [path] — [in sync | N commits behind origin/main | locally modified | not a git clone]
 Global rules:    [N/N identical | list of differing/missing files]
 Stow-managed:    [yes → dotfiles target | no — plain files]
@@ -89,8 +89,12 @@ Remediation (propose, do not run):
 
 ## Remediation Rules
 
-- Clone behind → propose `git -C <clone> pull --ff-only` and remind the user that a Claude Code
-  restart is required before the updated hooks/skills load.
+- Clone behind → propose `git -C <clone> pull --ff-only`, **then** the per-profile refresh below —
+  a pull alone changes nothing a session sees.
+- Running copy behind the clone → propose `claude plugin update hefesto@hefesto` for this profile
+  (`CLAUDE_CONFIG_DIR=<profile>` when it is not the default), then a Claude Code restart. Same
+  version on both sides means `plugin update` will report up to date: propose uninstall + install.
+  Every other profile on the machine needs the same step; name the ones the user runs.
 - Rules differ → propose copying the upstream version **into the dotfiles target** (follow the
   readlink), or the reverse if the local edit is the intended one — ask, don't guess.
 - **Never `mv` onto a path under `~/.claude/`** — if the path is a stow symlink, `mv` replaces the
