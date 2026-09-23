@@ -45,3 +45,6 @@ graphify-out/.graphify_analysis.json
 # Dated snapshots graphify writes before each rebuild - derived, regenerable, and one
 # directory accumulates per rebuild day.
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+
+# Local plugin-eval runs: full prompts, transcripts, scores. Regenerable, never committed.
+evals/results/

@@ -1155,11 +1155,11 @@ grep -qF 'task-effort-estimation' "$REPO/commands/hef.agent.md" && grep -qF 'hef
   && ok "/hef.agent routes by size via task-effort-estimation (FR-011)" \
   || bad "/hef.agent no longer routes by size"
 ev_fail=0; ev_n=0
-for c in "$REPO"/evals/*.yaml; do
+for c in "$REPO"/evals/*/case.yaml; do
   [ -f "$c" ] || continue
   ev_n=$((ev_n + 1))
   grep -qE '^name:' "$c" && grep -qE '^prompt:' "$c" && grep -qE '^graders:' "$c" && grep -qE 'type: "?(tool_used|contains|llm-judge|rubric)"?' "$c" \
-    || { bad "eval case $(basename "$c") lacks name/prompt/graders or a known grader type"; ev_fail=1; }
+    || { bad "eval case $(basename "$(dirname "$c")") lacks name/prompt/graders or a known grader type"; ev_fail=1; }
 done
 [ "$ev_n" -ge 1 ] || { bad "no eval cases under evals/"; ev_fail=1; }
 [ "$ev_fail" -eq 0 ] && ok "$ev_n eval case(s) parse structurally: name, prompt, graders with a known type (FR-014)"

@@ -9,6 +9,8 @@ claude plugin eval . --trust-plugin --threshold 0.8          # local; spends tok
 claude plugin eval . --trust-plugin --json results.json       # machine-readable, for a nightly job
 ```
 
+Layout: one directory per case, `evals/<case>/case.yaml` — the CLI resolves `case.yaml` (or `prompt.md` + `graders/*.md`), not top-level `<name>.yaml`; a flat file is silently ignored and the run reports zero cases. Results land in `evals/results/` (gitignored — they hold full prompts and transcripts).
+
 Not run by `tests/smoke.sh` or the PR path: it needs an authenticated CLI and spends tokens, the
 same reason the live smoke tier is opt-in. The structural check in the smoke suite only asserts
 that every case parses and carries at least one grader.
