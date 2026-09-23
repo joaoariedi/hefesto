@@ -198,7 +198,7 @@ one, treat the module as scenario 2.
 | 🚀 `/hef.release <X.Y.Z>` | Moves every version declaration together and scaffolds the changelog entry for you to edit. |
 | 🔍 `/hef.review` | Plan mode before tasks exist; code mode after (spawns `code-reviewer`). |
 | 📝 `/hef.pr` | Open or update the PR. Spawns `review-coordinator`; never merges. `--summary-only` writes just the description. |
-| 🩺 `/hef.doctor` | The framework's own check-up: three copies in sync, hooks linted, manifest valid; `--eval` scores its prompts. |
+| 🩺 `/hef.doctor` | The framework's own check-up: the running copy against the clone and upstream, rules against upstream, hooks linted, manifest valid; `--eval` scores its prompts. |
 | 📜 `/hef.adr` | Record a decision under `reports/` with machine-readable status. |
 
 Full reference: [`docs/commands.md`](docs/commands.md).
