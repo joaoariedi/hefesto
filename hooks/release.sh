@@ -41,15 +41,18 @@ sed -i -E "s/^# Hefesto v[0-9]+\.[0-9]+/# Hefesto v${V%.*}/" .claude/CLAUDE.md
 last_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 range="${last_tag:+$last_tag..}HEAD"
 added=""; fixed=""; changed=""
+# Dogfooded on 7.0.1 (2026-09-23): the first real scaffold listed every "Merge pull request #N"
+# subject and the test/chore commits under "Changed". Merges are skipped at the git level; only
+# the user-facing types reach the draft — tests, chores, CI, and build changes are not release notes.
 while IFS= read -r subj; do
   [ -z "$subj" ] && continue
   case "$subj" in
     feat*) added="$added- ${subj#*: }"$'\n' ;;
     fix*)  fixed="$fixed- ${subj#*: }"$'\n' ;;
-    "chore(graph)"*) ;;   # graph rebuilds are noise in release notes
-    *)     changed="$changed- ${subj#*: }"$'\n' ;;
+    docs*|refactor*|perf*|style*) changed="$changed- ${subj#*: }"$'\n' ;;
+    *) ;;   # chore (incl. chore(graph)), test, ci, build, and anything unconventional
   esac
-done < <(git log --format='%s' "$range" 2>/dev/null || true)
+done < <(git log --no-merges --format='%s' "$range" 2>/dev/null || true)
 
 entry="## [$V] - $DATE"$'\n\n'
 entry+="**<one-sentence thesis of this release — written by a human, not derived from commits>**"$'\n\n'

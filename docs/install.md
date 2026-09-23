@@ -115,6 +115,28 @@ or set it in project settings so every session gets it. With the sandbox on, the
 careless path and the sandbox catches the determined one. Without it, the hooks are a very good
 seatbelt in a car with no doors.
 
+```json
+{ "sandbox": { "enabled": true, "failIfUnavailable": true } }
+```
+
+in `.claude/settings.json` (or `settings.local.json`) is the project-settings form. On Linux it needs
+`bubblewrap` and `socat` installed; `failIfUnavailable` makes a missing backend refuse to run rather
+than run unconfined.
+
+**What to expect once it is on** (measured 2026-09-23 on this repository):
+
+- `git status` from a sandboxed shell lists phantom entries — `.bashrc`, `.gitconfig`, `.idea`,
+  `.gitmodules` — in the repository root. They are `/dev/null` masks the sandbox places over
+  sensitive dotfile names, not files; outside the sandbox they do not exist. Do not `rm` them.
+- `.git/config.lock` is masked the same way, so anything that writes `.git/config` fails with
+  *could not lock config file*: `git push -u`, `git remote add`, `git branch --set-upstream-to`.
+  Commits, `git push` without `-u`, tags, and branch deletes work. Push without `-u`.
+- Only `$TMPDIR` is writable under `/tmp`. The plugin's hooks honour it, so `tests/smoke.sh` runs
+  clean from a sandboxed shell; a script of your own that hard-codes `/tmp` will not.
+- Writes outside the working directory are denied (`Read-only file system`), which is the point —
+  updating the installed plugin clone or a dotfiles checkout from inside a session needs the `!`
+  prefix, which runs the command outside the sandbox.
+
 ### 3️⃣ Verify the Installation
 
 ```bash

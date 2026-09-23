@@ -5,7 +5,7 @@ INPUT=$(cat)
 MESSAGE=$(echo "$INPUT" | jq -r '.message // "Claude Code needs attention"')
 
 # Throttle: skip if notified less than 30 seconds ago
-STAMP_FILE="/tmp/.claude-notify-stamp"
+STAMP_FILE="${TMPDIR:-/tmp}/.claude-notify-stamp"
 NOW=$(date +%s)
 if [ -f "$STAMP_FILE" ]; then
   LAST_RUN=$(cat "$STAMP_FILE")

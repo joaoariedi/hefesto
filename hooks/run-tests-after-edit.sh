@@ -59,7 +59,7 @@ if [ -z "$RUNNER" ]; then
 fi
 
 # Throttle: skip if tests ran less than 15 seconds ago
-STAMP_FILE="/tmp/.claude-test-stamp-$(echo "$CWD" | md5sum | cut -d' ' -f1)"
+STAMP_FILE="${TMPDIR:-/tmp}/.claude-test-stamp-$(echo "$CWD" | md5sum | cut -d' ' -f1)"
 NOW=$(date +%s)
 if [ -f "$STAMP_FILE" ]; then
   LAST_RUN=$(cat "$STAMP_FILE")

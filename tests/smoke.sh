@@ -109,7 +109,7 @@ head_ "Payload location"
 # the blind spot that let #7 ship: it looked fine while dogfooding. See #9.
 shadowed=0
 for d in commands agents skills hooks workflows; do
-  if [ -e "$REPO/.claude/$d" ]; then
+  if [ -d "$REPO/.claude/$d" ]; then   # -d, not -e: under the OS sandbox these paths are /dev/null masks
     bad ".claude/$d shadows the plugin's own $d when working in this repo (see #9)"
     shadowed=$((shadowed + 1))
   fi
@@ -952,7 +952,7 @@ chmod +x "$vg_bin/npm"
 vg_run() { # $1 = package.json test script; prints the recorded argv
   local d; d="$(mktemp -d)"
   ( cd "$d" && git init -q . && printf '{"scripts":{"test":"%s"}}\n' "$1" > package.json && echo 'x' > a.js ) >/dev/null 2>&1
-  rm -f "/tmp/.claude-verify-$(printf '%s' "$d" | md5sum | cut -d' ' -f1)"
+  rm -f "${TMPDIR:-/tmp}/.claude-verify-$(printf '%s' "$d" | md5sum | cut -d' ' -f1)"
   : > "$vg_log"
   printf '{"cwd":"%s"}' "$d" | PATH="$vg_bin:$PATH" bash "$REPO/hooks/verify-before-task-complete.sh" >/dev/null 2>&1
   cat "$vg_log"; rm -rf "$d"
@@ -1109,7 +1109,11 @@ mkdir -p "$rl_t/.claude-plugin" "$rl_t/.claude" "$rl_t/hooks"
 cp "$REPO/.claude-plugin/plugin.json" "$REPO/.claude-plugin/marketplace.json" "$rl_t/.claude-plugin/"
 cp "$REPO/.claude/CLAUDE.md" "$rl_t/.claude/"; cp "$REPO/README.md" "$REPO/CHANGELOG.md" "$rl_t/"; cp "$REPO/hooks/release.sh" "$rl_t/hooks/"
 ( cd "$rl_t" && git init -q . && git add -A && git -c user.email=s@t -c user.name=s commit -q -m 'chore: import' && git tag v0.0.1 \
-  && printf 'x\n' > x && git add x && git -c user.email=s@t -c user.name=s commit -q -m 'feat: scaffold me' ) >/dev/null 2>&1
+  && printf 'x\n' > x && git add x && git -c user.email=s@t -c user.name=s commit -q -m 'feat: scaffold me' \
+  && printf 'y\n' > y && git add y && git -c user.email=s@t -c user.name=s commit -q -m 'test: never in notes' \
+  && printf 'z\n' > z && git add z && git -c user.email=s@t -c user.name=s commit -q -m 'docs: under changed' \
+  && git checkout -q -b side && printf 'w\n' > w && git add w && git -c user.email=s@t -c user.name=s commit -q -m 'fix: from a branch' \
+  && git checkout -q - && git -c user.email=s@t -c user.name=s merge -q --no-ff -m 'Merge pull request #1 from side' side ) >/dev/null 2>&1
 if ( cd "$rl_t" && hooks/release.sh 99.1.2 2030-01-02 ) >/dev/null 2>&1; then
   rl_p="$(jq -r .version "$rl_t/.claude-plugin/plugin.json")"
   rl_m1="$(jq -r .metadata.version "$rl_t/.claude-plugin/marketplace.json")"
@@ -1125,6 +1129,17 @@ if ( cd "$rl_t" && hooks/release.sh 99.1.2 2030-01-02 ) >/dev/null 2>&1; then
     ok "release.sh scaffolded the CHANGELOG entry from the commits since the last tag"
   else
     bad "release.sh did not scaffold the CHANGELOG entry"
+  fi
+  # Dogfooded 2026-09-23: the 7.0.1 scaffold listed every merge subject and the test commit under
+  # "Changed". Mutation-checked: the `*) ;;` catch-all reverted to "changed=" → the test-commit
+  # line reappears and this goes red. (`--no-merges` alone is NOT the guard: a merge subject already
+  # falls through the type filter, so removing that flag stays green — it is belt, not braces.)
+  rl_entry="$(awk '/^## \[99\.1\.2\]/{p=1;next} /^## \[/{p=0} p' "$rl_t/CHANGELOG.md")"
+  if ! grep -qF 'Merge pull request' <<<"$rl_entry" && ! grep -qF 'never in notes' <<<"$rl_entry" \
+     && grep -qF -- '- from a branch' <<<"$rl_entry" && grep -qF -- '- under changed' <<<"$rl_entry"; then
+    ok "release.sh scaffold skips merge and test subjects and keeps fix/docs from the branch"
+  else
+    bad "release.sh scaffold content wrong: $(tr '\n' '|' <<<"$rl_entry")"
   fi
   if ( cd "$rl_t" && hooks/release.sh 99.1.2 ) >/dev/null 2>&1; then bad "release.sh re-ran for a version the CHANGELOG already has"
   else ok "release.sh refuses a version the CHANGELOG already has"; fi
