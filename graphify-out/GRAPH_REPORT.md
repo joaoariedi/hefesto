@@ -1,16 +1,16 @@
 # Graph Report - hefesto  (2026-09-23)
 
 ## Corpus Check
-- 110 files · ~143,782 words
+- 114 files · ~146,167 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1088 nodes · 1045 edges · 122 communities (103 shown, 19 thin omitted)
+- 1097 nodes · 1050 edges · 124 communities (101 shown, 23 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 4 edges (avg confidence: 0.5)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `94769e51`
+- Built from commit: `c69dae08`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -46,7 +46,7 @@
 - Codebase Retrieval At Scale
 - Quality Gates & CI Research
 - Claude Code Harness Capabilities
-- 🧬 Development Lifecycle
+- Spec-Driven Development
 - Instructions
 - Context Engineering Fundamentals
 - AI Protocol Stack
@@ -59,10 +59,10 @@
 - 🕵️ Agents
 - Hefesto v7.0
 - Doctor
-- Slash Commands Documentation
+- [3.0.0] - 2025-09-04
 - Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane
-- Architecture
-- Installing & Configuring
+- 🧬 Development Lifecycle
+- mcp.md
 - Pre-Flight
 - Pre-Flight
 - Workflow Resilience Task List
@@ -85,7 +85,7 @@
 - Git Workflow Rules
 - Usage Entry Paths
 - Pre-Flight
-- [3.0.0] - 2025-09-04
+- destructive-command-refusal/scaffold.sh
 - Destructive Command Blocker
 - Project Constitution
 - smoke.sh
@@ -132,7 +132,9 @@
 - release.sh
 - evals/README.md
 - merge-tree-probe.sh
-- [6.0.0] - 2026-08-19
+- effort-sizing/scaffold.sh
+- root-cause-before-fix/scaffold.sh
+- spec-first-routing/scaffold.sh
 
 ## God Nodes (most connected - your core abstractions)
 1. `Changelog` - 24 edges
@@ -152,7 +154,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (122 total, 19 thin omitted)
+## Communities (124 total, 23 thin omitted)
 
 ### Community 0 - "Security Forensics Agent"
 Cohesion: 0.06
@@ -224,7 +226,7 @@ Nodes (14): Baseline, Constitution, Current branch, Existing code, Instructions,
 
 ### Community 17 - "Changelog"
 Cohesion: 0.14
-Nodes (13): [3.0.0] - 2025-09-04, [4.0.2] - 2026-03-10, [5.0.0] - 2026-07-13, [6.1.0] - 2026-09-22, Added, Added, Changed, Changed (+5 more)
+Nodes (13): [3.0.0] - 2025-09-04, [4.0.2] - 2026-03-10, [5.0.0] - 2026-07-13, [6.0.0] - 2026-08-19, Added, Added, Changed, Changed - BREAKING (+5 more)
 
 ### Community 18 - "Context Window Management"
 Cohesion: 0.14
@@ -232,7 +234,7 @@ Nodes (13): Compact Context Priorities, Context Management, Context Scaling by P
 
 ### Community 19 - "README.md"
 Cohesion: 0.18
-Nodes (9): MCP Integration, 🔌 MCP Integration, 📚 Documentation, 📦 Install, 📄 License, 🧩 Requirements, 🗂️ Structure, ⚙️ What happens without you asking (+1 more)
+Nodes (9): Slash Commands, 🛠️ Slash Commands, 📚 Documentation, 📦 Install, 📄 License, 🧩 Requirements, 🗂️ Structure, ⚙️ What happens without you asking (+1 more)
 
 ### Community 20 - "CLAUDE.md Authoring Patterns"
 Cohesion: 0.14
@@ -278,9 +280,9 @@ Nodes (11): 1. Lifecycle Hooks: Deterministic Work Belongs to Deterministic Tool
 Cohesion: 0.17
 Nodes (11): Adopted in v4.4, Bundled Skills Worth Not Reinventing, Claude Code Harness Capabilities, Commands and Skills Have Merged, Frontmatter Reference, Hook Events: The Framework Uses Four of Roughly Thirty, Not Yet Adopted, Parallelism: Three Primitives, None Superseding Another (+3 more)
 
-### Community 31 - "🧬 Development Lifecycle"
-Cohesion: 0.17
-Nodes (11): Arguments (all optional), 🏗️ Brownfield Path (existing code), 🧬 Development Lifecycle, ⚡ Quick Fix Path (trivial changes), 📦 Spec Artifacts, Spec-Driven Development, `.specify/` Directory Structure, 📋 Standard SDD Path (features, refactors, bug fixes) (+3 more)
+### Community 31 - "Spec-Driven Development"
+Cohesion: 0.29
+Nodes (6): Arguments (all optional), 📦 Spec Artifacts, Spec-Driven Development, `.specify/` Directory Structure, 📋 Task Management, ⚡ `workflow` — deterministic execution of a task list
 
 ### Community 32 - "Instructions"
 Cohesion: 0.18
@@ -299,8 +301,8 @@ Cohesion: 0.18
 Nodes (10): Actionable Patterns for the Framework, Containerization & Deployment, FrankMD — Docker with Desktop Wrapper, FrankMega — Kamal Deployment, FrankYomik — Multi-Container with Variants, Not Yet Adopted, Project Organization & Delivery, Research Documentation (FrankSherlock) (+2 more)
 
 ### Community 36 - "SETUP — install or update the Hefesto on this machine"
-Cohesion: 0.17
-Nodes (10): Conventions for the agent executing this, Report back, SETUP — install or update the Hefesto on this machine, Step 0 — Decide the clone location, Step 1 — Check for a conflicting legacy install, Step 2 — Clone, or pull if already present, Step 3 — Add the marketplace and install the plugin, Step 4 — Add the helper permission rule (required in practice) (+2 more)
+Cohesion: 0.06
+Nodes (29): Architecture, Currently In Use vs Available, 📁 Package Structure, 🖥️ Reference Deployment, 🔁 Request Flow & Stack Composition, 🛡️ Trust Boundaries, 🔀 Two-Machine Topology, What the flow reveals (+21 more)
 
 ### Community 37 - "Systematic Debugging Skill"
 Cohesion: 0.18
@@ -330,17 +332,17 @@ Nodes (8): Core Rules, Custom Agents, graphify, Hefesto v7.0, Multi-Environment 
 Cohesion: 0.17
 Nodes (11): 1. The three copies, 2. The hooks, 3. The manifest, 4. Skill hygiene (report only), 5. Evals — only with `--eval`, Doctor, Global rules vs upstream, Installed clone vs upstream (+3 more)
 
+### Community 44 - "[3.0.0] - 2025-09-04"
+Cohesion: 0.33
+Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
+
 ### Community 45 - "Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane"
 Cohesion: 0.25
 Nodes (7): Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane, Measured Against graphify on the Same Repository, Not Yet Adopted, Telemetry, Data Egress, and Supply Chain, The Shape It Would Take If Ever Adopted, What a Default `graft init` Writes, and Why It Cannot Run Here, What Graft Is
 
-### Community 46 - "Architecture"
-Cohesion: 0.20
-Nodes (9): Architecture, Currently In Use vs Available, 📁 Package Structure, 🖥️ Reference Deployment, 🔁 Request Flow & Stack Composition, 🛡️ Trust Boundaries, 🔀 Two-Machine Topology, What the flow reveals (+1 more)
-
-### Community 47 - "Installing & Configuring"
-Cohesion: 0.20
-Nodes (10): 1️⃣ Install as a Plugin (recommended), 2️⃣ Optional Configuration, 3️⃣ Verify the Installation, 4️⃣ Your First Feature (the 60-second tour), 5️⃣ Updating, 6️⃣ The two things the plugin cannot ship, Installing & Configuring, Installing into more than one profile (+2 more)
+### Community 46 - "🧬 Development Lifecycle"
+Cohesion: 0.40
+Nodes (5): 🏗️ Brownfield Path (existing code), 🧬 Development Lifecycle, ⚡ Quick Fix Path (trivial changes), 📋 Standard SDD Path (features, refactors, bug fixes), ⚖️ The Four Balances
 
 ### Community 48 - "Pre-Flight"
 Cohesion: 0.25
@@ -430,10 +432,6 @@ Nodes (6): 🌱 1. A new project, from scratch, ✨ 2. A feature, in a project a
 Cohesion: 0.29
 Nodes (6): Clarify, Current branch, Existing clarifications, Instructions, Load spec, Pre-Flight
 
-### Community 70 - "[3.0.0] - 2025-09-04"
-Cohesion: 0.33
-Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
-
 ### Community 71 - "Destructive Command Blocker"
 Cohesion: 0.73
 Nodes (5): check_git_segment(), check_rm_segment(), deny(), has_word(), block-destructive-commands.sh script
@@ -443,7 +441,7 @@ Cohesion: 0.33
 Nodes (5): Architecture Constraints, Principles, Project Constitution, References, Tech Stack
 
 ### Community 73 - "smoke.sh"
-Cohesion: 0.45
+Cohesion: 0.39
 Nodes (8): bad(), bdc_case(), cc_case(), cx_case(), head_(), ipg_case(), ok(), smoke.sh script
 
 ### Community 74 - "[2.0.0] - 2025-09-02"
@@ -507,8 +505,8 @@ Cohesion: 0.67
 Nodes (3): [4.1.0] - 2026-03-30, Added, Enhanced
 
 ### Community 89 - "[4.3.0] - 2026-03-31"
-Cohesion: 0.67
-Nodes (3): [4.3.0] - 2026-03-31, Added, Enhanced
+Cohesion: 0.27
+Nodes (6): [4.3.0] - 2026-03-31, [6.1.0] - 2026-09-22, Added, Added, Changed, Enhanced
 
 ### Community 90 - "Plan: harness-review-tiers"
 Cohesion: 0.22
@@ -546,20 +544,18 @@ Nodes (4): Current state, Instructions, Pre-Flight, Release
 Cohesion: 0.50
 Nodes (4): [6.2.0] - 2026-09-22, Added, Changed, Decided against
 
-### Community 121 - "[6.0.0] - 2026-08-19"
-Cohesion: 0.67
-Nodes (3): [6.0.0] - 2026-08-19, Added, Changed - BREAKING
-
 ## Knowledge Gaps
-- **718 isolated node(s):** `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `merge-tree-probe.sh script` (+713 more)
+- **722 isolated node(s):** `github`, `scaffold.sh script`, `scaffold.sh script`, `scaffold.sh script`, `scaffold.sh script` (+717 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **19 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **23 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **What connects `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script` to the rest of the system?**
-  _718 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `Changelog` connect `Changelog` to `[2.1.0] - 2025-01-09`, `[4.4.0] - 2026-07-12`, `[2.0.0] - 2025-09-02`, `[3.1.0] - 2025-11-26`, `[3.0.0] - 2025-09-04`, `[4.0.0] - 2026-02-23`, `[1.0.0] - 2025-09-02`, `[4.5.0] - 2026-07-13`, `[5.1.0] - 2026-07-16`, `[7.0.0] - 2026-09-22`, `[5.2.0] - 2026-07-17`, `[6.2.0] - 2026-09-22`, `[Unreleased]`, `[4.1.0] - 2026-03-30`, `[4.3.0] - 2026-03-31`?**
+  _High betweenness centrality (0.004) - this node is a cross-community bridge._
+- **What connects `github`, `scaffold.sh script`, `scaffold.sh script` to the rest of the system?**
+  _722 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Security Forensics Agent` be split into smaller, more focused modules?**
   _Cohesion score 0.05714285714285714 - nodes in this community are weakly interconnected._
 - **Should `Development Workflow Phases` be split into smaller, more focused modules?**
@@ -570,5 +566,3 @@ _Questions this graph is uniquely positioned to answer:_
   _Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected._
 - **Should `Workflow Test Harness` be split into smaller, more focused modules?**
   _Cohesion score 0.12666666666666668 - nodes in this community are weakly interconnected._
-- **Should `Workflow Resilience Plan` be split into smaller, more focused modules?**
-  _Cohesion score 0.09090909090909091 - nodes in this community are weakly interconnected._
