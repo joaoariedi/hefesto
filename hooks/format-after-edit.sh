@@ -25,7 +25,7 @@ case "$RELPATH" in
 esac
 
 # Throttle: skip if formatted less than 10 seconds ago
-STAMP_FILE="/tmp/.claude-format-stamp-$(echo "$CWD" | md5sum | cut -d' ' -f1)"
+STAMP_FILE="${TMPDIR:-/tmp}/.claude-format-stamp-$(echo "$CWD" | md5sum | cut -d' ' -f1)"
 NOW=$(date +%s)
 if [ -f "$STAMP_FILE" ]; then
   LAST_RUN=$(cat "$STAMP_FILE")

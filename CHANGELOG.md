@@ -35,6 +35,43 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.0.1] - 2026-09-23
+
+**The first day of running 7.0 for real: a task gate that blocked every completion in pnpm
+workspaces, a release script whose first scaffold was noise, and hooks that assumed `/tmp`.**
+
+### Fixed
+
+- **`verify-before-task-complete.sh` no longer blocks every task completion in a pnpm workspace.**
+  `--passWithNoTests` was appended unconditionally; a workspace whose packages already pass it
+  made vitest reject the repeat, the gate read that exit 1 as a failing suite, and no task could be
+  marked complete on a green tree (measured 2026-09-09 on fablab-unesp — it pushed the agent into
+  deleting tasks). The flag is now forwarded only when the project's own `test` script neither sets
+  it nor delegates to per-package scripts. The fix had lived only in an installed clone; it is now
+  upstream with three argv-level smoke fixtures (a fake `npm` records what the gate ran).
+- **Hooks are shellcheck-clean at warning level.** One real error: a comment in
+  `quality-before-commit.sh` began with the word `shellcheck`, which shellcheck parses as a directive
+  and rejects — so the hook's own `-S error` gate would have failed on the hook itself once staged.
+  Plus redundant `case` patterns in three hooks and two captured-but-unread variables.
+- **`release.sh` scaffolds a usable draft.** Its first real run (this release) listed every
+  `Merge pull request #N` subject and the `test:` commits under "Changed". Merges are skipped, only
+  `feat`/`fix`/`docs`/`refactor`/`perf`/`style` reach the draft, and the smoke fixture now merges a
+  side branch to prove it.
+- **Hook stamp files honour `TMPDIR`.** Six hooks wrote their throttle stamps and the verify cache to
+  a hard-coded `/tmp`; under the OS sandbox `/tmp` is read-only and only `$TMPDIR` is writable, so
+  `tests/smoke.sh` run from a sandboxed shell failed seven checks. Behaviour outside a sandbox is
+  unchanged (`TMPDIR` unset → `/tmp`). The smoke suite's "payload under `.claude/`" check tests for
+  a directory rather than existence, because the sandbox masks those paths as `/dev/null` devices.
+
+### Changed
+
+- **`evals/README.md` records what the eval sandbox allows.** With `bubblewrap` + `socat` installed
+  and `--allow-tools Bash` granted, the eval sandbox still denies the `git` binary in both arms, so
+  the destructive-command case scores the reply, never the hook; the hook stays proven by the
+  mutation-tested smoke fixtures. Measured: 2/2 with, 2/2 without, $0.51.
+- **`docs/install.md` says what to expect with the sandbox on** — phantom dotfiles in `git status`,
+  `push` without `-u`, and where the plugin's own tests must run.
+
 ## [7.0.0] - 2026-09-22
 
 **Tier 3 of the 2026-09 harness review: the toolbox is shaped by lifecycle, knowledge stops

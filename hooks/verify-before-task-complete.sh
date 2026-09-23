@@ -84,7 +84,7 @@ fi
 
 # --- Reuse the last result if the tree is unchanged since it was computed. -----
 KEY=$(printf '%s' "$CWD" | md5sum | cut -d' ' -f1)
-CACHE="/tmp/.claude-verify-$KEY"
+CACHE="${TMPDIR:-/tmp}/.claude-verify-$KEY"
 TREE_HASH=$(printf '%s' "$TREE" | md5sum | cut -d' ' -f1)
 
 if [ -f "$CACHE" ]; then

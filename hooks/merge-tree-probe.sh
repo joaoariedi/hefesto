@@ -19,7 +19,7 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 [ "$CWD" = "$HOME" ] || [ "$CWD" = "/" ] && exit 0
 git -C "$CWD" rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
 
-STAMP="/tmp/.hefesto-merge-probe-$(printf '%s' "$CWD" | md5sum | cut -d' ' -f1)"
+STAMP="${TMPDIR:-/tmp}/.hefesto-merge-probe-$(printf '%s' "$CWD" | md5sum | cut -d' ' -f1)"
 NOW=$(date +%s)
 if [ -f "$STAMP" ] && [ $((NOW - $(cat "$STAMP" 2>/dev/null || echo 0))) -lt 60 ]; then exit 0; fi
 echo "$NOW" > "$STAMP"
