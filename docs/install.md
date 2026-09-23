@@ -61,7 +61,7 @@ claude plugin install hefesto@hefesto
 claude plugin list                                 # → hefesto@hefesto  ✔ enabled
 ```
 
-**The clone is shared; only the enablement is per profile.** Because the marketplace source is a *directory* read in place, every profile runs the same working tree — so a single `git pull` updates all of them and you never keep a second copy. What each profile needs is its own one-time `marketplace add` + `install`.
+**The clone is shared; the running copy is per profile.** The marketplace source is a *directory*, but `plugin install` copies it into that profile's cache — `$CLAUDE_CONFIG_DIR/plugins/cache/hefesto/hefesto/<version>/` — and the hooks, commands, and skills a session loads come from *there*, not from the clone (measured 2026-09-23: three profiles, three caches, two of them a version apart). So a `git pull` in the clone changes nothing a session sees until each profile runs `claude plugin update hefesto@hefesto`, which re-copies the clone when its manifest version is newer. What each profile needs is its own one-time `marketplace add` + `install`, and its own `plugin update` after every release.
 
 The gap in step 6 is per profile too. `rules/` and `CLAUDE.md` are copied *into a config directory*, so each profile needs its own copy — and its own re-copy after an upgrade.
 
@@ -188,7 +188,14 @@ claude plugin marketplace update hefesto   # re-read the manifest
 
 Restart Claude Code to pick up the new components. To check what changed first, read `CHANGELOG.md` in the clone.
 
-One pull covers **every** profile, since they all read this same clone. Only `claude plugin marketplace update` is per profile, and only for profiles you actually run.
+One pull refreshes the clone, but **each profile runs its own cached copy**, so the update is per profile, and only for profiles you actually run:
+
+```bash
+claude plugin update hefesto@hefesto                                   # default profile
+CLAUDE_CONFIG_DIR=~/.claude-work claude plugin update hefesto@hefesto  # each other profile
+```
+
+`plugin update` compares manifest versions, not commits: a pull that did not bump `plugin.json` reports "already at the latest version" and leaves the cache as it was. Releases always bump it; between releases, `plugin uninstall` + `install` is the way to pick up an unreleased commit.
 
 ### 6️⃣ The two things the plugin cannot ship
 
