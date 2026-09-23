@@ -283,9 +283,37 @@ case "$1" in
   #
   # This is the half of the traceability chain nothing checked before: /speckit.analyze maps FR →
   # tasks BEFORE code exists; the implement report's "coverage mapping" was prose the model wrote.
+  # req-coverage [<spec-name>|--all] — no argument: the current branch's spec (the /hef.verify
+  # case). A name: that spec, whatever the branch (CI on main has no feature branch). --all: every
+  # spec whose tasks.md has no open task — the SHIPPED ones — each run as its own predicate; specs
+  # still in progress are listed and skipped, because their uncovered requirements are the work
+  # that has not happened yet, not drift. Post-ship drift is the case nothing checked: /hef.verify
+  # runs once, at implementation, and a later hotfix that breaks a cited test rots the spec silently.
   req-coverage)
-    spec=".specify/specs/$BRANCH/spec.md"
-    [ -f "$spec" ] || missing_artifact spec.md
+    target="${2:-}"
+    if [ "$target" = "--all" ]; then
+      ls -d .specify/specs/*/ >/dev/null 2>&1 || die "req-coverage --all: no .specify/specs/ directories here"
+      failed=0; ran=0; skipped=0
+      for d in .specify/specs/*/; do
+        name="${d#.specify/specs/}"; name="${name%/}"
+        [ -f "$d/spec.md" ] || continue
+        if [ -f "$d/tasks.md" ] && grep -qE '^\s*- \[[ ~]\]' "$d/tasks.md"; then
+          echo "== $name: IN PROGRESS (open tasks) — skipped"; skipped=$((skipped + 1)); continue
+        fi
+        ran=$((ran + 1))
+        if ! "$0" req-coverage "$name"; then failed=$((failed + 1)); fi
+      done
+      echo "req-coverage --all: $ran shipped spec(s) checked, $failed failing, $skipped in progress"
+      [ "$failed" -eq 0 ] && [ "$ran" -gt 0 ]
+      exit $?
+    fi
+    label="${target:-$BRANCH}"
+    spec=".specify/specs/$label/spec.md"
+    if [ -n "$target" ]; then
+      [ -f "$spec" ] || die "req-coverage: no spec at $spec (named spec '$target' does not exist)"
+    else
+      [ -f "$spec" ] || missing_artifact spec.md
+    fi
     ids="$(grep -oE '\bFR-[0-9]+\b' "$spec" | sort -u)"
     [ -n "$ids" ] || die "req-coverage: $spec declares no FR-NNN ids — nothing to trace. Add functional requirements to the spec first."
     # Test files: code extensions only, inside a test location or with a test-ish name. Excludes
@@ -298,7 +326,7 @@ case "$1" in
       -not -path '*/.specify/*' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' \
       -not -path '*/target/*' -not -path '*/dist/*' -not -path '*/build/*' -not -path '*/.venv/*' \
       -not -path '*/graphify-out/*' 2>/dev/null | sort)"
-    echo "REQUIREMENT COVERAGE — $BRANCH"
+    echo "REQUIREMENT COVERAGE — $label"
     echo "spec: $spec · test files scanned: $(printf '%s\n' "$files" | grep -c . || true)"
     uncovered=0; total=0
     while read -r id; do
@@ -464,7 +492,7 @@ case "$1" in
     echo "  detect-stack, detect-test-framework, list-config-files, list-rules, readme-head,"
     echo "  check-plan-review, detect-existing-code, trivial-change-check,"
     echo "  plan-phase-start, plan-phase-end, plan-phase-status,"
-    echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage,"
+    echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage [<spec>|--all],"
     echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>, doctor-copies,"
     echo "  rtk-available, rtk-run"
     exit 1

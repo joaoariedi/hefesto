@@ -23,7 +23,7 @@ by building the wrong thing well.
 
 Hefesto is a Claude Code plugin that adds the missing middle: a **workflow** (idea → spec → plan →
 tasks → code → verification, with a human gate at each seam), **six specialist agents** the workflow
-dispatches, **fourteen hooks** that enforce the gates, **skills** the agents reason with, and a set
+dispatches, **fifteen hooks** that enforce the gates, **skills** the agents reason with, and a set
 of **rules** that load into every session. It is one namespace of 23 `hef.*` commands; you pick the
 path that fits the change, from a one-line fix to a full specification pipeline.
 
@@ -89,7 +89,7 @@ sees. `CHANGELOG.md` says what each release changed.
 |---|---|
 | 🛠️ `commands/` | The 23 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Six specialist subagents — testing, quality, review, security, PR coordination, recon. |
-| ⚙️ `hooks/` | Fourteen hooks, `release.sh`, plus `speckit-helper.sh` (41 subcommands) that the commands call for live git data, requirement traceability, and the mutation ratchet. |
+| ⚙️ `hooks/` | Fifteen hooks, `release.sh`, plus `speckit-helper.sh` (41 subcommands) that the commands call for live git data, requirement traceability, and the mutation ratchet. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |
@@ -212,6 +212,7 @@ The hooks ship with the plugin — you do not register them:
 - ✏️ **On every edit** — formatters run; tests fire for the touched code.
 - 🔐 **On every `git commit`** — secrets detection and linting must pass, the subject must be a conventional commit, and (where `lizard` is installed) no changed file may gain over-limit functions — or the commit is blocked.
 - 🔀 **After edits, once a minute** — you are told if the branch's committed state would conflict with its base, or has drifted far behind it.
+- 🔗 **After a test edit, outside an implement phase** — if that test cites a requirement, you are told which spec declares it, so the spec follows the test instead of rotting.
 - ✅ **On task completion** — the task cannot be marked done while the test suite fails.
 - 🚧 **During `/hef.plan`** — edits outside `.specify/` are blocked.
 - 🧷 **During `/hef.implement`** — tests may grow, never shrink; snapshot regeneration is always blocked.

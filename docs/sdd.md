@@ -63,6 +63,33 @@ For projects with existing code that lack formal specifications:
 /hef.implement    → 🧪 execute with quality gates
 ```
 
+### 🔗 After shipping: traceability in CI
+
+`/hef.verify` maps every requirement to the tests that cite it — once, at implementation. The
+critics of spec-driven development are right about what happens next: the code moves, the spec
+does not, and within a few hotfixes the spec is documentation that still claims authority. This
+framework's answer is not to call the spec the source of truth (the tests are) but to keep the
+spec honest mechanically after the feature ships, in two places:
+
+- **At the edit** — `spec-cite-probe.sh` (PostToolUse) tells you, outside an implement phase,
+  when a test citing `FR-NNN` changes and which spec declares it.
+- **At the PR** — the same predicate the verify gate runs, for every *shipped* spec, as a
+  reusable workflow:
+
+```yaml
+# .github/workflows/traceability.yml in your repository
+name: traceability
+on: [pull_request]
+jobs:
+  req-coverage:
+    uses: joaoariedi/hefesto/.github/workflows/req-coverage.yml@v7.1.0
+```
+
+It runs `speckit-helper.sh req-coverage --all`: each spec whose `tasks.md` has no open task is
+checked (every `FR-NNN` cited by at least one test, no test citing an undeclared id); specs
+still in progress are listed and skipped. Locally, `req-coverage <spec-name>` checks one shipped
+spec from any branch. No install step: bash, jq, and git.
+
 ### ⚖️ The Four Balances
 
 Every decision in the framework balances four concerns:

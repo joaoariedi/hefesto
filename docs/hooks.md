@@ -15,6 +15,7 @@ Hooks ship **inside the plugin** (`hooks/hooks.json`), so installing the plugin 
 | ⛔ `block-destructive-commands.sh` | PreToolUse on `Bash` | Hard-denies `git push --force` (allows `--force-with-lease`), `reset --hard`, `branch -D`, `clean -f`, and recursive `rm` of catastrophic targets. Bypass: `CLAUDE_ALLOW_DESTRUCTIVE=1` prefix, visible in the transcript |
 | 📐 `plan-phase-write-block.sh` | PreToolUse on `Edit\|Write` | Blocks writes outside `.specify/` while `/hef.plan` is active |
 | 🧷 `implement-phase-test-guard.sh` | PreToolUse on `Bash` and `Edit\|Write` | While `/hef.implement` is active: **blocks** edits that leave a test file with fewer assertions, overwrites of existing test files, and `rm` of test files. Always: blocks snapshot-update flags on test runners. Bypass: `CLAUDE_ALLOW_SNAPSHOT_UPDATE=1` prefix |
+| 🔗 `spec-cite-probe.sh` | PostToolUse on `Edit\|Write` | Advisory, once a minute per file: when a test that cites an `FR-NNN` is edited **outside** an implement phase, names the spec that declares it and asks for the spec to follow or `/hef.verify` to re-run. The reverse direction of `req-coverage` — the one that catches post-ship drift |
 | 🧭 `session-start-context.sh` | SessionStart | Injects branch, dirty-file count, spec artifacts, open tasks, phase markers, the last checkpoint, and the two routing rules (spec before code for feature-sized work; root cause before any fix) into context. Silent outside a git repo |
 | 💾 `precompact-progress.sh` | PreCompact | Writes the progress checkpoint `context-management.md` asks for — to `~/.cache/hefesto/progress/`, never into the repo |
 | 👁️ `audit-config-change.sh` | ConfigChange | Announces a settings rewrite mid-session — the escalation path a compromised skill or plugin would take |
@@ -80,7 +81,7 @@ It is the enforcement the Verification Iron Law always claimed to have:
 
 ## 🛡️ Automated Quality Gates
 
-Fourteen hooks enforce quality automatically — and they ship with the plugin, so there is nothing to register:
+Fifteen hooks enforce quality automatically — and they ship with the plugin, so there is nothing to register:
 
 - 🔍 **Pre-commit** — secrets detection (gitleaks) + language-specific linting blocks the commit on errors
 - 🔒 **File protection** — writes to `.env`, `*.key`, `*.pem`, credentials, and `.git/` internals are blocked
