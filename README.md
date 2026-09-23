@@ -1,9 +1,9 @@
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/hefesto-banner-dark.svg">
-    <img src="docs/brand/hefesto-banner-light.svg" alt="Hefesto - spec-driven development for Claude Code" width="800">
+    <img src="docs/brand/hefesto-banner-light.svg" alt="Hefesto - a development harness for Claude Code" width="800">
   </picture>
-  <p><strong>Spec-driven development for Claude Code: write the spec, then the plan, then the code &mdash; with quality gates enforced by hooks rather than by good intentions.</strong></p>
+  <p><strong>A development harness for Claude Code: a spec-driven workflow, specialist agents, and quality gates enforced by hooks rather than by good intentions.</strong></p>
   <p>
     <a href="https://github.com/joaoariedi/hefesto/actions/workflows/smoke.yml"><img alt="smoke suite" src="https://github.com/joaoariedi/hefesto/actions/workflows/smoke.yml/badge.svg"></a>
     <img alt="plugin version" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjoaoariedi%2Fhefesto%2Fmain%2F.claude-plugin%2Fplugin.json&query=%24.version&label=version&color=22d3ee">
@@ -21,9 +21,11 @@ Claude Code will happily write code from a one-line prompt. That works until the
 enough that "what were we building?" stops having an obvious answer — and then it fails quietly,
 by building the wrong thing well.
 
-This framework adds the missing middle. A feature goes **idea → spec → plan → tasks → code →
-verification**, with a human gate at each seam, and the pipeline refuses to skip ahead. Around that
-sit six specialist agents, fourteen hooks, and a set of rules that load into every session.
+Hefesto is a Claude Code plugin that adds the missing middle: a **workflow** (idea → spec → plan →
+tasks → code → verification, with a human gate at each seam), **six specialist agents** the workflow
+dispatches, **fourteen hooks** that enforce the gates, **skills** the agents reason with, and a set
+of **rules** that load into every session. It is one namespace of 23 `hef.*` commands; you pick the
+path that fits the change, from a one-line fix to a full specification pipeline.
 
 The parts that matter are the ones you cannot talk your way past:
 
@@ -51,7 +53,7 @@ cd ~/some-project && claude
 ```
 
 > Fetch https://raw.githubusercontent.com/joaoariedi/hefesto/main/SETUP.md
-> and follow it to install the Hefesto on this machine.
+> and follow it to install Hefesto on this machine.
 
 Or do it yourself — it is three commands:
 
@@ -68,6 +70,16 @@ single most common failure, and [`docs/install.md`](docs/install.md) explains ex
 ⚠️ **One thing the plugin cannot ship:** `rules/` and `CLAUDE.md` are not plugin components, so
 installing does *not* give you the framework's global rules. Copy them yourself, and re-copy after
 an upgrade — see [`docs/install.md`](docs/install.md).
+
+**Updating** is a pull plus a per-profile refresh, then a restart:
+
+```bash
+git -C ~/.claude-framework pull --ff-only
+claude plugin update hefesto@hefesto        # once per profile (CLAUDE_CONFIG_DIR) you run
+```
+
+Each profile runs its own cached copy of the plugin, so the pull alone changes nothing a session
+sees. `CHANGELOG.md` says what each release changed.
 
 ---
 
@@ -228,8 +240,12 @@ The hooks ship with the plugin — you do not register them:
 
 ## 🧩 Requirements
 
-`git`, the `claude` CLI. Optional: `rtk` (CLI output compression, auto-detected), `GITHUB_TOKEN`
-(for the bundled GitHub MCP server).
+`git`, `jq` (every hook reads its event with it), and the `claude` CLI.
+
+Optional, auto-detected, silent when absent: `gitleaks` (the secrets gate), `lizard` (the
+complexity gate), `shellcheck`, `rtk` (CLI output compression), `graphify` (knowledge graph),
+`GITHUB_TOKEN` (the bundled GitHub MCP server), and `bubblewrap` + `socat` for the OS sandbox that
+[`docs/install.md`](docs/install.md) recommends as the boundary the hooks cannot be.
 
 ## 📄 License
 
