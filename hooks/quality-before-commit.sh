@@ -73,7 +73,8 @@ if [ -n "$SH_FILES" ]; then
   done <<< "$SH_FILES"
 
   if command -v shellcheck &>/dev/null; then
-    # shellcheck is advisory below `error` severity; only errors block a commit.
+    # Findings below `error` severity are advisory; only errors block a commit.
+    # (This comment must not begin with "shellcheck": that spelling is a directive and fails to parse.)
     while IFS= read -r f; do
       [ -f "$CWD/$f" ] || continue
       if ! shellcheck -S error "$CWD/$f" >/dev/null 2>&1; then
