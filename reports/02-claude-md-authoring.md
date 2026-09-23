@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-12
+---
+
 # CLAUDE.md Authoring
 
 How to write the file that Claude Code injects into every session: what belongs in it, what must be kept out, how large it may grow, and how to tier it across a repository. Evidence comes from Anthropic's published guidance plus four production repos whose CLAUDE.md files range from 5 to ~400 lines.

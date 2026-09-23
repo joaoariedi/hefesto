@@ -159,7 +159,7 @@ head_ "Command names"
 # stale list says nothing (#17).
 #
 # So the rule is structural instead. Every command is NAMESPACED — its name contains a `.`
-# (hef.quality, speckit.plan). No built-in slash command contains a dot, so a collision is
+# (hef.quality, hef.plan). No built-in slash command contains a dot, so a collision is
 # impossible by construction, and there is no list to keep current.
 unnamespaced=0
 for f in "$REPO"/commands/*.md; do
@@ -270,25 +270,26 @@ else
   bad "block-destructive-commands.sh is not registered in hooks.json — it will never fire"
 fi
 
-# --- Tier 1: hef.sync prescribes cp, never mv ---------------------------------------
-head_ "hef.sync stow safety"
+# --- Tier 1: hef.doctor prescribes cp, never mv ---------------------------------------
+head_ "hef.doctor stow safety"
 
 # `mv` onto a stow symlink under ~/.claude/ replaces the symlink with a regular file and
 # the dotfiles repo silently stops receiving updates — this bit for real (settings.json).
-# hef.sync exists to FIX drift; it must never prescribe the command that causes it.
-sync_fenced="$(awk '/^```/{f=!f; next} f' "$REPO/commands/hef.sync.md" || true)"
+# hef.doctor (né hef.sync, 7.0) exists to FIX drift; it must never prescribe the command that
+# causes it.
+sync_fenced="$(awk '/^```/{f=!f; next} f' "$REPO/commands/hef.doctor.md" || true)"
 # `.*` not `[^\n]*` — grep is already line-based, and inside a bracket expression \n is
 # LITERAL backslash+n, so [^\n]* cannot cross any filename containing an 'n'. That version
 # passed its own mutation test's absence and missed a planted `mv new-rules.md ~/.claude/`.
 if grep -qE '(^|[[:space:]])mv[[:space:]].*~/\.claude/' <<<"$sync_fenced"; then
-  bad "hef.sync.md prescribes 'mv' into ~/.claude/ — that replaces a stow symlink with a plain file"
+  bad "hef.doctor.md prescribes 'mv' into ~/.claude/ — that replaces a stow symlink with a plain file"
 else
-  ok "hef.sync.md never prescribes mv into ~/.claude/"
+  ok "hef.doctor.md never prescribes mv into ~/.claude/"
 fi
-if grep -qF 'Never `mv`' "$REPO/commands/hef.sync.md"; then
-  ok "hef.sync.md carries the stow-mv trap warning"
+if grep -qF 'Never `mv`' "$REPO/commands/hef.doctor.md"; then
+  ok "hef.doctor.md carries the stow-mv trap warning"
 else
-  bad "hef.sync.md lost the stow-mv trap warning — the next editor will prescribe mv"
+  bad "hef.doctor.md lost the stow-mv trap warning — the next editor will prescribe mv"
 fi
 
 # --- Tier 1: the #7 regression guard ------------------------------------------------
@@ -373,7 +374,7 @@ for doc in "$REPO"/README.md "$REPO"/docs/*.md; do
 done
 [ "$stow_bad" -eq 0 ] && ok "no doc prescribes the dead stow install path"
 
-# --- docs stay honest -----------------------------------------------------------------
+# --- docs stay honest (FR-008) ---------------------------------------------------------
 # Two ways a split README rots: a command ships with no entry in the reference, and a link
 # points at a doc that was renamed or never written. Both are silent.
 undocumented=0
@@ -475,14 +476,14 @@ grep -q "some-other-name" <<<"$hint" || { bad "the message must LIST the spec di
 grep -q "MUST be named after the branch" <<<"$hint" || { bad "the message must state the branch↔directory contract, which is the actual cause; got: $hint"; hint_fail=1; }
 [ "$hint_fail" -eq 0 ] && ok "a missing artifact names the branch↔directory contract and lists what does exist"
 
-# PREDICATES answer; they do not fail. /speckit.init asks check-specify-dir precisely to learn that
+# PREDICATES answer; they do not fail. /hef.init asks check-specify-dir precisely to learn that
 # .specify/ is absent — that is the whole reason init exists, so the string must still be there.
 pred_out="$(cd "$hc_tmp" && "$HELPER" check-specify-dir 2>/dev/null)"
 if [ "$pred_out" = "EXISTS" ]; then
   ok "check-specify-dir still answers on stdout"
 else
   # .specify EXISTS in the scratch repo, so this branch means the predicate lost its string.
-  bad "check-specify-dir must print its answer, not just signal it — /speckit.init branches on the string"
+  bad "check-specify-dir must print its answer, not just signal it — /hef.init branches on the string"
 fi
 
 rm -rf "$hc_tmp"
@@ -498,7 +499,7 @@ head_ "Workflow resilience"
 # ever reach the collector. Guards 5 and 6 are what stand between that line and a silent regression.
 # That inverts the usual "grep is the backstop, behaviour is the proof" relationship. It is written down
 # here because it is exactly the sort of thing a handoff loses.
-WF="$REPO/workflows/speckit-workflow.js"
+WF="$REPO/workflows/workflow.js"
 
 # 1. The node harness loads the shipped file by rewriting `export const meta` -> `const meta`. If that
 #    declaration is ever reworded, String.replace matches nothing. The harness asserts this itself, but
@@ -803,6 +804,483 @@ else
   head_ "Live install"
   printf '  \033[33mskip\033[0m SMOKE_LIVE=1 to install the plugin into a throwaway config and exercise it\n'
 fi
+
+# --- Tier 1: implement-phase test guard (FR-003) ---------------------------------------
+head_ "Implement-phase test guard"
+
+# Tests may grow during /hef.implement, never shrink. Both directions are guarded, like the
+# destructive-command hook: the denials (or the rule is prose again) AND the allows (a guard that
+# blocks adding a test gets disarmed, which is worse than never shipping it).
+#
+# Mutation-checked 2026-09-22, each mutation applied, run, restored:
+#   * `-lt` → `-le` on the assertion compare → "equal assertion count (a rename)" went red.
+#   * `-u|` dropped from the snapshot regex → "denies jest -u" went red.
+#   * the Edit arm's marker test replaced with `true` → "assertion-removing edit when no phase is
+#     active" went red. The FIRST attempt mutated the Bash arm's marker test instead and nothing
+#     went red — which is how the "rm … when no phase is active" case below came to exist.
+IPG="$REPO/hooks/implement-phase-test-guard.sh"
+ipg_t="$(mktemp -d)"; mkdir -p "$ipg_t/.specify" "$ipg_t/tests"; : > "$ipg_t/tests/test_a.py"
+ipg_case() { # expected-exit description json
+  local exp="$1" desc="$2" json="$3" rc=0
+  printf '%s' "$json" | bash "$IPG" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$exp" ]; then ok "$desc"; else bad "$desc (want exit $exp, got $rc)"; fi
+}
+ipg_edit() { jq -nc --arg c "$ipg_t" --arg f "$1" --arg o "$2" --arg n "$3" '{tool_name:"Edit",cwd:$c,tool_input:{file_path:($c+"/"+$f),old_string:$o,new_string:$n}}'; }
+ipg_bash() { jq -nc --arg c "$ipg_t" --arg k "$1" '{tool_name:"Bash",cwd:$c,tool_input:{command:$k}}'; }
+# Unconditional: snapshot regeneration.
+ipg_case 2 "denies jest -u (snapshot regeneration) with no phase active"      "$(ipg_bash 'npx jest -u')"
+ipg_case 2 "denies pytest --snapshot-update"                                  "$(ipg_bash 'pytest --snapshot-update')"
+ipg_case 0 "allows the visible bypass CLAUDE_ALLOW_SNAPSHOT_UPDATE=1"         "$(ipg_bash 'CLAUDE_ALLOW_SNAPSHOT_UPDATE=1 npx jest -u')"
+ipg_case 0 "allows git add -u (not a snapshot flag)"                          "$(ipg_bash 'git add -u && git commit -m x')"
+# Phase-gated: nothing without the marker…
+ipg_case 0 "allows an assertion-removing edit when no implement phase is active" "$(ipg_edit tests/test_a.py $'assert a\nassert b' 'assert a')"
+ipg_case 0 "allows rm of a test file when no implement phase is active"          "$(ipg_bash 'rm tests/test_a.py')"
+touch "$ipg_t/.specify/.implement-in-progress"
+# …and the rule with it.
+ipg_case 2 "denies an edit that removes assertions from a test file"          "$(ipg_edit tests/test_a.py $'assert a\nassert b' 'assert a')"
+ipg_case 0 "allows an edit that adds assertions"                              "$(ipg_edit tests/test_a.py 'assert a' $'assert a\nassert b')"
+ipg_case 0 "allows an edit with equal assertion count (a rename)"             "$(ipg_edit tests/test_a.py 'expect(x).toBe(1)' 'expect(y).toBe(1)')"
+ipg_case 0 "allows an assertion-removing edit to a NON-test file"             "$(ipg_edit src/app.py $'assert a\nassert b' 'x')"
+ipg_case 0 "allows an edit to a spec under .specify/ named *spec.md"          "$(ipg_edit .specify/specs/x/spec.md $'assert a\nassert b' 'x')"
+ipg_case 2 "denies Write over an existing test file"                          "$(jq -nc --arg c "$ipg_t" '{tool_name:"Write",cwd:$c,tool_input:{file_path:($c+"/tests/test_a.py"),content:"pass"}}')"
+ipg_case 0 "allows Write of a NEW test file"                                  "$(jq -nc --arg c "$ipg_t" '{tool_name:"Write",cwd:$c,tool_input:{file_path:($c+"/tests/test_new.py"),content:"assert 1"}}')"
+ipg_case 2 "denies rm of a test file"                                         "$(ipg_bash 'rm tests/test_a.py')"
+ipg_case 0 "allows rm of a non-test file"                                     "$(ipg_bash 'rm build/out.txt')"
+rm -rf "$ipg_t"
+# Registered on BOTH matchers, or it exists and never fires (this suite's founding failure mode).
+ipg_reg_bash="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command' "$REPO/hooks/hooks.json")"
+ipg_reg_edit="$(jq -r '.hooks.PreToolUse[] | select(.matcher | test("Edit")) | .hooks[].command' "$REPO/hooks/hooks.json")"
+if grep -qF 'implement-phase-test-guard.sh' <<<"$ipg_reg_bash" && grep -qF 'implement-phase-test-guard.sh' <<<"$ipg_reg_edit"; then
+  ok "test guard is registered on both the Bash and the Edit|Write matchers"
+else
+  bad "implement-phase-test-guard.sh is not registered on both matchers — one side of the rule never fires"
+fi
+# …and /hef.implement must arm and disarm it, or the marker is never set and the guard is dead code.
+impl_src="$(cat "$REPO/commands/hef.implement.md")"
+if grep -qF 'implement-phase-start' <<<"$impl_src" && grep -qF 'implement-phase-end' <<<"$impl_src"; then
+  ok "/hef.implement arms the test guard in pre-flight and disarms it at completion"
+else
+  bad "/hef.implement does not set/clear .specify/.implement-in-progress — the guard would never activate"
+fi
+
+# --- Tier 1: requirement traceability (FR-001) ------------------------------------------
+head_ "Requirement traceability"
+
+# req-coverage is a PREDICATE: the matrix on stdout, the verdict in the exit code. Driven in a
+# fixture because the three outcomes (covered / uncovered / unknown) must each be provoked.
+#
+# Mutation-checked 2026-09-22, each mutation applied, run, restored:
+#   * the UNKNOWN branch disabled (`if false`) → the combined case went red.
+#   * `[ "$uncovered" -eq 0 ] &&` deleted from the verdict → NOTHING went red on the first attempt:
+#     the combined fixture's UNKNOWN id kept the exit non-zero on its own. The uncovered-ONLY case
+#     below exists because of that; with it, the same mutation goes red.
+rc_t="$(mktemp -d)"
+(
+  cd "$rc_t" && git init -q . && git checkout -q -b feature/demo
+  mkdir -p .specify/specs/demo tests
+  printf '| FR-001 | a |\n| FR-002 | b |\n' > .specify/specs/demo/spec.md
+  printf '# FR-001\n# FR-009\n' > tests/test_x.sh
+) >/dev/null 2>&1
+rc_out="$(cd "$rc_t" && "$HELPER" req-coverage 2>/dev/null)"; rc_rc=$?
+if [ "$rc_rc" -ne 0 ] && grep -qE '^FR-002 +UNCOVERED' <<<"$rc_out" && grep -qE '^FR-009 +UNKNOWN' <<<"$rc_out"; then
+  ok "req-coverage reports an UNCOVERED requirement and an UNKNOWN id, and fails"
+else
+  bad "req-coverage did not flag FR-002 UNCOVERED + FR-009 UNKNOWN with a non-zero exit (rc=$rc_rc)"
+fi
+# Uncovered ONLY — no unknown id to carry the exit code. The verdict must fail on this alone.
+printf '# FR-001\n' > "$rc_t/tests/test_x.sh"
+rc_out="$(cd "$rc_t" && "$HELPER" req-coverage 2>/dev/null)"; rc_rc=$?
+if [ "$rc_rc" -ne 0 ] && grep -qE '^FR-002 +UNCOVERED' <<<"$rc_out" && ! grep -qE 'UNKNOWN' <<<"$rc_out"; then
+  ok "req-coverage fails on an uncovered requirement alone (no unknown id in play)"
+else
+  bad "req-coverage must fail on an UNCOVERED requirement by itself (rc=$rc_rc): $rc_out"
+fi
+printf '# FR-001\n# FR-002\n' > "$rc_t/tests/test_x.sh"
+rc_out="$(cd "$rc_t" && "$HELPER" req-coverage 2>/dev/null)"; rc_rc=$?
+if [ "$rc_rc" -eq 0 ] && grep -qE '^FR-002 +COVERED +\./tests/test_x\.sh:2' <<<"$rc_out"; then
+  ok "req-coverage passes when every FR is cited, and names file:line"
+else
+  bad "req-coverage should pass with every FR cited and print file:line (rc=$rc_rc): $rc_out"
+fi
+rc_out="$(cd "$rc_t" && git checkout -q -b feature/nospec && "$HELPER" req-coverage 2>/dev/null)"; rc_rc=$?
+if [ "$rc_rc" -ne 0 ] && [ -z "$rc_out" ]; then
+  ok "req-coverage with no spec fails loudly: non-zero, nothing on stdout (#27 contract)"
+else
+  bad "req-coverage printed '$rc_out' at exit $rc_rc with the spec absent"
+fi
+rm -rf "$rc_t"
+# Dogfood (SC-002): when THIS repo is on a branch that has a spec, the suite's own checks must cite
+# the FRs they cover — the block headers carry `(FR-NNN)` for that reason. Strictness follows
+# tasks.md: an FR whose tasks are all still `[ ]` is PENDING (reported, not failing); an FR with a
+# `[x]` task must be cited, and an UNKNOWN id always fails. Skipped on main, where no spec exists.
+own_branch="$(git -C "$REPO" branch --show-current 2>/dev/null | sed 's|^feature/||')"
+own_spec="$REPO/.specify/specs/$own_branch"
+if [ -f "$own_spec/spec.md" ]; then
+  own_out="$(cd "$REPO" && "$HELPER" req-coverage 2>/dev/null || true)"
+  done_frs="$(grep -E '^\s*- \[x\]' "$own_spec/tasks.md" 2>/dev/null | grep -oE 'FR-[0-9]+' | sort -u || true)"
+  own_bad=0
+  while read -r fr; do
+    [ -z "$fr" ] && continue
+    if grep -qE "^$fr +UNCOVERED" <<<"$own_out"; then
+      bad "$fr has a task marked done but no test in this suite cites it (SC-002)"; own_bad=1
+    fi
+  done <<<"$done_frs"
+  if grep -qE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out"; then bad "the suite cites an FR the spec does not declare"; own_bad=1; fi
+  pending="$(grep -cE '^FR-[0-9]+ +UNCOVERED' <<<"$own_out" || true)"
+  [ "$own_bad" -eq 0 ] && ok "every completed requirement on this branch is cited by a check ($pending pending, not yet implemented)"
+fi
+# The command exists and calls the helper it is built on.
+if grep -qF 'speckit-helper.sh req-coverage' "$REPO/commands/hef.verify.md" 2>/dev/null; then
+  ok "/hef.verify runs req-coverage in pre-flight"
+else
+  bad "/hef.verify does not call req-coverage — the mechanical half of the gate is missing"
+fi
+
+# --- Tier 1: session lifecycle + config audit hooks (FR-006, FR-007) --------------------
+head_ "Lifecycle hooks"
+
+# SessionStart stdout IS context. It must say something useful in a repo and nothing outside one.
+# PreCompact must leave a checkpoint the next session can find, outside the working tree.
+# Mutation-checked 2026-09-22: session-start's git-repo test replaced with `true` → "silent outside
+# a git repo" went red. Restored.
+lc_t="$(mktemp -d)"; lc_cache="$(mktemp -d)"
+(
+  cd "$lc_t" && git init -q . && git checkout -q -b feature/demo
+  git -c user.email=s@t -c user.name=s commit -q --allow-empty -m init
+  mkdir -p .specify/specs/demo && printf -- '- [ ] T001 open\n- [x] T002 done\n' > .specify/specs/demo/tasks.md
+) >/dev/null 2>&1
+ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$lc_t" | bash "$REPO/hooks/session-start-context.sh" 2>/dev/null)"
+if grep -qF 'branch feature/demo' <<<"$ss_out" && grep -qF 'T001 open' <<<"$ss_out"; then
+  ok "session-start hook injects the branch and the open tasks"
+else
+  bad "session-start hook output lacks branch/open-task lines: $ss_out"
+fi
+# Eval 2026-09-23 (spec-first-routing, both arms 0/1): with only the plugin installed, nothing told
+# the model which command a feature-sized request goes to. The routing lines are that channel.
+if grep -qF '/hef.spec' <<<"$ss_out" && grep -qF 'root-cause' <<<"$ss_out"; then
+  ok "session-start hook states the routing rule (spec first) and the iron law (root cause first)"
+else
+  bad "session-start hook does not state the routing rules: $ss_out"
+fi
+lc_n="$(mktemp -d)"
+ss_none="$(printf '{"cwd":"%s"}' "$lc_n" | bash "$REPO/hooks/session-start-context.sh" 2>/dev/null)"
+if [ -z "$ss_none" ]; then ok "session-start hook is silent outside a git repo (costs no context)"
+else bad "session-start hook printed outside a git repo: $ss_none"; fi
+rm -rf "$lc_n"
+XDG_CACHE_HOME="$lc_cache" bash "$REPO/hooks/precompact-progress.sh" <<<"$(printf '{"cwd":"%s","trigger":"auto"}' "$lc_t")" >/dev/null 2>&1
+ck="$(ls "$lc_cache"/hefesto/progress/*.md 2>/dev/null | head -1)"
+if [ -n "$ck" ] && grep -qF 'T001 open' "$ck" && [ -z "$(git -C "$lc_t" status --short | grep -v '.specify')" ]; then
+  ok "precompact hook writes a checkpoint with the open tasks, outside the working tree"
+else
+  bad "precompact hook did not write a usable checkpoint outside the repo"
+fi
+rm -rf "$lc_t" "$lc_cache"
+ac_out="$(printf '{"file_path":"/x/settings.json"}' | bash "$REPO/hooks/audit-config-change.sh" 2>&1 >/dev/null)"
+if grep -qF '/x/settings.json' <<<"$ac_out"; then ok "config-audit hook names the changed file"
+else bad "config-audit hook did not name the changed file: $ac_out"; fi
+for h in session-start-context precompact-progress audit-config-change implement-phase-test-guard; do
+  if printf '{}' | bash "$REPO/hooks/$h.sh" >/dev/null 2>&1; then ok "$h survives empty input"
+  else bad "$h crashes on empty input — a hook that dies on a malformed event breaks the tool call"; fi
+done
+for ev in SessionStart PreCompact ConfigChange; do
+  if jq -e --arg e "$ev" '.hooks[$e] | length > 0' "$REPO/hooks/hooks.json" >/dev/null 2>&1; then
+    ok "a hook is registered on $ev"
+  else
+    bad "no hook registered on $ev — the script exists and never fires"
+  fi
+done
+
+# --- Tier 2: conventional commit messages (FR-013) ---------------------------------------
+head_ "Conventional commits"
+
+# git-workflow.md prescribes the format; release.sh groups the changelog by it. Checked at commit
+# time, in the pre-commit hook, on the inline message only. Both directions: every documented
+# type passes, the heredoc style this repo uses passes, and a bare message is blocked.
+#
+# Mutation-checked 2026-09-22: `docs|` dropped from CONVENTIONAL_RE → the docs case went red;
+# the heredoc subject line changed from `2p` to `3p` → survived the first two heredoc cases (line 3
+# was empty or `EOF` in both), so the "body line looks conventional" case below was added; with it
+# the mutation goes red. Restored.
+QBC="$REPO/hooks/quality-before-commit.sh"
+cc_t="$(mktemp -d)"; git -C "$cc_t" init -q .
+cc_case() { # expected-exit description command
+  local exp="$1" desc="$2" cmd="$3" rc=0
+  jq -nc --arg c "$cmd" --arg d "$cc_t" '{tool_input:{command:$c},cwd:$d}' | bash "$QBC" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$exp" ]; then ok "$desc"; else bad "$desc (want exit $exp, got $rc)"; fi
+}
+cc_case 0 "allows 'feat: …'"                                   'git commit -m "feat: add thing"'
+cc_case 0 "allows 'docs: …' in single quotes"                  "git commit -m 'docs: note'"
+cc_case 0 "allows a scoped breaking 'fix(hooks)!: …'"          'git commit -m "fix(hooks)!: tighten"'
+cc_case 0 "allows the repo's heredoc commit style"             "$(printf 'git commit -q -m "$(cat <<%s\nfeat: thing\n\nbody\nEOF\n)"' "'EOF'")"
+cc_case 2 "blocks a bare message"                              'git commit -m "added thing"'
+cc_case 2 "blocks a bare heredoc subject"                      "$(printf 'git commit -m "$(cat <<%s\nMerged some stuff\nEOF\n)"' "'EOF'")"
+# The SUBJECT is line 2 of the command (the line after the heredoc opener), never a body line. A
+# check that read the wrong line would pass a bare subject whose body happens to look conventional.
+cc_case 2 "blocks a bare heredoc subject even when a body line looks conventional" "$(printf 'git commit -m "$(cat <<%s\nMerged stuff\ndocs: this is body text\nEOF\n)"' "'EOF'")"
+cc_case 0 "allows the visible bypass CLAUDE_ALLOW_NONCONVENTIONAL=1" 'CLAUDE_ALLOW_NONCONVENTIONAL=1 git commit -m "wip"'
+cc_case 0 "leaves --amend --no-edit alone (no inline subject)" 'git commit --amend --no-edit'
+rm -rf "$cc_t"
+
+# --- Tier 2: complexity DELTA gate (FR-010) ----------------------------------------------
+head_ "Complexity delta gate"
+
+# code-quality.md's limits are aggregate rules — the class agents honour least in prose. The
+# pre-commit hook runs them as a DELTA where lizard is installed: a staged file may not gain
+# over-limit functions versus HEAD. lizard is not on CI, so a stub on PATH drives the logic: one
+# warning per LIZARD_VIOLATION marker. This tests OUR delta, not lizard.
+#
+# Mutation-checked 2026-09-22: `-gt` → `-ge` on the compare → "unchanged count" went red — on the
+# SECOND attempt; the first fixture staged content identical to HEAD, so nothing was staged and the
+# gate never ran (see the case's comment). The exemption removed → the exemption case went red.
+# Restored.
+cx_t="$(mktemp -d)"; cx_b="$(mktemp -d)"
+printf '#!/bin/bash\nf="${@: -1}"; n=$(grep -c LIZARD_VIOLATION "$f" 2>/dev/null || true); for i in $(seq 1 ${n:-0}); do echo "$f:$i: warning: fn$i has 60 NLOC, 12 CCN"; done; exit 0\n' > "$cx_b/lizard"
+chmod +x "$cx_b/lizard"
+( cd "$cx_t" && git init -q . && printf 'x # LIZARD_VIOLATION\n' > a.py && git add a.py && git -c user.email=s@t -c user.name=s commit -q -m 'feat: base' ) >/dev/null 2>&1
+cx_case() { # expected-exit description
+  local exp="$1" desc="$2" rc=0
+  jq -nc --arg d "$cx_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | PATH="$cx_b:$PATH" bash "$QBC" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$exp" ]; then ok "$desc"; else bad "$desc (want exit $exp, got $rc)"; fi
+}
+( cd "$cx_t" && printf 'x # LIZARD_VIOLATION\ny # LIZARD_VIOLATION\n' > a.py && git add a.py ); cx_case 2 "blocks a staged file that GAINED an over-limit function (1 → 2)"
+# A REAL diff with the same count: identical content stages nothing, the gate never runs, and the
+# case passes vacuously — which is how the first `-gt`→`-ge` mutation survived. Measured.
+( cd "$cx_t" && printf 'y # LIZARD_VIOLATION\n' > a.py && git add a.py );                           cx_case 0 "passes a changed file whose violation count is unchanged (existing debt does not block)"
+( cd "$cx_t" && printf 'clean\n' > a.py && git add a.py );                                          cx_case 0 "passes a file that got better"
+( cd "$cx_t" && git checkout -q a.py 2>/dev/null; git reset -q; printf 'n # LIZARD_VIOLATION\n' > new.py && git add new.py ); cx_case 2 "blocks a NEW file with an over-limit function (0 → 1)"
+( cd "$cx_t" && git reset -q; rm -f new.py; mkdir -p workflows && printf 'v # LIZARD_VIOLATION\n' > workflows/workflow.js && git add workflows/workflow.js ); cx_case 0 "skips the one documented exemption (workflows/workflow.js)"
+( cd "$cx_t" && git reset -q; rm -rf workflows; printf 'x # LIZARD_VIOLATION\ny # LIZARD_VIOLATION\n' > a.py && git add a.py )
+rc=0; jq -nc --arg d "$cx_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | PATH="/usr/bin:/bin" bash "$QBC" >/dev/null 2>&1 || rc=$?
+if [ "$rc" -eq 0 ]; then ok "the gate is silent when lizard is not installed (degrades, never blocks)"
+else bad "the gate fired with lizard absent (rc=$rc) — a check that runs without its tool is a false positive factory"; fi
+rm -rf "$cx_t" "$cx_b"
+
+# --- Tier 2: release.sh moves every declaration together (FR-013) ------------------------
+head_ "Release script"
+
+# Six declarations, one command. Driven on a COPY of the declaration files so the real tree is
+# untouched; the assertion is the same one the Version block above makes — they all agree — plus
+# the changelog scaffold exists and the guards refuse a repeat and a malformed version.
+#
+# Mutation-checked 2026-09-22: `.plugins[0].version = $v` removed from the jq → "declarations
+# agree" went red. Restored.
+rl_t="$(mktemp -d)"
+mkdir -p "$rl_t/.claude-plugin" "$rl_t/.claude" "$rl_t/hooks"
+cp "$REPO/.claude-plugin/plugin.json" "$REPO/.claude-plugin/marketplace.json" "$rl_t/.claude-plugin/"
+cp "$REPO/.claude/CLAUDE.md" "$rl_t/.claude/"; cp "$REPO/README.md" "$REPO/CHANGELOG.md" "$rl_t/"; cp "$REPO/hooks/release.sh" "$rl_t/hooks/"
+( cd "$rl_t" && git init -q . && git add -A && git -c user.email=s@t -c user.name=s commit -q -m 'chore: import' && git tag v0.0.1 \
+  && printf 'x\n' > x && git add x && git -c user.email=s@t -c user.name=s commit -q -m 'feat: scaffold me' ) >/dev/null 2>&1
+if ( cd "$rl_t" && hooks/release.sh 99.1.2 2030-01-02 ) >/dev/null 2>&1; then
+  rl_p="$(jq -r .version "$rl_t/.claude-plugin/plugin.json")"
+  rl_m1="$(jq -r .metadata.version "$rl_t/.claude-plugin/marketplace.json")"
+  rl_m2="$(jq -r '.plugins[0].version' "$rl_t/.claude-plugin/marketplace.json")"
+  rl_r="$(grep -oE 'Framework Version\*\*: [0-9.]+' "$rl_t/README.md" | grep -oE '[0-9.]+$')"
+  rl_c="$(grep -m1 -oE 'Hefesto v[0-9]+\.[0-9]+' "$rl_t/.claude/CLAUDE.md" | grep -oE '[0-9.]+$')"
+  if [ "$rl_p" = 99.1.2 ] && [ "$rl_m1" = 99.1.2 ] && [ "$rl_m2" = 99.1.2 ] && [ "$rl_r" = 99.1.2 ] && [ "$rl_c" = 99.1 ]; then
+    ok "release.sh moved plugin.json, marketplace (×2), README footer, and the CLAUDE.md title together"
+  else
+    bad "release.sh left declarations disagreeing: plugin=$rl_p mkt=$rl_m1/$rl_m2 readme=$rl_r claude=$rl_c"
+  fi
+  if grep -qF '## [99.1.2] - 2030-01-02' "$rl_t/CHANGELOG.md" && grep -qF -- '- scaffold me' "$rl_t/CHANGELOG.md"; then
+    ok "release.sh scaffolded the CHANGELOG entry from the commits since the last tag"
+  else
+    bad "release.sh did not scaffold the CHANGELOG entry"
+  fi
+  if ( cd "$rl_t" && hooks/release.sh 99.1.2 ) >/dev/null 2>&1; then bad "release.sh re-ran for a version the CHANGELOG already has"
+  else ok "release.sh refuses a version the CHANGELOG already has"; fi
+  if ( cd "$rl_t" && hooks/release.sh 1.2 ) >/dev/null 2>&1; then bad "release.sh accepted a malformed version"
+  else ok "release.sh refuses a malformed version"; fi
+else
+  bad "release.sh failed on a clean copy of the declaration files"
+fi
+rm -rf "$rl_t"
+
+# --- Tier 2: mutation-score ratchet (FR-009) ---------------------------------------------
+head_ "Mutation ratchet"
+
+# Raise-only mark with a fixed floor. A fixed threshold drifts to aspirational; a PR-driven
+# ratchet cascades failures across concurrent PRs. Driven in a scratch dir.
+#
+# Mutation-checked 2026-09-22: `floor=$((mark - 5))` → `- 10` → "below the floor fails" went red;
+# `-gt "$mark"` → `-ge` in mutation-raise → "does not lower" went red. Restored.
+mr_t="$(mktemp -d)"
+mr_fail=0
+out="$(cd "$mr_t" && "$HELPER" mutation-score 2>/dev/null)"; rc=$?
+[ "$out" = "NO_MARK" ] && [ "$rc" -ne 0 ] || { bad "mutation-score with no mark must print NO_MARK and exit non-zero (got '$out'/$rc)"; mr_fail=1; }
+(cd "$mr_t" && "$HELPER" mutation-raise 62 >/dev/null 2>&1)
+[ "$(cd "$mr_t" && "$HELPER" mutation-score 2>/dev/null)" = "62" ] || { bad "mutation-raise did not record 62"; mr_fail=1; }
+(cd "$mr_t" && "$HELPER" mutation-ratchet 57 >/dev/null 2>&1) || { bad "a score AT the floor (mark−5) must pass"; mr_fail=1; }
+if (cd "$mr_t" && "$HELPER" mutation-ratchet 56 >/dev/null 2>&1); then bad "a score below the floor must fail the ratchet"; mr_fail=1; fi
+(cd "$mr_t" && "$HELPER" mutation-raise 50 >/dev/null 2>&1)
+[ "$(cd "$mr_t" && "$HELPER" mutation-score 2>/dev/null)" = "62" ] || { bad "mutation-raise lowered the mark — it must only move up"; mr_fail=1; }
+if (cd "$mr_t" && "$HELPER" mutation-ratchet abc >/dev/null 2>&1); then bad "mutation-ratchet accepted a non-integer"; mr_fail=1; fi
+rm -rf "$mr_t"
+[ "$mr_fail" -eq 0 ] && ok "mutation-score / mutation-ratchet / mutation-raise honour the raise-only, floor-5 contract"
+grep -qF 'speckit-helper.sh mutation-ratchet' "$REPO/commands/hef.mutate.md" 2>/dev/null \
+  && ok "/hef.mutate runs the ratchet" || bad "/hef.mutate does not call mutation-ratchet"
+
+# --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------
+head_ "Parallel-safety"
+
+# The probe reports a committed-state conflict with the base and stays silent on a clean branch,
+# on the base branch itself, and when throttled. The owns: contract is prose in three places the
+# workflow's batcher depends on.
+#
+# Mutation-checked 2026-09-22: the CONFLICT echo removed → "reports a conflict" went red. Restored.
+MTP="$REPO/hooks/merge-tree-probe.sh"
+mt_t="$(mktemp -d)"
+( cd "$mt_t" && git init -q -b main . && printf 'a\n' > f && git add f && git -c user.email=s@t -c user.name=s commit -q -m 'chore: base' \
+  && git checkout -q -b feature/x && printf 'b\n' > f && git -c user.email=s@t -c user.name=s commit -qam 'feat: x' \
+  && git checkout -q main && printf 'c\n' > f && git -c user.email=s@t -c user.name=s commit -qam 'fix: y' && git checkout -q feature/x ) >/dev/null 2>&1
+rm -f /tmp/.hefesto-merge-probe-* 2>/dev/null
+mt_out="$(printf '{"cwd":"%s"}' "$mt_t" | bash "$MTP" 2>&1 >/dev/null)"
+if grep -qF 'CONFLICT with main in: f' <<<"$mt_out"; then ok "merge-tree probe reports a committed-state conflict with the base, naming the file"
+else bad "merge-tree probe missed the conflict: $mt_out"; fi
+mt_out2="$(printf '{"cwd":"%s"}' "$mt_t" | bash "$MTP" 2>&1 >/dev/null)"
+[ -z "$mt_out2" ] && ok "merge-tree probe is throttled (second call within a minute is silent)" || bad "merge-tree probe ran twice inside the throttle window"
+rm -f /tmp/.hefesto-merge-probe-* 2>/dev/null
+( cd "$mt_t" && git checkout -q main ) >/dev/null 2>&1
+mt_out3="$(printf '{"cwd":"%s"}' "$mt_t" | bash "$MTP" 2>&1 >/dev/null)"
+[ -z "$mt_out3" ] && ok "merge-tree probe is silent on the base branch" || bad "merge-tree probe spoke on main: $mt_out3"
+rm -rf "$mt_t"
+if jq -e '.hooks.PostToolUse[] | select(.matcher | test("Edit")) | .hooks[] | select(.command | test("merge-tree-probe"))' "$REPO/hooks/hooks.json" >/dev/null 2>&1; then
+  ok "merge-tree probe is registered on PostToolUse Edit|Write"
+else
+  bad "merge-tree-probe.sh is not registered — it exists and never fires"
+fi
+owns_fail=0
+grep -qF 'owns:' "$REPO/.specify/templates/tasks.md" || { bad "tasks template lost the owns: field"; owns_fail=1; }
+grep -qF 'owns:' "$REPO/commands/hef.tasks.md" || { bad "/hef.tasks no longer asks [P] tasks to declare owns:"; owns_fail=1; }
+grep -qF 'owns:' "$REPO/workflows/workflow.js" || { bad "the workflow loader no longer parses owns:"; owns_fail=1; }
+grep -qF 'both own' "$REPO/workflows/workflow.js" || { bad "the workflow no longer names owns: overlaps"; owns_fail=1; }
+[ "$owns_fail" -eq 0 ] && ok "owns: is declared in the template, requested by /hef.tasks, parsed and overlap-reported by the workflow"
+
+# --- Tier 2: router, evals, shellcheck (FR-011, FR-014) -----------------------------------
+head_ "Router and evals"
+
+grep -qF 'task-effort-estimation' "$REPO/commands/hef.agent.md" && grep -qF 'hef.fix' "$REPO/commands/hef.agent.md" \
+  && ok "/hef.agent routes by size via task-effort-estimation (FR-011)" \
+  || bad "/hef.agent no longer routes by size"
+ev_fail=0; ev_n=0
+for c in "$REPO"/evals/*/case.yaml; do
+  [ -f "$c" ] || continue
+  ev_n=$((ev_n + 1))
+  # The contract claude plugin eval 2.1.280 enforces (learned by running it: the first suite
+  # reported zero cases, the second "missing required field schema_version", the third an
+  # invalid grader discriminator). Each of those is now a red check here.
+  grep -qE '^schema_version: "1\.[0-9]+"' "$c" && grep -qE '^name:' "$c" && grep -qE '^execution:' "$c" \
+    && grep -qE '^\s+prompt:' "$c" && grep -qE '^graders:' "$c" \
+    && grep -qE '^\s+type: "?(regex|tool_used|tool_order|file_exists|llm|baseline)"?$' "$c" \
+    && ! grep -qE '^\s+type: "?(contains|llm-judge|rubric)"?' "$c" \
+    || { bad "eval case $(basename "$(dirname "$c")") does not match the case.yaml contract (schema_version 1.x, name, execution.prompt, graders with a real type)"; ev_fail=1; }
+done
+[ "$ev_n" -ge 1 ] || { bad "no eval cases under evals/"; ev_fail=1; }
+[ "$ev_fail" -eq 0 ] && ok "$ev_n eval case(s) parse structurally: name, prompt, graders with a known type (FR-014)"
+if command -v shellcheck >/dev/null 2>&1; then
+  sc_bad="$(shellcheck -S warning "$REPO"/hooks/*.sh 2>&1 | grep -c '^In ' || true)"
+  [ "${sc_bad:-0}" -eq 0 ] && ok "shellcheck (warning+) is clean on every hook" || bad "shellcheck reports $sc_bad finding(s) in hooks/"
+else
+  printf '  \033[33mskip\033[0m shellcheck not installed — hooks were only bash -n checked at commit time\n'
+fi
+
+# --- Tier 3: the 7.0 shape (FR-015, FR-016, FR-017, FR-018, FR-019) ---------------------
+head_ "7.0 toolbox shape"
+
+# Renames are why 7.0 is major. The old names must be GONE (a stale file would silently keep
+# registering a command the docs no longer mention), the new ones present and wired.
+t3_fail=0
+[ -f "$REPO/commands/hef.doctor.md" ] || { bad "commands/hef.doctor.md is missing (FR-015)"; t3_fail=1; }
+[ -e "$REPO/commands/hef.sync.md" ] && { bad "commands/hef.sync.md still exists — the 7.0 rename left the old command registered (FR-015)"; t3_fail=1; }
+[ -e "$REPO/commands/hef.pr-summary.md" ] && { bad "commands/hef.pr-summary.md still exists — it was folded into /hef.pr --summary-only (FR-015)"; t3_fail=1; }
+grep -qF -- '--summary-only' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr lost --summary-only, the replacement for /hef.pr-summary (FR-015)"; t3_fail=1; }
+grep -qF 'shellcheck' "$REPO/commands/hef.doctor.md" 2>/dev/null && grep -qF 'claude plugin eval' "$REPO/commands/hef.doctor.md" 2>/dev/null \
+  || { bad "/hef.doctor no longer lints the hooks or offers the eval suite (FR-015)"; t3_fail=1; }
+[ "$t3_fail" -eq 0 ] && ok "hef.sync → hef.doctor and hef.pr-summary → hef.pr --summary-only, old names gone (FR-015)"
+
+# 7.0 also unified the namespace: every command is hef.*, and no command text names a speckit.*
+# command any more (the helper keeps its filename — renaming it would force a permission-rule
+# edit on every install for no user-visible gain). A stray speckit.* file would register a second,
+# undocumented copy of a command; a stale mention sends the model to a name that no longer exists.
+#
+# Mutation-checked 2026-09-23: a stray commands/speckit.x.md → red; a `/speckit.plan` mention
+# planted in a command → red. Restored.
+uni_fail=0
+stray="$(ls "$REPO"/commands/ 2>/dev/null | grep -v '^hef\.' || true)"
+[ -n "$stray" ] && { bad "commands not under the hef.* namespace: $(tr '\n' ' ' <<<"$stray")"; uni_fail=1; }
+# docs/research.md is excluded: its acknowledgments credit upstream projects by their own command
+# names (speckit.research, speckit.reflect), which is attribution, not a stale reference.
+stale="$(grep -rlE 'speckit\.[a-z]' "$REPO/commands/" "$REPO/README.md" "$REPO/docs/" "$REPO/.claude/CLAUDE.md" "$REPO/AGENTS.md" 2>/dev/null | grep -v 'docs/research.md' || true)"
+[ -n "$stale" ] && { bad "speckit.* command names still mentioned in: $(tr '\n' ' ' <<<"$stale")"; uni_fail=1; }
+[ -f "$REPO/workflows/workflow.js" ] || { bad "workflows/workflow.js is missing — the workflow is invoked as hefesto:workflow"; uni_fail=1; }
+[ "$uni_fail" -eq 0 ] && ok "every command is hef.*, no command text names a speckit.* command, the workflow is hefesto:workflow (FR-015)"
+
+# Knowledge skills are not commands; action skills still are. Both directions.
+inv_fail=0
+for s in quality-tooling pipeline-security mcp-security agent-collaboration; do
+  fm="$(sed -n '/^---$/,/^---$/p' "$REPO/skills/$s/SKILL.md")"
+  grep -qE '^user-invocable: false' <<<"$fm" || { bad "knowledge skill $s is still user-invocable — it shows up as a command nobody should run (FR-016)"; inv_fail=1; }
+done
+for s in systematic-debugging performance-audit task-effort-estimation; do
+  fm="$(sed -n '/^---$/,/^---$/p' "$REPO/skills/$s/SKILL.md")"
+  grep -qE '^user-invocable: false' <<<"$fm" && { bad "action skill $s was demoted to knowledge — users can no longer invoke it (FR-016)"; inv_fail=1; }
+done
+[ "$inv_fail" -eq 0 ] && ok "the four knowledge skills are user-invocable: false; the three action skills remain invocable (FR-016)"
+
+# Every report carries a machine-readable decision status. Inferring it from prose is how a repo
+# of 98 ADRs misread 59 of them.
+adr_fail=0
+for r in "$REPO"/reports/*.md; do
+  fm="$(sed -n '1,/^---$/p' "$r" | sed -n '2,$p')"
+  [ "$(head -1 "$r")" = "---" ] || { bad "$(basename "$r") has no frontmatter (FR-017)"; adr_fail=1; continue; }
+  grep -qE '^status: (proposed|accepted|rejected|deprecated|superseded)$' <<<"$fm" || { bad "$(basename "$r") status is missing or not in the MADR enum (FR-017)"; adr_fail=1; }
+  grep -qE '^date: [0-9]{4}-[0-9]{2}-[0-9]{2}$' <<<"$fm" || { bad "$(basename "$r") has no date (FR-017)"; adr_fail=1; }
+done
+grep -qE '^   status: proposed' "$REPO/commands/hef.adr.md" 2>/dev/null || { bad "/hef.adr does not write MADR frontmatter (FR-017)"; adr_fail=1; }
+[ "$adr_fail" -eq 0 ] && ok "every report carries MADR status + date frontmatter, and /hef.adr writes it (FR-017)"
+
+# The cross-tool shim and the routine.
+if [ -f "$REPO/AGENTS.md" ] && grep -qF 'CLAUDE.md' "$REPO/AGENTS.md" && grep -qF '.claude/rules' "$REPO/AGENTS.md"; then
+  ok "AGENTS.md exists and points other tools at CLAUDE.md and the rules (FR-018)"
+else
+  bad "AGENTS.md is missing or does not point at CLAUDE.md + .claude/rules (FR-018)"
+fi
+grep -qiF 'doc gardening' "$REPO/docs/agents.md" && ok "the doc-gardening routine is documented (FR-018)" || bad "docs/agents.md lost the doc-gardening routine (FR-018)"
+
+# Persistent memory on the two agents whose findings recur across runs.
+mem_fail=0
+for a in forensic-specialist code-reviewer; do
+  fm="$(sed -n '/^---$/,/^---$/p' "$REPO/agents/$a.md")"
+  grep -qE '^memory: project$' <<<"$fm" || { bad "agent $a does not declare memory: project (FR-019)"; mem_fail=1; }
+done
+[ "$mem_fail" -eq 0 ] && ok "forensic-specialist and code-reviewer declare memory: project (FR-019)"
+
+# --- Tier 1: the review agents have commands (FR-002) ------------------------------------
+head_ "Command → agent wiring"
+
+# code-reviewer and review-coordinator existed for four releases with no command that dispatched
+# them; the documented chain had no entry point for its first link. A command that names the wrong
+# agent, or none, is the same bug back.
+cw_fail=0
+grep -qF 'code-reviewer' "$REPO/commands/hef.review.md" 2>/dev/null || { bad "/hef.review does not dispatch code-reviewer"; cw_fail=1; }
+grep -qF 'review-coordinator' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr does not dispatch review-coordinator"; cw_fail=1; }
+grep -qiE 'not merge|never merge' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr must state that it never merges"; cw_fail=1; }
+grep -qF 'code-reviewer' "$REPO/commands/hef.verify.md" 2>/dev/null || { bad "/hef.verify does not run code-reviewer stage 1"; cw_fail=1; }
+[ "$cw_fail" -eq 0 ] && ok "hef.review → code-reviewer, hef.pr → review-coordinator (no merge), hef.verify → code-reviewer stage 1 (FR-002)"
+
+# --- Tier 1: prose that must exist because a hook points at it (FR-004, FR-005, FR-007) ---
+head_ "Guidance wiring"
+
+# Each of these is a rule a hook or command cites by name. If the prose goes, the reference dangles.
+gw_fail=0
+grep -qF 'jscpd' "$REPO/agents/quality-guardian.md" || { bad "quality-guardian lost the duplication-baseline recipe (FR-004)"; gw_fail=1; }
+grep -qiF 'mock budget' "$REPO/agents/test-specialist.md" || { bad "test-specialist lost the mock budget (FR-005)"; gw_fail=1; }
+grep -qF 'Agentic' "$REPO/.claude/rules/llm-security.md" || { bad "llm-security.md no longer covers the Agentic Top 10 (FR-007)"; gw_fail=1; }
+for c in hef.pr hef.fix; do   # hef.pr-summary folded into hef.pr --summary-only in 7.0
+  grep -qF '## Untrusted input' "$REPO/commands/$c.md" || { bad "/$c lost its untrusted-input section (FR-007)"; gw_fail=1; }
+done
+grep -qF 'Skills, Plugins, and Agents Are a Supply Chain' "$REPO/skills/mcp-security/SKILL.md" || { bad "mcp-security lost the skill vetting checklist (FR-007)"; gw_fail=1; }
+grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells users to enable the sandbox (FR-007)"; gw_fail=1; }
+[ "$gw_fail" -eq 0 ] && ok "every hook-cited rule and section is present (FR-004, FR-005, FR-007)"
 
 # --- Result --------------------------------------------------------------------------
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

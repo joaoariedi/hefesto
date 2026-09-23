@@ -43,9 +43,9 @@ Plugin components are **namespaced by plugin name**, but the namespace is only *
 
 | Component | How you invoke it |
 |---|---|
-| **Commands** | `/hef.context`, `/speckit.plan`, `/hef.quality` — the bare name works. The `hefesto:` prefix also works, and disambiguates if another plugin defines the same name. |
+| **Commands** | `/hef.context`, `/hef.plan`, `/hef.quality` — the bare name works. The `hefesto:` prefix also works, and disambiguates if another plugin defines the same name. |
 | **Agents** | Dispatched by Claude, or by name — they appear as `hefesto:code-reviewer`. |
-| **The workflow** | **Must be namespaced**: `hefesto:speckit-workflow`. A bare `speckit-workflow` **does not resolve**. |
+| **The workflow** | **Must be namespaced**: `hefesto:workflow`. A bare `workflow` **does not resolve**. |
 
 #### Installing into more than one profile
 
@@ -82,7 +82,7 @@ Two things the plugin cannot ship, because they are machine-local by design:
 }
 ```
 
-> ⚠️ The `speckit-helper.sh` permission avoids a prompt on every spec-kit command. The commands run the helper with the Bash tool; they cannot pre-execute it in a `` !`…` `` block, because a `!` block is permission-checked *before* `${CLAUDE_PLUGIN_ROOT}` is substituted and is rejected outright as `Contains expansion`.
+> ⚠️ The `speckit-helper.sh` permission avoids a prompt on every hef commands. The commands run the helper with the Bash tool; they cannot pre-execute it in a `` !`…` `` block, because a `!` block is permission-checked *before* `${CLAUDE_PLUGIN_ROOT}` is substituted and is rejected outright as `Contains expansion`.
 >
 > **The rule must mirror the command byte for byte. The matcher does no expansion and no normalisation.** Tested against the live matcher:
 >
@@ -96,9 +96,24 @@ Two things the plugin cannot ship, because they are machine-local by design:
 >
 > **Write your home directory out literally** (`echo $HOME`). The doubled slash is not a typo and is the entry that works: `${CLAUDE_PLUGIN_ROOT}` expands *with* a trailing slash, so the helper reaches the matcher as `…/.claude-framework//hooks/…`. The single-slash entry is a hedge against a future release dropping that slash; it matches nothing today. Keep both.
 >
-> **This is the single most common failure.** A pre-flight command that is denied aborts the whole slash command **silently** — no error, no output, exit 0. If a spec-kit command appears to do nothing at all, this rule is the first thing to check.
+> **This is the single most common failure.** A pre-flight command that is denied aborts the whole slash command **silently** — no error, no output, exit 0. If a hef commands appears to do nothing at all, this rule is the first thing to check.
 
 Export `GITHUB_TOKEN` if you want the bundled GitHub MCP server to connect.
+
+#### Turn on the sandbox
+
+The hooks are string matchers. `block-destructive-commands.sh` denies `git push --force` in every
+spelling it can see — but Claude Code's own documentation says a Bash deny rule *"isn't a security
+boundary"*: `sh -c "git push --force"` and `/usr/bin/git reset --hard` compose around any pattern.
+The hook's header says the same. The boundary is the OS sandbox:
+
+```
+/sandbox            # inside a session — enables filesystem + network isolation for shell tools
+```
+
+or set it in project settings so every session gets it. With the sandbox on, the hooks catch the
+careless path and the sandbox catches the determined one. Without it, the hooks are a very good
+seatbelt in a car with no doors.
 
 ### 3️⃣ Verify the Installation
 
@@ -119,21 +134,24 @@ Three checks, in increasing strength:
 The framework's core loop is **spec first, then code, then a gate you cannot talk your way past.**
 
 ```bash
-/speckit.init                    # once per project — bootstraps .specify/
-/speckit.specify  add user login # → a spec: scenarios, requirements, success criteria
-/speckit.plan                    # → an implementation plan (writes are blocked outside .specify/)
-/speckit.tasks                   # → a phased, dependency-ordered task list
-/speckit.implement               # → TDD execution, red-green, one task at a time
+/hef.init                    # once per project — bootstraps .specify/
+/hef.spec  add user login # → a spec: scenarios, requirements, success criteria
+/hef.plan                    # → an implementation plan (writes are blocked outside .specify/)
+/hef.tasks                   # → a phased, dependency-ordered task list
+/hef.implement               # → TDD execution, red-green, one task at a time (tests may grow, not shrink)
+/hef.verify                  # → every FR mapped to the tests that cite it, then spec-compliance review
 /hef.quality                         # → lint, types, secrets, SOLID — before you commit
+/hef.review                          # → two-stage code review
+/hef.pr                              # → the pull request, with the evidence attached
 ```
 
-For a **large** task list, swap the last implementation step for the workflow, which runs independent tasks in parallel and has every task adversarially verified by agents that did not write it:
+For a **large** task list, swap the implementation step for the workflow, which runs independent tasks in parallel and has every task adversarially verified by agents that did not write it:
 
 ```
-hefesto:speckit-workflow
+hefesto:workflow
 ```
 
-Not every change deserves a spec. For a typo or a config tweak, `/speckit.fix` skips the pipeline. For an existing codebase with no specs, `/speckit.baseline` reverse-engineers them.
+Not every change deserves a spec. For a typo or a config tweak, `/hef.fix` skips the pipeline. For an existing codebase with no specs, `/hef.baseline` reverse-engineers them.
 
 **What happens without you asking:** on every edit, formatters run and tests fire; on every `git commit`, secrets detection and linting must pass or the commit is blocked; and a task cannot be marked complete while the test suite fails. You do not opt into these — they ship with the plugin.
 

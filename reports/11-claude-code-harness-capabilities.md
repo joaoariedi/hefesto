@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-12
+---
+
 # Claude Code Harness Capabilities
 
 What the Claude Code harness natively provides — skill loading rules, invocation control, subagent forking, lifecycle hooks, and the bundled skills — and where a custom framework should lean on it instead of reimplementing it. This file exists because the framework spent three releases hand-rolling behaviour the harness ships for free, and shipped a skills layer that never loaded.

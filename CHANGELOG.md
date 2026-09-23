@@ -20,18 +20,214 @@ are not tagged.
 
 ## Releasing
 
-Six declarations of the version are bumped **by hand**, and `tests/smoke.sh` fails if they
-disagree — that check exists because nothing else would notice a half-bumped release:
+Six declarations of the version move **together**, by script, and `tests/smoke.sh` fails if they
+disagree — that check exists because nothing else would notice a half-bumped release (#19), and
+it is what caught the hand-bumped era:
 
-1. `.claude-plugin/plugin.json` → `version`
-2. `.claude-plugin/marketplace.json` → `metadata.version` **and** `plugins[0].version`
-3. `README.md` → the title and the **Framework Version** footer
-4. `.claude/CLAUDE.md` → the title
-5. Write the entry here, dated.
-6. `tests/smoke.sh` (and `SMOKE_LIVE=1` if you are logged in — it is the only check that
+1. `hooks/release.sh X.Y.Z` (or `/hef.release X.Y.Z`) — bumps `.claude-plugin/plugin.json`,
+   `.claude-plugin/marketplace.json` (`metadata.version` **and** `plugins[0].version`), the
+   README **Framework Version** footer and date, and the `.claude/CLAUDE.md` title; then
+   scaffolds the entry here from the commits since the last tag.
+2. **Edit the scaffold.** It is a list of commit subjects; the entry is what changed for the
+   user, and why. Never let an agent write it without the diff in context.
+3. `tests/smoke.sh` (and `SMOKE_LIVE=1` if you are logged in — it is the only check that
    drives the plugin end to end).
-7. Tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, then cut a GitHub Release from the
-   entry above.
+4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
+   Release from the entry above. Untagged releases make the next scaffold reach too far back.
+
+## [7.0.0] - 2026-09-22
+
+**Tier 3 of the 2026-09 harness review: the toolbox is shaped by lifecycle, knowledge stops
+pretending to be commands, and every decision on record carries a machine-readable status.**
+Major per the versioning policy above — two commands are renamed, one is folded into another —
+so an existing install needs the migration below. `reports/14` and
+`.specify/specs/harness-review-tiers/` carry the evidence and the task list.
+
+### Changed - BREAKING
+
+- **One namespace: every command is `hef.*`, and the names are one word.** The `speckit.*` prefix
+  is gone from commands, docs, hooks, templates, and the workflow. The methodology still lives in
+  `.specify/` (the directory, its templates, and `speckit-helper.sh` are unchanged — renaming the
+  helper would force a permission-rule edit on every install for no user-visible gain).
+
+  | Was | Is |
+  |---|---|
+  | `/speckit.init` · `constitution` · `brainstorm` · `clarify` · `plan` · `tasks` · `checklist` · `analyze` · `implement` · `verify` · `baseline` · `fix` | `/hef.` + the same word |
+  | `/speckit.specify` | `/hef.spec` |
+  | `/speckit.review` (plan gate) | **merged into `/hef.review`** — plan mode before tasks exist, code mode after; `plan` / `code` forces it |
+  | `/hef.security-scan` | `/hef.scan` |
+  | `hefesto:speckit-workflow` (`workflows/speckit-workflow.js`) | `hefesto:workflow` (`workflows/workflow.js`) |
+  | `docs/spec-kit.md` | `docs/sdd.md` |
+
+- **`/hef.sync` is now `/hef.doctor`.** Same three-copies drift report, plus what a check-up
+  should have always included: every hook `bash -n`-parsed (and `shellcheck`ed when present), the
+  manifest validated with `claude plugin validate`, a pointer to the built-in `/skill-doctor`, and
+  `--eval` to score the plugin's own prompts with `claude plugin eval` (opt-in; spends tokens).
+- **`/hef.pr-summary` is folded into `/hef.pr --summary-only`.** Same description format, plus a
+  Verification line that names what `/speckit.verify`, `/hef.quality`, and `/hef.review` reported
+  — or "not run". The untrusted-input rule travels with it.
+- **The four knowledge skills — `quality-tooling`, `pipeline-security`, `mcp-security`,
+  `agent-collaboration` — are `user-invocable: false`.** Claude still loads them when relevant;
+  they no longer appear in the `/` menu as commands nobody should run. The three action skills
+  (`systematic-debugging`, `performance-audit`, `task-effort-estimation`) are unchanged. If you
+  typed `/hefesto:quality-tooling` on purpose, ask for the recipe in prose instead.
+
+### Migration
+
+1. `git -C ~/.claude-framework pull` and `claude plugin marketplace update hefesto`, then restart
+   Claude Code — the old command names are gone from the tree, so nothing stale keeps registering.
+2. Replace every `/speckit.<x>` with `/hef.<x>` (`specify` → `spec`; `speckit.review` → `hef.review`),
+   `/hef.security-scan` with `/hef.scan`, `/hef.sync` with `/hef.doctor`, `/hef.pr-summary` with
+   `/hef.pr --summary-only`, and `hefesto:speckit-workflow` with `hefesto:workflow` in any notes,
+   scripts, or `CLAUDE.md` files of your own. The framework's own copies are updated. Existing
+   `.specify/` artifacts need no change.
+3. If your global gitignore ignores `.claude/` and you want the two agents' memory shared, add
+   `!.claude/agent-memory/` to the project's `.gitignore` (see `docs/agents.md`).
+4. Re-copy `.claude/rules/` and `.claude/CLAUDE.md` into your profile as usual — `llm-security.md`
+   and the tier table changed in 6.1–7.0.
+
+### Added
+
+- **`/hef.adr`** — a decision record under `reports/` with MADR frontmatter (`status`, `date`,
+  `supersedes`). **Every existing report now carries that frontmatter** (05 and 08 `proposed`, 09 and
+  13 `rejected`, the rest `accepted`), and the smoke suite rejects a report without a valid status. A
+  fail-open parser once misread 59 of 98 ADRs by inferring state from prose; state lives in
+  frontmatter only.
+- **`AGENTS.md`** at the repository root — the Linux Foundation cross-tool standard, as a shim that
+  points Codex, Cursor, Copilot, and Gemini CLI at `CLAUDE.md`, the rules, and the constitution.
+- `forensic-specialist` and `code-reviewer` declare **`memory: project`**: recurring findings and
+  project-specific false positives persist under `.claude/agent-memory/<name>/`. Memory holds facts
+  and decisions, never instructions to a future session.
+- **`session-start-context.sh` states the routing rules** — two lines on every session start: a
+  feature-sized request goes to `/hef.spec` (`/hef.brainstorm`, `/hef.agent`), never to
+  implementation from the prompt alone; no fix before a root-cause investigation, and size by
+  complexity and risk, not hours. The first real `claude plugin eval` run showed why: with only the
+  plugin installed — no `CLAUDE.md`, no rules — the model answered "add JWT auth, go ahead" by
+  dispatching an implementation agent, in both ablation arms. Commands only route when invoked;
+  SessionStart is the one channel the plugin has to say which command to invoke. With the lines,
+  spec-first routing scores Δ +1.0 against the no-plugin arm.
+- **`evals/` now runs** — cases are `evals/<case>/case.yaml` in the CLI's real schema, each with a
+  `scaffold.sh` that builds a small git repo for the prompt to act on (the eval workspace is empty
+  otherwise, and both arms answered "there is no project here"). `evals/README.md` records the
+  flags and the sandbox requirement for a Bash grant.
+- `docs/agents.md`: agent memory rules, and **doc gardening as a routine** — a scheduled
+  `claude -p` brief that reads docs, reports, and rules against the tree and proposes the minimal
+  edits; the smoke suite's docs-honesty checks are its acceptance test.
+
+## [6.2.0] - 2026-09-22
+
+**Tier 2 of the 2026-09 harness review: the rules that agents honour least become gates, the
+mutation ratchet the framework always recommended finally exists, and releases move as one.**
+Additive — no command renamed, no path moved, no permission rule to edit. `reports/14` and
+`.specify/specs/harness-review-tiers/` carry the evidence and the task list.
+
+Cut with `/hef.release` — this entry began as the script's commit-derived scaffold and was rewritten
+by hand, which is the point of the script stopping where it does. (The scaffold reached back to
+`v5.2.0`: 6.0.0 and 6.1.0 were never tagged. Tag releases.)
+
+### Added
+
+- **`/hef.mutate`** — mutation testing over the changed code (`mutmut`, Stryker incremental,
+  `gremlins`, `cargo-mutants` — detected, never installed) against a **raise-only score ratchet**:
+  `speckit-helper.sh mutation-score | mutation-ratchet <n> | mutation-raise <n>`, with the mark
+  committed at `.specify/mutation-score`. A PR must stay within 5 points of the mark; only the
+  default branch raises it (a PR-driven ratchet cascades failures across concurrent PRs). Every
+  surviving mutant is treated as the assertion that should have existed. Coverage says a line ran;
+  this says a test would notice.
+- **`/hef.release`** and **`hooks/release.sh`** — one command moves all six version declarations
+  and scaffolds the CHANGELOG entry from the commits since the last tag, grouped by conventional
+  type; then it stops for the human edit. It never commits, tags, or pushes.
+- **`merge-tree-probe.sh`** (PostToolUse on `Edit|Write`, once a minute) — `git merge-tree
+  --write-tree` says whether the branch's committed state would conflict with its base, and how
+  far the base has drifted. Advisory. Worktree isolation removes working-directory collisions but
+  not this; 27.7% of agent PRs conflict, most of them on the combined tree only.
+- **`evals/`** — four `claude plugin eval` cases seeded from the review's named failure modes
+  (spec-first routing, destructive-command refusal, root-cause before fix, effort sizing without
+  hours), each scored with and without the plugin. Opt-in: needs an authenticated CLI, spends
+  tokens; the smoke suite checks their structure only.
+- `owns:` on `[P]` tasks — the files a task claims exclusively. The template and `/speckit.tasks`
+  ask for it; the workflow parses it into the batcher's file list and now **names** any two `[P]`
+  tasks that own the same file instead of only counting them.
+
+### Changed
+
+- **`quality-before-commit.sh` enforces two more rules that were prose.** The commit subject must
+  be a conventional commit (`git-workflow.md`'s format; the heredoc style this repo uses is
+  understood; `CLAUDE_ALLOW_NONCONVENTIONAL=1` bypasses visibly). And where `lizard` is installed,
+  `code-quality.md`'s function-length and complexity limits run as a **delta** gate: a staged file
+  may not have more over-limit functions than its `HEAD` version. Aggregate rules like these were
+  measured at 31% violation as prose against 100% compliance for rules a linter enforces; existing
+  debt stays visible and non-blocking. `workflows/speckit-workflow.js` keeps its documented
+  exemption.
+- **`/hef.agent` routes before it runs.** It sizes the task with `task-effort-estimation`
+  (Projected mode) and picks `/speckit.fix`, a light spec path (specify → tasks → implement →
+  verify, plan/review/checklist skipped and said so), or the full pipeline — with any non-local-
+  context or high-coupling flag forcing the full path regardless of size. It was a one-line
+  EnterPlanMode wrapper.
+- `quality-tooling` skill: the mutation-ratchet recipes per stack; `code-quality.md` states which
+  of its limits are now mechanically enforced and how.
+- The "Releasing" procedure below now starts with `hooks/release.sh`.
+
+### Decided against
+
+- **bats** for hook fixtures: it needs an install step in CI, which constitution principle 4
+  forbids. The fixtures live in `tests/smoke.sh`, which already drives every hook by stdin, and
+  `shellcheck` runs there when present.
+
+## [6.1.0] - 2026-09-22
+
+**Tier 1 of the 2026-09 harness review: the traceability chain gets its last link, the review agents
+get commands, and tests can no longer shrink to go green.** Additive — no command renamed, no path
+moved, no permission rule to edit; 6.0.0 installs pick this up with `git pull`. Every item traces to
+`reports/14` (the review) and to `.specify/specs/harness-review-tiers/`.
+
+### Added
+
+- **`/speckit.verify`** — the post-implementation gate. `speckit-helper.sh req-coverage` maps every
+  `FR-NNN` in `spec.md` to the test files that cite it (marker, `describe` title, or comment; the
+  match is lexical on purpose) and exits non-zero on an `UNCOVERED` requirement or an `UNKNOWN` id;
+  the command then runs `code-reviewer` stage 1 on the diff. Before this, the implement report's
+  "coverage mapping" was prose the model wrote about its own work — exactly what the Iron Law says
+  is not evidence. `/speckit.analyze` mapped FR → tasks *before* code existed; nothing mapped
+  FR → tests after.
+- **`/hef.review`** and **`/hef.pr`** — `code-reviewer` and `review-coordinator` were reachable by no
+  command; the documented chain `implement → code-reviewer → quality-guardian → review-coordinator`
+  had no entry point for its first link. `/hef.pr` never merges and carries the untrusted-input rule.
+- **`implement-phase-test-guard.sh`** (PreToolUse on `Bash` and `Edit|Write`). While
+  `/speckit.implement` is active (`.specify/.implement-in-progress`, set/cleared by the new helper
+  trio `implement-phase-{start,end,status}`), an edit that leaves a test file with fewer assertions,
+  a whole-file overwrite of an existing test, or an `rm` of a test file is blocked. Snapshot-update
+  flags (`jest -u`, `pytest --snapshot-update`, `UPDATE_SNAPSHOTS=1`…) are blocked regardless of
+  phase; `CLAUDE_ALLOW_SNAPSHOT_UPDATE=1` bypasses visibly. Why a hook: TDD *instructions* without a
+  mechanism made agent regressions worse in a controlled study (arXiv 2603.17973), and the
+  documented failure mode is an agent deleting the test it cannot pass.
+- **`session-start-context.sh`** (SessionStart) and **`precompact-progress.sh`** (PreCompact) — the
+  session-start ritual and the progress checkpoint that `context-management.md` asked the model to
+  perform by hand, performed by hooks instead. The checkpoint lands in `~/.cache/hefesto/progress/`,
+  never in the repo.
+- **`audit-config-change.sh`** (ConfigChange) — announces a settings rewrite mid-session, the
+  escalation path a compromised skill or plugin would take.
+- `quality-guardian` and the `quality-tooling` skill: the AI-code defect profile — new-duplication
+  baseline (`jscpd`), dead code (`knip`/`vulture`/`deadcode`), error-swallowing lint, patch coverage
+  (`diff-cover`) — as delta gates. The measured failure modes of agent code are duplication, dead
+  code, swallowed errors, and over-mocking, not complexity.
+- `test-specialist`: a **mock budget** — named fakes at I/O boundaries only, mock-only assertions
+  flagged, and every spec test cites its FR id.
+- `mcp-security` skill: a vetting checklist for third-party **skills, plugins, and agents** (dynamic
+  `` !` `` blocks, permission grabs, hooks, pinning).
+- `docs/install.md`: how to turn on `/sandbox`, and why the string-matching hooks are not the
+  boundary.
+
+### Changed
+
+- `llm-security.md` now maps to the OWASP GenAI LLM Top 10 (2026) and the Top 10 for Agentic
+  Applications (Goal Hijack, Tool Misuse, Agentic Supply Chain, Unexpected Code Execution, Memory
+  Poisoning), and states the sandbox-is-the-boundary rule.
+- `/hef.pr-summary`, `/speckit.fix`, and `review-coordinator` treat fetched issue/PR/commit text as
+  delimited data, never instructions.
+- `code-reviewer`: evidence over assertion; flag only correctness, security, and requirement gaps.
+- `/speckit.implement` arms the test guard in pre-flight, tells every test to cite its FR, runs
+  `req-coverage` in the final gate, and points at `/speckit.verify`.
 
 ## [6.0.0] - 2026-08-19
 

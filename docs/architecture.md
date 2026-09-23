@@ -15,16 +15,16 @@ hefesto/
 │   └── marketplace.json        # makes the repo installable (`claude plugin install`)
 ├── .mcp.json                   # GitHub MCP server (project scope)
 ├── agents/                     # 6 agents (5 pipeline + repo-scout one-shot)
-├── commands/                   # 19 slash commands (6 hef.* + 13 speckit.*)
+├── commands/                   # 23 slash commands, all hef.*
 ├── hooks/                      # 9 hooks + hooks.json + speckit-helper.sh
 ├── skills/                     # 7 skills, each a <name>/SKILL.md directory
-├── workflows/                  # speckit-workflow.js — the deterministic task-list executor
+├── workflows/                  # workflow.js — the deterministic task-list executor
 ├── tests/                      # smoke.sh — the plugin's own test suite
 ├── docs/                       # this documentation
 ├── .claude/                    # THIS repo's own config — not plugin payload
 │   ├── CLAUDE.md
 │   └── rules/                  # 5 modular policy files
-└── reports/                    # 11 research files: the "why" behind the rules
+└── reports/                    # 14 research files: the "why" behind the rules
 ```
 
 > **The payload deliberately does not live under `.claude/`.** That path is where Claude Code looks
@@ -44,25 +44,25 @@ hefesto/
 
 ## 🔁 Request Flow & Stack Composition
 
-The framework composes 5 layers — **methodology** (spec-kit), **agent runtime** (Claude Code), specialised **sub-agents**, **integrations** (MCP, hooks, rtk, security CLIs), and **models** (Opus 4.8 / Sonnet 5 / Haiku 4.5) — with cross-cutting governance for quality, security, context, and memory. A single SDD request traverses every layer:
+The framework composes 5 layers — **methodology** (SDD), **agent runtime** (Claude Code), specialised **sub-agents**, **integrations** (MCP, hooks, rtk, security CLIs), and **models** (Opus 4.8 / Sonnet 5 / Haiku 4.5) — with cross-cutting governance for quality, security, context, and memory. A single SDD request traverses every layer:
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Dev as Developer
-    participant FW as L1 · Methodology<br/>(spec-kit)
+    participant FW as L1 · Methodology<br/>(SDD)
     participant CC as L2 · Claude Code<br/>(main agent)
     participant Sub as L2 · Sub-Agent<br/>(test-specialist)
     participant MCP as L3 · MCP / Hooks
     participant RTK as L3 · rtk proxy
     participant Mod as L4 · Opus 4.8
 
-    Dev->>FW: /speckit.brainstorm "user auth idea"
+    Dev->>FW: /hef.brainstorm "user auth idea"
     FW->>CC: socratic exploration
     CC->>Mod: refine concept (Q&A)
     Mod-->>CC: refined direction
     CC-->>Dev: ✓ confirmed concept
-    Dev->>FW: /speckit.specify "user auth"
+    Dev->>FW: /hef.spec "user auth"
     FW->>CC: invoke pipeline (spec → plan → tasks)
     CC->>Mod: reason about spec
     Mod-->>CC: spec draft + plan
@@ -81,7 +81,7 @@ sequenceDiagram
 
 ### What the flow reveals
 
-- **L1 (methodology) shapes thinking, not state.** spec-kit / `/speckit.brainstorm` defines structure but holds no conversation context.
+- **L1 (methodology) shapes thinking, not state.** the SDD pipeline (`/hef.brainstorm`…) defines structure but holds no conversation context.
 - **Sub-agents isolate context.** Dispatched in fresh contexts and discarded — only the digest returns. Primary defence against the >40% "Dumb Zone".
 - **rtk compresses CLI output (60–90%) before it reaches the main context** — the highest-leverage token optimisation in the framework.
 - **MCP / Hooks enforce safety boundaries** the model cannot bypass (gitleaks, sensitive-file block, format-after-edit).
@@ -91,7 +91,7 @@ sequenceDiagram
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| spec-kit (SDD) | ✅ active | Full pipeline incl. `/speckit.brainstorm` → `specify` → `plan` → `tasks` → `implement` |
+| SDD pipeline | ✅ active | Full pipeline incl. `/hef.brainstorm` → `specify` → `plan` → `tasks` → `implement` |
 | OpenSpec | ⚪ not adopted | Alternative spec workflow |
 | Superpowers | ⚪ pattern reference | Skill-pack architecture is the influence |
 | Claude Code | ✅ primary runtime | Opus 4.8 / 1M ctx default |

@@ -5,14 +5,37 @@
         "matcher": "Bash",
         "hooks": [
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/block-destructive-commands.sh", "timeout": 10 },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/implement-phase-test-guard.sh", "timeout": 10 },
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/quality-before-commit.sh", "timeout": 120 }
         ]
       },
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/block-sensitive-files.sh" },
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/plan-phase-write-block.sh" }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/plan-phase-write-block.sh" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/implement-phase-test-guard.sh", "timeout": 10 }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-context.sh", "timeout": 10 }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/precompact-progress.sh", "timeout": 10 }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/audit-config-change.sh", "timeout": 5 }
         ]
       }
     ],
@@ -21,7 +44,8 @@
         "matcher": "Edit|Write",
         "hooks": [
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/format-after-edit.sh", "timeout": 15 },
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-tests-after-edit.sh", "timeout": 30 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-tests-after-edit.sh", "timeout": 30 },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/merge-tree-probe.sh", "timeout": 10 }
         ]
       }
     ],

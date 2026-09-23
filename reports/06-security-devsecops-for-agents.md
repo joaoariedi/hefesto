@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-12
+---
+
 # Security & DevSecOps for Agents
 
 The threat model, research rationale, and empirical evidence behind the framework's security posture: the OWASP Top 10 for LLM Applications as it manifests in *agentic* systems, the MCP control surface, Policy-as-Code, AI-focused DLP, and live security telemetry fed to the agent while it codes. Most of the *mitigations* here are already codified in `.claude/rules/` — this file is the **why** layer and points to the rule that enforces each control rather than restating it.

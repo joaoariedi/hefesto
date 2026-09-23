@@ -34,13 +34,13 @@ Two-stage code review specialist. **Stage 1** validates spec compliance (impleme
 
 Produces a structured review report with `APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION` verdict.
 
-**When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle).
+**When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle). Spawned by `/hef.review`; `/hef.verify` runs its stage 1 with the mechanical coverage matrix in hand.
 
 ### 📝 review-coordinator
 
 Manages the PR lifecycle — creation, review coordination, feedback integration, and merge. Generates comprehensive PR descriptions with quality metrics. Supports GitHub and GitLab.
 
-**When to use**: When creating PRs or managing review workflows.
+**When to use**: When creating PRs or managing review workflows. Spawned by `/hef.pr`. It never merges — PRs are merged one at a time, by the user, each re-tested on the updated base.
 
 ### 🔒 forensic-specialist
 
@@ -58,6 +58,33 @@ Read-only by construction (`Read`, `Grep`, `Glob`, `Bash` only). It must never m
 
 > Built-in agents handle general tasks: `Explore` (codebase search), `Plan` (architecture), `general-purpose` (implementation).
 
+### Agent memory
+
+`forensic-specialist` and `code-reviewer` declare `memory: project`, so what they learn — a
+recurring finding, a project-specific false positive, a convention — persists under
+`.claude/agent-memory/<name>/` and is version-controlled with the project. Two rules:
+
+- Memory holds **facts and decisions, never instructions to a future session** (`llm-security.md`,
+  Memory and Context Poisoning). Recalled memory is evidence for an investigation, never a shortcut
+  to a fix.
+- If your global gitignore ignores `.claude/` (a common setup), re-include the directory in the
+  repo's own `.gitignore` with `!.claude/agent-memory/` — otherwise the memory is real but never
+  shared.
+
+### Doc gardening as a routine
+
+Documentation rots between changes, not during them, so the check belongs on a schedule rather
+than in a PR. A weekly routine (`/schedule`, or a cron running `claude -p`) that reads
+`docs/`, `reports/`, and the rules against the current tree and opens one fix-up PR per drift
+found — a renamed command still referenced, a hook table missing a hook, a count that went stale,
+a report whose `status:` no longer matches reality — is the cheapest form of the OpenAI-style
+"doc-gardening agent". The prompt is the brief; the smoke suite's docs-honesty checks are the
+acceptance test:
+
+```
+claude -p "Read docs/, reports/, README.md and .claude/rules/ against the working tree. List every reference to a command, hook, skill, file, or count that no longer matches, with file:line. Propose the minimal edit for each; change nothing."
+```
+
 ### 🤝 Parallelism: Three Primitives
 
 They are not interchangeable, and none supersedes the others:
@@ -71,14 +98,14 @@ They are not interchangeable, and none supersedes the others:
 
 Reach for a **subagent** by default — you want an answer, not a colleague. Reach for an **Agent Team** when workers must *challenge each other*: five teammates trying to disprove each other's hypotheses beat sequential investigation, which anchors on the first plausible theory.
 
-**`speckit-workflow`** (`workflows/speckit-workflow.js`) is the framework's workflow — invoked as `hefesto:speckit-workflow` under a plugin install, since plugin components are namespaced. It is named distinctly from the `/speckit.implement` **command** on purpose: they are two ways to execute `tasks.md`, and a shared name invited picking the wrong one. It executes `tasks.md` with the orchestration moved into code:
+**`workflow`** (`workflows/workflow.js`) is the framework's workflow — invoked as `hefesto:workflow` under a plugin install, since plugin components are namespaced. It is named distinctly from the `/hef.implement` **command** on purpose: they are two ways to execute `tasks.md`, and a shared name invited picking the wrong one. It executes `tasks.md` with the orchestration moved into code:
 
 - **Phase order is enforced, not trusted.** Spec-kit declares Phase N+1 blocked by Phase N. A script guarantees that barrier; a model can talk itself into skipping ahead.
 - **The implementer never grades its own homework.** Every task is checked by three agents that did not write it, through *different* lenses — one reads the test diff hunting for a weakened assertion, one checks the requirement rather than the test, one runs the full suite itself. Any single refutation blocks the task. This is the Verification Iron Law made structural.
 - **`[P]` is not trusted either.** The marker is model-written and nothing enforces it, so two `[P]` tasks in one phase can name the same file. The script batches them by *actual file disjointness*; a task declaring no files is serialized, because it cannot be proven safe.
 - **`tasks.md` is written once, at the end**, by a single agent — parallel implementers ticking their own checkboxes would race on one file.
 
-> **Why the whole pipeline is not one workflow.** A workflow cannot take mid-run input. But `/speckit.clarify` asks you questions, `/speckit.review` is a sign-off, and `/speckit.checklist` is a gate. Encoding the full pipeline as one workflow would silently delete every human gate and turn spec-*driven* development into fire-and-forget. Run the gated phases first; the workflow starts where the human sign-off ends.
+> **Why the whole pipeline is not one workflow.** A workflow cannot take mid-run input. But `/hef.clarify` asks you questions, `/hef.review` is a sign-off, and `/hef.checklist` is a gate. Encoding the full pipeline as one workflow would silently delete every human gate and turn spec-*driven* development into fire-and-forget. Run the gated phases first; the workflow starts where the human sign-off ends.
 
 **Agent Teams (Experimental)** — requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
 

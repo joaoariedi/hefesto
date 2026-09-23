@@ -1,7 +1,7 @@
 export const meta = {
-  name: 'speckit-workflow',
-  description: 'Execute the spec-kit task list: phase-ordered TDD, [P] tasks in parallel, every task adversarially verified by agents that did not write it',
-  whenToUse: 'After /speckit.tasks has produced tasks.md. An alternative to the /speckit.implement command, for when the task list is large enough that a single conversation would lose the thread.',
+  name: 'workflow',
+  description: 'Execute the task list: phase-ordered TDD, [P] tasks in parallel, every task adversarially verified by agents that did not write it',
+  whenToUse: 'After /hef.tasks has produced tasks.md. An alternative to the /hef.implement command, for when the task list is large enough that a single conversation would lose the thread.',
   phases: [
     { title: 'Load', detail: 'parse tasks.md / spec.md / plan.md into a phase-ordered task graph' },
     { title: 'Implement', detail: 'TDD per task — [P] tasks concurrently, the rest sequentially' },
@@ -13,7 +13,7 @@ export const meta = {
 // ---------------------------------------------------------------------------
 // Why this is a workflow and not a prompt:
 //
-//   1. Phase order is a DEPENDENCY CHAIN (spec-kit: Phase N+1 is blocked by
+//   1. Phase order is a DEPENDENCY CHAIN (SDD: Phase N+1 is blocked by
 //      Phase N). A script guarantees the barrier. A model can talk itself into
 //      skipping ahead.
 //   2. The implementer must not grade its own homework. Each task is verified by
@@ -23,7 +23,7 @@ export const meta = {
 //      implementers each tick their own checkbox would race on the same file.
 //
 // What this deliberately does NOT do: ask the user anything. A workflow cannot
-// take mid-run input, so every human gate in the spec-kit pipeline (clarify,
+// take mid-run input, so every human gate in the SDD pipeline (clarify,
 // review, checklist sign-off) stays OUTSIDE it. Run those first.
 // ---------------------------------------------------------------------------
 
@@ -272,7 +272,7 @@ function ledger(results, ctx) {
 }
 
 function implPrompt(task, ctx, repo) {
-  return `Implement exactly one spec-kit task with a strict TDD cycle. Do not touch any other task.
+  return `Implement exactly one spec task with a strict TDD cycle. Do not touch any other task.
 
 TASK ${task.id}: ${task.description}
 ${task.requirement ? `Requirement: ${task.requirement}` : ''}
@@ -318,7 +318,7 @@ nothing, and the agent reading your test diff is looking for exactly that.`
 }
 
 function verifyPrompt(task, impl, lens, ctx, repo) {
-  return `You are verifying a spec-kit task that ANOTHER agent implemented. Your job is to
+  return `You are verifying a spec task that ANOTHER agent implemented. Your job is to
 REFUTE it. Default to refuted=true when uncertain — a task wrongly accepted ships a bug;
 a task wrongly refuted costs one more round.
 
@@ -437,7 +437,7 @@ function noteTerminal(label) {
 
 
 const ctx = await agentTyped(
-  `Load the spec-kit artifacts for the current feature.
+  `Load the spec artifacts for the current feature.
 
 ${
   requestedDir
@@ -455,7 +455,9 @@ Read tasks.md and parse it into the phase-ordered structure. The format is:
 
   - \`[P]\` marks a task that is safe to run in PARALLEL with its neighbours.
   - \`[FR-NNN]\` / \`[US#]\` is the requirement tag.
-  - The backticked path is the target file.
+  - The backticked path is the target file. An \`owns: a, b, c\` suffix lists every file the task
+    claims exclusively — put ALL of those in files (the target path included), because the batcher
+    decides what may run together from that list and nothing else.
   - \`- [x]\` means already done — set done:true so it is skipped.
   - Phases are a dependency chain: Phase N+1 must not start until Phase N is complete.
 
@@ -494,7 +496,7 @@ Report tasks in the order they appear. Do not invent, reorder, or merge tasks.`,
 )
 
 if (!ctx || !ctx.phases || ctx.phases.length === 0) {
-  return { error: 'No tasks.md found, or it contains no tasks. Run /speckit.tasks first.' }
+  return { error: 'No tasks.md found, or it contains no tasks. Run /hef.tasks first.' }
 }
 
 // AFTER the guard above, never before it. Stamping first means a dead loader throws
@@ -797,10 +799,21 @@ for (const ph of ctx.phases) {
     }
   }
   const conflicts = par.length - batches.length
+  // Name the pairs, not just the count. A task list that says [P] on two tasks owning one file is a
+  // spec defect (owns: lists are meant to be disjoint), and the operator can only fix what is named.
+  const owner = new Map()
+  const overlaps = []
+  for (const t of par) {
+    for (const f of t.files || []) {
+      if (owner.has(f)) overlaps.push(`${owner.get(f)} ↔ ${t.id} both own ${f}`)
+      else owner.set(f, t.id)
+    }
+  }
   log(
     `${ph.name}: ${par.length} [P] in ${batches.length} conflict-free batch(es)` +
       (conflicts > 0 ? ` (${conflicts} share files — serialized)` : '') +
-      `, ${seq.length} sequential`,
+      `, ${seq.length} sequential` +
+      (overlaps.length ? `\n  owns: overlap — ${overlaps.join('; ')} — fix the task list, or drop [P] from one` : ''),
   )
 
   const phaseResults = []
@@ -834,7 +847,7 @@ for (const ph of ctx.phases) {
     }
   }
 
-  // Phase gate — the whole suite, between phases, exactly as speckit.implement requires. ONE gate per
+  // Phase gate — the whole suite, between phases, exactly as hef.implement requires. ONE gate per
   // repo the phase actually TOUCHED (#30): a monorepo phase that changed operations_api/ and cube_ui/
   // must have both suites run, each in its own repo with its own command. In single-repo this is one
   // gate, exactly as before. The repos are those stamped on the accepted tasks by implementAndVerify;
@@ -895,7 +908,7 @@ const accepted = results.filter(r => r.accepted)
 // `=== null`, not `!ticked`: this call has no schema, so its return type is unspecified and a
 // legitimate empty-string answer would false-positive. agentTyped returns null and only null on failure.
 const ticked = await agentTyped(
-  `Mark these spec-kit tasks complete in ${ctx.featureDir}/tasks.md by changing "- [ ]" to
+  `Mark these spec tasks complete in ${ctx.featureDir}/tasks.md by changing "- [ ]" to
 "- [x]" for exactly these task IDs, and nothing else:
 
 ${accepted.map(r => `  ${r.task.id} — ${r.task.description}`).join('\n')}
@@ -921,7 +934,7 @@ if (ticked === null) {
 }
 
 const report = await agentTyped(
-  `Write the IMPLEMENTATION REPORT for this spec-kit run.
+  `Write the IMPLEMENTATION REPORT for this spec run.
 
 Verified complete (${accepted.length}):
 ${accepted.map(r => `  ${r.task.id} [${r.task.requirement || '-'}] ${r.task.description}`).join('\n')}

@@ -10,14 +10,22 @@
 > cyclomatic complexity and function length because each is a proxy for how much a reader must hold in
 > their head. A comment adds none of that; it *reduces* it. Counting raw lines would penalise exactly
 > the practice this project mandates elsewhere: comments that state the trap and why the obvious fix is
-> wrong. `workflows/speckit-workflow.js` is the case that forced the clarification — 372 lines of code
+> wrong. `workflows/workflow.js` is the case that forced the clarification — 372 lines of code
 > and 104 of commentary, where every comment records a defect that was measured, not imagined, and where
 > the Workflow harness offers no module system to extract into. A raw cap would have deleted the
 > documentation and kept the complexity.
 >
 > This is a clarification of intent, not a relaxation. If the *code* exceeds 500 lines, split the file.
 
-### The one exemption: `workflows/speckit-workflow.js`
+**Enforced, not just stated.** These are aggregate rules — no single edit violates them, which is
+exactly the class of rule agents honour least (a 31% violation rate was measured for such a rule
+present in every revision of a spec, against 100% for rules that name a file). So
+`quality-before-commit.sh` runs them as a **delta gate** wherever `lizard` is installed: a staged
+file may not have *more* functions over the limits than its `HEAD` version. Brownfield debt stays
+visible and non-blocking; the change that made it worse is blocked. `/hef.quality` reports the
+absolute picture.
+
+### The one exemption: `workflows/workflow.js`
 
 The file limit's remedy is "split the file." For a Claude Code **Workflow script** that remedy does not
 exist, so the limit is scoped to exclude this one file — deliberately, and with the reason on record.
@@ -81,7 +89,7 @@ above differ, the hard limit is the ceiling and this is the aim.
 ### Comments (agent-specific)
 - **Do not strip existing comments on a refactor.** They carry intent and provenance you did not measure;
   deleting them is how a fixed defect gets reintroduced. This is the exact rule the
-  `speckit-workflow.js` exemption exists to protect — see Complexity Limits.
+  `workflow.js` exemption exists to protect — see Complexity Limits.
 - **Write WHY, not WHAT.** Skip `// increment counter` above `i++`; state the trap, the constraint, or
   why the obvious thing is wrong.
 - **Anchor a line to its cause.** When a line exists because of a specific bug or upstream constraint,

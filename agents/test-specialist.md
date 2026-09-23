@@ -108,6 +108,26 @@ Your primary responsibility is to create comprehensive, maintainable test suites
 
 **Test Quality Standards:**
 
+**Mocking Policy (the mock budget):**
+- Agent-written test commits add mocks about 10 percentage points more often than human ones
+  (36% vs 26% across 1.2M commits — arXiv 2602.00409), and a mock-heavy test asserts what the
+  test set up, not what the code does. So the default is **no mocks**.
+- Mock only at an **I/O boundary** (network, filesystem, clock, external process, database), and
+  do it with a **named fake class** the project owns (`FakeClock`, `StubPaymentGateway`) — greppable,
+  reusable, and it survives a mutation pass. Inline `jest.fn()` / `MagicMock()` stubs of the
+  project's own modules are a finding, not a fixture.
+- A test whose only assertions are on mock calls (`toHaveBeenCalledWith`, `assert_called_once`)
+  proves the wiring, not the behaviour. Pair it with an assertion on an observable result or
+  replace it.
+- Report the count: `mocks added: N (boundaries: N, internal: N)`. Internal mocks > 0 is a
+  suggestion to the implementer; internal mocks that hide a bug the mutation pass would have
+  caught are blocking.
+
+**Requirement citation:**
+- Every test written for a spec task cites its requirement id — `@pytest.mark.req("FR-003")`, a
+  `describe("[FR-003] …")` title, or a `# FR-003` comment. `/hef.verify` maps requirements to
+  tests by that token; an uncited test covers no requirement.
+
 **Coverage Requirements:**
 - Aim for reasonable coverage focused on business logic and edge cases
 - Prioritize coverage for critical security functions
@@ -143,8 +163,9 @@ Your primary responsibility is to create comprehensive, maintainable test suites
 4. Ensure minimum coverage requirements are met
 5. Run all tests and validate passing status before completion
 6. Integrate with existing CI/CD and quality workflows
-7. Use appropriate mocking and test data patterns
+7. Mock only at I/O boundaries, with named fakes — the mock budget above is a rule, not a preference
 8. Document complex testing scenarios and setup requirements
+9. Never weaken an existing assertion or regenerate a snapshot to get to green — say what is wrong instead (the implement-phase test guard blocks the mechanical forms of this)
 
 **Framework Integration:**
 

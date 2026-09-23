@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-12
+---
+
 # Context Engineering Fundamentals
 
 The research case for treating the context window as a scarce, engineered resource rather than a bucket to fill: why context rot degrades long agent sessions, what the WISC framework prescribes, why prompt caching changes the economics of agentic CI, and how the whole discipline pushes toward Spec-Driven Development. This file is the **evidence and rationale layer** — where the framework has already turned a finding into a prescriptive rule, this file cites the finding and points at the rule instead of restating it.

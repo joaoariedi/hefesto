@@ -32,7 +32,7 @@ FRAMEWORK_DIR="$HOME/.claude-framework"
 Earlier versions were installed by symlinking a dotfiles package into `~/.claude/` with GNU Stow. **Stow and the plugin must not both be active** — every command, agent, and skill would register twice.
 
 ```bash
-ls ~/.claude/commands/speckit.plan.md ~/.claude/agents/quality-guardian.md ~/.claude/hooks/speckit-helper.sh 2>/dev/null
+ls ~/.claude/commands/hef.plan.md ~/.claude/agents/quality-guardian.md ~/.claude/hooks/speckit-helper.sh 2>/dev/null
 ```
 
 - **Nothing listed** → clean. Continue.
@@ -77,7 +77,7 @@ Expect `hefesto@hefesto` with `Status: ✔ enabled`. This writes `enabledPlugins
 
 ## Step 4 — Add the helper permission rule (required in practice)
 
-Most spec-kit commands gather live project data by running `speckit-helper.sh` with the Bash
+Most hef commands gather live project data by running `speckit-helper.sh` with the Bash
 tool. Without an allowlist entry, every one of those calls prompts.
 
 **The rule must mirror, byte for byte, the command string the model actually sends.** The
@@ -142,13 +142,13 @@ Verification is not optional here — this framework's recurring failure mode is
    ```bash
    claude plugin list          # ✔ enabled
    ```
-2. **Loaded:** the `/` menu lists the framework's commands (`/hef.context`, `/hef.quality`, `/speckit.plan`, …). *A component that does not appear here is not loaded.*
+2. **Loaded:** the `/` menu lists the framework's commands (`/hef.context`, `/hef.quality`, `/hef.plan`, …). *A component that does not appear here is not loaded.*
 3. **Works:** run `/hef.context` in any git repository. It should print a project summary. **If it prints nothing at all, Step 4 is missing or its path is wrong.**
 4. **The workflow resolves** — it is the one component that must be called by its full namespaced name:
    ```
-   hefesto:speckit-workflow
+   hefesto:workflow
    ```
-   A bare `speckit-workflow` does not resolve.
+   A bare `workflow` does not resolve.
 
 **Known quirk — do not chase it:** `claude plugin details hefesto` reports `Agents (0)`. All six agents load correctly regardless; this is a defect in the inventory display, confirmed by dispatching the agents in a live session. Trust the `/` menu and a live dispatch over the inventory.
 

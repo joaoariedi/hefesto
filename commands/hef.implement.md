@@ -1,9 +1,9 @@
 ---
 model: opus
-description: "Execute TDD implementation from spec-kit artifacts with quality gates"
+description: "Execute TDD implementation from spec artifacts with quality gates"
 ---
 
-# Spec-Kit: Implement
+# Implement
 
 Execute the implementation plan using strict TDD cycles with quality gates.
 
@@ -29,6 +29,14 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh checklist
 
 ### Test framework detection
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh detect-test-framework`
+
+### Arm the test guard
+Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement-phase-start`
+
+> While the marker is set, `implement-phase-test-guard.sh` blocks any edit that leaves a test file
+> with fewer assertions, any whole-file overwrite of an existing test, any `rm` of a test file, and
+> (always) any snapshot-update flag. Tests may grow during this phase; they may not shrink. If a
+> test is genuinely wrong, say so to the user instead of weakening it.
 
 ## Instructions
 
@@ -58,6 +66,9 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh detect-te
    **b. Write failing test** (Red phase)
    - Use `test-specialist` agent patterns to identify test location and conventions
    - Write a test that validates the task's acceptance criteria
+   - **Cite the task's requirement id in the test** — `@pytest.mark.req("FR-003")`, a
+     `describe("[FR-003] …")` title, or a `# FR-003` comment. `/hef.verify` maps requirements
+     to tests by that token; an uncited test covers nothing as far as the spec is concerned
    - Test MUST fail at this point (implementation doesn't exist yet)
    - Run the test to confirm failure
 
@@ -94,8 +105,14 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh detect-te
    - Run all quality checks (lint, types, format, tests)
    - Verify all tasks in `tasks.md` are `[x]`
    - Verify all TaskUpdate entries are `completed`
+   - Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh req-coverage` — the
+     mechanical FR → test matrix. An `UNCOVERED` requirement here is an unfinished task, not a
+     footnote; go back to step 3 for it
+   - Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement-phase-end`
+     (disarms the test guard; also run it if you abandon the phase early)
 
-6. **Generate completion report**:
+6. **Generate completion report** — the coverage mapping below is copied from `req-coverage`
+   output, not written from memory:
    ```
    IMPLEMENTATION REPORT
    =====================
@@ -115,5 +132,5 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh detect-te
    ```
 
 7. **Suggest next steps**:
-   - `/speckit.analyze` for cross-artifact consistency check
-   - Commit and create PR when ready
+   - `/hef.verify` — requirement traceability plus spec-compliance review of the diff
+   - `/hef.quality` → `/hef.review` → `/hef.pr`

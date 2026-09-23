@@ -1,5 +1,5 @@
 #!/bin/bash
-# plan-phase-write-block.sh — Enforce read/plan-only mode during /speckit.plan.
+# plan-phase-write-block.sh — Enforce read/plan-only mode during /hef.plan.
 #
 # Activates ONLY when .specify/.plan-in-progress exists (set by speckit-helper.sh
 # plan-phase-start, cleared by plan-phase-end). While active, Edit/Write to any
@@ -37,7 +37,7 @@ case "$FILE_PATH" in
 esac
 
 # Block and explain.
-echo "Blocked: /speckit.plan is active (plan phase write-block)." >&2
+echo "Blocked: /hef.plan is active (plan phase write-block)." >&2
 echo "  $FILE_PATH is outside .specify/ — editing it now violates phase boundaries." >&2
 echo "  Finish plan.md, then run:  ${CLAUDE_PLUGIN_ROOT:-$HOME}/hooks/speckit-helper.sh plan-phase-end" >&2
 echo "  To exit plan phase manually:  rm $MARKER" >&2

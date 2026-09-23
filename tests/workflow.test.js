@@ -1,4 +1,4 @@
-// Behaviour tests for workflows/speckit-workflow.js.
+// Behaviour tests for workflows/workflow.js.
 //
 // Run: node --test tests/
 // No package.json, no npm install, no lockfile. `node --test` is built into node >=18, and
@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------------------------
 // WHY THIS FILE LOADS THE WORKFLOW BY TEXT REWRITE
 //
-// speckit-workflow.js is executed by the Claude Code Workflow harness, which requires a script
+// workflow.js is executed by the Claude Code Workflow harness, which requires a script
 // exporting `meta` and injects agent/parallel/phase/log/args as GLOBALS. It cannot be imported:
 // there is nothing to import from, and its top-level `return` statements (at the "no tasks" guard,
 // the halt sites, and the final return) are illegal in an ES module but legal in a function body.
@@ -41,7 +41,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-export const WF_PATH = path.join(REPO, 'workflows', 'speckit-workflow.js')
+export const WF_PATH = path.join(REPO, 'workflows', 'workflow.js')
 
 // --- the loader ------------------------------------------------------------------------------
 
@@ -70,7 +70,7 @@ export function loadWorkflowSource() {
   const src = raw.replace('export const meta', 'const meta')
   // If this rewrite ever matches nothing, the harness would test a stale shape — or nothing at all.
   // `new Function` also throws on an unreplaced `export`, so this fails loudly twice over. (SC-006)
-  assert.notStrictEqual(src, raw, 'the `export const meta` rewrite matched nothing — speckit-workflow.js changed shape and this harness would be testing a stale assumption')
+  assert.notStrictEqual(src, raw, 'the `export const meta` rewrite matched nothing — workflow.js changed shape and this harness would be testing a stale assumption')
   return src
 }
 

@@ -2,12 +2,13 @@
 model: fable
 name: forensic-specialist
 description: Use PROACTIVELY for security audits or when suspicious patterns detected. Cybersecurity specialist for defensive forensics, threat hunting, malware investigation, and IOC generation with proper chain of custody. Examples: <example>Context: Suspected compromise. user: 'System may be compromised, analyze it' assistant: 'I'll use forensic-specialist for IOC analysis' <commentary>Defensive security analysis.</commentary></example> <example>Context: Suspicious file. user: 'Analyze this suspicious file' assistant: 'Let me use forensic-specialist for threat analysis' <commentary>Malware analysis with forensic practices.</commentary></example>
+memory: project
 color: purple
 ---
 
 # Forensic Specialist Agent - Cybersecurity Defense & Digital Forensics
 
-> **Scope**: Use this agent for incident response, threat hunting, malware analysis, and forensic investigations. For routine code security reviews (secrets, SQLi, XSS, auth), use the built-in `/security-review` skill or the `/hef.security-scan` command instead.
+> **Scope**: Use this agent for incident response, threat hunting, malware analysis, and forensic investigations. For routine code security reviews (secrets, SQLi, XSS, auth), use the built-in `/security-review` skill or the `/hef.scan` command instead.
 
 ## Core Capabilities
 

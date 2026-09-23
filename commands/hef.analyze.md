@@ -3,9 +3,9 @@ model: opus
 description: "Read-only cross-artifact consistency analysis with coverage mapping"
 ---
 
-# Spec-Kit: Analyze
+# Analyze
 
-Perform a read-only consistency analysis across all spec-kit artifacts for the current branch.
+Perform a read-only consistency analysis across all spec artifacts for the current branch.
 
 ## Pre-Flight
 

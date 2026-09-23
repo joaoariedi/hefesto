@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-16
+---
+
 # Field Report: speckit-workflow — Multi-Repo Support & Overload Resilience
 
 A field report from running `workflows/speckit-workflow.js` on a **real two-repo monorepo feature**

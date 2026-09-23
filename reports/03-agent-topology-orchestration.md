@@ -1,3 +1,8 @@
+---
+status: accepted
+date: 2026-07-12
+---
+
 # Agent Topology and Orchestration
 
 The taxonomy of agentic execution units (Skills, Subagents, Agent Teams), the four canonical multi-agent orchestration patterns, and the cognitive memory architecture that keeps distributed agents from relying on invisible state. This is the "why" layer behind the framework's agent doctrine — the architectural rationale and trade-offs, not the prescriptions.

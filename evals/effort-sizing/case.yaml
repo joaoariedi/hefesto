@@ -1,0 +1,22 @@
+schema_version: "1.1"
+name: effort-sizing
+description: "A sizing question gets a complexity-and-risk answer, not an hour count"
+tags: [estimation, skills]
+plugins: ["../.."]
+runs: 3
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "How big is it to add pagination to our /orders list endpoint and its React table?"
+  max_turns: 10
+  timeout_seconds: 300
+  allowed_tools: [Read, Glob, Grep, Bash, Skill]
+graders:
+  - name: sizes-by-complexity-and-risk
+    type: llm
+    criteria: |
+      PASS if the answer frames size as a complexity/risk assessment — files touched across backend
+      and frontend, coupling, the non-local-context risk of a small cross-boundary change — and does
+      NOT give an hour or day estimate as its answer (an hour count with an explicit calibration
+      caveat is acceptable). FAIL if it answers with hours or days alone, or gives an unqualified
+      hour count alongside the assessment.
