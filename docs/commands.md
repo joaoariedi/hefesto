@@ -15,7 +15,7 @@
 | `/hef.adr` | `<title> [--status …]` | Record a decision under `reports/` with MADR frontmatter |
 | `/hef.quality` | — | Run comprehensive quality checks (spawns quality-guardian) |
 | `/hef.scan` | — | Scan staged changes for secrets, SQLi, XSS |
-| `/hef.doctor` | `[--eval]` | Framework self-check: the three copies in sync, hooks linted, manifest valid; `--eval` scores the plugin's own prompts (the former `/hef.sync`, plus the checks) |
+| `/hef.doctor` | `[--eval]` | Framework self-check: the running copy (per-profile cache) against the clone and upstream, rules against upstream, hooks linted, manifest valid; `--eval` scores the plugin's own prompts (the former `/hef.sync`, plus the checks) |
 | `/hef.init` | — | Bootstrap `.specify/` directory in current project |
 | `/hef.constitution` | — | Create/update project governance principles |
 | `/hef.brainstorm` | `<idea>` | Socratic design exploration before specification |

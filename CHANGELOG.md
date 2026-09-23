@@ -35,6 +35,38 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.0.2] - 2026-09-23
+
+**The doctor now examines the copy that runs.**
+
+### Fixed
+
+- **`/hef.doctor` measures the running copy, not the clone it was copied from.** `plugin install`
+  copies the marketplace clone into `$CLAUDE_CONFIG_DIR/plugins/cache/hefesto/hefesto/<version>/`,
+  and a session loads from there. The doctor used to `git rev-parse` that path, get "not a git
+  clone", and skip — while measuring the clone, which is only where installs are copied from. On
+  a machine with three profiles, two on 7.0.1 and one on 6.0.0, it would have called all three in
+  sync. New helper subcommand **`doctor-copies`** reads the profile's plugin registry for the
+  running version and commit, compares it with the clone and upstream, and prints one status:
+  `RUNNING_MATCHES_CLONE`, `RUNNING_BEHIND_CLONE` (propose `claude plugin update` for that
+  profile), `RUNNING_BEHIND_CLONE_SAME_VERSION` (the update keys off the manifest version, so
+  propose uninstall + install), or `UNMEASURABLE`. Offline, it measures against the last fetched
+  `origin/main` and says so. The command now speaks of **four** copies. Smoke drives a fake
+  profile registry through every state; the comparison mutated to `true` turns two checks red.
+
+### Changed
+
+- **README** — title and tagline are now "A development harness for Claude Code: a spec-driven
+  workflow, specialist agents, and quality gates enforced by hooks" (the same line in the
+  manifests and the GitHub description); the purpose paragraph names every part; an **Updating**
+  block (pull, then `plugin update` per profile, then restart); a **Requirements** list that
+  names `jq` as mandatory and the auto-detected optional tools.
+- **`docs/install.md`** — each profile runs its own cached copy, so a pull in the clone updates
+  nothing until that profile runs `claude plugin update hefesto@hefesto`; the doc had said one
+  pull covers every profile.
+- **`docs/architecture.md`** — the model layer is the `fable`/`opus`/`sonnet`/`haiku` tiers, not
+  concrete model names; layer 1 is the `hef.*` workflow; the tree lists 14 hooks, not 9.
+
 ## [7.0.1] - 2026-09-23
 
 **The first day of running 7.0 for real: a task gate that blocked every completion in pnpm

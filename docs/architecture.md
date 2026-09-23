@@ -16,7 +16,7 @@ hefesto/
 ├── .mcp.json                   # GitHub MCP server (project scope)
 ├── agents/                     # 6 agents (5 pipeline + repo-scout one-shot)
 ├── commands/                   # 23 slash commands, all hef.*
-├── hooks/                      # 9 hooks + hooks.json + speckit-helper.sh
+├── hooks/                      # 14 hooks + hooks.json, release.sh, speckit-helper.sh (41 subcommands)
 ├── skills/                     # 7 skills, each a <name>/SKILL.md directory
 ├── workflows/                  # workflow.js — the deterministic task-list executor
 ├── tests/                      # smoke.sh — the plugin's own test suite
@@ -44,7 +44,7 @@ hefesto/
 
 ## 🔁 Request Flow & Stack Composition
 
-The framework composes 5 layers — **methodology** (SDD), **agent runtime** (Claude Code), specialised **sub-agents**, **integrations** (MCP, hooks, rtk, security CLIs), and **models** (Opus 4.8 / Sonnet 5 / Haiku 4.5) — with cross-cutting governance for quality, security, context, and memory. A single SDD request traverses every layer:
+The harness composes 5 layers — **methodology** (the `hef.*` workflow: spec-driven, with a fix path and a size router), **agent runtime** (Claude Code), specialised **sub-agents**, **integrations** (MCP, hooks, rtk, security CLIs), and **models** (the `fable` / `opus` / `sonnet` / `haiku` *tiers* — aliases each environment binds to concrete models; commands, agents, and workflow spawns pin a tier, never a model ID) — with cross-cutting governance for quality, security, context, and memory. A single feature request traverses every layer:
 
 ```mermaid
 sequenceDiagram
@@ -55,7 +55,7 @@ sequenceDiagram
     participant Sub as L2 · Sub-Agent<br/>(test-specialist)
     participant MCP as L3 · MCP / Hooks
     participant RTK as L3 · rtk proxy
-    participant Mod as L4 · Opus 4.8
+    participant Mod as L4 · model tier<br/>(opus)
 
     Dev->>FW: /hef.brainstorm "user auth idea"
     FW->>CC: socratic exploration
@@ -94,14 +94,14 @@ sequenceDiagram
 | SDD pipeline | ✅ active | Full pipeline incl. `/hef.brainstorm` → `specify` → `plan` → `tasks` → `implement` |
 | OpenSpec | ⚪ not adopted | Alternative spec workflow |
 | Superpowers | ⚪ pattern reference | Skill-pack architecture is the influence |
-| Claude Code | ✅ primary runtime | Opus 4.8 / 1M ctx default |
+| Claude Code | ✅ primary runtime | Session model per profile; each command pins a tier |
 | Codex · Opencode · Cursor · Aider | ⚪ alternatives | Same methodology layer would still apply |
 | MCP: github | ⚙️ project-scoped | Root `.mcp.json`; needs `GITHUB_TOKEN` exported |
 | MCP: Semgrep, Snyk, SonarQube | ⚪ optional | Add only when CLI scans aren't enough |
 | **rtk** | ✅ available (auto-detected per machine) | 60–90% token reduction on common dev commands |
 | Fabric | ⚪ pattern reference | Reusable prompt-pattern library |
 | gitleaks · semgrep · trivy · ruff · gosec | ✅ via Bash | Quality / security CLIs |
-| Opus 4.8 / Sonnet 5 / Haiku 4.5 | ✅ via Anthropic | Model selection per task |
+| `fable` / `opus` / `sonnet` / `haiku` tiers | ✅ aliases | Cheap generation, expensive judgment — the policy in `.claude/CLAUDE.md`; `claude-bedrock()` rebinds them |
 | GPT · Gemini · Qwen · Llama | ⚪ alternatives | Foundation models from other providers |
 
 ---

@@ -367,6 +367,56 @@ case "$1" in
     fi
     ;;
 
+  # --- Doctor: which copy is actually running ---
+  # doctor-copies — FETCHER. Prints the profile, the RUNNING copy (from the profile's plugin
+  #                 registry), the clone it was installed from, and a status line. Exit non-zero
+  #                 only when the registry has no hefesto entry — every other state is an answer.
+  #
+  # Measured 2026-09-23: `plugin install` COPIES the directory-marketplace clone into
+  # $CLAUDE_CONFIG_DIR/plugins/cache/hefesto/hefesto/<version>/, and sessions load from there.
+  # /hef.doctor used to `git rev-parse` CLAUDE_PLUGIN_ROOT — which IS that cache, and is not a git
+  # clone — so it reported "staleness cannot be measured" for the one copy that matters, while the
+  # clone it did measure was not what ran. Three profiles: two on 7.0.1, one still on 6.0.0, and
+  # the doctor would have called all three in sync.
+  doctor-copies)
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    case "$root" in
+      */plugins/cache/*) cfg="${root%%/plugins/cache/*}" ;;   # running from a cache: its profile
+      *) cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}" ;;         # dev checkout: the env's profile
+    esac
+    reg="$cfg/plugins/installed_plugins.json"; mk="$cfg/plugins/known_marketplaces.json"
+    [ -f "$reg" ] || die "doctor-copies: no plugin registry at $reg — hefesto is not installed in this profile"
+    run_ver="$(jq -r '.plugins["hefesto@hefesto"][0].version // empty' "$reg" 2>/dev/null)"
+    run_sha="$(jq -r '.plugins["hefesto@hefesto"][0].gitCommitSha // empty' "$reg" 2>/dev/null)"
+    run_path="$(jq -r '.plugins["hefesto@hefesto"][0].installPath // empty' "$reg" 2>/dev/null)"
+    [ -n "$run_ver" ] || die "doctor-copies: hefesto@hefesto has no entry in $reg — installed under another name, or not at all"
+    echo "profile: $cfg"
+    echo "running: $run_ver ${run_sha:0:7} ($run_path)"
+    clone="$(jq -r '.hefesto.installLocation // .hefesto.source.path // empty' "$mk" 2>/dev/null)"
+    if [ -z "$clone" ] || ! git -C "$clone" rev-parse --show-toplevel >/dev/null 2>&1; then
+      echo "clone: NOT-A-GIT-CLONE (${clone:-no 'hefesto' marketplace record}) — staleness cannot be measured"
+      echo "status: UNMEASURABLE"
+      exit 0
+    fi
+    clone_sha="$(git -C "$clone" rev-parse HEAD 2>/dev/null)"
+    clone_ver="$(jq -r '.version // "?"' "$clone/.claude-plugin/plugin.json" 2>/dev/null)"
+    if git -C "$clone" fetch -q origin 2>/dev/null; then
+      behind="$(git -C "$clone" rev-list --count HEAD..origin/main 2>/dev/null || echo '?')"
+    else
+      # No network, or the sandbox cannot write FETCH_HEAD: measure against the last fetched ref.
+      behind="$(git -C "$clone" rev-list --count HEAD..origin/main 2>/dev/null || echo '?') (as of the last fetch — fetch failed)"
+    fi
+    mods="$(git -C "$clone" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+    echo "clone: $clone_ver ${clone_sha:0:7} ($clone) — $behind behind origin/main, $mods local modification(s)"
+    if [ "$run_sha" = "$clone_sha" ]; then
+      echo "status: RUNNING_MATCHES_CLONE"
+    elif [ "$run_ver" = "$clone_ver" ]; then
+      echo "status: RUNNING_BEHIND_CLONE_SAME_VERSION — 'claude plugin update' will say up to date (it keys off the manifest version); to run the clone's HEAD: claude plugin uninstall hefesto@hefesto && claude plugin install hefesto@hefesto (CLAUDE_CONFIG_DIR=$cfg), then restart"
+    else
+      echo "status: RUNNING_BEHIND_CLONE — run: claude plugin update hefesto@hefesto (CLAUDE_CONFIG_DIR=$cfg), then restart"
+    fi
+    ;;
+
   # --- RTK CLI output compression (optional, auto-detected) ---
   rtk-available)
     # PREDICATE. The answer is BOTH the string and the exit code.
@@ -415,7 +465,7 @@ case "$1" in
     echo "  check-plan-review, detect-existing-code, trivial-change-check,"
     echo "  plan-phase-start, plan-phase-end, plan-phase-status,"
     echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage,"
-    echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>,"
+    echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>, doctor-copies,"
     echo "  rtk-available, rtk-run"
     exit 1
     ;;

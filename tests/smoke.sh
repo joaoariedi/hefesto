@@ -1174,6 +1174,38 @@ rm -rf "$mr_t"
 grep -qF 'speckit-helper.sh mutation-ratchet' "$REPO/commands/hef.mutate.md" 2>/dev/null \
   && ok "/hef.mutate runs the ratchet" || bad "/hef.mutate does not call mutation-ratchet"
 
+# --- doctor-copies: the doctor measures the copy that RUNS ---------------------------------
+# Measured 2026-09-23: the running copy is the per-profile cache (a plain copy, no .git); the
+# doctor used to rev-parse it, get "not a git clone", and skip — while three profiles disagreed.
+# Fixture: a fake profile dir with the two registry files, pointing at a temp clone.
+# Mutation-checked: `[ "$run_sha" = "$clone_sha" ]` → `true` → "reports BEHIND" goes red.
+dc_cfg="$(mktemp -d)"; dc_clone="$(mktemp -d)"; dc_fail=0
+( cd "$dc_clone" && git init -q -b main . && mkdir -p .claude-plugin && printf '{"version":"1.0.0"}\n' > .claude-plugin/plugin.json \
+  && git add -A && git -c user.email=s@t -c user.name=s commit -q -m 'chore: v1' ) >/dev/null 2>&1
+dc_sha="$(git -C "$dc_clone" rev-parse HEAD)"
+mkdir -p "$dc_cfg/plugins"
+printf '{"hefesto":{"source":{"source":"directory","path":"%s"},"installLocation":"%s"}}\n' "$dc_clone" "$dc_clone" > "$dc_cfg/plugins/known_marketplaces.json"
+printf '{"plugins":{"hefesto@hefesto":[{"scope":"user","installPath":"%s/plugins/cache/hefesto/hefesto/1.0.0","version":"1.0.0","gitCommitSha":"%s"}]}}\n' "$dc_cfg" "$dc_sha" > "$dc_cfg/plugins/installed_plugins.json"
+dc_out="$(CLAUDE_CONFIG_DIR="$dc_cfg" "$HELPER" doctor-copies 2>&1)"
+grep -qF 'status: RUNNING_MATCHES_CLONE' <<<"$dc_out" || { bad "doctor-copies: running sha == clone HEAD must report MATCHES, got: $(tr '\n' '|' <<<"$dc_out")"; dc_fail=1; }
+grep -qF "running: 1.0.0 ${dc_sha:0:7}" <<<"$dc_out" || { bad "doctor-copies did not print the running version/sha from the registry"; dc_fail=1; }
+( cd "$dc_clone" && printf '{"version":"1.1.0"}\n' > .claude-plugin/plugin.json && git -c user.email=s@t -c user.name=s commit -qam 'feat: v1.1' ) >/dev/null 2>&1
+dc_out="$(CLAUDE_CONFIG_DIR="$dc_cfg" "$HELPER" doctor-copies 2>&1)"
+grep -qF 'status: RUNNING_BEHIND_CLONE ' <<<"$dc_out" && grep -qF 'claude plugin update hefesto@hefesto' <<<"$dc_out" \
+  || { bad "doctor-copies: clone ahead with a newer version must report BEHIND + the update command, got: $(tr '\n' '|' <<<"$dc_out")"; dc_fail=1; }
+( cd "$dc_clone" && printf '{"version":"1.0.0"}\n' > .claude-plugin/plugin.json && git -c user.email=s@t -c user.name=s commit -qam 'chore: same version' ) >/dev/null 2>&1
+dc_out="$(CLAUDE_CONFIG_DIR="$dc_cfg" "$HELPER" doctor-copies 2>&1)"
+grep -qF 'status: RUNNING_BEHIND_CLONE_SAME_VERSION' <<<"$dc_out" && grep -qF 'uninstall' <<<"$dc_out" \
+  || { bad "doctor-copies: clone ahead at the SAME version must say plugin update will not refresh, got: $(tr '\n' '|' <<<"$dc_out")"; dc_fail=1; }
+if CLAUDE_CONFIG_DIR="$dc_cfg/nowhere" "$HELPER" doctor-copies >/dev/null 2>&1; then bad "doctor-copies must exit non-zero when the profile has no plugin registry"; dc_fail=1; fi
+rm -rf "$dc_cfg" "$dc_clone"
+[ "$dc_fail" -eq 0 ] && ok "doctor-copies reads the RUNNING copy from the profile registry and compares it with the clone"
+grep -qF 'speckit-helper.sh doctor-copies' "$REPO/commands/hef.doctor.md" 2>/dev/null \
+  && ok "/hef.doctor measures the running copy via doctor-copies" || bad "/hef.doctor does not call doctor-copies"
+if grep -qF 'rev-parse --show-toplevel' "$REPO/commands/hef.doctor.md" && grep -qF 'CLAUDE_PLUGIN_ROOT}" rev-parse' "$REPO/commands/hef.doctor.md"; then
+  bad "/hef.doctor still rev-parses CLAUDE_PLUGIN_ROOT — that is the cache, never a git clone"
+else ok "/hef.doctor no longer treats CLAUDE_PLUGIN_ROOT as a git clone"; fi
+
 # --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------
 head_ "Parallel-safety"
 
