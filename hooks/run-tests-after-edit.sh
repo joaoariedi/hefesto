@@ -2,7 +2,6 @@
 set -euo pipefail
 
 INPUT=$(cat)
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 
@@ -21,7 +20,7 @@ esac
 
 # Skip test files to avoid infinite loops
 case "$RELPATH" in
-  *test*|*spec*|*__tests__*|*_test.*|*.test.*|*.spec.*)
+  *test*|*spec*)  # covers __tests__, _test., .test., .spec. as well
     exit 0 ;;
 esac
 

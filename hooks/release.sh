@@ -46,7 +46,7 @@ while IFS= read -r subj; do
   case "$subj" in
     feat*) added="$added- ${subj#*: }"$'\n' ;;
     fix*)  fixed="$fixed- ${subj#*: }"$'\n' ;;
-    chore\(graph\)*|"chore(graph)"*) ;;   # graph rebuilds are noise in release notes
+    "chore(graph)"*) ;;   # graph rebuilds are noise in release notes
     *)     changed="$changed- ${subj#*: }"$'\n' ;;
   esac
 done < <(git log --format='%s' "$range" 2>/dev/null || true)
