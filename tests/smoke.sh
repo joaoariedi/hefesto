@@ -937,6 +937,46 @@ else
 fi
 
 # --- Tier 1: session lifecycle + config audit hooks (FR-006, FR-007) --------------------
+head_ "Verify gate — runner invocation"
+
+# The gate's argv IS the check: assert what the runner was invoked with, never what it printed
+# (a model can reproduce output by hand; it cannot fake the hook's own exec). A fake `npm` on PATH
+# records its arguments and exits 0.
+# Measured 2026-09-09 (fablab-unesp): `-- --passWithNoTests` appended unconditionally to a pnpm
+# workspace's `pnpm -r test` reached every package's vitest twice and exited 1 — the gate then blocked
+# EVERY completion on a green tree. Mutation-checked: the case statement replaced with the
+# unconditional append → the workspace check goes red.
+vg_bin="$(mktemp -d)"; vg_log="$vg_bin/argv"
+printf '#!/bin/bash\n[ "$1" = "--version" ] && { echo 10.0.0; exit 0; }\nprintf "%%s\\n" "$@" > "%s"\nexit 0\n' "$vg_log" > "$vg_bin/npm"
+chmod +x "$vg_bin/npm"
+vg_run() { # $1 = package.json test script; prints the recorded argv
+  local d; d="$(mktemp -d)"
+  ( cd "$d" && git init -q . && printf '{"scripts":{"test":"%s"}}\n' "$1" > package.json && echo 'x' > a.js ) >/dev/null 2>&1
+  rm -f "/tmp/.claude-verify-$(printf '%s' "$d" | md5sum | cut -d' ' -f1)"
+  : > "$vg_log"
+  printf '{"cwd":"%s"}' "$d" | PATH="$vg_bin:$PATH" bash "$REPO/hooks/verify-before-task-complete.sh" >/dev/null 2>&1
+  cat "$vg_log"; rm -rf "$d"
+}
+vg_ws="$(vg_run 'pnpm -r --no-bail test')"
+if grep -qF 'test' <<<"$vg_ws" && ! grep -qF -- '--passWithNoTests' <<<"$vg_ws"; then
+  ok "verify gate does not append --passWithNoTests to a workspace test script"
+else
+  bad "verify gate argv for a pnpm workspace: $(tr '\n' ' ' <<<"$vg_ws")"
+fi
+vg_direct="$(vg_run 'vitest run')"
+if grep -qF -- '--passWithNoTests' <<<"$vg_direct"; then
+  ok "verify gate still appends --passWithNoTests to a direct vitest script"
+else
+  bad "verify gate argv for a direct vitest script: $(tr '\n' ' ' <<<"$vg_direct")"
+fi
+vg_preset="$(vg_run 'jest --passWithNoTests')"
+if [ "$(grep -c -- '--passWithNoTests' <<<"$vg_preset")" = "0" ]; then
+  ok "verify gate does not repeat --passWithNoTests when the script already sets it"
+else
+  bad "verify gate repeated the flag: $(tr '\n' ' ' <<<"$vg_preset")"
+fi
+rm -rf "$vg_bin"
+
 head_ "Lifecycle hooks"
 
 # SessionStart stdout IS context. It must say something useful in a repo and nothing outside one.
