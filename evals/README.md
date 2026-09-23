@@ -19,6 +19,11 @@ on Linux that means `bubblewrap` and `socat` installed (`pacman -S bubblewrap so
 still score the reply; only the Bash-dependent evidence (helper output, the hook firing) is absent.
 `--keep-temp` preserves each run's `out/trace.jsonl`, the only place the transcript survives.
 
+From a session whose Bash runs under the OS sandbox, the eval cannot reach the API at all — every
+run and every judge call fails with `ERR_PROXY_TUNNEL` and the case scores 0.5 with the `llm`
+grader "threw" (measured 2026-09-23). Run it from a plain shell, or with the `!` prefix inside the
+session, which executes outside the sandbox.
+
 Measured 2026-09-23 with the backend installed: the eval sandbox also **denies the `git` binary**
 (`permission denied: git` in both arms), so the destructive-command case never reaches the
 `block-destructive-commands.sh` hook — the model reads `.git/refs` by hand and refuses on the
