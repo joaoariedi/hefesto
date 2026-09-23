@@ -35,17 +35,17 @@ work a naive size estimate waves through.
 
 | Signal | Path |
 |---|---|
-| Passes `/speckit.fix`'s triviality gate (no logic/API/schema change, <5 files, no new files) **and** no risk flag | **Fix** → `/speckit.fix` |
-| Single repo, low coupling, no API or schema change, roughly ≤5 files, no risk flag | **Light** → `/speckit.specify` → `/speckit.tasks` → `/speckit.implement` → `/speckit.verify` (plan, review, and checklist skipped — say so) |
+| Passes `/hef.fix`'s triviality gate (no logic/API/schema change, <5 files, no new files) **and** no risk flag | **Fix** → `/hef.fix` |
+| Single repo, low coupling, no API or schema change, roughly ≤5 files, no risk flag | **Light** → `/hef.spec` → `/hef.tasks` → `/hef.implement` → `/hef.verify` (plan, review, and checklist skipped — say so) |
 | Anything else — **or any non-local-context / high-coupling / high-volatility flag, regardless of size** | **Full** → brainstorm → specify → clarify → plan → review → tasks → checklist → implement → verify |
 
-If `.specify/` does not exist, the Light and Full paths begin with `/speckit.init`.
+If `.specify/` does not exist, the Light and Full paths begin with `/hef.init`.
 
 ## 3. Say it, then do it
 
 One paragraph: the path, the score, the flag that decided it. Then:
 
-- **Fix**: run `/speckit.fix` with the task text.
+- **Fix**: run `/hef.fix` with the task text.
 - **Light / Full**: use EnterPlanMode with the chosen sequence as the plan, follow
   `.claude/rules/agent-workflow.md` for quality gates, and track progress with
   TaskCreate/TaskUpdate/TaskList. The human gates (`clarify`, `review`, `checklist`) stay human —

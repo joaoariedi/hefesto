@@ -119,7 +119,7 @@ if command -v lizard &>/dev/null; then
   if [ -n "$CX_FILES" ]; then
     while IFS= read -r f; do
       [ -f "$CWD/$f" ] || continue
-      case "$f" in workflows/speckit-workflow.js) continue ;; esac   # the one documented exemption
+      case "$f" in workflows/workflow.js) continue ;; esac   # the one documented exemption
       now=$(lizard -w -C 10 -L 50 "$CWD/$f" 2>/dev/null | grep -c ': warning:' || true)
       before=0
       if git -C "$CWD" cat-file -e "HEAD:$f" 2>/dev/null; then

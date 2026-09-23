@@ -4,7 +4,7 @@ description: "Quick-fix bypass for trivial changes that skip the full SDD workfl
 argument-hint: "<description of trivial change>"
 ---
 
-# Spec-Kit: Fix
+# Fix
 
 Apply a quick fix for: **$ARGUMENTS**
 
@@ -41,7 +41,7 @@ A change qualifies as trivial ONLY if **ALL** of these are true:
 - No logic changes, no new features, no API changes, no schema changes
 - Change is one of the types in the table below
 
-| Trivial (use `/speckit.fix`) | Not Trivial (use `/speckit.specify`) |
+| Trivial (use `/hef.fix`) | Not Trivial (use `/hef.spec`) |
 |------------------------------|--------------------------------------|
 | Fix typo in error message | Change error handling logic |
 | Update dependency version | Add new dependency |
@@ -64,14 +64,14 @@ A change qualifies as trivial ONLY if **ALL** of these are true:
    - Typo/style: `fix: <description>` or `style: <description>`
    - Config/deps: `chore: <description>`
    - Documentation: `docs: <description>`
-4. **Remind user**: "This bypassed the SDD pipeline. For anything beyond trivial, use `/speckit.specify`."
+4. **Remind user**: "This bypassed the SDD pipeline. For anything beyond trivial, use `/hef.spec`."
 
 ### If NOT Trivial (fails the gate)
 
 1. **Explain** why the change is not trivial (which criteria it fails)
-2. **Redirect**: "This change modifies logic/APIs/schema. Use `/speckit.specify $ARGUMENTS` instead."
+2. **Redirect**: "This change modifies logic/APIs/schema. Use `/hef.spec $ARGUMENTS` instead."
 3. **Do NOT proceed** with the fix — the full pipeline exists for a reason
 
 ### When In Doubt
 
-If you're unsure whether a change is trivial, it probably isn't. Default to `/speckit.specify` — the cost of a quick spec is low, but the cost of an unplanned change can be high.
+If you're unsure whether a change is trivial, it probably isn't. Default to `/hef.spec` — the cost of a quick spec is low, but the cost of an unplanned change can be high.

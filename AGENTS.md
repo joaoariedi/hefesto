@@ -8,7 +8,7 @@ find the same contract.
 
 Read, in this order:
 
-1. `.claude/CLAUDE.md` — the toolbox: agents, the `hef.*` / `speckit.*` commands, model-tier policy.
+1. `.claude/CLAUDE.md` — the toolbox: agents, the `hef.*` commands, model-tier policy.
 2. `.claude/rules/code-quality.md` — the Iron Laws: no completion claim without fresh verification
    evidence; no fix without root-cause investigation. Both are hook-enforced under Claude Code;
    under any other tool they are your discipline.

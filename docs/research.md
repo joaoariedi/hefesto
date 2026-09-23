@@ -19,9 +19,9 @@
 | 09 | Fabric — prompt orchestration, evaluated but **not adopted** | *not yet codified* |
 | 10 | Deterministic effort estimation — Pfeiffer Contribution Complexity, Epoch, LOCOMO | `task-effort-estimation` skill |
 | 11 | Claude Code harness capabilities — skill loading rules, invocation control, `context: fork`, bundled skills | the `.claude/skills/` layer |
-| 12 | Field report — `speckit-workflow` on a real two-repo feature: multi-repo roots, 429/529 overload, transient-failure aborts | `workflows/speckit-workflow.js` (multi-repo opts, bounded retry, concurrency cap) |
+| 12 | Field report — `workflow` on a real two-repo feature: multi-repo roots, 429/529 overload, transient-failure aborts | `workflows/workflow.js` (multi-repo opts, bounded retry, concurrency cap) |
 | 13 | Graft — code-context graph for agents, measured against the graphify lane, evaluated but **not adopted** | *not yet codified* |
-| 14 | Harness review 2026-09 — toolbox, drift, and the evidence behind each change; the `harness-review-tiers` program (6.1 → 6.2 → 7.0) | `speckit.verify`, `hef.review`/`hef.pr`, the implement-phase test guard, the lifecycle hooks, `llm-security.md` |
+| 14 | Harness review 2026-09 — toolbox, drift, and the evidence behind each change; the `harness-review-tiers` program (6.1 → 6.2 → 7.0) | `hef.verify`, `hef.review`/`hef.pr`, the implement-phase test guard, the lifecycle hooks, `llm-security.md` |
 
 Files 05, 08, 09, and 13 carry no pointers because their subject is genuinely unadopted, and each says so in its own header — an unadopted idea is recorded as prior art, not smuggled in as current practice.
 
@@ -43,7 +43,7 @@ This framework was shaped by patterns observed in several projects:
 | [FrankSherlock](https://github.com/akitaonrails/FrankSherlock) | Fabio Akita | "What NOT to change" guardrails, architecture-as-constraints pattern, `_`-prefixed research directories |
 | [FrankMD](https://github.com/akitaonrails/FrankMD) | Fabio Akita | AGENTS.md as tool-agnostic contributor guide, concise do/don't lists |
 | [FrankMega](https://github.com/akitaonrails/FrankMega) | Fabio Akita | Lefthook parallel hooks, security-specific test files, pre-commit vs pre-push separation, staged-files-only linting |
-| [speckit-agent-skills](https://github.com/dceoy/speckit-agent-skills) | dceoy | `speckit.baseline` concept — reverse-engineering specs from existing code |
+| [speckit-agent-skills](https://github.com/dceoy/speckit-agent-skills) | dceoy | `hef.baseline` concept — reverse-engineering specs from existing code |
 | [speckit-wiggum-toolkit](https://github.com/leonardoFu/speckit-wiggum-toolkit) | leonardoFu | `speckit.research` and `speckit.reflect` concepts — formalized research and retrospective phases |
 
 ---

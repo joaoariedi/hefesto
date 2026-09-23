@@ -1,23 +1,23 @@
-# Graph Report - hefesto  (2026-09-22)
+# Graph Report - hefesto  (2026-09-23)
 
 ## Corpus Check
-- 111 files · ~143,609 words
+- 110 files · ~143,782 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1098 nodes · 1054 edges · 121 communities (102 shown, 19 thin omitted)
+- 1088 nodes · 1045 edges · 122 communities (103 shown, 19 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 4 edges (avg confidence: 0.5)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `4bec6b3c`
+- Built from commit: `94769e51`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - Security Forensics Agent
 - Development Workflow Phases
-- Speckit Workflow Engine
+- workflow.js
 - Deterministic Effort Estimation
 - Quality Checks Command
 - Workflow Test Harness
@@ -26,12 +26,12 @@
 - Quality Tooling by Language
 - Workflow Resilience Spec
 - Code Quality Standards
-- Speckit Brainstorm Command
+- Instructions
 - CI/CD Security Tooling
 - Agent Collaboration & Parallelism
 - LLM Security (OWASP GenAI Top 10 for LLM Applications 2026 + Top 10 for Agentic Applications)
-- Speckit Cross-Artifact Analysis
-- Speckit Brownfield Baseline
+- Instructions
+- Instructions
 - Changelog
 - Context Window Management
 - README.md
@@ -41,13 +41,13 @@
 - Agent Topology & Orchestration
 - Field Report: speckit-workflow — Multi-Repo Support & Overload Resilience
 - Task Effort Estimation Skill
+- Instructions
 - Pre-Flight
-- Spec-Driven Development Guide
 - Codebase Retrieval At Scale
 - Quality Gates & CI Research
 - Claude Code Harness Capabilities
-- Speckit Plan Command
-- Speckit Plan Review Gate
+- 🧬 Development Lifecycle
+- Instructions
 - Context Engineering Fundamentals
 - AI Protocol Stack
 - Project Organization & Delivery
@@ -55,16 +55,16 @@
 - Systematic Debugging Skill
 - Repo Scout Agent
 - Project Context Command
-- Instructions
+- Pre-Flight
 - 🕵️ Agents
 - Hefesto v7.0
 - Doctor
 - Slash Commands Documentation
 - Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane
-- Speckit Constitution Command
-- Speckit Specify Command
-- Speckit Tasks Command
-- [3.0.0] - 2025-09-04
+- Architecture
+- Installing & Configuring
+- Pre-Flight
+- Pre-Flight
 - Workflow Resilience Task List
 - Plan Template
 - Spec Template
@@ -73,8 +73,8 @@
 - [Unreleased]
 - User Scenarios
 - Decision record
-- Speckit Checklist Command
-- Speckit Clarify Command
+- Pre-Flight
+- Pre-Flight
 - ⚙️ Hooks
 - Performance & Reasoning Docs
 - rules.md
@@ -84,8 +84,8 @@
 - [4.4.0] - 2026-07-12
 - Git Workflow Rules
 - Usage Entry Paths
-- Security Scan Command
-- Speckit Project Init
+- Pre-Flight
+- [3.0.0] - 2025-09-04
 - Destructive Command Blocker
 - Project Constitution
 - smoke.sh
@@ -98,7 +98,7 @@
 - Speckit Helper Script
 - Performance Audit Skill
 - [5.2.0] - 2026-07-17
-- Instructions
+- Pre-Flight Checks
 - Route, then run
 - Findings by area, with evidence
 - Research Corpus & Credits
@@ -126,12 +126,13 @@
 - audit-config-change.sh
 - precompact-progress.sh
 - session-start-context.sh
-- [6.1.0] - 2026-09-22
+- hef.scan.md
 - Release
 - [6.2.0] - 2026-09-22
 - release.sh
 - evals/README.md
 - merge-tree-probe.sh
+- [6.0.0] - 2026-08-19
 
 ## God Nodes (most connected - your core abstractions)
 1. `Changelog` - 24 edges
@@ -151,7 +152,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (121 total, 19 thin omitted)
+## Communities (122 total, 19 thin omitted)
 
 ### Community 0 - "Security Forensics Agent"
 Cohesion: 0.06
@@ -161,7 +162,7 @@ Nodes (34): 1. Quick Triage Report, 1. Threat Hunting & Detection, 2. Comprehens
 Cohesion: 0.07
 Nodes (29): CLAUDE.md Template Guidance, Cross-Cutting Change Maps, Development Workflow, Phase 0: Multi-Environment Setup (Optional), Phase 1: Planning & Context (Steps 1-4), Phase 2: Implementation with Quality Gates (Steps 5-10), Phase 3: Review & Integration (Steps 11-16), Phase 4: Post-Implementation (Steps 17-18) - Optional (+21 more)
 
-### Community 2 - "Speckit Workflow Engine"
+### Community 2 - "workflow.js"
 Cohesion: 0.09
 Nodes (26): absFile(), accepted, acquire(), agentTyped(), _capArg, GATE_SCHEMA, IMPL_SCHEMA, implementAndVerify() (+18 more)
 
@@ -197,9 +198,9 @@ Nodes (19): Clarifications, CLR-001: How workflow orchestration is verified [Int
 Cohesion: 0.11
 Nodes (18): Architectural Principles (SOLID), Clean Code for Agents, Code Quality Standards, Comments (agent-specific), Complexity Limits, Dependencies & structure, Documentation Guidelines, Formatting & logging (+10 more)
 
-### Community 11 - "Speckit Brainstorm Command"
+### Community 11 - "Instructions"
 Cohesion: 0.12
-Nodes (16): Current branch, Existing specs, Hard Gate, Instructions, Pipeline Position, Pre-Flight, Project context, Rationalization Prevention (+8 more)
+Nodes (16): Brainstorm, Current branch, Existing specs, Hard Gate, Instructions, Pipeline Position, Pre-Flight, Project context (+8 more)
 
 ### Community 12 - "CI/CD Security Tooling"
 Cohesion: 0.12
@@ -213,17 +214,17 @@ Nodes (15): Agent Collaboration & Parallelism, Agent Teams (Experimental), Choos
 Cohesion: 0.11
 Nodes (17): Defense in Depth, Excessive Agency (LLM03) / Tool Misuse (ASI02) / Unexpected Code Execution (ASI05), LLM Security (OWASP GenAI Top 10 for LLM Applications 2026 + Top 10 for Agentic Applications), Memory and Context Poisoning (ASI06), Mitigations, Mitigations, Mitigations, Mitigations (+9 more)
 
-### Community 15 - "Speckit Cross-Artifact Analysis"
+### Community 15 - "Instructions"
 Cohesion: 0.13
-Nodes (14): Checklists, Constitution, Current branch, Instructions, Load all artifacts, Output Format, Pass 1: Duplication Detection, Pass 2: Ambiguity Detection (+6 more)
+Nodes (14): Analyze, Checklists, Constitution, Current branch, Instructions, Load all artifacts, Output Format, Pass 1: Duplication Detection (+6 more)
 
-### Community 16 - "Speckit Brownfield Baseline"
+### Community 16 - "Instructions"
 Cohesion: 0.13
-Nodes (14): Constitution, Current branch, Existing code, Instructions, Pre-Flight, Spec-Kit: Baseline, .specify directory, Step 1: Inventory (+6 more)
+Nodes (14): Baseline, Constitution, Current branch, Existing code, Instructions, Pre-Flight, .specify directory, Step 1: Inventory (+6 more)
 
 ### Community 17 - "Changelog"
 Cohesion: 0.14
-Nodes (13): [3.0.0] - 2025-09-04, [4.0.2] - 2026-03-10, [5.0.0] - 2026-07-13, [6.0.0] - 2026-08-19, Added, Added, Changed, Changed - BREAKING (+5 more)
+Nodes (13): [3.0.0] - 2025-09-04, [4.0.2] - 2026-03-10, [5.0.0] - 2026-07-13, [6.1.0] - 2026-09-22, Added, Added, Changed, Changed (+5 more)
 
 ### Community 18 - "Context Window Management"
 Cohesion: 0.14
@@ -257,13 +258,13 @@ Nodes (12): Field Report: speckit-workflow — Multi-Repo Support & Overload Res
 Cohesion: 0.15
 Nodes (12): Calibration — and the rule against inventing hours, Mode Selection, Output Format, Step 1 — Compute Contribution Complexity (Pfeiffer's algorithm), Step 2 — Test burden (deterministic), Step 3 — Edge-case density, Step 4 — Volatility hotspots, Step 5 — The Non-Local Context Check (never skip) (+4 more)
 
-### Community 26 - "Pre-Flight"
-Cohesion: 0.15
-Nodes (12): Arm the test guard, Checklists, Completion, Constitution, Current branch, Instructions, Load artifacts, Phase-by-Phase TDD Execution (+4 more)
+### Community 26 - "Instructions"
+Cohesion: 0.14
+Nodes (13): 1. Read the coverage matrix, 2. Run the tests the matrix names, 3. Spec-compliance review, 4. Report, 5. Next step, Artifacts, Current branch, Instructions (+5 more)
 
-### Community 27 - "Spec-Driven Development Guide"
-Cohesion: 0.17
-Nodes (11): Arguments (all optional), 🏗️ Brownfield Path (existing code), 🧬 Development Lifecycle, ⚡ Quick Fix Path (trivial changes), Spec-Driven Development, 📦 Spec-Kit Artifacts, `.specify/` Directory Structure, ⚡ `speckit-workflow` — deterministic execution of a task list (+3 more)
+### Community 27 - "Pre-Flight"
+Cohesion: 0.15
+Nodes (12): Arm the test guard, Checklists, Completion, Constitution, Current branch, Implement, Instructions, Load artifacts (+4 more)
 
 ### Community 28 - "Codebase Retrieval At Scale"
 Cohesion: 0.17
@@ -277,13 +278,13 @@ Nodes (11): 1. Lifecycle Hooks: Deterministic Work Belongs to Deterministic Tool
 Cohesion: 0.17
 Nodes (11): Adopted in v4.4, Bundled Skills Worth Not Reinventing, Claude Code Harness Capabilities, Commands and Skills Have Merged, Frontmatter Reference, Hook Events: The Framework Uses Four of Roughly Thirty, Not Yet Adopted, Parallelism: Three Primitives, None Superseding Another (+3 more)
 
-### Community 31 - "Speckit Plan Command"
-Cohesion: 0.18
-Nodes (10): Auto-detect spec branch, Available specs, Constitution, Current branch, Instructions, Phase 0: Research (Truth Map), Phase 1: Design, Pre-Flight (+2 more)
+### Community 31 - "🧬 Development Lifecycle"
+Cohesion: 0.17
+Nodes (11): Arguments (all optional), 🏗️ Brownfield Path (existing code), 🧬 Development Lifecycle, ⚡ Quick Fix Path (trivial changes), 📦 Spec Artifacts, Spec-Driven Development, `.specify/` Directory Structure, 📋 Standard SDD Path (features, refactors, bug fixes) (+3 more)
 
-### Community 32 - "Speckit Plan Review Gate"
+### Community 32 - "Instructions"
 Cohesion: 0.18
-Nodes (10): Constitution, Current branch, Instructions, Load plan, Load spec, Output Format, Plan status, Pre-Flight (+2 more)
+Nodes (10): Change scope, Current branch, Fix, If NOT Trivial (fails the gate), If Trivial (passes the gate), Instructions, Pre-Flight, Triviality Gate (+2 more)
 
 ### Community 33 - "Context Engineering Fundamentals"
 Cohesion: 0.18
@@ -298,8 +299,8 @@ Cohesion: 0.18
 Nodes (10): Actionable Patterns for the Framework, Containerization & Deployment, FrankMD — Docker with Desktop Wrapper, FrankMega — Kamal Deployment, FrankYomik — Multi-Container with Variants, Not Yet Adopted, Project Organization & Delivery, Research Documentation (FrankSherlock) (+2 more)
 
 ### Community 36 - "SETUP — install or update the Hefesto on this machine"
-Cohesion: 0.06
-Nodes (29): Architecture, Currently In Use vs Available, 📁 Package Structure, 🖥️ Reference Deployment, 🔁 Request Flow & Stack Composition, 🛡️ Trust Boundaries, 🔀 Two-Machine Topology, What the flow reveals (+21 more)
+Cohesion: 0.17
+Nodes (10): Conventions for the agent executing this, Report back, SETUP — install or update the Hefesto on this machine, Step 0 — Decide the clone location, Step 1 — Check for a conflicting legacy install, Step 2 — Clone, or pull if already present, Step 3 — Add the marketplace and install the plugin, Step 4 — Add the helper permission rule (required in practice) (+2 more)
 
 ### Community 37 - "Systematic Debugging Skill"
 Cohesion: 0.18
@@ -313,9 +314,9 @@ Nodes (9): Cost Discipline, Hard Rules (Non-Negotiable), Input Contract, Output 
 Cohesion: 0.29
 Nodes (6): Active branch, Analysis Steps, Directory structure (top 2 levels), Live Project Data, Output Format, Recent commits
 
-### Community 40 - "Instructions"
+### Community 40 - "Pre-Flight"
 Cohesion: 0.18
-Nodes (10): Change scope, Current branch, If NOT Trivial (fails the gate), If Trivial (passes the gate), Instructions, Pre-Flight, Spec-Kit: Fix, Triviality Gate (+2 more)
+Nodes (10): Auto-detect spec branch, Available specs, Constitution, Current branch, Instructions, Phase 0: Research (Truth Map), Phase 1: Design, Plan (+2 more)
 
 ### Community 41 - "🕵️ Agents"
 Cohesion: 0.17
@@ -333,21 +334,21 @@ Nodes (11): 1. The three copies, 2. The hooks, 3. The manifest, 4. Skill hygiene
 Cohesion: 0.25
 Nodes (7): Graft: Code-Context Graph for Agents, Evaluated Against the graphify Lane, Measured Against graphify on the Same Repository, Not Yet Adopted, Telemetry, Data Egress, and Supply Chain, The Shape It Would Take If Ever Adopted, What a Default `graft init` Writes, and Why It Cannot Run Here, What Graft Is
 
-### Community 46 - "Speckit Constitution Command"
-Cohesion: 0.25
-Nodes (7): Existing constitution, Existing rules, Instructions, Pre-Flight, Project context, Spec-Kit: Constitution, Tech stack detection
+### Community 46 - "Architecture"
+Cohesion: 0.20
+Nodes (9): Architecture, Currently In Use vs Available, 📁 Package Structure, 🖥️ Reference Deployment, 🔁 Request Flow & Stack Composition, 🛡️ Trust Boundaries, 🔀 Two-Machine Topology, What the flow reveals (+1 more)
 
-### Community 47 - "Speckit Specify Command"
-Cohesion: 0.25
-Nodes (7): Constitution, Existing specs, Git status, Instructions, Pre-Flight, Project structure, Spec-Kit: Specify
+### Community 47 - "Installing & Configuring"
+Cohesion: 0.20
+Nodes (10): 1️⃣ Install as a Plugin (recommended), 2️⃣ Optional Configuration, 3️⃣ Verify the Installation, 4️⃣ Your First Feature (the 60-second tour), 5️⃣ Updating, 6️⃣ The two things the plugin cannot ship, Installing & Configuring, Installing into more than one profile (+2 more)
 
-### Community 48 - "Speckit Tasks Command"
+### Community 48 - "Pre-Flight"
 Cohesion: 0.25
-Nodes (7): Auto-detect spec branch, Current branch, Instructions, Load plan, Load spec, Pre-Flight, Spec-Kit: Tasks
+Nodes (7): Constitution, Existing constitution, Existing rules, Instructions, Pre-Flight, Project context, Tech stack detection
 
-### Community 49 - "[3.0.0] - 2025-09-04"
-Cohesion: 0.33
-Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
+### Community 49 - "Pre-Flight"
+Cohesion: 0.25
+Nodes (7): Constitution, Existing specs, Git status, Instructions, Pre-Flight, Project structure, Specify
 
 ### Community 50 - "Workflow Resilience Task List"
 Cohesion: 0.25
@@ -381,13 +382,13 @@ Nodes (14): Clarifications, Functional Requirements, Overview, Spec: harness-rev
 Cohesion: 0.50
 Nodes (3): Decision record, Instructions, Pre-Flight
 
-### Community 58 - "Speckit Checklist Command"
-Cohesion: 0.29
-Nodes (6): Current branch, Existing checklists, Instructions, Load spec, Pre-Flight, Spec-Kit: Checklist
+### Community 58 - "Pre-Flight"
+Cohesion: 0.25
+Nodes (7): Auto-detect spec branch, Current branch, Instructions, Load plan, Load spec, Pre-Flight, Tasks
 
-### Community 59 - "Speckit Clarify Command"
+### Community 59 - "Pre-Flight"
 Cohesion: 0.29
-Nodes (6): Current branch, Existing clarifications, Instructions, Load spec, Pre-Flight, Spec-Kit: Clarify
+Nodes (6): Checklist, Current branch, Existing checklists, Instructions, Load spec, Pre-Flight
 
 ### Community 60 - "⚙️ Hooks"
 Cohesion: 0.25
@@ -425,13 +426,13 @@ Nodes (5): Branch Naming, Commit Message Format, Commit Types, Git Workflow, Sta
 Cohesion: 0.33
 Nodes (6): 🌱 1. A new project, from scratch, ✨ 2. A feature, in a project already set up, 🔧 3. A trivial fix, 🏚️ 4. Brownfield — existing code, no specs, 🧰 Also available, any time, 🚀 Using it
 
-### Community 69 - "Security Scan Command"
-Cohesion: 0.40
-Nodes (4): Automated Tool Checks (if available), Checklist, Report Format, Scope
+### Community 69 - "Pre-Flight"
+Cohesion: 0.29
+Nodes (6): Clarify, Current branch, Existing clarifications, Instructions, Load spec, Pre-Flight
 
-### Community 70 - "Speckit Project Init"
+### Community 70 - "[3.0.0] - 2025-09-04"
 Cohesion: 0.33
-Nodes (5): Existing .specify/ detection, Git root detection, Instructions, Pre-Flight Checks, Spec-Kit: Project Initialization
+Nodes (6): [3.0.0] - 2025-09-04, Added, Changed, Enhanced, Fixed, Improved
 
 ### Community 71 - "Destructive Command Blocker"
 Cohesion: 0.73
@@ -481,9 +482,9 @@ Nodes (4): Analysis Steps, Benchmark Commands, Output Format, Performance Audit 
 Cohesion: 0.50
 Nodes (4): [5.2.0] - 2026-07-17, Added, Changed, Fixed
 
-### Community 83 - "Instructions"
-Cohesion: 0.14
-Nodes (13): 1. Read the coverage matrix, 2. Run the tests the matrix names, 3. Spec-compliance review, 4. Report, 5. Next step, Artifacts, Current branch, Instructions (+5 more)
+### Community 83 - "Pre-Flight Checks"
+Cohesion: 0.33
+Nodes (5): Existing .specify/ detection, Git root detection, Instructions, Pre-Flight Checks, Project Initialization
 
 ### Community 84 - "Route, then run"
 Cohesion: 0.33
@@ -522,8 +523,8 @@ Cohesion: 0.33
 Nodes (5): Branch data, Instructions, Pre-Flight, Pull Request, Untrusted input
 
 ### Community 107 - "Review"
-Cohesion: 0.40
-Nodes (4): Branch and diff, Instructions, Pre-Flight, Review
+Cohesion: 0.33
+Nodes (5): Code mode — via `code-reviewer`, Mode, Plan mode — read-only, Pre-Flight, Review
 
 ### Community 108 - "Tasks: harness-review-tiers"
 Cohesion: 0.40
@@ -533,9 +534,9 @@ Nodes (4): Phase 1: Tier 1 — 6.1.0 (additive), Phase 2: Tier 2 — 6.2.0 (addi
 Cohesion: 0.67
 Nodes (3): [1.0.0] - 2025-09-02, Added, Created
 
-### Community 114 - "[6.1.0] - 2026-09-22"
-Cohesion: 0.67
-Nodes (3): [6.1.0] - 2026-09-22, Added, Changed
+### Community 114 - "hef.scan.md"
+Cohesion: 0.40
+Nodes (4): Automated Tool Checks (if available), Checklist, Report Format, Scope
 
 ### Community 115 - "Release"
 Cohesion: 0.40
@@ -545,8 +546,12 @@ Nodes (4): Current state, Instructions, Pre-Flight, Release
 Cohesion: 0.50
 Nodes (4): [6.2.0] - 2026-09-22, Added, Changed, Decided against
 
+### Community 121 - "[6.0.0] - 2026-08-19"
+Cohesion: 0.67
+Nodes (3): [6.0.0] - 2026-08-19, Added, Changed - BREAKING
+
 ## Knowledge Gaps
-- **723 isolated node(s):** `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `merge-tree-probe.sh script` (+718 more)
+- **718 isolated node(s):** `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script`, `format-after-edit.sh script`, `merge-tree-probe.sh script` (+713 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **19 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -554,12 +559,12 @@ Nodes (4): [6.2.0] - 2026-09-22, Added, Changed, Decided against
 _Questions this graph is uniquely positioned to answer:_
 
 - **What connects `github`, `audit-config-change.sh script`, `block-sensitive-files.sh script` to the rest of the system?**
-  _723 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _718 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Security Forensics Agent` be split into smaller, more focused modules?**
   _Cohesion score 0.05714285714285714 - nodes in this community are weakly interconnected._
 - **Should `Development Workflow Phases` be split into smaller, more focused modules?**
   _Cohesion score 0.06666666666666667 - nodes in this community are weakly interconnected._
-- **Should `Speckit Workflow Engine` be split into smaller, more focused modules?**
+- **Should `workflow.js` be split into smaller, more focused modules?**
   _Cohesion score 0.0896551724137931 - nodes in this community are weakly interconnected._
 - **Should `Deterministic Effort Estimation` be split into smaller, more focused modules?**
   _Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected._

@@ -62,7 +62,7 @@ Move sessions between surfaces:
 - Focus on code clarity over excessive documentation
 
 ### Step 9: Test Creation & Validation
-- For spec-driven development (SDD), use the spec-kit pipeline: `/speckit.specify` → `/speckit.plan` → `/speckit.tasks` → `/speckit.implement`
+- For spec-driven development (SDD), use the SDD pipeline: `/hef.spec` → `/hef.plan` → `/hef.tasks` → `/hef.implement`
 - Use `test-specialist` agent for comprehensive test suites
 - Find existing test patterns using Glob: `**/*test*`, `**/spec/**`
 - PostToolUse hook auto-runs tests after source file edits (throttled to 15s)

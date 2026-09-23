@@ -5,11 +5,11 @@
 - [x] T002 [FR-003] `hooks/implement-phase-test-guard.sh` + registration `hooks/hooks.json`
 - [x] T003 [FR-006] `hooks/precompact-progress.sh`, `hooks/session-start-context.sh` + registration
 - [x] T004 [FR-007] `hooks/audit-config-change.sh` + registration
-- [x] T005 [FR-001] `commands/speckit.verify.md`; implement/tasks/test-specialist tell tests to cite FR ids
+- [x] T005 [FR-001] `commands/hef.verify.md`; implement/tasks/test-specialist tell tests to cite FR ids
 - [x] T006 [FR-002] `commands/hef.review.md`, `commands/hef.pr.md`; review-coordinator sequential merge + untrusted text
 - [x] T007 [FR-004] quality-guardian + quality-tooling AI-defect recipes
 - [x] T008 [FR-005] test-specialist mock budget
-- [x] T009 [FR-007] llm-security.md refresh; untrusted-input blocks in hef.pr-summary/speckit.fix; mcp-security vetting; install.md sandbox
+- [x] T009 [FR-007] llm-security.md refresh; untrusted-input blocks in hef.pr-summary/hef.fix; mcp-security vetting; install.md sandbox
 - [x] T010 [FR-008] docs/commands.md, docs/hooks.md, README, CLAUDE.md tier table, CHANGELOG 6.1.0, versions, smoke checks
 
 ## Phase 2: Tier 2 — 6.2.0 (additive)
@@ -28,6 +28,7 @@
 - [x] T021 [FR-018] `AGENTS.md` shim; doc-gardening routine in docs
 - [x] T022 [FR-019] `memory: project` on forensic-specialist and code-reviewer
 - [x] T023 [FR-008] docs + CHANGELOG 7.0.0 + versions + migration note
+- [x] T024 [FR-015] unify the namespace: every command `hef.*`, plan review merged into `hef.review`, workflow `hefesto:workflow`
 
 ---
 Legend: `[FR-NNN]` = functional requirement ref

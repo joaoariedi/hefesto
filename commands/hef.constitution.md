@@ -3,7 +3,7 @@ model: fable
 description: "Create or update .specify/memory/constitution.md with project governance principles"
 ---
 
-# Spec-Kit: Constitution
+# Constitution
 
 Create or update the project constitution at `.specify/memory/constitution.md`.
 
@@ -50,7 +50,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh list-rule
    ```markdown
    # Project Constitution
    <!-- Version: 1.0.0 | Date: YYYY-MM-DD -->
-   <!-- Updated by /speckit.constitution -->
+   <!-- Updated by /hef.constitution -->
 
    ## Principles
 

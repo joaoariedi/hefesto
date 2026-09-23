@@ -13,11 +13,11 @@ AI-written code, and the harness itself is only structurally tested. Every chang
 
 ### US1: Requirement traceability after implementation [P1]
 - **Given** a feature branch with `spec.md` declaring `FR-NNN` ids and a test suite
-- **When** the developer runs `/speckit.verify`
+- **When** the developer runs `/hef.verify`
 - **Then** every FR is mapped to the tests that cite it, an FR with no test or a test citing an unknown id fails the command mechanically, and `code-reviewer` stage 1 runs on the diff
 
 ### US2: Tests cannot shrink during implementation [P1]
-- **Given** `/speckit.implement` is active (phase marker set)
+- **Given** `/hef.implement` is active (phase marker set)
 - **When** the agent edits a test file so that it has fewer assertions, overwrites a test file wholesale, or runs a test command with a snapshot-update flag
 - **Then** the tool call is blocked with an explanation and a visible bypass
 
@@ -55,7 +55,7 @@ AI-written code, and the harness itself is only structurally tested. Every chang
 
 | ID | Requirement | Priority | Scenario |
 |----|-------------|----------|----------|
-| FR-001 | `speckit-helper.sh req-coverage` maps every `FR-NNN` in `spec.md` to test files citing it; exits non-zero on an uncovered FR or an unknown id; `/speckit.verify` runs it plus `code-reviewer` stage 1 | P1 | US1 |
+| FR-001 | `speckit-helper.sh req-coverage` maps every `FR-NNN` in `spec.md` to test files citing it; exits non-zero on an uncovered FR or an unknown id; `/hef.verify` runs it plus `code-reviewer` stage 1 | P1 | US1 |
 | FR-002 | `/hef.review` dispatches `code-reviewer`; `/hef.pr` dispatches `review-coordinator` with a sequential-merge rule | P1 | US3 |
 | FR-003 | `implement-phase-test-guard.sh` blocks assertion-shrinking edits and wholesale overwrites of test files while `.specify/.implement-in-progress` exists, and blocks snapshot-update flags on test commands unconditionally (bypass visible) | P1 | US2 |
 | FR-004 | `quality-guardian` and `quality-tooling` carry duplication-baseline, dead-code, error-swallowing and patch-coverage recipes | P2 | US5 |
@@ -65,11 +65,11 @@ AI-written code, and the harness itself is only structurally tested. Every chang
 | FR-008 | 6.1.0 docs, version declarations, changelog, and smoke checks for every new hook, helper and command | P2 | US1 |
 | FR-009 | `/hef.mutate` runs a mutation ratchet (Stryker incremental / mutmut) with a raise-only high-water mark | P2 | US7 |
 | FR-010 | The aggregate complexity rules run as delta gates in `quality-before-commit.sh` when a tool is present; prose keeps only the rationale | P2 | US5 |
-| FR-011 | `/hef.agent` routes by size: `task-effort-estimation` → `speckit.fix` / specify-only / full pipeline | P2 | US8 |
+| FR-011 | `/hef.agent` routes by size: `task-effort-estimation` → `hef.fix` / specify-only / full pipeline | P2 | US8 |
 | FR-012 | `[P]` tasks may declare `owns:` files; the workflow rejects overlapping owners; `merge-tree-probe.sh` warns on textual conflicts with the base branch after edits; `review-coordinator` merges sequentially | P2 | US6 |
 | FR-013 | `/hef.release` bumps every version declaration via `hooks/release.sh`, enforces conventional commit messages in `quality-before-commit.sh`, and scaffolds the changelog entry | P2 | US6 |
 | FR-014 | Hook fixtures (incl. the documented bypass forms) live in `tests/smoke.sh` — bats was rejected because it needs an install step (constitution 4); `shellcheck` runs in the smoke suite when present; `evals/` holds a `claude plugin eval` suite | P2 | US7 |
-| FR-015 | 7.0: `hef.sync` → `hef.doctor` (sync + shellcheck + eval + skill-doctor); `hef.pr-summary` folds into `hef.pr` | P3 | US8 |
+| FR-015 | 7.0: one namespace — every command is `hef.*` (`speckit.specify` → `hef.spec`, `speckit.review` merged into `hef.review` as plan mode, `hef.security-scan` → `hef.scan`, the workflow is `hefesto:workflow`); `hef.sync` → `hef.doctor` (sync + shellcheck + eval + skill-doctor); `hef.pr-summary` folds into `hef.pr` | P3 | US8 |
 | FR-016 | 7.0: knowledge skills are `user-invocable: false`; action skills stay invocable | P3 | US8 |
 | FR-017 | 7.0: `reports/` carry MADR `status`/`supersedes` frontmatter; `/hef.adr` creates one | P3 | US8 |
 | FR-018 | 7.0: `AGENTS.md` shim at the repo root; doc-gardening routine documented | P3 | US8 |

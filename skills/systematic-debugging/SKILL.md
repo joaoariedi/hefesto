@@ -103,5 +103,5 @@ When fixing a bug, add protection at multiple layers:
 
 - **quality-guardian**: Invokes this skill when debugging test failures during quality gates
 - **code-reviewer**: References this skill when review reveals potential bugs
-- **speckit.implement**: Use this skill when TDD red phase reveals unexpected failures
+- **hef.implement**: Use this skill when TDD red phase reveals unexpected failures
 - **Verification Iron Law** (`rules/code-quality.md`): always prove the fix with fresh evidence — `/verify` exercises the running app

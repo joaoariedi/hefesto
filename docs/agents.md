@@ -34,7 +34,7 @@ Two-stage code review specialist. **Stage 1** validates spec compliance (impleme
 
 Produces a structured review report with `APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION` verdict.
 
-**When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle). Spawned by `/hef.review`; `/speckit.verify` runs its stage 1 with the mechanical coverage matrix in hand.
+**When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle). Spawned by `/hef.review`; `/hef.verify` runs its stage 1 with the mechanical coverage matrix in hand.
 
 ### 📝 review-coordinator
 
@@ -98,14 +98,14 @@ They are not interchangeable, and none supersedes the others:
 
 Reach for a **subagent** by default — you want an answer, not a colleague. Reach for an **Agent Team** when workers must *challenge each other*: five teammates trying to disprove each other's hypotheses beat sequential investigation, which anchors on the first plausible theory.
 
-**`speckit-workflow`** (`workflows/speckit-workflow.js`) is the framework's workflow — invoked as `hefesto:speckit-workflow` under a plugin install, since plugin components are namespaced. It is named distinctly from the `/speckit.implement` **command** on purpose: they are two ways to execute `tasks.md`, and a shared name invited picking the wrong one. It executes `tasks.md` with the orchestration moved into code:
+**`workflow`** (`workflows/workflow.js`) is the framework's workflow — invoked as `hefesto:workflow` under a plugin install, since plugin components are namespaced. It is named distinctly from the `/hef.implement` **command** on purpose: they are two ways to execute `tasks.md`, and a shared name invited picking the wrong one. It executes `tasks.md` with the orchestration moved into code:
 
 - **Phase order is enforced, not trusted.** Spec-kit declares Phase N+1 blocked by Phase N. A script guarantees that barrier; a model can talk itself into skipping ahead.
 - **The implementer never grades its own homework.** Every task is checked by three agents that did not write it, through *different* lenses — one reads the test diff hunting for a weakened assertion, one checks the requirement rather than the test, one runs the full suite itself. Any single refutation blocks the task. This is the Verification Iron Law made structural.
 - **`[P]` is not trusted either.** The marker is model-written and nothing enforces it, so two `[P]` tasks in one phase can name the same file. The script batches them by *actual file disjointness*; a task declaring no files is serialized, because it cannot be proven safe.
 - **`tasks.md` is written once, at the end**, by a single agent — parallel implementers ticking their own checkboxes would race on one file.
 
-> **Why the whole pipeline is not one workflow.** A workflow cannot take mid-run input. But `/speckit.clarify` asks you questions, `/speckit.review` is a sign-off, and `/speckit.checklist` is a gate. Encoding the full pipeline as one workflow would silently delete every human gate and turn spec-*driven* development into fire-and-forget. Run the gated phases first; the workflow starts where the human sign-off ends.
+> **Why the whole pipeline is not one workflow.** A workflow cannot take mid-run input. But `/hef.clarify` asks you questions, `/hef.review` is a sign-off, and `/hef.checklist` is a gate. Encoding the full pipeline as one workflow would silently delete every human gate and turn spec-*driven* development into fire-and-forget. Run the gated phases first; the workflow starts where the human sign-off ends.
 
 **Agent Teams (Experimental)** — requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
 

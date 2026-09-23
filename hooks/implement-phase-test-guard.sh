@@ -1,5 +1,5 @@
 #!/bin/bash
-# implement-phase-test-guard.sh — tests may GROW during /speckit.implement; they may not SHRINK.
+# implement-phase-test-guard.sh — tests may GROW during /hef.implement; they may not SHRINK.
 #
 # Two guards, one file:
 #
@@ -16,7 +16,7 @@
 #
 # Why a hook and not a rule: TDAD (arXiv 2603.17973) measured that TDD *instructions* without a
 # mechanism made agent regressions WORSE (9.94% vs 6.08% baseline); Kent Beck reports agents deleting
-# tests to make them pass. speckit.implement already says "never modify the test to make it pass" —
+# tests to make them pass. hef.implement already says "never modify the test to make it pass" —
 # this is the mechanism behind that sentence.
 #
 # Threat model, same as block-destructive-commands.sh: a careless or prompt-injected agent taking the
@@ -74,7 +74,7 @@ case "$TOOL" in
     if [[ "$CMD" =~ (^|[[:space:]]|&&|;)(git[[:space:]]+)?rm[[:space:]] ]]; then
       for tok in $CMD; do
         if is_test_file "$tok"; then
-          echo "Blocked: /speckit.implement is active and this removes a test file ($tok)." >&2
+          echo "Blocked: /hef.implement is active and this removes a test file ($tok)." >&2
           echo "  Tests may grow during implementation, never shrink. End the phase first: speckit-helper.sh implement-phase-end" >&2
           exit 2
         fi
@@ -91,7 +91,7 @@ case "$TOOL" in
 
     if [ "$TOOL" = "Write" ]; then
       if [ -e "$FILE" ]; then
-        echo "Blocked: /speckit.implement is active and Write would OVERWRITE the existing test file $FILE." >&2
+        echo "Blocked: /hef.implement is active and Write would OVERWRITE the existing test file $FILE." >&2
         echo "  Add or change cases with Edit so the diff shows exactly what moved. New test files may still be created." >&2
         echo "  To leave the phase: speckit-helper.sh implement-phase-end" >&2
         exit 2
@@ -108,7 +108,7 @@ case "$TOOL" in
     before=$(count_asserts "$OLD")
     after=$(count_asserts "$NEW")
     if [ "$before" -gt 0 ] && [ "$after" -lt "$before" ]; then
-      echo "Blocked: /speckit.implement is active and this edit removes assertions from $FILE ($before → $after)." >&2
+      echo "Blocked: /hef.implement is active and this edit removes assertions from $FILE ($before → $after)." >&2
       echo "  A test that asserts less to go green is the failure this phase exists to prevent." >&2
       echo "  If the assertion is genuinely wrong, say so to the user, or end the phase: speckit-helper.sh implement-phase-end" >&2
       exit 2

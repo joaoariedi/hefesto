@@ -23,9 +23,9 @@ The framework ships three **action skills** — things a person invokes — and 
 | Instead of a custom skill | Use the built-in | Why |
 |---|---|---|
 | verification-before-completion | `/verify` | It builds and drives the real app rather than settling for a green typecheck. The **Iron Law** survives as a *rule* in `code-quality.md` — a rule is always in context, whereas a skill only loads when invoked. |
-| security-review | `/security-review` | Full branch review. `/hef.security-scan` remains for the fast, diff-only pass. |
+| security-review | `/security-review` | Full branch review. `/hef.scan` remains for the fast, diff-only pass. |
 | context-analysis | `/hef.context` | The command already carries the methodology and injects live git data. |
-| spec-template | `/speckit.specify` | The Given/When/Then patterns now live in the command itself. |
+| spec-template | `/hef.spec` | The Given/When/Then patterns now live in the command itself. |
 
 `task-effort-estimation` deliberately reports a **complexity score and risk flags, never an hour count**. Effort under AI assistance is bimodal — up to 78% of high-complexity *isolated* features land under a quarter of expected effort, while ~22% of *low*-complexity tasks needing non-local context exceed 180%. So it flags the small diff with high coupling, which is the shape of work a naive estimate waves through. Hours only appear once `.claude/effort-calibration.json` maps observed scores to real recorded durations for your project.
 

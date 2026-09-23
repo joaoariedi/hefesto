@@ -45,6 +45,20 @@ so an existing install needs the migration below. `reports/14` and
 
 ### Changed - BREAKING
 
+- **One namespace: every command is `hef.*`, and the names are one word.** The `speckit.*` prefix
+  is gone from commands, docs, hooks, templates, and the workflow. The methodology still lives in
+  `.specify/` (the directory, its templates, and `speckit-helper.sh` are unchanged — renaming the
+  helper would force a permission-rule edit on every install for no user-visible gain).
+
+  | Was | Is |
+  |---|---|
+  | `/speckit.init` · `constitution` · `brainstorm` · `clarify` · `plan` · `tasks` · `checklist` · `analyze` · `implement` · `verify` · `baseline` · `fix` | `/hef.` + the same word |
+  | `/speckit.specify` | `/hef.spec` |
+  | `/speckit.review` (plan gate) | **merged into `/hef.review`** — plan mode before tasks exist, code mode after; `plan` / `code` forces it |
+  | `/hef.security-scan` | `/hef.scan` |
+  | `hefesto:speckit-workflow` (`workflows/speckit-workflow.js`) | `hefesto:workflow` (`workflows/workflow.js`) |
+  | `docs/spec-kit.md` | `docs/sdd.md` |
+
 - **`/hef.sync` is now `/hef.doctor`.** Same three-copies drift report, plus what a check-up
   should have always included: every hook `bash -n`-parsed (and `shellcheck`ed when present), the
   manifest validated with `claude plugin validate`, a pointer to the built-in `/skill-doctor`, and
@@ -62,8 +76,11 @@ so an existing install needs the migration below. `reports/14` and
 
 1. `git -C ~/.claude-framework pull` and `claude plugin marketplace update hefesto`, then restart
    Claude Code — the old command names are gone from the tree, so nothing stale keeps registering.
-2. Replace `/hef.sync` with `/hef.doctor` and `/hef.pr-summary` with `/hef.pr --summary-only` in
-   any notes, scripts, or `CLAUDE.md` files of your own. The framework's own copies are updated.
+2. Replace every `/speckit.<x>` with `/hef.<x>` (`specify` → `spec`; `speckit.review` → `hef.review`),
+   `/hef.security-scan` with `/hef.scan`, `/hef.sync` with `/hef.doctor`, `/hef.pr-summary` with
+   `/hef.pr --summary-only`, and `hefesto:speckit-workflow` with `hefesto:workflow` in any notes,
+   scripts, or `CLAUDE.md` files of your own. The framework's own copies are updated. Existing
+   `.specify/` artifacts need no change.
 3. If your global gitignore ignores `.claude/` and you want the two agents' memory shared, add
    `!.claude/agent-memory/` to the project's `.gitignore` (see `docs/agents.md`).
 4. Re-copy `.claude/rules/` and `.claude/CLAUDE.md` into your profile as usual — `llm-security.md`

@@ -37,7 +37,7 @@ purpose to see the block go red, then restored — recorded as a comment in the 
 
 ## Constitution Compliance
 - [x] 1: payload stays at the repo root; nothing new under `.claude/`
-- [x] 2: new commands are `hef.*` / `speckit.*`
+- [x] 2: new commands are `hef.*`
 - [x] 3: every new guard gets a smoke block that is mutation-checked
 - [x] 4: zero-install — bash + jq + git only; optional tools (jscpd, mutmut…) are recipes, detected, never required
 - [x] 5: `req-coverage` fails loudly; no exit-0 sentinel

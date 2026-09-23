@@ -5,15 +5,15 @@ tags: [routing, sdd]
 graders:
   - name: "mentions the spec pipeline"
     type: "contains"
-    text: "speckit"
+    text: "hef."
     caseSensitive: false
     threshold: 1.0
   - name: "does not start coding blind"
     type: "llm-judge"
     threshold: 0.8
     instructions: |
-      Score 1.0 if the assistant proposed or began a specification step (e.g. /speckit.specify,
-      /speckit.brainstorm, /speckit.init, or /hef.agent routing) BEFORE writing any implementation
+      Score 1.0 if the assistant proposed or began a specification step (e.g. /hef.spec,
+      /hef.brainstorm, /hef.init, or /hef.agent routing) BEFORE writing any implementation
       code, and explained that a feature of this size gets a spec first. Score 0.5 if it asked
       clarifying questions but did not name the pipeline. Score 0 if it started writing
       implementation files from the prompt alone.

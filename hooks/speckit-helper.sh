@@ -1,5 +1,5 @@
 #!/bin/bash
-# speckit-helper.sh - Pre-flight helper for speckit commands
+# speckit-helper.sh - Pre-flight helper for the hef.* commands
 # Centralizes all pre-flight shell logic to avoid Claude Code permission
 # issues with $(), ||, &&, and | operators in !` ` commands.
 #
@@ -42,7 +42,7 @@ BRANCH=$(git branch --show-current 2>/dev/null | sed 's|^feature/||')
 
 # The spec directory name and the branch name are ONE contract, not two: artifacts live at
 # .specify/specs/$(git branch --show-current | sed 's|^feature/||')/. Nothing states this — not
-# /speckit.specify, which asks for a 2-4 word kebab-case name and separately says to branch
+# /hef.spec, which asks for a 2-4 word kebab-case name and separately says to branch
 # `feature/<name>`, leaving the equality implied by juxtaposition. When they diverge, every artifact
 # is missing for a reason that has nothing to do with the artifacts. Say so specifically.
 missing_artifact() {  # $1 = artifact filename, e.g. spec.md
@@ -50,7 +50,7 @@ missing_artifact() {  # $1 = artifact filename, e.g. spec.md
   local found
   found="$(ls -d .specify/specs/*/ 2>/dev/null | sed 's|.specify/specs/||; s|/$||' | tr '\n' ' ')"
   if [ -z "$found" ]; then
-    die "no $1: $want does not exist, and .specify/specs/ holds no feature directories at all. Run /speckit.specify first."
+    die "no $1: $want does not exist, and .specify/specs/ holds no feature directories at all. Run /hef.spec first."
   fi
   die "no $1: expected it at $want (the spec directory MUST be named after the branch, minus any 'feature/' prefix). Existing spec directories: ${found% }. Either rename the directory to '$BRANCH', or switch to the branch that matches it."
 }
@@ -144,16 +144,16 @@ case "$1" in
 
   # --- Global spec-kit resources ---
   constitution)
-    cat .specify/memory/constitution.md 2>/dev/null || die "no constitution: .specify/memory/constitution.md does not exist. Run /speckit.init to scaffold it, or /speckit.constitution to populate it."
+    cat .specify/memory/constitution.md 2>/dev/null || die "no constitution: .specify/memory/constitution.md does not exist. Run /hef.init to scaffold it, or /hef.constitution to populate it."
     ;;
   list-specs)
-    ls -d .specify/specs/*/ 2>/dev/null || die "no specs: .specify/specs/ holds no feature directories. Run /speckit.specify first."
+    ls -d .specify/specs/*/ 2>/dev/null || die "no specs: .specify/specs/ holds no feature directories. Run /hef.spec first."
     ;;
   list-specs-dir)
     ls .specify/specs/ 2>/dev/null || echo "NO_SPECS_DIR"
     ;;
   check-specify-dir)
-    # PREDICATE. /speckit.init asks this precisely to learn the answer, so NOT_FOUND is a normal
+    # PREDICATE. /hef.init asks this precisely to learn the answer, so NOT_FOUND is a normal
     # reply, never a failure — it is the whole reason init exists.
     if [ -d .specify ]; then echo "EXISTS"; else echo "NOT_FOUND"; exit 1; fi
     ;;
@@ -208,7 +208,7 @@ case "$1" in
     fi
     ;;
 
-  # --- New commands for speckit.review, speckit.baseline, speckit.fix ---
+  # --- New commands for speckit.review, speckit.baseline, hef.fix ---
   check-plan-review)
     test -f ".specify/specs/$BRANCH/plan.md" && echo "PLAN_EXISTS: $BRANCH" || echo "NO_PLAN"
     grep -q "^## Reviewed" ".specify/specs/$BRANCH/plan.md" 2>/dev/null && echo "PLAN_REVIEWED" || echo "PLAN_NOT_REVIEWED"
@@ -232,7 +232,7 @@ case "$1" in
   # --- Plan phase marker (RIPER-style write-block) ---
   # The marker file .specify/.plan-in-progress activates plan-phase-write-block.sh,
   # which mechanically blocks Edit/Write to paths outside .specify/ while the plan
-  # is being generated. speckit.plan sets it in pre-flight and clears it after
+  # is being generated. hef.plan sets it in pre-flight and clears it after
   # plan.md is written.
   plan-phase-start)
     mkdir -p .specify
@@ -253,7 +253,7 @@ case "$1" in
 
   # --- Implement phase marker (test guard) ---
   # .specify/.implement-in-progress arms implement-phase-test-guard.sh: while it exists, test files
-  # may grow but not shrink (no assertion-removing edits, no overwrites, no rm). speckit.implement
+  # may grow but not shrink (no assertion-removing edits, no overwrites, no rm). hef.implement
   # sets it in pre-flight and clears it in the completion step.
   implement-phase-start)
     mkdir -p .specify

@@ -125,7 +125,7 @@ Your primary responsibility is to create comprehensive, maintainable test suites
 
 **Requirement citation:**
 - Every test written for a spec task cites its requirement id — `@pytest.mark.req("FR-003")`, a
-  `describe("[FR-003] …")` title, or a `# FR-003` comment. `/speckit.verify` maps requirements to
+  `describe("[FR-003] …")` title, or a `# FR-003` comment. `/hef.verify` maps requirements to
   tests by that token; an uncited test covers no requirement.
 
 **Coverage Requirements:**

@@ -13,7 +13,7 @@ when_to_use: |
 
 # Pipeline Security Services & Tools Reference
 
-Reference for the quality-guardian and forensic-specialist agents, and for the `/hef.security-scan` command, when recommending or evaluating security tooling.
+Reference for the quality-guardian and forensic-specialist agents, and for the `/hef.scan` command, when recommending or evaluating security tooling.
 
 ## Application Security Posture Management (ASPM)
 

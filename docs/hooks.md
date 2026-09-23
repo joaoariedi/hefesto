@@ -13,8 +13,8 @@ Hooks ship **inside the plugin** (`hooks/hooks.json`), so installing the plugin 
 | 🔍 `quality-before-commit.sh` | PreToolUse on `Bash` | Intercepts `git commit` — gitleaks, shell + markdown checks on staged files, then language-specific linters. Blocks on errors. |
 | 🔒 `block-sensitive-files.sh` | PreToolUse on `Edit\|Write` | Blocks writes to `.env*`, `*.key`, `*.pem`, `credentials*`, `.git/*`, `secrets/` |
 | ⛔ `block-destructive-commands.sh` | PreToolUse on `Bash` | Hard-denies `git push --force` (allows `--force-with-lease`), `reset --hard`, `branch -D`, `clean -f`, and recursive `rm` of catastrophic targets. Bypass: `CLAUDE_ALLOW_DESTRUCTIVE=1` prefix, visible in the transcript |
-| 📐 `plan-phase-write-block.sh` | PreToolUse on `Edit\|Write` | Blocks writes outside `.specify/` while `/speckit.plan` is active |
-| 🧷 `implement-phase-test-guard.sh` | PreToolUse on `Bash` and `Edit\|Write` | While `/speckit.implement` is active: **blocks** edits that leave a test file with fewer assertions, overwrites of existing test files, and `rm` of test files. Always: blocks snapshot-update flags on test runners. Bypass: `CLAUDE_ALLOW_SNAPSHOT_UPDATE=1` prefix |
+| 📐 `plan-phase-write-block.sh` | PreToolUse on `Edit\|Write` | Blocks writes outside `.specify/` while `/hef.plan` is active |
+| 🧷 `implement-phase-test-guard.sh` | PreToolUse on `Bash` and `Edit\|Write` | While `/hef.implement` is active: **blocks** edits that leave a test file with fewer assertions, overwrites of existing test files, and `rm` of test files. Always: blocks snapshot-update flags on test runners. Bypass: `CLAUDE_ALLOW_SNAPSHOT_UPDATE=1` prefix |
 | 🧭 `session-start-context.sh` | SessionStart | Injects branch, dirty-file count, spec artifacts, open tasks, phase markers, and the last checkpoint into context. Silent outside a git repo |
 | 💾 `precompact-progress.sh` | PreCompact | Writes the progress checkpoint `context-management.md` asks for — to `~/.cache/hefesto/progress/`, never into the repo |
 | 👁️ `audit-config-change.sh` | ConfigChange | Announces a settings rewrite mid-session — the escalation path a compromised skill or plugin would take |
@@ -50,10 +50,10 @@ The **language** checks are scoped the same way — but only where the tool perm
 
 ### The implement-phase test guard
 
-`speckit.implement` has always said *"never modify the test to make it pass."* Prose. The evidence
+`hef.implement` has always said *"never modify the test to make it pass."* Prose. The evidence
 says prose is not enough here: TDD *instructions* without a mechanism made agent regressions worse
 in a controlled study (9.9% vs 6.1% baseline — arXiv 2603.17973), and Kent Beck reports agents
-deleting tests to get to green. So `/speckit.implement` now arms a marker
+deleting tests to get to green. So `/hef.implement` now arms a marker
 (`.specify/.implement-in-progress`), and while it is set the guard applies one rule: **tests may
 grow, never shrink** — no edit that removes assertions, no whole-file overwrite of an existing test,
 no `rm` of a test file. New test files and added cases pass through untouched. Snapshot-update flags
@@ -89,9 +89,9 @@ Fourteen hooks enforce quality automatically — and they ship with the plugin, 
 - 🧪 **Auto-test** — test suite runs after source file edits (throttled 15s, non-blocking)
 - 📊 **Reminders** — alerts if source files were edited but tests weren't run
 - 🔔 **Notifications** — desktop alerts when the agent needs human input (Linux/macOS)
-- 📐 **Plan-phase write-block** — while `/speckit.plan` is active, edits outside `.specify/` are blocked, so the planning phase cannot quietly become the implementation phase
+- 📐 **Plan-phase write-block** — while `/hef.plan` is active, edits outside `.specify/` are blocked, so the planning phase cannot quietly become the implementation phase
 - ⛔ **Verification gate** (`TaskCompleted`) — a task **cannot be marked complete** while the test suite fails. This is the Iron Law made mechanical: every other quality mechanism in the framework is advisory, and this is the one the model cannot rationalize past
-- 🧷 **Implement-phase test guard** — while `/speckit.implement` runs, tests may grow but not shrink; snapshot regeneration is always blocked
+- 🧷 **Implement-phase test guard** — while `/hef.implement` runs, tests may grow but not shrink; snapshot regeneration is always blocked
 - 🧭 **Session context** — every session starts knowing its branch, spec state, and open tasks; every compaction leaves a checkpoint behind
 - 👁️ **Config audit** — a settings rewrite mid-session is announced, not silent
 - 🔀 **Merge-tree probe** — a branch that would conflict with its base, or has drifted far behind it, is told so while the diff is still small
@@ -109,7 +109,7 @@ The framework implements layered defenses against OWASP LLM vulnerabilities:
 |-------|-----------|--------|
 | **Enforcement** | Hooks | Sensitive file blocking, destructive-command denials, secrets detection, pre-commit quality |
 | **Guidance** | Rules | OWASP LLM Top 10, MCP security, code quality, SOLID principles |
-| **Analysis** | Skills & Agents | Built-in `/security-review`, `/hef.security-scan`, forensic investigation, quality gates |
+| **Analysis** | Skills & Agents | Built-in `/security-review`, `/hef.scan`, forensic investigation, quality gates |
 | **Efficacy** | Iron Laws | Verification before completion (rule + `TaskCompleted` hook), systematic-debugging |
 
 MCP servers follow strict security posture — OAuth 2.1 for production, least privilege, input validation, and human-in-the-loop for high-impact actions.

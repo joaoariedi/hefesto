@@ -159,7 +159,7 @@ head_ "Command names"
 # stale list says nothing (#17).
 #
 # So the rule is structural instead. Every command is NAMESPACED — its name contains a `.`
-# (hef.quality, speckit.plan). No built-in slash command contains a dot, so a collision is
+# (hef.quality, hef.plan). No built-in slash command contains a dot, so a collision is
 # impossible by construction, and there is no list to keep current.
 unnamespaced=0
 for f in "$REPO"/commands/*.md; do
@@ -476,14 +476,14 @@ grep -q "some-other-name" <<<"$hint" || { bad "the message must LIST the spec di
 grep -q "MUST be named after the branch" <<<"$hint" || { bad "the message must state the branch↔directory contract, which is the actual cause; got: $hint"; hint_fail=1; }
 [ "$hint_fail" -eq 0 ] && ok "a missing artifact names the branch↔directory contract and lists what does exist"
 
-# PREDICATES answer; they do not fail. /speckit.init asks check-specify-dir precisely to learn that
+# PREDICATES answer; they do not fail. /hef.init asks check-specify-dir precisely to learn that
 # .specify/ is absent — that is the whole reason init exists, so the string must still be there.
 pred_out="$(cd "$hc_tmp" && "$HELPER" check-specify-dir 2>/dev/null)"
 if [ "$pred_out" = "EXISTS" ]; then
   ok "check-specify-dir still answers on stdout"
 else
   # .specify EXISTS in the scratch repo, so this branch means the predicate lost its string.
-  bad "check-specify-dir must print its answer, not just signal it — /speckit.init branches on the string"
+  bad "check-specify-dir must print its answer, not just signal it — /hef.init branches on the string"
 fi
 
 rm -rf "$hc_tmp"
@@ -499,7 +499,7 @@ head_ "Workflow resilience"
 # ever reach the collector. Guards 5 and 6 are what stand between that line and a silent regression.
 # That inverts the usual "grep is the backstop, behaviour is the proof" relationship. It is written down
 # here because it is exactly the sort of thing a handoff loses.
-WF="$REPO/workflows/speckit-workflow.js"
+WF="$REPO/workflows/workflow.js"
 
 # 1. The node harness loads the shipped file by rewriting `export const meta` -> `const meta`. If that
 #    declaration is ever reworded, String.replace matches nothing. The harness asserts this itself, but
@@ -808,7 +808,7 @@ fi
 # --- Tier 1: implement-phase test guard (FR-003) ---------------------------------------
 head_ "Implement-phase test guard"
 
-# Tests may grow during /speckit.implement, never shrink. Both directions are guarded, like the
+# Tests may grow during /hef.implement, never shrink. Both directions are guarded, like the
 # destructive-command hook: the denials (or the rule is prose again) AND the allows (a guard that
 # blocks adding a test gets disarmed, which is worse than never shipping it).
 #
@@ -855,12 +855,12 @@ if grep -qF 'implement-phase-test-guard.sh' <<<"$ipg_reg_bash" && grep -qF 'impl
 else
   bad "implement-phase-test-guard.sh is not registered on both matchers — one side of the rule never fires"
 fi
-# …and /speckit.implement must arm and disarm it, or the marker is never set and the guard is dead code.
-impl_src="$(cat "$REPO/commands/speckit.implement.md")"
+# …and /hef.implement must arm and disarm it, or the marker is never set and the guard is dead code.
+impl_src="$(cat "$REPO/commands/hef.implement.md")"
 if grep -qF 'implement-phase-start' <<<"$impl_src" && grep -qF 'implement-phase-end' <<<"$impl_src"; then
-  ok "/speckit.implement arms the test guard in pre-flight and disarms it at completion"
+  ok "/hef.implement arms the test guard in pre-flight and disarms it at completion"
 else
-  bad "/speckit.implement does not set/clear .specify/.implement-in-progress — the guard would never activate"
+  bad "/hef.implement does not set/clear .specify/.implement-in-progress — the guard would never activate"
 fi
 
 # --- Tier 1: requirement traceability (FR-001) ------------------------------------------
@@ -930,10 +930,10 @@ if [ -f "$own_spec/spec.md" ]; then
   [ "$own_bad" -eq 0 ] && ok "every completed requirement on this branch is cited by a check ($pending pending, not yet implemented)"
 fi
 # The command exists and calls the helper it is built on.
-if grep -qF 'speckit-helper.sh req-coverage' "$REPO/commands/speckit.verify.md" 2>/dev/null; then
-  ok "/speckit.verify runs req-coverage in pre-flight"
+if grep -qF 'speckit-helper.sh req-coverage' "$REPO/commands/hef.verify.md" 2>/dev/null; then
+  ok "/hef.verify runs req-coverage in pre-flight"
 else
-  bad "/speckit.verify does not call req-coverage — the mechanical half of the gate is missing"
+  bad "/hef.verify does not call req-coverage — the mechanical half of the gate is missing"
 fi
 
 # --- Tier 1: session lifecycle + config audit hooks (FR-006, FR-007) --------------------
@@ -1041,7 +1041,7 @@ cx_case() { # expected-exit description
 ( cd "$cx_t" && printf 'y # LIZARD_VIOLATION\n' > a.py && git add a.py );                           cx_case 0 "passes a changed file whose violation count is unchanged (existing debt does not block)"
 ( cd "$cx_t" && printf 'clean\n' > a.py && git add a.py );                                          cx_case 0 "passes a file that got better"
 ( cd "$cx_t" && git checkout -q a.py 2>/dev/null; git reset -q; printf 'n # LIZARD_VIOLATION\n' > new.py && git add new.py ); cx_case 2 "blocks a NEW file with an over-limit function (0 → 1)"
-( cd "$cx_t" && git reset -q; rm -f new.py; mkdir -p workflows && printf 'v # LIZARD_VIOLATION\n' > workflows/speckit-workflow.js && git add workflows/speckit-workflow.js ); cx_case 0 "skips the one documented exemption (workflows/speckit-workflow.js)"
+( cd "$cx_t" && git reset -q; rm -f new.py; mkdir -p workflows && printf 'v # LIZARD_VIOLATION\n' > workflows/workflow.js && git add workflows/workflow.js ); cx_case 0 "skips the one documented exemption (workflows/workflow.js)"
 ( cd "$cx_t" && git reset -q; rm -rf workflows; printf 'x # LIZARD_VIOLATION\ny # LIZARD_VIOLATION\n' > a.py && git add a.py )
 rc=0; jq -nc --arg d "$cx_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | PATH="/usr/bin:/bin" bash "$QBC" >/dev/null 2>&1 || rc=$?
 if [ "$rc" -eq 0 ]; then ok "the gate is silent when lizard is not installed (degrades, never blocks)"
@@ -1143,15 +1143,15 @@ else
 fi
 owns_fail=0
 grep -qF 'owns:' "$REPO/.specify/templates/tasks.md" || { bad "tasks template lost the owns: field"; owns_fail=1; }
-grep -qF 'owns:' "$REPO/commands/speckit.tasks.md" || { bad "/speckit.tasks no longer asks [P] tasks to declare owns:"; owns_fail=1; }
-grep -qF 'owns:' "$REPO/workflows/speckit-workflow.js" || { bad "the workflow loader no longer parses owns:"; owns_fail=1; }
-grep -qF 'both own' "$REPO/workflows/speckit-workflow.js" || { bad "the workflow no longer names owns: overlaps"; owns_fail=1; }
-[ "$owns_fail" -eq 0 ] && ok "owns: is declared in the template, requested by /speckit.tasks, parsed and overlap-reported by the workflow"
+grep -qF 'owns:' "$REPO/commands/hef.tasks.md" || { bad "/hef.tasks no longer asks [P] tasks to declare owns:"; owns_fail=1; }
+grep -qF 'owns:' "$REPO/workflows/workflow.js" || { bad "the workflow loader no longer parses owns:"; owns_fail=1; }
+grep -qF 'both own' "$REPO/workflows/workflow.js" || { bad "the workflow no longer names owns: overlaps"; owns_fail=1; }
+[ "$owns_fail" -eq 0 ] && ok "owns: is declared in the template, requested by /hef.tasks, parsed and overlap-reported by the workflow"
 
 # --- Tier 2: router, evals, shellcheck (FR-011, FR-014) -----------------------------------
 head_ "Router and evals"
 
-grep -qF 'task-effort-estimation' "$REPO/commands/hef.agent.md" && grep -qF 'speckit.fix' "$REPO/commands/hef.agent.md" \
+grep -qF 'task-effort-estimation' "$REPO/commands/hef.agent.md" && grep -qF 'hef.fix' "$REPO/commands/hef.agent.md" \
   && ok "/hef.agent routes by size via task-effort-estimation (FR-011)" \
   || bad "/hef.agent no longer routes by size"
 ev_fail=0; ev_n=0
@@ -1183,6 +1183,23 @@ grep -qF -- '--summary-only' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/h
 grep -qF 'shellcheck' "$REPO/commands/hef.doctor.md" 2>/dev/null && grep -qF 'claude plugin eval' "$REPO/commands/hef.doctor.md" 2>/dev/null \
   || { bad "/hef.doctor no longer lints the hooks or offers the eval suite (FR-015)"; t3_fail=1; }
 [ "$t3_fail" -eq 0 ] && ok "hef.sync → hef.doctor and hef.pr-summary → hef.pr --summary-only, old names gone (FR-015)"
+
+# 7.0 also unified the namespace: every command is hef.*, and no command text names a speckit.*
+# command any more (the helper keeps its filename — renaming it would force a permission-rule
+# edit on every install for no user-visible gain). A stray speckit.* file would register a second,
+# undocumented copy of a command; a stale mention sends the model to a name that no longer exists.
+#
+# Mutation-checked 2026-09-23: a stray commands/speckit.x.md → red; a `/speckit.plan` mention
+# planted in a command → red. Restored.
+uni_fail=0
+stray="$(ls "$REPO"/commands/ 2>/dev/null | grep -v '^hef\.' || true)"
+[ -n "$stray" ] && { bad "commands not under the hef.* namespace: $(tr '\n' ' ' <<<"$stray")"; uni_fail=1; }
+# docs/research.md is excluded: its acknowledgments credit upstream projects by their own command
+# names (speckit.research, speckit.reflect), which is attribution, not a stale reference.
+stale="$(grep -rlE 'speckit\.[a-z]' "$REPO/commands/" "$REPO/README.md" "$REPO/docs/" "$REPO/.claude/CLAUDE.md" "$REPO/AGENTS.md" 2>/dev/null | grep -v 'docs/research.md' || true)"
+[ -n "$stale" ] && { bad "speckit.* command names still mentioned in: $(tr '\n' ' ' <<<"$stale")"; uni_fail=1; }
+[ -f "$REPO/workflows/workflow.js" ] || { bad "workflows/workflow.js is missing — the workflow is invoked as hefesto:workflow"; uni_fail=1; }
+[ "$uni_fail" -eq 0 ] && ok "every command is hef.*, no command text names a speckit.* command, the workflow is hefesto:workflow (FR-015)"
 
 # Knowledge skills are not commands; action skills still are. Both directions.
 inv_fail=0
@@ -1234,8 +1251,8 @@ cw_fail=0
 grep -qF 'code-reviewer' "$REPO/commands/hef.review.md" 2>/dev/null || { bad "/hef.review does not dispatch code-reviewer"; cw_fail=1; }
 grep -qF 'review-coordinator' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr does not dispatch review-coordinator"; cw_fail=1; }
 grep -qiE 'not merge|never merge' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr must state that it never merges"; cw_fail=1; }
-grep -qF 'code-reviewer' "$REPO/commands/speckit.verify.md" 2>/dev/null || { bad "/speckit.verify does not run code-reviewer stage 1"; cw_fail=1; }
-[ "$cw_fail" -eq 0 ] && ok "hef.review → code-reviewer, hef.pr → review-coordinator (no merge), speckit.verify → code-reviewer stage 1 (FR-002)"
+grep -qF 'code-reviewer' "$REPO/commands/hef.verify.md" 2>/dev/null || { bad "/hef.verify does not run code-reviewer stage 1"; cw_fail=1; }
+[ "$cw_fail" -eq 0 ] && ok "hef.review → code-reviewer, hef.pr → review-coordinator (no merge), hef.verify → code-reviewer stage 1 (FR-002)"
 
 # --- Tier 1: prose that must exist because a hook points at it (FR-004, FR-005, FR-007) ---
 head_ "Guidance wiring"
@@ -1245,7 +1262,7 @@ gw_fail=0
 grep -qF 'jscpd' "$REPO/agents/quality-guardian.md" || { bad "quality-guardian lost the duplication-baseline recipe (FR-004)"; gw_fail=1; }
 grep -qiF 'mock budget' "$REPO/agents/test-specialist.md" || { bad "test-specialist lost the mock budget (FR-005)"; gw_fail=1; }
 grep -qF 'Agentic' "$REPO/.claude/rules/llm-security.md" || { bad "llm-security.md no longer covers the Agentic Top 10 (FR-007)"; gw_fail=1; }
-for c in hef.pr speckit.fix; do   # hef.pr-summary folded into hef.pr --summary-only in 7.0
+for c in hef.pr hef.fix; do   # hef.pr-summary folded into hef.pr --summary-only in 7.0
   grep -qF '## Untrusted input' "$REPO/commands/$c.md" || { bad "/$c lost its untrusted-input section (FR-007)"; gw_fail=1; }
 done
 grep -qF 'Skills, Plugins, and Agents Are a Supply Chain' "$REPO/skills/mcp-security/SKILL.md" || { bad "mcp-security lost the skill vetting checklist (FR-007)"; gw_fail=1; }

@@ -55,7 +55,7 @@ When the agent reads any of them:
    - `path/to/file` - [change description]
 
    ## Verification
-   - /speckit.verify: [PASS | FAIL | not run]   ·   /hef.quality: [PASS | FAIL | not run]   ·   /hef.review: [verdict | not run]
+   - /hef.verify: [PASS | FAIL | not run]   ·   /hef.quality: [PASS | FAIL | not run]   ·   /hef.review: [verdict | not run]
 
    ## Breaking Changes
    - [None / list of breaking changes]
@@ -73,7 +73,7 @@ When the agent reads any of them:
    arguments (**$ARGUMENTS**), the untrusted-input rules above, and:
 
    > Create or update the pull request for this branch using the documented PR template. The
-   > description must cite the verification evidence: the `/speckit.verify` matrix if spec
+   > description must cite the verification evidence: the `/hef.verify` matrix if spec
    > artifacts exist, the `/hef.quality` result, and the `/hef.review` verdict. If an evidence
    > item is missing, write "not run" — never invent it.
    >

@@ -101,7 +101,7 @@ Drop: full code blocks, raw tool output, intermediate search results, verbose fi
 ### Large Projects (100+ source files, monorepo or multi-service)
 - Agent Teams for parallel work across services or modules
 - Multiple MCP servers for different concerns (GitHub, security scanning)
-- Formal specs via spec-kit pipeline (`/speckit.init` -> specify -> plan -> tasks -> implement)
+- Formal specs via SDD pipeline (`/hef.init` -> specify -> plan -> tasks -> implement)
 - Per-service `CLAUDE.md` files with service-specific conventions
 - Document & Clear mandatory — write progress after each phase completion
 - Focused subagents (test-specialist, quality-guardian) to offload from main context
