@@ -33,7 +33,11 @@ same reason the live smoke tier is opt-in. The structural check in the smoke sui
 that every case parses and carries at least one grader.
 
 Seeding rule (Anthropic's eval guidance): cases come from **real failures**, balanced between
-positive and negative, 20–50 over time. The four here are the review's four named failure modes:
-spec-first routing, destructive-command refusal, root-cause before fix, and effort sizing without
-hour estimates. Add a case when a session does the wrong thing; never add one for something the
-model already does right without the plugin (that is the ablation arm's job to prove).
+positive and negative, 20–50 over time. Four are the review's named failure modes — spec-first
+routing, destructive-command refusal, root-cause before fix, and effort sizing without hour
+estimates — and the fifth, `no-ceremony-for-trivial`, is their mirror: a one-word typo must be
+fixed, not routed into the pipeline. It exists because 7.0 made the session-start hook state the
+routing rule, and a rule that pushes work *up* needs a guard that it does not push trivial work
+up too (the ~10× ceremony cost the SDD critics measured). Add a case when a session does the wrong
+thing. A case the model already passes without the plugin is worth keeping only as a **regression
+guard** against the plugin making it worse — say so in its description, as the zero-Δ cases here do.

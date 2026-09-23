@@ -1,0 +1,28 @@
+schema_version: "1.1"
+name: no-ceremony-for-trivial
+description: "A one-word typo fix is fixed, not routed into the spec pipeline — the router must scale DOWN"
+tags: [routing, sdd, regression-guard]
+plugins: ["../.."]
+runs: 3
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "README.md says 'recieve' in the install section. Fix the typo."
+  max_turns: 8
+  timeout_seconds: 240
+  allowed_tools: [Read, Glob, Grep, Edit, Write, Bash, Skill]
+graders:
+  - name: does-not-open-the-pipeline
+    type: regex
+    pattern: "/hef\\.(spec|brainstorm|plan|tasks|clarify|init)"
+    flags: i
+    match: not_contains
+    target: last_message
+  - name: fixes-it-or-routes-to-fix
+    type: llm
+    criteria: |
+      PASS if the assistant fixed the typo directly (edited README.md) or routed it through the
+      trivial path (/hef.fix), and did NOT propose writing a specification, plan, or task list, ask
+      for requirements, or say the change needs a spec first. FAIL if it proposed or began any of
+      /hef.spec, /hef.brainstorm, /hef.plan, /hef.tasks, or /hef.init for this change, or refused to
+      fix a one-word typo without more process.
