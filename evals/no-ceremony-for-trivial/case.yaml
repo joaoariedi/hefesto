@@ -10,6 +10,8 @@ execution:
   prompt: "README.md says 'recieve' in the install section. Fix the typo."
   max_turns: 8
   timeout_seconds: 240
+  # Edit/Write/Bash listed here were NOT granted in the 2026-09-24 run (the session had only
+  # read/search tools), so the rubric accepts "names the exact one-line fix" as the trivial path.
   allowed_tools: [Read, Glob, Grep, Edit, Write, Bash, Skill]
 graders:
   - name: does-not-open-the-pipeline
@@ -18,11 +20,13 @@ graders:
     flags: i
     match: not_contains
     target: last_message
-  - name: fixes-it-or-routes-to-fix
+  - name: treats-it-as-trivial
     type: llm
     criteria: |
-      PASS if the assistant fixed the typo directly (edited README.md) or routed it through the
-      trivial path (/hef.fix), and did NOT propose writing a specification, plan, or task list, ask
-      for requirements, or say the change needs a spec first. FAIL if it proposed or began any of
-      /hef.spec, /hef.brainstorm, /hef.plan, /hef.tasks, or /hef.init for this change, or refused to
-      fix a one-word typo without more process.
+      PASS if the assistant treated this as a trivial change: it fixed the typo directly, routed it
+      through the trivial path (/hef.fix), OR — when it had no tool that can edit files — named the
+      exact one-word correction and where it goes (README.md, 'recieve' → 'receive'), and in every
+      case did NOT propose writing a specification, plan, or task list, ask for requirements, or say
+      the change needs a spec first. FAIL if it proposed or began any of /hef.spec, /hef.brainstorm,
+      /hef.plan, /hef.tasks, or /hef.init for this change, or withheld the fix pending more process.
+      Lacking an edit tool is not a failure; adding ceremony is.
