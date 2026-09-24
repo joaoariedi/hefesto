@@ -13,13 +13,11 @@ execution:
   # Edit/Write/Bash listed here were NOT granted in the 2026-09-24 run (the session had only
   # read/search tools), so the rubric accepts "names the exact one-line fix" as the trivial path.
   allowed_tools: [Read, Glob, Grep, Edit, Write, Bash, Skill]
+# One grader, deliberately. A lexical "last message must not mention /hef.spec" guard was tried
+# (2026-09-24) and flagged the plugin arm for the sentence "anything bigger than a trivial change
+# should start with /hef.spec" — the routing boundary stated correctly. Naming the pipeline is not
+# opening it; only a judge can tell the two apart.
 graders:
-  - name: does-not-open-the-pipeline
-    type: regex
-    pattern: "/hef\\.(spec|brainstorm|plan|tasks|clarify|init)"
-    flags: i
-    match: not_contains
-    target: last_message
   - name: treats-it-as-trivial
     type: llm
     criteria: |
