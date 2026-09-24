@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "A development harness for Claude Code: a spec-driven workflow, specialist agents, security guardrails, and quality gates enforced by hooks.",
-    "version": "7.0.2"
+    "version": "7.1.0"
   },
   "plugins": [
     {
       "name": "hefesto",
       "source": "./",
       "description": "A development harness for Claude Code: a spec-driven workflow, specialist agents, security guardrails, and quality gates enforced by hooks. Ships its hooks — including a TaskCompleted gate that mechanically enforces the Verification Iron Law.",
-      "version": "7.0.2",
+      "version": "7.1.0",
       "author": {
         "name": "joaoariedi",
         "url": "https://github.com/joaoariedi"
