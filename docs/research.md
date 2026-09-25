@@ -4,7 +4,7 @@
 
 ## 📚 Research Corpus
 
-`reports/` holds the research behind the framework, split into fourteen files with no overlap between them — eleven single-subject topic files, one field report, one tool evaluation, and one harness review. It is the **"why" layer**: `.claude/rules/` states *what* to do, and `reports/` records the evidence, benchmark, or threat model that produced the rule. Where a finding is already codified, the report points at the rule with a `> **Codified in**` callout instead of restating it — so no text lives in two places.
+`reports/` holds the research behind the framework, split into fifteen files with no overlap between them — eleven single-subject topic files, one field report, two tool evaluations, and one harness review. It is the **"why" layer**: `.claude/rules/` states *what* to do, and `reports/` records the evidence, benchmark, or threat model that produced the rule. Where a finding is already codified, the report points at the rule with a `> **Codified in**` callout instead of restating it — so no text lives in two places.
 
 | # | Subject | Codified in |
 |---|---------|-------------|
@@ -22,10 +22,11 @@
 | 12 | Field report — `workflow` on a real two-repo feature: multi-repo roots, 429/529 overload, transient-failure aborts | `workflows/workflow.js` (multi-repo opts, bounded retry, concurrency cap) |
 | 13 | Graft — code-context graph for agents, measured against the graphify lane, evaluated but **not adopted** | *not yet codified* |
 | 14 | Harness review 2026-09 — toolbox, drift, and the evidence behind each change; the `harness-review-tiers` program (6.1 → 6.2 → 7.0) | `hef.verify`, `hef.review`/`hef.pr`, the implement-phase test guard, the lifecycle hooks, `llm-security.md` |
+| 15 | Jev — a hosted state-to-decision model, mapped against where the framework spends and enforces, evaluated but **not adopted** | *not yet codified* |
 
 Files 05, 08, 09, and 13 carry no pointers because their subject is genuinely unadopted, and each says so in its own header — an unadopted idea is recorded as prior art, not smuggled in as current practice.
 
-Every report opens with MADR frontmatter — `status: proposed | accepted | rejected | deprecated | superseded` and `date`, plus `supersedes:` when it replaces another — so an agent can tell a live decision from a dead one without inferring it from prose (a fail-open parser once misread 59 of 98 records that way). `/hef.adr` creates a new one; the smoke suite rejects a report without a valid status. Statuses today: 05 and 08 `proposed` (research not yet codified), 09 and 13 `rejected` (evaluated, not adopted), the rest `accepted`.
+Every report opens with MADR frontmatter — `status: proposed | accepted | rejected | deprecated | superseded` and `date`, plus `supersedes:` when it replaces another — so an agent can tell a live decision from a dead one without inferring it from prose (a fail-open parser once misread 59 of 98 records that way). `/hef.adr` creates a new one; the smoke suite rejects a report without a valid status. Statuses today: 05 and 08 `proposed` (research not yet codified), 09, 13, and 15 `rejected` (evaluated, not adopted), the rest `accepted`.
 
 The five original research documents that produced this corpus are no longer carried in the tree — the topic files above supersede them. They remain recoverable from git history (`git show b515e2f:reports/sources/`) if a claim ever needs tracing back to the document that made it.
 
