@@ -24,7 +24,7 @@ hefesto/
 ├── .claude/                    # THIS repo's own config — not plugin payload
 │   ├── CLAUDE.md
 │   └── rules/                  # 5 modular policy files
-└── reports/                    # 15 research files: the "why" behind the rules
+└── reports/                    # 16 research files: the "why" behind the rules
 ```
 
 > **The payload deliberately does not live under `.claude/`.** That path is where Claude Code looks
