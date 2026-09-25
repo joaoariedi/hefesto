@@ -35,6 +35,49 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.2.0] - 2026-09-25
+
+**One status brief, any board: `/hef.status` reads a GitHub Project or a tasks repository.**
+
+Built through the framework's own light path — spec, tasks, implement, verify — and it is the first
+feature whose spec-compliance review sent it back: `code-reviewer` found three correctness defects
+and two ticked tasks with no test behind them, all fixed with regression fixtures before this entry
+was written. The run also surfaced three framework defects, listed under *Known issues*.
+
+### Added
+
+- **`/hef.status`** (`sonnet`) — a management brief in four sections (where we are · by epic · at
+  risk · bottom line) from the source `.claude/project-status.json` declares. `--detailed` unfolds
+  items or sub-issues; `--check` prints the prerequisite checklist. Numbers come only from the helper.
+- **`hooks/status-board.sh`** — the mechanical half, a fetcher: the board on stdout at exit 0 or the
+  reason on stderr at non-zero, never a sentinel. Two sources:
+  - `github-project` — batuta's `scripts/project-status.sh` with `owner`, `project`, `roadmap`, and
+    `epic_prefix` moved into the config: status distribution, epics by title prefix with sub-issue
+    completion bars, roadmap quarter and days left. A failing sub-issue query now fails the board
+    instead of rendering "no tasks yet".
+  - `tasks-repo` — a kanban kept as markdown files (`TODO/DOING/DONE/BACKLOG`). An item is a heading
+    that carries an id (lane and wave headings are not items); the heading's leading emoji is its
+    sub-state, labelled through an optional `states` map; delivered = `DONE` sections dated inside
+    the quarter (calendar, or `quarter_start`/`quarter_end`); epics = `initiatives/*.md` scoreboards
+    (dominant id prefix; struck-through or ✅ = done, whole-word matched); feature-directory
+    checkboxes only when `epics.specs` is `true` — in one real repo 48 of 63 shipped features still
+    show open boxes and would report a product in production as 23 % delivered.
+  Measured on the real fxcube tasks repository: 8 / 2 / 11 items and 11 delivered this quarter,
+  an exact match with a hand count. Zero-install: bash, jq, git; `gh` for the GitHub source.
+- **`req-coverage` reports `ELSEWHERE`** for an id declared by another spec directory, and fails only
+  on an id no spec declares. The suite is shared across feature branches while `FR-NNN` ids are per
+  spec; on this branch the first spec's FR-016..FR-019 would otherwise have failed `/hef.verify`.
+
+### Known issues (found by running the pipeline on itself)
+
+- `/hef.tasks` refuses to run without `plan.md`, while `/hef.agent`'s light path says to skip the
+  plan. A short plan was written to unblock; the command should accept the light path.
+- `implement-phase-test-guard.sh` blocked a Bash command that *wrote* tests, because its scan of
+  the command text saw `rm` tokens and the word `spec` inside a heredoc; and its `basename` call
+  chokes on tokens beginning with `---`. Both false positives; the Edit tool path is unaffected.
+- `FR-NNN` ids collide across specs: a citation of `FR-004` anywhere in the suite counts for every
+  spec that declares an FR-004. Namespacing ids per spec would fix it; not done here.
+
 ## [7.1.0] - 2026-09-24
 
 **The spec stays honest after the feature ships — and the router is proven to scale down.**
