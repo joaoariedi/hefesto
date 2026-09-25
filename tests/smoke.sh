@@ -909,6 +909,22 @@ else
   bad "req-coverage printed '$rc_out' at exit $rc_rc with the spec absent"
 fi
 rm -rf "$rc_t"
+# An id declared by ANOTHER spec directory is ELSEWHERE, not UNKNOWN, and does not fail the
+# predicate (the suite is shared across branches; ids are per spec). Mutation-checked 2026-09-25:
+# the ELSEWHERE branch removed → the sibling-spec id reports UNKNOWN and the exit goes non-zero → red.
+re_t="$(mktemp -d)"
+( cd "$re_t" && git init -q . && git checkout -q -b feature/mine && mkdir -p .specify/specs/mine .specify/specs/older tests \
+  && printf '# Spec\n- FR-001 mine\n' > .specify/specs/mine/spec.md \
+  && printf '# Spec\n- FR-007 older\n' > .specify/specs/older/spec.md \
+  && printf '# FR-001 FR-007\ndef test_a(): pass\n' > tests/test_a.py ) >/dev/null 2>&1
+re_out="$(cd "$re_t" && "$HELPER" req-coverage 2>/dev/null)"; re_rc=$?
+if [ "$re_rc" -eq 0 ] && grep -qE '^FR-007 +ELSEWHERE' <<<"$re_out" && ! grep -qE 'UNKNOWN' <<<"$re_out"; then
+  ok "req-coverage reports an id declared by another spec as ELSEWHERE and still passes"
+else
+  bad "req-coverage must report FR-007 (declared by spec 'older') as ELSEWHERE at exit 0 — rc=$re_rc: $(grep -E 'FR-007|summary' <<<"$re_out" | tr '\n' '|')"
+fi
+rm -rf "$re_t"
+
 # Dogfood (SC-002): when THIS repo is on a branch that has a spec, the suite's own checks must cite
 # the FRs they cover — the block headers carry `(FR-NNN)` for that reason. Strictness follows
 # tasks.md: an FR whose tasks are all still `[ ]` is PENDING (reported, not failing); an FR with a

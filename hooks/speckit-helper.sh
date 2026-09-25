@@ -341,19 +341,29 @@ case "$1" in
         uncovered=$((uncovered + 1))
       fi
     done <<<"$ids"
-    unknown=0
+    unknown=0; elsewhere=0
+    # A test suite is shared across feature branches while FR ids are per spec, so an id this
+    # spec does not declare may be another spec's (measured 2026-09-25 on the second feature
+    # branch this repo ran: the suite cited the first spec's FR-016..FR-019). That is ELSEWHERE —
+    # reported, not failing. UNKNOWN is an id no spec directory declares: a typo, or a claim
+    # about a requirement that does not exist.
+    others="$(cat .specify/specs/*/spec.md 2>/dev/null | grep -oE '\bFR-[0-9]+\b' | sort -u)"
     if [ -n "$files" ]; then
       cited="$(printf '%s\n' "$files" | xargs grep -ohwE 'FR-[0-9]+' 2>/dev/null | sort -u)"
       while read -r c; do
         [ -z "$c" ] && continue
-        if ! grep -qxF "$c" <<<"$ids"; then
-          where="$(printf '%s\n' "$files" | xargs grep -nHwF -- "$c" 2>/dev/null | cut -d: -f1,2 | head -3 | tr '\n' ' ')"
-          printf '%-8s UNKNOWN    %s(not declared in spec.md)\n' "$c" "$where"
+        grep -qxF "$c" <<<"$ids" && continue
+        where="$(printf '%s\n' "$files" | xargs grep -nHwF -- "$c" 2>/dev/null | cut -d: -f1,2 | head -3 | tr '\n' ' ')"
+        if grep -qxF "$c" <<<"$others"; then
+          printf '%-8s ELSEWHERE  %s(declared by another spec)\n' "$c" "$where"
+          elsewhere=$((elsewhere + 1))
+        else
+          printf '%-8s UNKNOWN    %s(not declared by any spec)\n' "$c" "$where"
           unknown=$((unknown + 1))
         fi
       done <<<"$cited"
     fi
-    echo "summary: $((total - uncovered))/$total requirements covered, $unknown unknown id(s) cited"
+    echo "summary: $((total - uncovered))/$total requirements covered, $unknown unknown id(s) cited, $elsewhere declared by other specs"
     [ "$uncovered" -eq 0 ] && [ "$unknown" -eq 0 ]
     ;;
 
