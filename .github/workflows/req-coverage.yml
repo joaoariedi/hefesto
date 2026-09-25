@@ -1,0 +1,37 @@
+# req-coverage.yml — post-ship requirement traceability, for projects that adopt Hefesto.
+#
+# /hef.verify checks FR → tests once, at implementation. This runs the same predicate on every
+# PR for every SHIPPED spec (tasks.md with no open task), so a hotfix that edits a cited test
+# without touching the spec fails the PR instead of rotting the spec. Specs still in progress are
+# listed and skipped — their uncovered requirements are work not yet done, not drift.
+#
+# Caller (in your repository):
+#   jobs:
+#     traceability:
+#       uses: joaoariedi/hefesto/.github/workflows/req-coverage.yml@v7.1.0
+#
+# The helper is fetched with a shallow `git clone` into the runner's temp dir, outside the
+# workspace, so its own test files are never scanned as yours. No package install: the check is
+# bash + jq + git, which ubuntu-latest ships.
+name: req-coverage
+
+on:
+  workflow_call:
+    inputs:
+      hefesto-ref:
+        description: Tag or branch of joaoariedi/hefesto whose helper runs the check
+        type: string
+        required: false
+        default: main
+
+jobs:
+  req-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the Hefesto helper
+        run: git clone --quiet --depth 1 --branch "${{ inputs.hefesto-ref }}" https://github.com/joaoariedi/hefesto "$RUNNER_TEMP/hefesto"
+
+      - name: Requirement coverage, every shipped spec
+        run: bash "$RUNNER_TEMP/hefesto/hooks/speckit-helper.sh" req-coverage --all

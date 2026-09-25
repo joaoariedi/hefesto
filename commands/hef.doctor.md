@@ -64,7 +64,10 @@ skills were never invoked — the input for deciding what to demote to `user-inv
 
 ## 5. Evals — only with `--eval`
 
-Run with the Bash tool: `claude plugin eval "${CLAUDE_PLUGIN_ROOT}" --trust-plugin --threshold 0.8`
+Run with the Bash tool: `claude plugin eval "${CLAUDE_PLUGIN_ROOT}" --trust-plugin --scaffold --threshold 0.8`
+
+`--scaffold` is not optional: the eval workspace is empty without it and every case scores 0 in
+both arms (the 7.0.0 finding). A Bash grant (`--allow-tools Bash`) needs the OS sandbox backend.
 
 Each case in `evals/` is scored with and without the plugin. This spends tokens and needs an
 authenticated CLI, so it runs only when **$ARGUMENTS** contains `--eval`. A case that scores the

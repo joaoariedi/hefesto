@@ -1174,6 +1174,71 @@ rm -rf "$mr_t"
 grep -qF 'speckit-helper.sh mutation-ratchet' "$REPO/commands/hef.mutate.md" 2>/dev/null \
   && ok "/hef.mutate runs the ratchet" || bad "/hef.mutate does not call mutation-ratchet"
 
+# --- req-coverage <name> / --all: post-ship traceability ----------------------------------
+# /hef.verify runs req-coverage once, on the branch's spec. CI on main has no feature branch, and
+# a hotfix months later has no verify step — so the predicate must run by NAME and across every
+# SHIPPED spec, skipping the in-progress ones (their gaps are unfinished work, not drift).
+# Mutation-checked: the in-progress skip removed → the open-tasks spec is checked, its FR-001 is
+# uncovered, and "--all passes with the shipped spec covered" goes red.
+ra_t="$(mktemp -d)"; ra_fail=0
+( cd "$ra_t" && git init -q -b main . \
+  && mkdir -p .specify/specs/shipped .specify/specs/wip .specify/specs/broken tests \
+  && printf '# Spec\n- FR-001 lists\n- FR-002 gets\n' > .specify/specs/shipped/spec.md \
+  && printf -- '- [x] T001 done\n- [x] T002 done\n' > .specify/specs/shipped/tasks.md \
+  && printf '# Spec\n- FR-001 wip\n' > .specify/specs/wip/spec.md \
+  && printf -- '- [ ] T001 open\n' > .specify/specs/wip/tasks.md \
+  && printf '# Spec\n- FR-003 orphaned\n' > .specify/specs/broken/spec.md \
+  && printf -- '- [x] T001 done\n' > .specify/specs/broken/tasks.md \
+  && printf '# FR-001 FR-002\ndef test_x(): pass\n' > tests/test_shipped.py ) >/dev/null 2>&1
+ra_out="$(cd "$ra_t" && "$HELPER" req-coverage shipped 2>&1)"; ra_rc=$?
+{ [ "$ra_rc" -eq 0 ] && grep -qF 'COVERAGE — shipped' <<<"$ra_out"; } || { bad "req-coverage <name> must check the named spec from any branch (rc=$ra_rc): $(tr '\n' '|' <<<"$ra_out")"; ra_fail=1; }
+if (cd "$ra_t" && "$HELPER" req-coverage nonexistent >/dev/null 2>&1); then bad "req-coverage <name> accepted a spec that does not exist"; ra_fail=1; fi
+ra_out="$(cd "$ra_t" && "$HELPER" req-coverage --all 2>&1)"; ra_rc=$?
+{ [ "$ra_rc" -ne 0 ] && grep -qF 'wip: IN PROGRESS' <<<"$ra_out" && grep -qF 'FR-003   UNCOVERED' <<<"$ra_out" && grep -qF '2 shipped spec(s) checked, 1 failing, 1 in progress' <<<"$ra_out"; } \
+  || { bad "req-coverage --all must skip wip, fail on broken, pass shipped (rc=$ra_rc): $(tr '\n' '|' <<<"$ra_out")"; ra_fail=1; }
+rm -rf "$ra_t/.specify/specs/broken"
+ra_out="$(cd "$ra_t" && "$HELPER" req-coverage --all 2>&1)"; ra_rc=$?
+{ [ "$ra_rc" -eq 0 ] && grep -qF '1 shipped spec(s) checked, 0 failing, 1 in progress' <<<"$ra_out"; } \
+  || { bad "req-coverage --all must pass with the shipped spec covered and wip skipped (rc=$ra_rc): $(tr '\n' '|' <<<"$ra_out")"; ra_fail=1; }
+rm -rf "$ra_t"
+[ "$ra_fail" -eq 0 ] && ok "req-coverage <name> and --all run the predicate on shipped specs from any branch"
+grep -qF 'req-coverage --all' "$REPO/.github/workflows/req-coverage.yml" 2>/dev/null && grep -qF 'workflow_call' "$REPO/.github/workflows/req-coverage.yml" \
+  && ok "a reusable CI workflow runs req-coverage --all for adopters" || bad ".github/workflows/req-coverage.yml missing or not a workflow_call running --all"
+
+# --- spec-cite-probe: the reverse direction, at the edit -----------------------------------
+# A test citing FR-NNN edited OUTSIDE an implement phase → name the spec (stderr, exit 0).
+# Silent: during implement (marker set), for non-test files, for tests citing nothing, and for
+# a second edit inside the throttle window.
+# Mutation-checked: the marker check removed → "silent during implement" goes red.
+SCP="$REPO/hooks/spec-cite-probe.sh"
+sc_t="$(mktemp -d)"; sc_fail=0
+( cd "$sc_t" && git init -q . && mkdir -p .specify/specs/orders tests src \
+  && printf '# Spec\n- FR-004 totals\n' > .specify/specs/orders/spec.md \
+  && printf '# FR-004\ndef test_total(): pass\n' > tests/test_total.py \
+  && printf 'x = 1  # FR-004 mentioned in source, not a test\n' > src/app.py \
+  && printf 'def test_free(): pass\n' > tests/test_free.py ) >/dev/null 2>&1
+sc_ev() { printf '{"cwd":"%s","tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$sc_t" "$sc_t/$1"; }
+rm -f "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
+sc_out="$(sc_ev tests/test_total.py | bash "$SCP" 2>&1 >/dev/null)"; sc_rc=$?
+{ [ "$sc_rc" -eq 0 ] && grep -qF "cites FR-004" <<<"$sc_out" && grep -qF "spec 'orders'" <<<"$sc_out"; } \
+  || { bad "spec-cite-probe must name FR-004 and spec 'orders' for a citing test edited outside implement (rc=$sc_rc): $sc_out"; sc_fail=1; }
+sc_out="$(sc_ev tests/test_total.py | bash "$SCP" 2>&1 >/dev/null)"
+[ -z "$sc_out" ] || { bad "spec-cite-probe spoke twice inside the throttle window"; sc_fail=1; }
+rm -f "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
+sc_out="$(sc_ev src/app.py | bash "$SCP" 2>&1 >/dev/null)"
+[ -z "$sc_out" ] || { bad "spec-cite-probe spoke on a non-test file: $sc_out"; sc_fail=1; }
+sc_out="$(sc_ev tests/test_free.py | bash "$SCP" 2>&1 >/dev/null)"
+[ -z "$sc_out" ] || { bad "spec-cite-probe spoke on a test that cites nothing: $sc_out"; sc_fail=1; }
+touch "$sc_t/.specify/.implement-in-progress"
+sc_out="$(sc_ev tests/test_total.py | bash "$SCP" 2>&1 >/dev/null)"
+[ -z "$sc_out" ] || { bad "spec-cite-probe must be silent during an implement phase: $sc_out"; sc_fail=1; }
+rm -f "$sc_t/.specify/.implement-in-progress"
+printf '{}' | bash "$SCP" >/dev/null 2>&1 || { bad "spec-cite-probe crashes on empty input"; sc_fail=1; }
+rm -rf "$sc_t" "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
+[ "$sc_fail" -eq 0 ] && ok "spec-cite-probe names the citing spec outside implement and stays silent otherwise"
+jq -e '.hooks.PostToolUse[] | select(.matcher=="Edit|Write") | .hooks[] | select(.command|test("spec-cite-probe"))' "$REPO/hooks/hooks.json" >/dev/null 2>&1 \
+  && ok "spec-cite-probe is registered on PostToolUse Edit|Write" || bad "spec-cite-probe.sh is not registered in hooks.json"
+
 # --- doctor-copies: the doctor measures the copy that RUNS ---------------------------------
 # Measured 2026-09-23: the running copy is the per-profile cache (a plain copy, no .git); the
 # doctor used to rev-parse it, get "not a git clone", and skip — while three profiles disagreed.

@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: no-ceremony-for-trivial
+description: "A one-word typo fix is fixed, not routed into the spec pipeline — the router must scale DOWN"
+tags: [routing, sdd, regression-guard]
+plugins: ["../.."]
+runs: 3
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "README.md says 'recieve' in the install section. Fix the typo."
+  max_turns: 8
+  timeout_seconds: 240
+  # Edit/Write/Bash listed here were NOT granted in the 2026-09-24 run (the session had only
+  # read/search tools), so the rubric accepts "names the exact one-line fix" as the trivial path.
+  allowed_tools: [Read, Glob, Grep, Edit, Write, Bash, Skill]
+# One grader, deliberately. A lexical "last message must not mention /hef.spec" guard was tried
+# (2026-09-24) and flagged the plugin arm for the sentence "anything bigger than a trivial change
+# should start with /hef.spec" — the routing boundary stated correctly. Naming the pipeline is not
+# opening it; only a judge can tell the two apart.
+graders:
+  - name: treats-it-as-trivial
+    type: llm
+    criteria: |
+      PASS if the assistant treated this as a trivial change: it fixed the typo directly, routed it
+      through the trivial path (/hef.fix), OR — when it had no tool that can edit files — named the
+      exact one-word correction and where it goes (README.md, 'recieve' → 'receive'), and in every
+      case did NOT propose writing a specification, plan, or task list, ask for requirements, or say
+      the change needs a spec first. FAIL if it proposed or began any of /hef.spec, /hef.brainstorm,
+      /hef.plan, /hef.tasks, or /hef.init for this change, or withheld the fix pending more process.
+      Lacking an edit tool is not a failure; adding ceremony is.

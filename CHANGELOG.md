@@ -35,6 +35,48 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.1.0] - 2026-09-24
+
+**The spec stays honest after the feature ships — and the router is proven to scale down.**
+
+The SDD critics' strongest point (Scott Logic measured spec-kit at ~10× the cost of incremental
+prompting for one feature; Thoughtworks holds SDD at *Assess*) is not the ceremony, which
+`/hef.agent` already routes around, but what happens after implementation: the code moves, the
+spec does not, and "spec as source of truth" becomes documentation that still claims authority.
+This framework's answer stays the same — the tests are the truth, the spec is the intent contract
+checked against them — and this release checks it *after* shipping, in the two places drift happens.
+
+### Added
+
+- **`req-coverage <spec-name>` and `req-coverage --all`** — the verify gate's predicate by name
+  from any branch (CI on `main` has no feature branch), and across every *shipped* spec (a
+  `tasks.md` with no open task). Specs still in progress are listed and skipped: their uncovered
+  requirements are unfinished work, not drift.
+- **`.github/workflows/req-coverage.yml`** — a reusable `workflow_call` for adopters: one
+  `uses:` line runs `req-coverage --all` on every PR, so a hotfix that edits a cited test without
+  touching the spec fails the PR. The helper is fetched by shallow clone into the runner's temp
+  dir, outside the workspace, so its own tests are never scanned as yours. No install step.
+- **`spec-cite-probe.sh`** (PostToolUse on `Edit|Write`, advisory, once a minute per file) — when
+  a test that cites `FR-NNN` is edited *outside* an implement phase, names the spec that declares
+  it and asks for the spec to follow or `/hef.verify` to re-run. Silent during `/hef.implement`,
+  on non-tests, on tests citing nothing. Fifteen hooks now.
+- **`evals/no-ceremony-for-trivial`** — the mirror of `spec-first-routing`: a one-word README
+  typo in a project that *has* `.specify/` must be fixed or routed to `/hef.fix`, never into the
+  pipeline. It exists because 7.0 made the session-start hook state the routing rule, and a rule
+  that pushes work up needs a guard that it does not push trivial work up. Measured 2026-09-24,
+  one run per arm: judge 3/3 PASS with the plugin and without — a zero-Δ regression guard, as
+  the README's seeding rule now says such a case must be. The plugin arm named the boundary
+  itself ("counts as a trivial change under `/hef.fix`… anything bigger should start with
+  `/hef.spec`"); a lexical grader that flagged that sentence was removed for that reason.
+- `docs/sdd.md` — *After shipping: traceability in CI*, with the caller snippet.
+
+### Fixed
+
+- **`/hef.doctor --eval` passes `--scaffold`.** Without it every case scores 0 against an empty
+  workspace — the 7.0.0 trap, reintroduced by omission.
+- `evals/README.md` records that the eval cannot reach the API from a sandboxed shell
+  (`ERR_PROXY_TUNNEL` on every run and judge call) and must run from a plain shell or via `!`.
+
 ## [7.0.2] - 2026-09-23
 
 **The doctor now examines the copy that runs.**
