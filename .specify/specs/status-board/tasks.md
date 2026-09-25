@@ -4,7 +4,7 @@
 
 ## Phase 1: Setup
 - [x] T001 [US5] Helper skeleton: CLI parsing, `load_config`, source dispatch, fail-loudly contract with example configs on stderr `hooks/status-board.sh`
-- [x] T002 [FR-001] Smoke: no config → non-zero + empty stdout; unknown source → non-zero naming accepted values; `--config` path honoured; cites FR-001, FR-002 `tests/smoke.sh`
+- [x] T002 [FR-001] Smoke: no config → non-zero + empty stdout; unknown source → non-zero naming accepted values; `--config` path honoured (test added after review 2026-09-25 — it was claimed without a test); cites FR-001, FR-002 `tests/smoke.sh`
 
 ## Phase 2: Foundational
 - [x] T003 [FR-003] `--check` preflight per source with `[ok]/[MISSING]` lines and one-line fixes; exit 0 only when all met `hooks/status-board.sh`
@@ -18,7 +18,7 @@
 - [x] T008 [US3] [FR-009] tasks-repo: `initiative_epics` — dominant id prefix per file, completed = struck or ✅ line, bar per file; empty glob → `no initiatives found`, exit 0 `hooks/status-board.sh`
 - [x] T009 [US2] [US3] Smoke: tasks-repo end to end on the fixture — column counts, marker distribution, quarter filter, initiative bar; mutations: id requirement, quarter filter, strike detection, missing-file check; cites FR-006, FR-007, FR-008, FR-009, FR-011 `tests/smoke.sh`
 - [x] T010 [US1] [FR-004] github-project: batuta's logic with owner/project/roadmap/epic_prefix from config; totals, epic bars, bottom line `hooks/status-board.sh`
-- [x] T011 [US1] Smoke: github-project on the fake `gh` — asserts the `project item-list` and `api graphql` calls were made with the configured owner/project and the rendered totals match the canned data; mutation: epic discovery prefix ignored; cites FR-004, FR-003 `tests/smoke.sh`
+- [x] T011 [US1] Smoke: github-project on the fake `gh` — asserts the `project item-list` and `api graphql` calls were made with the configured owner/project and the rendered totals match the canned data; mutations: owner/project hard-coded; epic prefix filter removed (a non-epic issue must not render as an epic — the check that makes this mutation real was added after review 2026-09-25); failing graphql → non-zero; cites FR-004, FR-003 `tests/smoke.sh`
 - [x] T012 [US1] [US2] [FR-013] Command `commands/hef.status.md`: sonnet, runs the helper, four sections, stops on failure with `--check` findings; `--detailed` pass-through `commands/hef.status.md`
 
 ### P2 — Should Have

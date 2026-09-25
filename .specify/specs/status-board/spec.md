@@ -92,7 +92,7 @@ mechanical extraction with jq, git, and POSIX text tools only; the command adds 
 | FR-004 | github-project: the board status distribution, epic discovery by `epic_prefix` across every repo on the project, per-epic sub-issue completion bars, roadmap quarter header and days left, and the bottom line match `scripts/project-status.sh` for the same project | P1 | US1 |
 | FR-005 | github-project `--detailed` unfolds each epic into its sub-issues with marker, board phase, assignee, and title | P2 | US6 |
 | FR-006 | tasks-repo: an item is a heading matching `item_heading` whose text contains a match of `id_pattern`; headings without an id are not items | P1 | US2 |
-| FR-007 | tasks-repo: per column, the item count and the distribution of leading sub-state markers (first non-`#` token of the heading when it is not part of the id) | P1 | US2 |
+| FR-007 | tasks-repo: per column, the item count and the distribution of leading sub-state markers — the heading's first token when it is neither the id nor an ordinary word (a token starting with a letter, digit, `*`, `_`, backtick, `[` or `(` is text, not a marker; markers are emoji/symbols) | P1 | US2 |
 | FR-008 | tasks-repo: delivered-this-quarter = DONE sections whose `done_section` date capture falls in the current calendar quarter (or the quarter declared by `quarter_start`/`quarter_end` in the config); days left is computed from the quarter end | P1 | US2 |
 | FR-009 | tasks-repo: each file matched by `epics.initiatives` is an epic whose total is the distinct ids sharing the file's dominant prefix and whose completed count is ids struck through or on a ✅ line | P1 | US3 |
 | FR-010 | tasks-repo: spec directories contribute epics (`ticked/total` from `tasks.md`) only when `epics.specs` is `true`; otherwise they are not read | P2 | US4 |
@@ -118,4 +118,6 @@ _Resolved 2026-09-25 (user decisions):_
   carries a `states` map (marker → label) the board prints the label instead. Unknown markers are
   reported as-is, never an error.
 - The tasks-repo quarter is **today's calendar quarter** unless the config sets `quarter_start` /
-  `quarter_end` (YYYY-MM-DD), which override it.
+  `quarter_end` (YYYY-MM-DD), which override it; setting only one of them is a config error (fail loudly).
+- Sub-state markers: a heading's first token counts as a marker only when it is not the id and not
+  an ordinary word (letter, digit, `*`, `_`, backtick, `[`, `(` initial). Emoji and symbols are markers.

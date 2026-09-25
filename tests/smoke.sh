@@ -941,13 +941,9 @@ if [ -f "$own_spec/spec.md" ]; then
       bad "$fr has a task marked done but no test in this suite cites it (SC-002)"; own_bad=1
     fi
   done <<<"$done_frs"
-  # The suite is shared across feature branches while FR ids are per spec, so an id this branch's
-  # spec does not declare is UNKNOWN to req-coverage but may be declared by an earlier spec
-  # (status-board's suite cites harness-review-tiers' FR-016..FR-019). Unknown means: declared by
-  # NO spec directory at all. Measured 2026-09-25 on the second feature branch this repo ever ran.
-  own_all_frs="$(cat "$REPO"/.specify/specs/*/spec.md 2>/dev/null | grep -oE '\bFR-[0-9]+\b' | sort -u)"
-  own_unknown="$(grep -oE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out" | grep -oE 'FR-[0-9]+' | while read -r fr; do grep -qxF "$fr" <<<"$own_all_frs" || echo "$fr"; done)"
-  if [ -n "$own_unknown" ]; then bad "the suite cites an FR no spec declares: $(tr '\n' ' ' <<<"$own_unknown")"; own_bad=1; fi
+  # UNKNOWN here means no spec directory declares the id — req-coverage reports an id declared by
+  # a sibling spec as ELSEWHERE (the suite is shared across feature branches; ids are per spec).
+  if grep -qE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out"; then bad "the suite cites an FR no spec declares: $(grep -oE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out" | tr '\n' ' ')"; own_bad=1; fi
   pending="$(grep -cE '^FR-[0-9]+ +UNCOVERED' <<<"$own_out" || true)"
   [ "$own_bad" -eq 0 ] && ok "every completed requirement on this branch is cited by a check ($pending pending, not yet implemented)"
 fi
@@ -1293,8 +1289,8 @@ sb_in="$sb_q-02"; sb_prev="$(date -d "$sb_q-01 -1 month" +%Y-%m-%d 2>/dev/null |
   && printf '# TODO\n\n## 📥 NXT-S7-FB-06 — Net profit columns\ntext\n\n## 🔧 PCAL-CONSOL — consolidated spec\ntext\n\n### Lane A — W1\nno id here\n\n## 📥 HC-FB-02 — haircut feedback\n' > tasks/TODO.md \
   && printf '# DOING\n\n## 🧪 HC-GUARD-01 — last version guard\ntext\n' > tasks/DOING.md \
   && printf '# Backlog\n\n### CI-NODE20 (P3) — pinned runtime\n\n### UI-A11Y-BUTTON — focusable disabled button\n' > tasks/BACKLOG.md \
-  && printf '# Done\n\n## %s — **DOCSYNC-2** — doc drift\n\n## %s — **HC-GUARD-01** — shipped\n\n## %s — **OLD-1** — last quarter\n' "$sb_in" "$sb_in" "$sb_prev" > tasks/DONE.md \
-  && printf '# Perf\n\n- ~~PERF-01~~ done\n- PERF-02 shipped ✅\n- PERF-03 open\n- PERF-04 open\n' > tasks/initiatives/perf.md \
+  && printf '# Done\n\n## %s — **DOCSYNC-2** — doc drift\n\n## %s — **HC-GUARD-01** — shipped\n\n## %s — **OLD-1** — last quarter\n\n## %s — **SPAN-1** — ran until %s (two dates, ONE section)\n' "$sb_in" "$sb_in" "$sb_prev" "$sb_in" "$sb_in" > tasks/DONE.md \
+  && printf '# Perf\n\n- ~~PERF-01~~ done\n- PERF-02 shipped ✅\n- PERF-03 open\n- PERF-04 open\n- PERF-1 open (a prefix of PERF-10)\n- PERF-10 shipped ✅\n' > tasks/initiatives/perf.md \
   && printf -- '- [x] T001 a\n- [ ] T002 b\n- [ ] T003 c\n' > tasks/.specify/specs/alpha/tasks.md \
   && printf '{"source":"tasks-repo","root":"tasks","states":{"📥":"intake","🧪":"on staging"}}\n' > .claude/project-status.json ) >/dev/null 2>&1
 sb_out="$(cd "$sb_t" && bash "$SB" 2>&1)"; sb_rc=$?
@@ -1306,13 +1302,15 @@ grep -qE 'todo[^0-9]*3 item' <<<"$sb_out" || { bad "status-board: TODO must coun
 grep -qE 'intake[^0-9]*2' <<<"$sb_out" || { bad "status-board: TODO marker distribution must read 'intake 2' via the states map"; sb_fail=1; }
 grep -qE 'doing[^0-9]*1 item' <<<"$sb_out" && grep -qE 'on staging[^0-9]*1' <<<"$sb_out" || { bad "status-board: DOING must count 1 item labelled 'on staging'"; sb_fail=1; }
 grep -qE 'backlog[^0-9]*2 item' <<<"$sb_out" || { bad "status-board: BACKLOG must count 2 items from ### headings"; sb_fail=1; }
-# FR-008 — delivered this quarter = dated DONE sections inside the calendar quarter (the previous-quarter one excluded)
-# Mutation: the quarter filter removed → 3 → red.
-grep -qE 'delivered this quarter[^0-9]*2\b' <<<"$sb_out" || { bad "status-board: delivered this quarter must be 2 (one section is last quarter) — got: $(grep -i delivered <<<"$sb_out" | head -1)"; sb_fail=1; }
+# FR-008 — delivered this quarter = dated DONE sections inside the calendar quarter (the previous-quarter one
+# excluded) and ONE per section even when the heading carries two dates (review defect 2, 2026-09-25).
+# Mutations: the quarter filter removed → 4 → red; every date on the line counted again → 4 → red.
+grep -qE 'delivered this quarter[^0-9]*3\b' <<<"$sb_out" || { bad "status-board: delivered this quarter must be 3 (one section is last quarter; the two-date section counts once) — got: $(grep -i delivered <<<"$sb_out" | head -1)"; sb_fail=1; }
 grep -qE 'days left' <<<"$sb_out" || { bad "status-board: quarter days left missing"; sb_fail=1; }
-# FR-009 — initiative scoreboard: 4 ids, completed = struck (01) + ✅ line (02) = 2/4
-# Mutation: strike-through detection removed → 1/4 → red.
-grep -qE 'perf.*2/4' <<<"$sb_out" || { bad "status-board: initiative perf must read 2/4 — got: $(grep -i perf <<<"$sb_out" | head -1)"; sb_fail=1; }
+# FR-009 — initiative scoreboard: 6 ids, completed = struck (01) + ✅ lines (02, 10) = 3/6; PERF-1 is NOT done
+# although "PERF-10 … ✅" contains it as a substring (review defect 1, 2026-09-25: whole-word match).
+# Mutations: strike-through detection removed → 2/6 → red; `-wF` back to `-F` → 4/6 → red.
+grep -qE 'perf.*3/6' <<<"$sb_out" || { bad "status-board: initiative perf must read 3/6 (PERF-1 must not inherit PERF-10's ✅) — got: $(grep -i perf <<<"$sb_out" | head -1)"; sb_fail=1; }
 # FR-010 — feature-dir checkboxes NOT read when epics.specs is absent/false
 # Mutation: the gate removed → 'alpha' appears → red.
 if grep -qF 'alpha' <<<"$sb_out"; then bad "status-board read feature directories although epics.specs is not enabled (FR-010)"; sb_fail=1; fi
@@ -1331,6 +1329,15 @@ sb_err4="$(cd "$sb_t" && bash "$SB" 2>&1 >/dev/null)"
 # FR-003 — --check lists the missing file as [MISSING] and exits 1
 sb_chk="$(cd "$sb_t" && bash "$SB" --check 2>&1)"; sb_rcc=$?
 { [ "$sb_rcc" -ne 0 ] && grep -qF '[MISSING]' <<<"$sb_chk" && grep -qF 'BACKLOG.md' <<<"$sb_chk"; } || { bad "status-board --check must report the missing column as [MISSING] (rc=$sb_rcc)"; sb_fail=1; }
+mv "$sb_gone.away" "$sb_gone"
+# FR-001 — --config <path> is honoured (T002 claimed this and no test exercised it — review 2026-09-25)
+sb_alt="$sb_t/elsewhere.json"; printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sb_alt"
+printf '{"source":"trello"}\n' > "$sb_t/.claude/project-status.json"
+sb_out5="$(cd "$sb_t" && bash "$SB" --config "$sb_alt" 2>&1)"; sb_rc5=$?
+{ [ "$sb_rc5" -eq 0 ] && grep -qE 'todo[^0-9]*3 item' <<<"$sb_out5"; } || { bad "status-board --config <path> must be used instead of .claude/project-status.json (rc=$sb_rc5)"; sb_fail=1; }
+# FR-008 — a half quarter override (start without end) is a config error, not a silent fallback
+printf '{"source":"tasks-repo","root":"tasks","quarter_start":"2026-01-01"}\n' > "$sb_t/.claude/project-status.json"
+if (cd "$sb_t" && bash "$SB" >/dev/null 2>&1); then bad "status-board accepted quarter_start without quarter_end"; sb_fail=1; fi
 rm -rf "$sb_t"
 [ "$sb_fail" -eq 0 ] && ok "status-board tasks-repo: id items, states map, quarter filter, initiative bars, feature-dir opt-in, --detailed, fail-loudly (FR-006 FR-007 FR-008 FR-009 FR-010 FR-011 FR-012)"
 
@@ -1367,6 +1374,40 @@ grep -qE 'auth' <<<"$sb_gout" && grep -qE 'pay' <<<"$sb_gout" || { bad "status-b
 grep -qE '3/4' <<<"$sb_gout" || { bad "status-board must render the sub-issue summary 3/4 from gh api graphql"; sb_gfail=1; }
 grep -qE 'delivered 2/3' <<<"$sb_gout" || { bad "status-board must read delivered 2/3 active (4 issues, 1 backlog, 2 done) — got: $(grep -i delivered <<<"$sb_gout" | head -1)"; sb_gfail=1; }
 grep -qE 'days left' <<<"$sb_gout" || { bad "status-board github-project must print the roadmap quarter with days left"; sb_gfail=1; }
+# FR-004: a non-epic issue must NOT appear as an epic (T011's "prefix ignored" mutation was vacuous without this — review 2026-09-25)
+# Mutation: the startswith($p) filter removed → 'task a' rendered as an epic → red.
+if grep -qF 'task a' <<<"$sb_gout"; then bad "status-board listed a non-epic issue ('task a') as an epic — epic discovery must use epic_prefix"; sb_gfail=1; fi
+# FR-004: a failing sub-issue query must fail the board, not render the epic as 'no tasks yet' at exit 0
+# (review defect 3, 2026-09-25 — constitution 5). Mutation: the `|| die` on the graphql call removed → red.
+cat > "$sb_bin/gh" <<GHEOF2
+#!/bin/bash
+case "\$*" in
+  "auth status"*) exit 0 ;;
+  "project view"*) echo '{"title":"Board"}' ;;
+  "project item-list"*) echo '{"items":[{"status":"Done","content":{"type":"Issue","number":1,"repository":"acme/app","title":"epic(auth): login"}}]}' ;;
+  "api graphql"*) echo '{"errors":[{"message":"boom"}]}'; exit 1 ;;
+esac
+GHEOF2
+sb_gbad="$(cd "$sb_g" && PATH="$sb_bin:$PATH" bash "$SB" 2>/dev/null)"; sb_gbrc=$?
+{ [ "$sb_gbrc" -ne 0 ] && ! grep -qF 'no tasks yet' <<<"$sb_gbad"; } || { bad "status-board must exit non-zero when gh api graphql fails (rc=$sb_gbrc), never 'no tasks yet'"; sb_gfail=1; }
+cat > "$sb_bin/gh" <<GHEOF3
+#!/bin/bash
+echo "\$*" >> "$sb_log"
+case "\$*" in
+  "auth status"*) exit 0 ;;
+  "project view"*) echo '{"title":"Board"}' ;;
+  "repo view"*) echo '{"name":"x"}' ;;
+  "project item-list"*) echo '{"items":[
+    {"status":"Done","content":{"type":"Issue","number":1,"repository":"acme/app","title":"epic(auth): login"}},
+    {"status":"In Progress","content":{"type":"Issue","number":2,"repository":"acme/app","title":"task a"}},
+    {"status":"Backlog","content":{"type":"Issue","number":3,"repository":"acme/app","title":"epic(pay): billing"}},
+    {"status":"Done","content":{"type":"Issue","number":4,"repository":"acme/app","title":"task b"}}]}' ;;
+  "api graphql"*)
+    if grep -q subIssuesSummary <<<"\$*"; then echo '{"data":{"repository":{"issue":{"subIssuesSummary":{"total":4,"completed":3}}}}}'
+    else echo '{"data":{"repository":{"issue":{"subIssues":{"nodes":[{"number":9,"state":"CLOSED","title":"sub one","assignees":{"nodes":[{"login":"ana"}]}}]}}}}}'; fi ;;
+  *) echo "unexpected gh call: \$*" >&2; exit 3 ;;
+esac
+GHEOF3
 # FR-005: --detailed unfolds sub-issues via the subIssues query
 : > "$sb_log"
 sb_gdet="$(cd "$sb_g" && PATH="$sb_bin:$PATH" bash "$SB" --detailed 2>&1)"

@@ -47,8 +47,12 @@ status-board: no config at $CONFIG — create it. One of:
 EOF
   exit 1
 fi
-command -v jq >/dev/null 2>&1 || die "status-board: jq is required to read $CONFIG"
-jq -e . "$CONFIG" >/dev/null 2>&1 || die "status-board: $CONFIG is not valid JSON"
+if ! command -v jq >/dev/null 2>&1; then
+  printf '  [MISSING] jq not found\n            ↳ install jq: https://jqlang.org\n' >&2; exit 1
+fi
+if ! jq -e . "$CONFIG" >/dev/null 2>&1; then
+  printf '  [MISSING] %s is not valid JSON\n            ↳ fix the file (jq . %s shows the error)\n' "$CONFIG" "$CONFIG" >&2; exit 1
+fi
 cfg() { jq -r "$1" "$CONFIG"; }   # $1 = jq expression with its own default via //
 SOURCE="$(cfg '.source // empty')"
 case "$SOURCE" in
@@ -64,6 +68,7 @@ bar() { # completed total → 10-cell bar
   printf '%s' "$s"
 }
 epoch_of() { date -d "$1" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$1" +%s 2>/dev/null; }
+day_before() { date -d "$1 -1 day" +%Y-%m-%d 2>/dev/null || date -j -v-1d -f "%Y-%m-%d" "$1" +%Y-%m-%d 2>/dev/null; }
 days_until() { echo $(( ( $(epoch_of "$1") - $(epoch_of "$(date +%Y-%m-%d)") ) / 86400 )); }
 rule() { echo "═══════════════════════════════════════════════════════════════"; }
 
@@ -92,6 +97,7 @@ finish_preflight() {
 # =============================================================================================
 tasks_preflight() {
   [ "$MODE" = "check" ] && echo "status-board preflight — tasks-repo at $TROOT:"
+  ok "jq installed"; ok "config valid ($CONFIG)"
   if [ -d "$TROOT" ]; then ok "root directory $TROOT"; else miss "root directory missing: $TROOT" "fix \"root\" in $CONFIG"; fi
   local key
   for key in todo doing backlog 'done'; do
@@ -125,12 +131,15 @@ marker_summary() { # items → "label n · label n"
 
 quarter_bounds() { # sets QS QE (FR-008): calendar quarter unless overridden
   QS="$(cfg '.quarter_start // empty')"; QE="$(cfg '.quarter_end // empty')"
-  if [ -z "$QS" ] || [ -z "$QE" ]; then
+  if { [ -n "$QS" ] && [ -z "$QE" ]; } || { [ -z "$QS" ] && [ -n "$QE" ]; }; then
+    die "status-board: quarter_start and quarter_end must be set together in $CONFIG (got start='${QS:-}' end='${QE:-}')"
+  fi
+  if [ -z "$QS" ]; then
     local y m qm ny nqm
-    y=$(date +%Y); m=$(date +%-m); qm=$(( (m - 1) / 3 * 3 + 1 ))
+    y=$(date +%Y); m=$((10#$(date +%m))); qm=$(( (m - 1) / 3 * 3 + 1 ))
     QS="$(printf '%s-%02d-01' "$y" "$qm")"
     nqm=$((qm + 3)); ny=$y; if [ "$nqm" -gt 12 ]; then nqm=1; ny=$((y + 1)); fi
-    QE="$(date -d "$(printf '%s-%02d-01' "$ny" "$nqm") -1 day" +%Y-%m-%d)"
+    QE="$(day_before "$(printf '%s-%02d-01' "$ny" "$nqm")")"
   fi
 }
 
@@ -139,7 +148,7 @@ done_this_quarter() { # count DONE sections whose date capture lies in [QS, QE]
   while read -r d; do
     [ -z "$d" ] && continue
     if [[ "$d" > "$QS" || "$d" == "$QS" ]] && [[ "$d" < "$QE" || "$d" == "$QE" ]]; then n=$((n + 1)); fi
-  done < <(grep -E "$DONE_SECTION" "$TROOT/${COL[done]}" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' )
+  done < <(grep -E "$DONE_SECTION" "$TROOT/${COL[done]}" | sed -E 's/^[^0-9]*([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/')
   echo "$n"
 }
 
@@ -158,7 +167,7 @@ initiative_epics() { # each file matched by epics.initiatives → one bar (FR-00
       [ -z "$id" ] && continue
       [ "$(sed -E 's/-[0-9]+$//' <<<"$id")" = "$prefix" ] || continue
       total=$((total + 1))
-      if grep -qF -- "~~$id~~" "$TROOT/$f" || grep -F -- "$id" "$TROOT/$f" | grep -q '✅'; then done_=$((done_ + 1)); fi
+      if grep -qF -- "~~$id~~" "$TROOT/$f" || grep -wF -- "$id" "$TROOT/$f" | grep -q '✅'; then done_=$((done_ + 1)); fi
     done <<<"$ids"
     printf '    %-28.28s %s  %s/%s (%s%%)\n' "$name" "$(bar "$done_" "$total")" "$done_" "$total" "$(( total > 0 ? done_ * 100 / total : 0 ))"
   done
@@ -214,6 +223,7 @@ source_tasks() {
 # =============================================================================================
 gh_preflight() {
   [ "$MODE" = "check" ] && echo "status-board preflight — GitHub Project #$PROJECT @ $OWNER:"
+  ok "jq installed"; ok "config valid ($CONFIG)"
   local have_gh=0 authed=0 err
   if command -v gh >/dev/null 2>&1; then ok "gh CLI installed"; have_gh=1; else miss "gh CLI not found" "install: https://cli.github.com"; fi
   if [ $have_gh -eq 1 ]; then
@@ -280,18 +290,19 @@ source_github() {
   printf '%s' "$statuses" | jq -r '.[] | "    \(.status): \(.n)"'
   echo
   echo "  Workstreams — epic completion$( [ "$MODE" = "detailed" ] && echo ' (tasks unfolded)'):"
-  printf '%s' "$board" | jq -r --arg p "$EPIC_PREFIX" '[.items[] | select(.content.type=="Issue") | select(.content.title|startswith($p))] | sort_by(.content.number) | .[] | "\(.content.number)\t\(.content.repository)\t\(.content.title)"' \
-  | while IFS=$'\t' read -r num repo title; do
+  local num repo title label sum c t raw
+  while IFS=$'\t' read -r num repo title; do
       [ -z "$num" ] && continue
-      local label sum c t
       label=$(printf '%s' "$title" | sed -E 's/^[^(]*\(([^)]*)\): /\1 — /')
-      sum=$(gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){subIssuesSummary{total completed}}}}' \
-            -F o="${repo%%/*}" -F r="${repo##*/}" -F n="$num" 2>/dev/null | jq -r '(.data.repository.issue.subIssuesSummary // {completed:0,total:0}) | "\(.completed) \(.total)"')
+      # No pipeline here on purpose: a failed query must abort the board, not render "no tasks yet".
+      raw=$(gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){subIssuesSummary{total completed}}}}' \
+            -F o="${repo%%/*}" -F r="${repo##*/}" -F n="$num" 2>/dev/null) || die "status-board: gh api graphql failed for epic #$num ($repo) — the board would be wrong, not partial"
+      sum=$(printf '%s' "$raw" | jq -r '(.data.repository.issue.subIssuesSummary // {completed:0,total:0}) | "\(.completed) \(.total)"')
       c=${sum%% *}; t=${sum##* }
       if [ "${t:-0}" = "0" ]; then printf '    #%-4s %-40.40s %s  %s\n' "$num" "$label" "$(bar 0 1)" "no tasks yet"
       else printf '    #%-4s %-40.40s %s  %s/%s (%s%%)\n' "$num" "$label" "$(bar "$c" "$t")" "$c" "$t" "$(( c * 100 / t ))"; fi
       if [ "$MODE" = "detailed" ]; then gh_epic_tasks "$num" "$repo"; echo; fi
-    done
+  done < <(printf '%s' "$board" | jq -r --arg p "$EPIC_PREFIX" '[.items[] | select(.content.type=="Issue") | select(.content.title|startswith($p))] | sort_by(.content.number) | .[] | "\(.content.number)\t\(.content.repository)\t\(.content.title)"')
   echo
   printf '  Bottom line: %s of %s active tasks delivered (%s%%) · %s remaining · %s backlogged.\n' "$done_n" "$active" "$pct" "$remaining" "$backlog_n"
   [ -n "$days" ] && printf '  Quarter closes in %s days.\n' "$days"
