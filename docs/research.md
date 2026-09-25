@@ -4,7 +4,7 @@
 
 ## 📚 Research Corpus
 
-`reports/` holds the research behind the framework, split into fifteen files with no overlap between them — eleven single-subject topic files, one field report, two tool evaluations, and one harness review. It is the **"why" layer**: `.claude/rules/` states *what* to do, and `reports/` records the evidence, benchmark, or threat model that produced the rule. Where a finding is already codified, the report points at the rule with a `> **Codified in**` callout instead of restating it — so no text lives in two places.
+`reports/` holds the research behind the framework, split into sixteen files with no overlap between them — twelve single-subject topic files, one field report, two tool evaluations, and one harness review. It is the **"why" layer**: `.claude/rules/` states *what* to do, and `reports/` records the evidence, benchmark, or threat model that produced the rule. Where a finding is already codified, the report points at the rule with a `> **Codified in**` callout instead of restating it — so no text lives in two places.
 
 | # | Subject | Codified in |
 |---|---------|-------------|
@@ -23,6 +23,7 @@
 | 13 | Graft — code-context graph for agents, measured against the graphify lane, evaluated but **not adopted** | *not yet codified* |
 | 14 | Harness review 2026-09 — toolbox, drift, and the evidence behind each change; the `harness-review-tiers` program (6.1 → 6.2 → 7.0) | `hef.verify`, `hef.review`/`hef.pr`, the implement-phase test guard, the lifecycle hooks, `llm-security.md` |
 | 15 | Jev — a hosted state-to-decision model, mapped against where the framework spends and enforces, evaluated but **not adopted** | *not yet codified* |
+| 16 | Spec-first vs incremental prompting — the evidence behind "newer models make specs unnecessary", the three meanings of spec-driven, and the rung this framework stands on, with its own artifact-to-code ratio | `.claude/CLAUDE.md` routing, `/hef.agent`, `/hef.verify` + `req-coverage --all` + `spec-cite-probe.sh`, both routing evals |
 
 Files 05, 08, 09, and 13 carry no pointers because their subject is genuinely unadopted, and each says so in its own header — an unadopted idea is recorded as prior art, not smuggled in as current practice.
 
