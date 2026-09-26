@@ -909,6 +909,22 @@ else
   bad "req-coverage printed '$rc_out' at exit $rc_rc with the spec absent"
 fi
 rm -rf "$rc_t"
+# An id declared by ANOTHER spec directory is ELSEWHERE, not UNKNOWN, and does not fail the
+# predicate (the suite is shared across branches; ids are per spec). Mutation-checked 2026-09-25:
+# the ELSEWHERE branch removed → the sibling-spec id reports UNKNOWN and the exit goes non-zero → red.
+re_t="$(mktemp -d)"
+( cd "$re_t" && git init -q . && git checkout -q -b feature/mine && mkdir -p .specify/specs/mine .specify/specs/older tests \
+  && printf '# Spec\n- FR-001 mine\n' > .specify/specs/mine/spec.md \
+  && printf '# Spec\n- FR-007 older\n' > .specify/specs/older/spec.md \
+  && printf '# FR-001 FR-007\ndef test_a(): pass\n' > tests/test_a.py ) >/dev/null 2>&1
+re_out="$(cd "$re_t" && "$HELPER" req-coverage 2>/dev/null)"; re_rc=$?
+if [ "$re_rc" -eq 0 ] && grep -qE '^FR-007 +ELSEWHERE' <<<"$re_out" && ! grep -qE 'UNKNOWN' <<<"$re_out"; then
+  ok "req-coverage reports an id declared by another spec as ELSEWHERE and still passes"
+else
+  bad "req-coverage must report FR-007 (declared by spec 'older') as ELSEWHERE at exit 0 — rc=$re_rc: $(grep -E 'FR-007|summary' <<<"$re_out" | tr '\n' '|')"
+fi
+rm -rf "$re_t"
+
 # Dogfood (SC-002): when THIS repo is on a branch that has a spec, the suite's own checks must cite
 # the FRs they cover — the block headers carry `(FR-NNN)` for that reason. Strictness follows
 # tasks.md: an FR whose tasks are all still `[ ]` is PENDING (reported, not failing); an FR with a
@@ -925,7 +941,9 @@ if [ -f "$own_spec/spec.md" ]; then
       bad "$fr has a task marked done but no test in this suite cites it (SC-002)"; own_bad=1
     fi
   done <<<"$done_frs"
-  if grep -qE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out"; then bad "the suite cites an FR the spec does not declare"; own_bad=1; fi
+  # UNKNOWN here means no spec directory declares the id — req-coverage reports an id declared by
+  # a sibling spec as ELSEWHERE (the suite is shared across feature branches; ids are per spec).
+  if grep -qE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out"; then bad "the suite cites an FR no spec declares: $(grep -oE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out" | tr '\n' ' ')"; own_bad=1; fi
   pending="$(grep -cE '^FR-[0-9]+ +UNCOVERED' <<<"$own_out" || true)"
   [ "$own_bad" -eq 0 ] && ok "every completed requirement on this branch is cited by a check ($pending pending, not yet implemented)"
 fi
@@ -1238,6 +1256,175 @@ rm -rf "$sc_t" "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
 [ "$sc_fail" -eq 0 ] && ok "spec-cite-probe names the citing spec outside implement and stays silent otherwise"
 jq -e '.hooks.PostToolUse[] | select(.matcher=="Edit|Write") | .hooks[] | select(.command|test("spec-cite-probe"))' "$REPO/hooks/hooks.json" >/dev/null 2>&1 \
   && ok "spec-cite-probe is registered on PostToolUse Edit|Write" || bad "spec-cite-probe.sh is not registered in hooks.json"
+
+# --- status-board: /hef.status from a configurable source (feature status-board) ------------
+head_ "Status board"
+
+# FR-001/FR-002: config drives the source; no config or an unknown source fails loudly
+# (constitution 5). FR-006..FR-012: the tasks-repo extraction on a synthetic kanban. FR-003/FR-004:
+# github-project on a fake `gh` that records its argv — assertions at the tool-call level
+# (constitution 3), never on numbers the model could type by hand.
+# Mutation-checked (see each check's comment).
+SB="$REPO/hooks/status-board.sh"
+if [ -x "$SB" ]; then ok "hook status-board.sh exists and is executable"; else bad "hooks/status-board.sh missing or not executable"; fi
+
+# FR-001 FR-002 — no config → non-zero, EMPTY stdout, an example on stderr; unknown source → non-zero naming the two accepted values
+sb_none="$(mktemp -d)"; ( cd "$sb_none" && git init -q . ) >/dev/null 2>&1
+sb_out="$(cd "$sb_none" && bash "$SB" 2>/dev/null)"; sb_rc=$?
+sb_err="$(cd "$sb_none" && bash "$SB" 2>&1 >/dev/null)"
+if [ "$sb_rc" -ne 0 ] && [ -z "$sb_out" ] && grep -qF '"source"' <<<"$sb_err"; then ok "status-board with no config fails loudly with an example config (FR-002)"
+else bad "status-board without config: rc=$sb_rc stdout='$sb_out' stderr='$(head -c 120 <<<"$sb_err")'"; fi
+mkdir -p "$sb_none/.claude" && printf '{"source":"trello"}\n' > "$sb_none/.claude/project-status.json"
+sb_err="$(cd "$sb_none" && bash "$SB" 2>&1 >/dev/null)"; sb_rc=$?
+if [ "$sb_rc" -ne 0 ] && grep -qF 'github-project' <<<"$sb_err" && grep -qF 'tasks-repo' <<<"$sb_err"; then ok "status-board rejects an unknown source naming the accepted ones (FR-001)"
+else bad "status-board unknown source: rc=$sb_rc stderr='$(head -c 120 <<<"$sb_err")'"; fi
+rm -rf "$sb_none"
+
+# tasks-repo fixture: four columns; TODO has 2 id items + 1 lane heading (no id) + 1 intake item;
+# DOING 1 item on staging; BACKLOG 2 items; DONE 2 sections this quarter + 1 last quarter;
+# initiatives/perf.md with PERF-01..04 (01 struck, 02 on a ✅ line); a feature dir with 1/3 boxes ticked.
+sb_t="$(mktemp -d)"; sb_qm=$(( ( $(date +%-m) - 1 ) / 3 * 3 + 1 )); sb_q="$(printf '%s-%02d' "$(date +%Y)" "$sb_qm")"
+sb_in="$sb_q-02"; sb_prev="$(date -d "$sb_q-01 -1 month" +%Y-%m-%d 2>/dev/null || echo 2000-01-01)"
+( cd "$sb_t" && git init -q . && mkdir -p tasks/initiatives tasks/.specify/specs/alpha .claude \
+  && printf '# TODO\n\n## 📥 NXT-S7-FB-06 — Net profit columns\ntext\n\n## 🔧 PCAL-CONSOL — consolidated spec\ntext\n\n### Lane A — W1\nno id here\n\n## 📥 HC-FB-02 — haircut feedback\n' > tasks/TODO.md \
+  && printf '# DOING\n\n## 🧪 HC-GUARD-01 — last version guard\ntext\n' > tasks/DOING.md \
+  && printf '# Backlog\n\n### CI-NODE20 (P3) — pinned runtime\n\n### UI-A11Y-BUTTON — focusable disabled button\n' > tasks/BACKLOG.md \
+  && printf '# Done\n\n## %s — **DOCSYNC-2** — doc drift\n\n## %s — **HC-GUARD-01** — shipped\n\n## %s — **OLD-1** — last quarter\n\n## %s — **SPAN-1** — ran until %s (two dates, ONE section)\n' "$sb_in" "$sb_in" "$sb_prev" "$sb_in" "$sb_in" > tasks/DONE.md \
+  && printf '# Perf\n\n- ~~PERF-01~~ done\n- PERF-02 shipped ✅\n- PERF-03 open\n- PERF-04 open\n- PERF-1 open (a prefix of PERF-10)\n- PERF-10 shipped ✅\n' > tasks/initiatives/perf.md \
+  && printf -- '- [x] T001 a\n- [ ] T002 b\n- [ ] T003 c\n' > tasks/.specify/specs/alpha/tasks.md \
+  && printf '{"source":"tasks-repo","root":"tasks","states":{"📥":"intake","🧪":"on staging"}}\n' > .claude/project-status.json ) >/dev/null 2>&1
+sb_out="$(cd "$sb_t" && bash "$SB" 2>&1)"; sb_rc=$?
+sb_fail=0
+[ "$sb_rc" -eq 0 ] || { bad "status-board tasks-repo exited $sb_rc: $(tr '\n' '|' <<<"$sb_out" | head -c 300)"; sb_fail=1; }
+# FR-006 FR-007 — items = headings WITH an id (the lane heading is not one); marker distribution via the states map
+# Mutation: the id requirement removed → TODO counts 4 → red.
+grep -qE 'todo[^0-9]*3 item' <<<"$sb_out" || { bad "status-board: TODO must count 3 id-bearing items (lane heading excluded) — got: $(grep -i todo <<<"$sb_out" | head -2 | tr '\n' '|')"; sb_fail=1; }
+grep -qE 'intake[^0-9]*2' <<<"$sb_out" || { bad "status-board: TODO marker distribution must read 'intake 2' via the states map"; sb_fail=1; }
+grep -qE 'doing[^0-9]*1 item' <<<"$sb_out" && grep -qE 'on staging[^0-9]*1' <<<"$sb_out" || { bad "status-board: DOING must count 1 item labelled 'on staging'"; sb_fail=1; }
+grep -qE 'backlog[^0-9]*2 item' <<<"$sb_out" || { bad "status-board: BACKLOG must count 2 items from ### headings"; sb_fail=1; }
+# FR-008 — delivered this quarter = dated DONE sections inside the calendar quarter (the previous-quarter one
+# excluded) and ONE per section even when the heading carries two dates (review defect 2, 2026-09-25).
+# Mutations: the quarter filter removed → 4 → red; every date on the line counted again → 4 → red.
+grep -qE 'delivered this quarter[^0-9]*3\b' <<<"$sb_out" || { bad "status-board: delivered this quarter must be 3 (one section is last quarter; the two-date section counts once) — got: $(grep -i delivered <<<"$sb_out" | head -1)"; sb_fail=1; }
+grep -qE 'days left' <<<"$sb_out" || { bad "status-board: quarter days left missing"; sb_fail=1; }
+# FR-009 — initiative scoreboard: 6 ids, completed = struck (01) + ✅ lines (02, 10) = 3/6; PERF-1 is NOT done
+# although "PERF-10 … ✅" contains it as a substring (review defect 1, 2026-09-25: whole-word match).
+# Mutations: strike-through detection removed → 2/6 → red; `-wF` back to `-F` → 4/6 → red.
+grep -qE 'perf.*3/6' <<<"$sb_out" || { bad "status-board: initiative perf must read 3/6 (PERF-1 must not inherit PERF-10's ✅) — got: $(grep -i perf <<<"$sb_out" | head -1)"; sb_fail=1; }
+# FR-010 — feature-dir checkboxes NOT read when epics.specs is absent/false
+# Mutation: the gate removed → 'alpha' appears → red.
+if grep -qF 'alpha' <<<"$sb_out"; then bad "status-board read feature directories although epics.specs is not enabled (FR-010)"; sb_fail=1; fi
+printf '{"source":"tasks-repo","root":"tasks","epics":{"specs":true}}\n' > "$sb_t/.claude/project-status.json"
+sb_out2="$(cd "$sb_t" && bash "$SB" 2>&1)"
+grep -qE 'alpha.*1/3' <<<"$sb_out2" || { bad "status-board: with epics.specs=true feature alpha must read 1/3 — got: $(grep -i alpha <<<"$sb_out2" | head -1)"; sb_fail=1; }
+# FR-012 — --detailed lists items per column with id + title
+sb_out3="$(cd "$sb_t" && bash "$SB" --detailed 2>&1)"
+grep -qF 'NXT-S7-FB-06' <<<"$sb_out3" && grep -qF 'HC-GUARD-01' <<<"$sb_out3" || { bad "status-board --detailed must list the items by id"; sb_fail=1; }
+# FR-011 — a missing column file fails loudly naming the path, nothing on stdout
+# Mutation: the file check removed → helper limps on with empty counts → red.
+sb_gone="$sb_t/tasks/BACKLOG.md"; mv "$sb_gone" "$sb_gone.away"
+sb_out4="$(cd "$sb_t" && bash "$SB" 2>/dev/null)"; sb_rc4=$?
+sb_err4="$(cd "$sb_t" && bash "$SB" 2>&1 >/dev/null)"
+{ [ "$sb_rc4" -ne 0 ] && [ -z "$sb_out4" ] && grep -qF 'BACKLOG.md' <<<"$sb_err4"; } || { bad "status-board: missing column file must fail loudly naming it (rc=$sb_rc4, stdout='${sb_out4:0:40}')"; sb_fail=1; }
+# FR-003 — --check lists the missing file as [MISSING] and exits 1
+sb_chk="$(cd "$sb_t" && bash "$SB" --check 2>&1)"; sb_rcc=$?
+{ [ "$sb_rcc" -ne 0 ] && grep -qF '[MISSING]' <<<"$sb_chk" && grep -qF 'BACKLOG.md' <<<"$sb_chk"; } || { bad "status-board --check must report the missing column as [MISSING] (rc=$sb_rcc)"; sb_fail=1; }
+mv "$sb_gone.away" "$sb_gone"
+# FR-001 — --config <path> is honoured (T002 claimed this and no test exercised it — review 2026-09-25)
+sb_alt="$sb_t/elsewhere.json"; printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sb_alt"
+printf '{"source":"trello"}\n' > "$sb_t/.claude/project-status.json"
+sb_out5="$(cd "$sb_t" && bash "$SB" --config "$sb_alt" 2>&1)"; sb_rc5=$?
+{ [ "$sb_rc5" -eq 0 ] && grep -qE 'todo[^0-9]*3 item' <<<"$sb_out5"; } || { bad "status-board --config <path> must be used instead of .claude/project-status.json (rc=$sb_rc5)"; sb_fail=1; }
+# FR-008 — a half quarter override (start without end) is a config error, not a silent fallback
+printf '{"source":"tasks-repo","root":"tasks","quarter_start":"2026-01-01"}\n' > "$sb_t/.claude/project-status.json"
+if (cd "$sb_t" && bash "$SB" >/dev/null 2>&1); then bad "status-board accepted quarter_start without quarter_end"; sb_fail=1; fi
+rm -rf "$sb_t"
+[ "$sb_fail" -eq 0 ] && ok "status-board tasks-repo: id items, states map, quarter filter, initiative bars, feature-dir opt-in, --detailed, fail-loudly (FR-006 FR-007 FR-008 FR-009 FR-010 FR-011 FR-012)"
+
+# github-project on a fake gh (FR-003 FR-004 FR-005): the assertion is which calls were made, with the configured owner/project.
+sb_g="$(mktemp -d)"; sb_bin="$(mktemp -d)"; sb_log="$sb_bin/calls"
+cat > "$sb_bin/gh" <<GHEOF
+#!/bin/bash
+echo "\$*" >> "$sb_log"
+case "\$*" in
+  "auth status"*) exit 0 ;;
+  "project view"*) echo '{"title":"Board"}' ;;
+  "repo view"*) echo '{"name":"x"}' ;;
+  "project item-list"*) echo '{"items":[
+    {"status":"Done","content":{"type":"Issue","number":1,"repository":"acme/app","title":"epic(auth): login"}},
+    {"status":"In Progress","content":{"type":"Issue","number":2,"repository":"acme/app","title":"task a"}},
+    {"status":"Backlog","content":{"type":"Issue","number":3,"repository":"acme/app","title":"epic(pay): billing"}},
+    {"status":"Done","content":{"type":"Issue","number":4,"repository":"acme/app","title":"task b"}}]}' ;;
+  "api graphql"*)
+    if grep -q subIssuesSummary <<<"\$*"; then echo '{"data":{"repository":{"issue":{"subIssuesSummary":{"total":4,"completed":3}}}}}'
+    else echo '{"data":{"repository":{"issue":{"subIssues":{"nodes":[{"number":9,"state":"CLOSED","title":"sub one","assignees":{"nodes":[{"login":"ana"}]}}]}}}}}'; fi ;;
+  *) echo "unexpected gh call: \$*" >&2; exit 3 ;;
+esac
+GHEOF
+chmod +x "$sb_bin/gh"
+( cd "$sb_g" && git init -q . && mkdir -p .claude docs && printf '{"source":"github-project","owner":"acme","project":42,"roadmap":"docs/roadmap.md"}\n' > .claude/project-status.json \
+  && printf '**Currently in flight** Q4 2026 (closes 2099-12-31)\n**Latest released** v1\n**Last updated** 2026-09-25\n' > docs/roadmap.md ) >/dev/null 2>&1
+sb_gout="$(cd "$sb_g" && PATH="$sb_bin:$PATH" bash "$SB" 2>&1)"; sb_grc=$?
+sb_gfail=0
+[ "$sb_grc" -eq 0 ] || { bad "status-board github-project exited $sb_grc: $(tr '\n' '|' <<<"$sb_gout" | head -c 300)"; sb_gfail=1; }
+# FR-004: the board was fetched for the CONFIGURED project/owner, and epics discovered by prefix
+# Mutation: owner/project hard-coded → the call log shows the wrong project → red.
+grep -qE '^project item-list 42 --owner acme' "$sb_log" || { bad "status-board did not call gh project item-list 42 --owner acme — calls: $(tr '\n' '|' < "$sb_log" | head -c 200)"; sb_gfail=1; }
+grep -qE 'auth' <<<"$sb_gout" && grep -qE 'pay' <<<"$sb_gout" || { bad "status-board must list both epic(...) issues as epics"; sb_gfail=1; }
+grep -qE '3/4' <<<"$sb_gout" || { bad "status-board must render the sub-issue summary 3/4 from gh api graphql"; sb_gfail=1; }
+grep -qE 'delivered 2/3' <<<"$sb_gout" || { bad "status-board must read delivered 2/3 active (4 issues, 1 backlog, 2 done) — got: $(grep -i delivered <<<"$sb_gout" | head -1)"; sb_gfail=1; }
+grep -qE 'days left' <<<"$sb_gout" || { bad "status-board github-project must print the roadmap quarter with days left"; sb_gfail=1; }
+# FR-004: a non-epic issue must NOT appear as an epic (T011's "prefix ignored" mutation was vacuous without this — review 2026-09-25)
+# Mutation: the startswith($p) filter removed → 'task a' rendered as an epic → red.
+if grep -qF 'task a' <<<"$sb_gout"; then bad "status-board listed a non-epic issue ('task a') as an epic — epic discovery must use epic_prefix"; sb_gfail=1; fi
+# FR-004: a failing sub-issue query must fail the board, not render the epic as 'no tasks yet' at exit 0
+# (review defect 3, 2026-09-25 — constitution 5). Mutation: the `|| die` on the graphql call removed → red.
+cat > "$sb_bin/gh" <<GHEOF2
+#!/bin/bash
+case "\$*" in
+  "auth status"*) exit 0 ;;
+  "project view"*) echo '{"title":"Board"}' ;;
+  "project item-list"*) echo '{"items":[{"status":"Done","content":{"type":"Issue","number":1,"repository":"acme/app","title":"epic(auth): login"}}]}' ;;
+  "api graphql"*) echo '{"errors":[{"message":"boom"}]}'; exit 1 ;;
+esac
+GHEOF2
+sb_gbad="$(cd "$sb_g" && PATH="$sb_bin:$PATH" bash "$SB" 2>/dev/null)"; sb_gbrc=$?
+{ [ "$sb_gbrc" -ne 0 ] && ! grep -qF 'no tasks yet' <<<"$sb_gbad"; } || { bad "status-board must exit non-zero when gh api graphql fails (rc=$sb_gbrc), never 'no tasks yet'"; sb_gfail=1; }
+cat > "$sb_bin/gh" <<GHEOF3
+#!/bin/bash
+echo "\$*" >> "$sb_log"
+case "\$*" in
+  "auth status"*) exit 0 ;;
+  "project view"*) echo '{"title":"Board"}' ;;
+  "repo view"*) echo '{"name":"x"}' ;;
+  "project item-list"*) echo '{"items":[
+    {"status":"Done","content":{"type":"Issue","number":1,"repository":"acme/app","title":"epic(auth): login"}},
+    {"status":"In Progress","content":{"type":"Issue","number":2,"repository":"acme/app","title":"task a"}},
+    {"status":"Backlog","content":{"type":"Issue","number":3,"repository":"acme/app","title":"epic(pay): billing"}},
+    {"status":"Done","content":{"type":"Issue","number":4,"repository":"acme/app","title":"task b"}}]}' ;;
+  "api graphql"*)
+    if grep -q subIssuesSummary <<<"\$*"; then echo '{"data":{"repository":{"issue":{"subIssuesSummary":{"total":4,"completed":3}}}}}'
+    else echo '{"data":{"repository":{"issue":{"subIssues":{"nodes":[{"number":9,"state":"CLOSED","title":"sub one","assignees":{"nodes":[{"login":"ana"}]}}]}}}}}'; fi ;;
+  *) echo "unexpected gh call: \$*" >&2; exit 3 ;;
+esac
+GHEOF3
+# FR-005: --detailed unfolds sub-issues via the subIssues query
+: > "$sb_log"
+sb_gdet="$(cd "$sb_g" && PATH="$sb_bin:$PATH" bash "$SB" --detailed 2>&1)"
+grep -qF 'sub one' <<<"$sb_gdet" && grep -qF '@ana' <<<"$sb_gdet" || { bad "status-board --detailed must list sub-issues with assignee"; sb_gfail=1; }
+# FR-003: --check on github-project names the project readable check
+sb_gchk="$(cd "$sb_g" && PATH="$sb_bin:$PATH" bash "$SB" --check 2>&1)"; sb_gcrc=$?
+[ "$sb_gcrc" -eq 0 ] && grep -qF '[ok]' <<<"$sb_gchk" || { bad "status-board --check with a working gh must pass (rc=$sb_gcrc)"; sb_gfail=1; }
+rm -rf "$sb_g" "$sb_bin"
+[ "$sb_gfail" -eq 0 ] && ok "status-board github-project: configured owner/project used, epics by prefix, sub-issue bars, --detailed, --check (FR-003 FR-004 FR-005)"
+
+# FR-013 FR-014 — the command exists, is mechanical (sonnet), runs the helper, and stops on failure via --check
+if [ -f "$REPO/commands/hef.status.md" ] && grep -qE '^model: sonnet' "$REPO/commands/hef.status.md" \
+   && grep -qF 'hooks/status-board.sh' "$REPO/commands/hef.status.md" && grep -qF -- '--check' "$REPO/commands/hef.status.md"; then
+  ok "/hef.status is sonnet, runs status-board.sh, and falls back to --check (FR-013)"
+else bad "commands/hef.status.md missing, not sonnet, or does not run the helper / mention --check"; fi
+if [ -f "$SB" ] && ! grep -qE 'npm install|pip install|curl .*\| *sh' "$SB" && ! grep -qE '\b(yq|python3?|node)\b' "$SB"; then ok "status-board.sh performs no install step and needs only bash/jq/git/gh (FR-014)"
+else bad "status-board.sh missing, contains an install step, or calls a runtime beyond bash/jq/git/gh"; fi
 
 # --- doctor-copies: the doctor measures the copy that RUNS ---------------------------------
 # Measured 2026-09-23: the running copy is the per-profile cache (a plain copy, no .git); the

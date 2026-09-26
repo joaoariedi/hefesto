@@ -26,6 +26,7 @@ Hooks ship **inside the plugin** (`hooks/hooks.json`), so installing the plugin 
 | 🔔 `notify-on-block.sh` | Notification | Desktop alert when agent needs attention (notify-send / osascript) |
 | 📊 `stop-quality-check.sh` | Stop event | Reminds if source files were edited but tests not run |
 | 🔧 `speckit-helper.sh` | Pre-flight commands | Routes backtick logic to avoid Claude Code permission errors (not a hook — a helper) |
+| 📊 `status-board.sh` | `/hef.status` | The mechanical half of the status brief: reads `.claude/project-status.json` and prints the board from a GitHub Project or a tasks repository; `--check` diagnoses, `--detailed` unfolds. A fetcher: stdout at exit 0, or the reason on stderr at non-zero (not a hook — a helper) |
 
 ### The framework lints itself
 

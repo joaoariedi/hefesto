@@ -15,7 +15,7 @@ hefesto/
 │   └── marketplace.json        # makes the repo installable (`claude plugin install`)
 ├── .mcp.json                   # GitHub MCP server (project scope)
 ├── agents/                     # 6 agents (5 pipeline + repo-scout one-shot)
-├── commands/                   # 23 slash commands, all hef.*
+├── commands/                   # 24 slash commands, all hef.*
 ├── hooks/                      # 15 hooks + hooks.json, release.sh, speckit-helper.sh (41 subcommands)
 ├── skills/                     # 7 skills, each a <name>/SKILL.md directory
 ├── workflows/                  # workflow.js — the deterministic task-list executor

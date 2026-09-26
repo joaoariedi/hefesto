@@ -16,6 +16,7 @@
 | `/hef.quality` | — | Run comprehensive quality checks (spawns quality-guardian) |
 | `/hef.scan` | — | Scan staged changes for secrets, SQLi, XSS |
 | `/hef.doctor` | `[--eval]` | Framework self-check: the running copy (per-profile cache) against the clone and upstream, rules against upstream, hooks linted, manifest valid; `--eval` scores the plugin's own prompts (the former `/hef.sync`, plus the checks) |
+| `/hef.status` | `[--detailed] [--check]` | Management status brief — where we are, epic completion bars, at risk, bottom line — from the source `.claude/project-status.json` declares: a GitHub Project (`owner`, `project`, `roadmap`, `epic_prefix`) or a tasks repository (kanban files `TODO/DOING/DONE/BACKLOG`, `item_heading`, `id_pattern`, `done_section`, `epics.initiatives`, `epics.specs` opt-in, `states` map, quarter override). `--check` diagnoses prerequisites; `--detailed` unfolds items or sub-issues. Numbers come from `hooks/status-board.sh` only |
 | `/hef.init` | — | Bootstrap `.specify/` directory in current project |
 | `/hef.constitution` | — | Create/update project governance principles |
 | `/hef.brainstorm` | `<idea>` | Socratic design exploration before specification |

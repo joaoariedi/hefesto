@@ -1,4 +1,4 @@
-# Hefesto v7.1
+# Hefesto v7.2
 
 ## Custom Agents
 
@@ -34,7 +34,7 @@ For general tasks, use built-in agents: `Explore` (codebase search), `Plan` (arc
 - **Fast Mode**: Toggle with `/fast` for faster Opus output on quick iterations, bug fixes, and exploration (uses Opus, not a smaller model)
 - **Ultrathink**: Type `ultrathink` in any prompt to bump that turn to high reasoning effort (reverts after response)
 - Effort levels: `max` (via `/model` only) > `high` (ultrathink keyword) > `medium` (default) > `low`
-- **Model-tier routing (deliberate policy)**: aliases name tiers, not models. The rule is **cheap generation, expensive judgment** — pin `fable` only where the output is short, it gates everything downstream, and nothing later re-checks it: `hef.brainstorm|spec|clarify|review|constitution`, `code-reviewer`, `forensic-specialist`. Everything that reads a lot to produce a draft someone reviews is `opus` (Fable costs 2x on input volume, which is where the spend goes): `hef.plan|tasks|checklist|analyze|baseline|implement|verify|fix|agent|quality|scan|mutate`, all workflow spawns. `sonnet` is mechanical: `hef.init|pr|release|doctor|adr|context`, `repo-scout` (`hef.pr` only dispatches an `opus` agent, so the command itself is mechanical; `hef.review` is `fable` because its plan mode is inline judgment). Note `/fast` is priced at Fable's rate — it buys throughput, not savings. Commands, agents, and workflow spawns pin tiers via alias frontmatter/opts
+- **Model-tier routing (deliberate policy)**: aliases name tiers, not models. The rule is **cheap generation, expensive judgment** — pin `fable` only where the output is short, it gates everything downstream, and nothing later re-checks it: `hef.brainstorm|spec|clarify|review|constitution`, `code-reviewer`, `forensic-specialist`. Everything that reads a lot to produce a draft someone reviews is `opus` (Fable costs 2x on input volume, which is where the spend goes): `hef.plan|tasks|checklist|analyze|baseline|implement|verify|fix|agent|quality|scan|mutate`, all workflow spawns. `sonnet` is mechanical: `hef.init|pr|release|doctor|adr|context|status`, `repo-scout` (`hef.pr` only dispatches an `opus` agent, so the command itself is mechanical; `hef.review` is `fable` because its plan mode is inline judgment). Note `/fast` is priced at Fable's rate — it buys throughput, not savings. Commands, agents, and workflow spawns pin tiers via alias frontmatter/opts
 - NEVER put a concrete model ID in framework frontmatter or workflow opts — each environment binds the aliases: personal `claude` uses the built-in mappings + the Fable 5 session default; `claude-bedrock()` remaps them via `ANTHROPIC_DEFAULT_{FABLE,OPUS,SONNET,HAIKU}_MODEL` to Bedrock-available models. An alias a backend can't serve silently falls back to the session model — benign by design
 - Use `haiku` for lightweight tasks (search, simple edits); `sonnet` for standard work; `opus` for complex architecture
 
