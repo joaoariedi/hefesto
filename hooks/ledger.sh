@@ -47,7 +47,11 @@ GATES="verify review quality scan mutate"
 ledger_dir() {
   if [ -n "${HEFESTO_LEDGER_DIR:-}" ]; then mkdir -p "$HEFESTO_LEDGER_DIR" || die "ledger: cannot create $HEFESTO_LEDGER_DIR"; echo "$HEFESTO_LEDGER_DIR"; return; fi
   local common
-  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "ledger: not inside a git repository (cwd: $PWD)"
+  # The plugin-eval sandbox denies the git binary while the workspace is still a git repository
+  # (evals/README.md): fall back to the checkout's own .git so the evals can read the ledger.
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || { [ -d "$PWD/.git" ] && common="$PWD/.git"; } \
+    || die "ledger: not inside a git repository (cwd: $PWD)"
   mkdir -p "$common/hefesto/ledger" || die "ledger: cannot create $common/hefesto/ledger"
   echo "$common/hefesto/ledger"
 }
