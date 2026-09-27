@@ -36,6 +36,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; LEDGER="$HERE/ledger.sh"; BOARD="$HERE/st
 ROLE="$1"; ID="$2"; shift 2; DRY=0
 while [ $# -gt 0 ]; do case "$1" in --dry-run) DRY=1 ;; *) usage ;; esac; shift; done
 case "$ROLE" in implement|verify) ;; *) die "session-launch: unknown role '$ROLE' (expected implement or verify)" ;; esac
+[[ "$ID" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || die "session-launch: invalid id '$ID' (expected [A-Za-z][A-Za-z0-9_-]*) — it becomes a worktree name and a session name"
 command -v jq >/dev/null 2>&1 || die "session-launch: jq not found"
 
 TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || die "session-launch: not inside a git repository (cwd: $PWD)"

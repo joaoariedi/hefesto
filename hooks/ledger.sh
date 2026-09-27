@@ -62,16 +62,26 @@ phase_index() { # name → index, or die
 }
 in_list() { local w; for w in $2; do [ "$w" = "$1" ] && return 0; done; return 1; }
 
+valid_id() { # ids become file names, worktree names and regex atoms: one shape, checked once
+  [[ "$1" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || die "ledger: invalid id '$1' (expected [A-Za-z][A-Za-z0-9_-]*, e.g. HEF-12)"
+}
 entry() { # $1 id → JSON on stdout, or die
+  valid_id "$1" || exit 1
   local f="$DIR/$1.json"
   [ -f "$f" ] || die "ledger: no entry '$1' (expected $f — run: ledger.sh init $1 --kind … --ref …)"
   cat "$f"
 }
 write_entry() { # $1 id; stdin = new JSON. temp + mv in the same dir: a reader never sees a torn file
+  # Callers MUST append `|| exit 1`: this runs as the last stage of a pipeline, i.e. in a subshell,
+  # so a `die` here ends only that subshell — pipefail carries the failure to the caller, which must
+  # act on it. Quality gate 2026-09-27 reproduced both a wiped entry (empty jq output, exit 0) and a
+  # failed write reported as success; the -s test and the `|| exit 1` convention are the fixes.
   local f="$DIR/$1.json" t
   t=$(mktemp "$DIR/.$1.XXXXXX") || die "ledger: cannot write in $DIR"
-  if ! jq '.updated = (now | todate)' > "$t" 2>/dev/null; then rm -f "$t"; die "ledger: refusing to write invalid JSON for $1"; fi
-  mv "$t" "$f"
+  # jq -e exits 4 on EMPTY input (a failed upstream jq) and 1 on null — plain jq would exit 0 and
+  # replace the entry with an empty file.
+  if ! jq -e '.updated = (now | todate)' > "$t" 2>/dev/null; then rm -f "$t"; die "ledger: refusing to write empty or invalid JSON for $1"; fi
+  mv "$t" "$f" || { rm -f "$t"; die "ledger: cannot replace $f"; }
 }
 
 [ $# -ge 1 ] || usage
@@ -87,6 +97,7 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in
       --kind) KIND="${2:-}"; shift ;; --ref) REF="${2:-}"; shift ;; --url) URL="${2:-}"; shift ;; --body-file) BODY="${2:-}"; shift ;;
       *) usage ;; esac; shift; done
+    valid_id "$ID" || exit 1
     if [ -f "$DIR/$ID.json" ]; then echo "$DIR/$ID.json"; exit 0; fi      # idempotent: unchanged, path printed
     in_list "$KIND" "tasks-repo github-project" || die "ledger init $ID: --kind must be tasks-repo or github-project (got '${KIND:-<none>}')"
     [ -n "$REF" ] || die "ledger init $ID: --ref is required (e.g. tasks/TODO.md#$ID)"
@@ -96,7 +107,7 @@ case "$SUB" in
       id: $id, source: {kind: $kind, ref: $ref, url: (if $url == "" then null else $url end), body_sha256: $sha},
       route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
       verdicts: [], blocked_on: null, budget: {usd_cap: null, usd_spent: 0}, runs: [], attempts: 0,
-      created: (now | todate), updated: (now | todate) }' | write_entry "$ID"
+      created: (now | todate), updated: (now | todate) }' | write_entry "$ID" || exit 1
     echo "$DIR/$ID.json" ;;
 
   claim)
@@ -111,11 +122,11 @@ case "$SUB" in
     INC=0; [ "$ROLE" = implement ] && INC=1
     N=$(jq --argjson i "$INC" '.attempts + $i' <<<"$E")
     if [ "$N" -gt 2 ]; then
-      jq '.blocked_on = {kind: "stall", since: (now | todate), question_path: null} | .attempts += 1' <<<"$E" | write_entry "$ID"
+      jq '.blocked_on = {kind: "stall", since: (now | todate), question_path: null} | .attempts += 1' <<<"$E" | write_entry "$ID" || exit 1
       die "ledger claim $ID: attempt $N exceeds 2 — blocked_on: stall (a human decides whether to split or drop it)"
     fi
     jq --arg s "$SESSION" --arg r "$ROLE" --argjson p "$$" --argjson i "$INC" \
-      '.owner = {session_name: $s, role: $r, pid: $p, started: (now | todate)} | .attempts += $i' <<<"$E" | write_entry "$ID"
+      '.owner = {session_name: $s, role: $r, pid: $p, started: (now | todate)} | .attempts += $i' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID claimed by $SESSION (attempt $N)" ;;
 
   advance)
@@ -123,7 +134,7 @@ case "$SUB" in
     E=$(entry "$ID") || exit 1
     CUR=$(jq -r .phase <<<"$E"); CI=$(phase_index "$CUR") || exit 1; TI=$(phase_index "$TO") || exit 1
     [ "$TI" -gt "$CI" ] || die "ledger advance $ID: '$TO' is not after '$CUR' (phases move forward only: ${PHASES[*]})"
-    jq --arg p "$TO" '.phase = $p' <<<"$E" | write_entry "$ID"; echo "$ID $CUR → $TO" ;;
+    jq --arg p "$TO" '.phase = $p' <<<"$E" | write_entry "$ID" || exit 1; echo "$ID $CUR → $TO" ;;
 
   verdict)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; GATE=""; V=""; BY=""; EV=""
@@ -141,7 +152,7 @@ case "$SUB" in
       in_list "$BY" "$AUTHORS" && die "ledger verdict $ID: review by '$BY' refused — that session authored the change (reviewer must differ from: $(tr '\n' ' ' <<<"$AUTHORS"))"
     fi
     jq --arg g "$GATE" --arg v "$V" --arg b "$BY" --arg e "$EV" \
-      '.verdicts += [{gate: $g, verdict: $v, by: $b, at: (now | todate), evidence: (if $e == "" then null else $e end)}]' <<<"$E" | write_entry "$ID"
+      '.verdicts += [{gate: $g, verdict: $v, by: $b, at: (now | todate), evidence: (if $e == "" then null else $e end)}]' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID $GATE $V by $BY" ;;
 
   block)
@@ -149,7 +160,7 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --kind) KIND="${2:-}"; shift ;; --question) Q="${2:-}"; shift ;; *) usage ;; esac; shift; done
     in_list "$KIND" "$KINDS" || die "ledger block $ID: --kind must be one of: $KINDS (got '${KIND:-<none>}')"
     E=$(entry "$ID") || exit 1
-    jq --arg k "$KIND" --arg q "$Q" '.blocked_on = {kind: $k, since: (now | todate), question_path: (if $q == "" then null else $q end)}' <<<"$E" | write_entry "$ID"
+    jq --arg k "$KIND" --arg q "$Q" '.blocked_on = {kind: $k, since: (now | todate), question_path: (if $q == "" then null else $q end)}' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID blocked_on $KIND" ;;
 
   unblock)
@@ -172,7 +183,7 @@ case "$SUB" in
       human:intake)
         { [ "$REVIEWED" = 1 ] && [ -t 0 ]; } || die "ledger unblock $ID: $KIND needs --reviewed-by-human from an interactive shell (a person read the item text)" ;;
     esac
-    jq '.blocked_on = null' <<<"$E" | write_entry "$ID"; echo "$ID unblocked ($KIND)" ;;
+    jq '.blocked_on = null' <<<"$E" | write_entry "$ID" || exit 1; echo "$ID unblocked ($KIND)" ;;
 
   run)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; ROLE=""; RC=""; USD=""; SID=""
@@ -181,21 +192,23 @@ case "$SUB" in
       *) usage ;; esac; shift; done
     [ -n "$ROLE" ] && [ -n "$RC" ] && [ -n "$USD" ] || die "ledger run $ID: --role, --exit and --usd are required"
     E=$(entry "$ID") || exit 1
+    [[ "$RC" =~ ^-?[0-9]+$ ]] && [[ "$USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "ledger run $ID: --exit must be an integer and --usd a non-negative number (got '$RC', '$USD')"
     jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" \
       '.runs += [{role: $r, session_name: (.owner.session_name // null), session_id: (if $sid == "" then null else $sid end), exit: $rc, usd: $usd, at: (now | todate)}]
-       | .budget.usd_spent += $usd | .owner = null' <<<"$E" 2>/dev/null | write_entry "$ID" || die "ledger run $ID: --exit and --usd must be numbers (got '$RC', '$USD')"
+       | .budget.usd_spent += $usd | .owner = null' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID run recorded ($ROLE exit $RC, $USD USD); owner released" ;;
 
   record)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1
+    setf() { E=$(jq --arg v "$2" "$1" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set $1 to '$2'"; }
     while [ $# -gt 0 ]; do case "$1" in
-      --worktree) E=$(jq --arg v "${2:-}" '.worktree = $v' <<<"$E"); shift ;;
-      --branch)   E=$(jq --arg v "${2:-}" '.branch = $v' <<<"$E"); shift ;;
-      --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; E=$(jq --arg v "$2" '.route = $v' <<<"$E"); shift ;;
-      --pr)       E=$(jq --arg v "${2:-}" '.pr = {url: $v, number: (($v | capture("/(?<n>[0-9]+)$").n | tonumber)? // null)}' <<<"$E"); shift ;;
-      --spec-dir) E=$(jq --arg v "${2:-}" '.spec_dir = $v' <<<"$E"); shift ;;
+      --worktree) setf '.worktree = $v' "${2:-}"; shift ;;
+      --branch)   setf '.branch = $v' "${2:-}"; shift ;;
+      --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; setf '.route = $v' "$2"; shift ;;
+      --pr)       setf '.pr = {url: $v, number: (($v | capture("/(?<n>[0-9]+)$").n | tonumber)? // null)}' "${2:-}"; shift ;;
+      --spec-dir) setf '.spec_dir = $v' "${2:-}"; shift ;;
       *) usage ;; esac; shift; done
-    write_entry "$ID" <<<"$E"; echo "$ID recorded" ;;
+    write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 
   show) ID="${1:-}"; [ -n "$ID" ] || usage; entry "$ID" ;;
 
