@@ -1426,6 +1426,126 @@ else bad "commands/hef.status.md missing, not sonnet, or does not run the helper
 if [ -f "$SB" ] && ! grep -qE 'npm install|pip install|curl .*\| *sh' "$SB" && ! grep -qE '\b(yq|python3?|node)\b' "$SB"; then ok "status-board.sh performs no install step and needs only bash/jq/git/gh (FR-014)"
 else bad "status-board.sh missing, contains an install step, or calls a runtime beyond bash/jq/git/gh"; fi
 
+# --- session-orchestration: a board-driven pipeline of fresh sessions over a file ledger --------
+# (feature session-orchestration, report 17). Every guard below is mutation-checked; see each
+# check's comment. FR ids cite .specify/specs/session-orchestration/spec.md.
+head_ "Session orchestration"
+
+# FR-016 — the dogfood board: this repository's own tasks/ kanban and config parse through the
+# status helper: 3 todo items (HEF-1..3), zero doing; the config carries the orchestrate block.
+# Mutation: one `## HEF-` heading removed → count 2 → red.
+so_out="$(cd "$REPO" && bash "$SB" --detailed 2>&1)"; so_rc=$?
+if [ "$so_rc" -eq 0 ] && grep -qE 'todo[^0-9]*3 item' <<<"$so_out" && grep -qF 'HEF-1' <<<"$so_out" && grep -qF 'HEF-3' <<<"$so_out" \
+   && jq -e '.source=="tasks-repo" and .root=="tasks" and .orchestrate.usd_cap==5 and .orchestrate.daily_usd_cap==25' "$REPO/.claude/project-status.json" >/dev/null 2>&1; then
+  ok "dogfood board: tasks/ kanban parses to 3 todo items and the config carries the orchestrate caps (FR-016)"
+else bad "dogfood board: rc=$so_rc, config or counts wrong — $(grep -iE 'todo|error' <<<"$so_out" | head -2 | tr '\n' '|')"; fi
+
+# The ledger (FR-001..FR-008): one JSON file per board item in the git COMMON dir, written only by
+# the helper, every guard a `die`. Fixture: a temp repo with a second worktree.
+LG="$REPO/hooks/ledger.sh"
+if [ -x "$LG" ]; then ok "hook ledger.sh exists and is executable"; else bad "hooks/ledger.sh missing or not executable"; fi
+lg_t="$(mktemp -d)"; lg_fail=0
+( cd "$lg_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init \
+  && git worktree add -q "$lg_t/wt" -b wt && git -C "$lg_t/wt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m wt \
+  && printf 'body line\n<!-- hidden -->\n' > body.txt ) >/dev/null 2>&1
+lg() { (cd "$lg_t" && bash "$LG" "$@"); }
+# FR-001 FR-008 — `dir` resolves to <common dir>/hefesto/ledger from the main checkout AND from a worktree
+lg_dir="$(lg dir 2>/dev/null)"; lg_dir_wt="$(cd "$lg_t/wt" && bash "$LG" dir 2>/dev/null)"
+[ "$lg_dir" = "$lg_t/.git/hefesto/ledger" ] && [ "$lg_dir_wt" = "$lg_dir" ] || { bad "ledger dir must be <common>/hefesto/ledger from main and worktree (got '$lg_dir' / '$lg_dir_wt')"; lg_fail=1; }
+# FR-001 — init writes the schema; a second init leaves the file byte-identical and exits 0
+lg init HEF-9 --kind tasks-repo --ref tasks/TODO.md#HEF-9 --body-file "$lg_t/body.txt" >/dev/null 2>&1 || { bad "ledger init failed"; lg_fail=1; }
+jq -e '.id=="HEF-9" and .phase=="queued" and .owner==null and .blocked_on==null and .attempts==0 and (.source.body_sha256|length)==64 and .budget.usd_spent==0' "$lg_dir/HEF-9.json" >/dev/null 2>&1 \
+  || { bad "ledger init schema wrong: $(head -c 200 "$lg_dir/HEF-9.json" 2>/dev/null)"; lg_fail=1; }
+lg_before="$(cat "$lg_dir/HEF-9.json")"; lg init HEF-9 --kind tasks-repo --ref x >/dev/null 2>&1 || { bad "ledger init twice must exit 0"; lg_fail=1; }
+[ "$lg_before" = "$(cat "$lg_dir/HEF-9.json")" ] || { bad "ledger init twice must leave the entry unchanged"; lg_fail=1; }
+# FR-007 — a missing entry is non-zero with EMPTY stdout (constitution 5)
+lg_miss="$(lg show HEF-NOPE 2>/dev/null)"; lg_mrc=$?
+{ [ "$lg_mrc" -ne 0 ] && [ -z "$lg_miss" ]; } || { bad "ledger show of a missing id must be non-zero with empty stdout (rc=$lg_mrc)"; lg_fail=1; }
+# FR-002 — claim is exclusive: the second claimer is refused BY NAME and nothing is written
+# Mutation: the owner check removed → second claim succeeds → red.
+lg claim HEF-9 --session impl-A --role implement >/dev/null 2>&1 || { bad "ledger first claim failed"; lg_fail=1; }
+lg_err="$(lg claim HEF-9 --session impl-B --role implement 2>&1 >/dev/null)"; lg_crc=$?
+{ [ "$lg_crc" -ne 0 ] && grep -qF 'impl-A' <<<"$lg_err" && jq -e '.owner.session_name=="impl-A" and .attempts==1' "$lg_dir/HEF-9.json" >/dev/null; } \
+  || { bad "ledger second claim must fail naming impl-A and leave owner=impl-A (rc=$lg_crc: $lg_err)"; lg_fail=1; }
+# FR-003 — advance is forward-only along the enum; unknown names are refused
+# Mutation: the order comparison removed → backwards advance green → red.
+lg advance HEF-9 implement >/dev/null 2>&1 || { bad "ledger advance queued→implement (skip forward) must succeed"; lg_fail=1; }
+if lg advance HEF-9 spec >/dev/null 2>&1; then bad "ledger advance backwards (implement→spec) must fail"; lg_fail=1; fi
+if lg advance HEF-9 bogus >/dev/null 2>&1; then bad "ledger advance to an unknown phase must fail"; lg_fail=1; fi
+# FR-008 — `run` records the run, adds the cost, and RELEASES the owner so the next claim can succeed
+lg run HEF-9 --role implement --exit 1 --usd 1.5 --session-id sid-1 >/dev/null 2>&1 || { bad "ledger run failed"; lg_fail=1; }
+jq -e '.owner==null and .budget.usd_spent==1.5 and (.runs|length)==1 and .runs[0].session_name=="impl-A"' "$lg_dir/HEF-9.json" >/dev/null 2>&1 \
+  || { bad "ledger run must release owner, add usd, append runs[] with the session name"; lg_fail=1; }
+# FR-002 — stall: the claim that would make attempts exceed 2 sets blocked_on=stall and fails
+# Mutation: `-gt 2` → `-gt 3` → third claim succeeds → red.
+lg claim HEF-9 --session impl-A --role implement >/dev/null 2>&1 && lg run HEF-9 --role implement --exit 1 --usd 0.5 >/dev/null 2>&1 || { bad "ledger second attempt cycle failed"; lg_fail=1; }
+if lg claim HEF-9 --session impl-A --role implement >/dev/null 2>&1; then bad "ledger third claim must be refused (stall)"; lg_fail=1; fi
+jq -e '.blocked_on.kind=="stall" and .attempts==3 and .budget.usd_spent==2' "$lg_dir/HEF-9.json" >/dev/null 2>&1 || { bad "ledger third claim must set blocked_on=stall, attempts=3, usd_spent=2 — got $(jq -c '{b:.blocked_on,a:.attempts,u:.budget.usd_spent}' "$lg_dir/HEF-9.json")"; lg_fail=1; }
+# FR-004 — a review verdict may not come from the author (owner OR any implement run), other gates may
+# Mutation: the author check removed → self-review accepted → red.
+lg init HEF-10 --kind tasks-repo --ref t#HEF-10 >/dev/null 2>&1; lg claim HEF-10 --session impl-X --role implement >/dev/null 2>&1; lg run HEF-10 --role implement --exit 0 --usd 1 >/dev/null 2>&1
+if lg verdict HEF-10 --gate review --verdict PASS --by impl-X >/dev/null 2>&1; then bad "ledger verdict: a review by the implement session (impl-X) must be refused"; lg_fail=1; fi
+lg verdict HEF-10 --gate review --verdict PASS --by verify-X >/dev/null 2>&1 && lg verdict HEF-10 --gate quality --verdict FAIL --by verify-X --evidence lint >/dev/null 2>&1 \
+  && jq -e '(.verdicts|length)==2 and .verdicts[1].evidence=="lint"' "$lg_dir/HEF-10.json" >/dev/null 2>&1 || { bad "ledger verdict by a different session must append (2 verdicts with evidence)"; lg_fail=1; }
+if lg verdict HEF-10 --gate nope --verdict PASS --by v >/dev/null 2>&1; then bad "ledger verdict with an unknown gate must fail"; lg_fail=1; fi
+# FR-005 FR-006 — block kinds are an enum; a human:* block is cleared only by artifact EVIDENCE
+# Mutations: the evidence case for plan-review removed → unblock without '## Reviewed' green → red;
+# the TTY test for human:intake removed → unblock from a pipe green → red.
+if lg block HEF-10 --kind bogus >/dev/null 2>&1; then bad "ledger block with an unknown kind must fail"; lg_fail=1; fi
+mkdir -p "$lg_t/.specify/specs/hef10" && printf '# plan\n' > "$lg_t/.specify/specs/hef10/plan.md" && printf '# spec\n[NEEDS CLARIFICATION] x\n' > "$lg_t/.specify/specs/hef10/spec.md"
+lg record HEF-10 --spec-dir .specify/specs/hef10 --branch wt >/dev/null 2>&1 || { bad "ledger record failed"; lg_fail=1; }
+lg block HEF-10 --kind human:plan-review >/dev/null 2>&1 || { bad "ledger block human:plan-review failed"; lg_fail=1; }
+if lg unblock HEF-10 >/dev/null 2>&1; then bad "ledger unblock human:plan-review without '## Reviewed' must fail"; lg_fail=1; fi
+printf '## Reviewed 2026-09-27\n' >> "$lg_t/.specify/specs/hef10/plan.md"
+lg unblock HEF-10 >/dev/null 2>&1 && jq -e '.blocked_on==null' "$lg_dir/HEF-10.json" >/dev/null 2>&1 || { bad "ledger unblock human:plan-review with '## Reviewed' must clear the block"; lg_fail=1; }
+lg block HEF-10 --kind human:clarify >/dev/null 2>&1
+if lg unblock HEF-10 >/dev/null 2>&1; then bad "ledger unblock human:clarify with a marker left in spec.md must fail"; lg_fail=1; fi
+printf '# spec\n' > "$lg_t/.specify/specs/hef10/spec.md"; lg unblock HEF-10 >/dev/null 2>&1 || { bad "ledger unblock human:clarify with no marker must succeed"; lg_fail=1; }
+lg block HEF-10 --kind human:merge >/dev/null 2>&1
+if lg unblock HEF-10 >/dev/null 2>&1; then bad "ledger unblock human:merge before the branch is merged must fail"; lg_fail=1; fi
+( cd "$lg_t" && git -c user.email=t@t -c user.name=t merge -q --no-ff wt -m merge ) >/dev/null 2>&1
+lg unblock HEF-10 >/dev/null 2>&1 || { bad "ledger unblock human:merge once wt is an ancestor of main must succeed"; lg_fail=1; }
+lg block HEF-10 --kind human:intake >/dev/null 2>&1
+if lg unblock HEF-10 --reviewed-by-human </dev/null >/dev/null 2>&1; then bad "ledger unblock human:intake from a non-TTY must fail even with --reviewed-by-human"; lg_fail=1; fi
+lg block HEF-10 --kind ci >/dev/null 2>&1 && lg unblock HEF-10 >/dev/null 2>&1 || { bad "ledger unblock of a non-human kind (ci) must clear freely"; lg_fail=1; }
+# FR-007 — next: lowest id with owner=null, blocked_on=null, phase queued|implement; none → non-zero
+# (HEF-9 is stall-blocked; HEF-10 is parked in pr so it is not a candidate.)
+# Mutation: the blocked_on test removed from the filter → HEF-A1 returned → red.
+lg advance HEF-10 pr >/dev/null 2>&1
+for i in A1 A2 A3 A4; do lg init "HEF-$i" --kind tasks-repo --ref t >/dev/null 2>&1; done
+lg block HEF-A1 --kind ci >/dev/null 2>&1; lg claim HEF-A2 --session s --role implement >/dev/null 2>&1
+lg advance HEF-A3 pr >/dev/null 2>&1; lg advance HEF-A4 implement >/dev/null 2>&1
+[ "$(lg next 2>/dev/null)" = "HEF-A4" ] || { bad "ledger next must return HEF-A4 (A1 blocked, A2 owned, A3 in pr, HEF-10 merged-cleared? no: HEF-10 is unblocked+queued — got '$(lg next 2>/dev/null)')"; lg_fail=1; }
+lg_active="$(lg list --active 2>/dev/null | jq -r '.[].id' | tr '\n' ' ')"
+[ "$lg_active" = "HEF-A2 " ] || { bad "ledger list --active must list only owned entries (got '$lg_active')"; lg_fail=1; }
+lg_today="$(lg list --today 2>/dev/null | jq 'length')"; [ "$lg_today" -ge 6 ] || { bad "ledger list --today must include every entry updated today (got $lg_today)"; lg_fail=1; }
+( cd "$lg_t" && git worktree remove --force wt ) >/dev/null 2>&1; rm -rf "$lg_t"
+[ "$lg_fail" -eq 0 ] && ok "ledger: common-dir location, schema, exclusive claim, stall, forward-only phases, run releases owner, reviewer≠author, evidence-gated unblock, next/list (FR-001 FR-002 FR-003 FR-004 FR-005 FR-006 FR-007 FR-008)"
+
+# FR-014 — status-board --item <id>: the heading + body of ONE item, HTML comments stripped, wrapped in
+# the untrusted delimiters, so the judging model and the launcher's prompt see the same sanitised
+# text; --item-raw keeps the comment (that is what the ledger hashes). Missing id → non-zero, empty
+# stdout; github-project → non-zero "unsupported".
+# Mutation: the comment strip removed → 'hidden' visible in --item → red.
+si_t="$(mktemp -d)"; si_fail=0
+( cd "$si_t" && git init -q . && mkdir -p tasks .claude \
+  && printf '# TODO\n\n## HEF-1 — first\nbody one\n<!-- hidden instruction -->\nmore one\n\n## HEF-2 — second\nbody two\n' > tasks/TODO.md \
+  && printf '# DOING\n' > tasks/DOING.md && printf '# DONE\n' > tasks/DONE.md && printf '# BACKLOG\n\n## HEF-3 — third\nbody three\n' > tasks/BACKLOG.md \
+  && printf '{"source":"tasks-repo","root":"tasks"}\n' > .claude/project-status.json ) >/dev/null 2>&1
+si_out="$(cd "$si_t" && bash "$SB" --item HEF-1 2>&1)"; si_rc=$?
+{ [ "$si_rc" -eq 0 ] && grep -qF 'untrusted-begin HEF-1' <<<"$si_out" && grep -qF 'untrusted-end' <<<"$si_out" && grep -qF 'body one' <<<"$si_out" \
+  && grep -qF 'more one' <<<"$si_out" && ! grep -qF 'hidden' <<<"$si_out" && ! grep -qF 'body two' <<<"$si_out"; } \
+  || { bad "status-board --item HEF-1: must print only HEF-1's body, delimited, comment stripped (rc=$si_rc): $(tr '\n' '|' <<<"$si_out" | head -c 200)"; si_fail=1; }
+si_raw="$(cd "$si_t" && bash "$SB" --item-raw HEF-1 2>&1)"
+grep -qF 'hidden instruction' <<<"$si_raw" && ! grep -qF 'untrusted-begin' <<<"$si_raw" || { bad "status-board --item-raw must keep the comment and add no delimiters"; si_fail=1; }
+si_b="$(cd "$si_t" && bash "$SB" --item HEF-3 2>&1)"; grep -qF 'body three' <<<"$si_b" || { bad "status-board --item must find an item in BACKLOG too"; si_fail=1; }
+si_none="$(cd "$si_t" && bash "$SB" --item HEF-9 2>/dev/null)"; si_nrc=$?
+{ [ "$si_nrc" -ne 0 ] && [ -z "$si_none" ]; } || { bad "status-board --item of a missing id must be non-zero with empty stdout (rc=$si_nrc)"; si_fail=1; }
+printf '{"source":"github-project","owner":"o","project":1}\n' > "$si_t/.claude/project-status.json"
+if (cd "$si_t" && bash "$SB" --item HEF-1 >/dev/null 2>&1); then bad "status-board --item on github-project must fail as unsupported in Phase 1"; si_fail=1; fi
+rm -rf "$si_t"
+[ "$si_fail" -eq 0 ] && ok "status-board --item: one sanitised delimited item, --item-raw for hashing, missing id and github-project fail loudly (FR-014)"
+
 # --- doctor-copies: the doctor measures the copy that RUNS ---------------------------------
 # Measured 2026-09-23: the running copy is the per-profile cache (a plain copy, no .git); the
 # doctor used to rev-parse it, get "not a git clone", and skip — while three profiles disagreed.

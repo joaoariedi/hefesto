@@ -1,0 +1,16 @@
+{
+  "source": "tasks-repo",
+  "root": "tasks",
+  "name": "hefesto",
+  "columns": { "todo": "TODO.md", "doing": "DOING.md", "done": "DONE.md", "backlog": "BACKLOG.md" },
+  "epics": { "initiatives": "initiatives/*.md", "specs": false },
+  "orchestrate": {
+    "usd_cap": 5,
+    "daily_usd_cap": 25,
+    "tiers": { "implement": "opus", "verify": "fable" },
+    "allowed_tools": {
+      "implement": ["Read", "Edit", "Write", "Glob", "Grep", "Skill", "Agent", "Bash(git *)", "Bash(gh pr create *)", "Bash(gh pr view *)", "Bash(bash tests/smoke.sh*)", "Bash(node --test*)"],
+      "verify": ["Read", "Glob", "Grep", "Skill", "Agent", "Bash(git diff*)", "Bash(git log*)", "Bash(bash tests/smoke.sh*)", "Bash(node --test*)", "Bash(gitleaks *)"]
+    }
+  }
+}
