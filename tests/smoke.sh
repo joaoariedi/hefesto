@@ -1529,7 +1529,8 @@ jq -e '.id=="HEF-A4" and .phase=="implement"' "$lg_dir/HEF-A4.json" >/dev/null 2
 # a corrupted entry (invalid JSON on disk) must not be replaced by an EMPTY file: the upstream jq
 # produces no output, and write_entry must refuse to install nothing. Mutation: `jq -e` → `jq` → red.
 cp "$lg_dir/HEF-A4.json" "$lg_dir/.HEF-A4.good"; printf 'not json\n' > "$lg_dir/HEF-A4.json"
-if lg advance HEF-A4 verify >/dev/null 2>&1; then bad "ledger advance on a corrupted entry must fail"; lg_fail=1; fi
+# `block` (not `advance`, which dies on the unreadable phase before writing) reaches write_entry with an empty stream.
+if lg block HEF-A4 --kind ci >/dev/null 2>&1; then bad "ledger block on a corrupted entry must fail"; lg_fail=1; fi
 [ "$(cat "$lg_dir/HEF-A4.json")" = "not json" ] || { bad "ledger must not replace a corrupted entry with an empty file (now: '$(head -c 40 "$lg_dir/HEF-A4.json")')"; lg_fail=1; }
 cp "$lg_dir/.HEF-A4.good" "$lg_dir/HEF-A4.json"
 chmod 555 "$lg_dir"; lg_ro="$(lg advance HEF-A4 verify 2>&1)"; lg_rorc=$?; chmod 755 "$lg_dir"
