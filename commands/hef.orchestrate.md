@@ -46,7 +46,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
 1. **Register the todo items.** For every id under `todo` in the board output that has no ledger
    entry yet, run with the Bash tool (one call per id, `<column>` is the todo column file):
    `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-raw <id> > "${TMPDIR:-/tmp}/hefesto-<id>.body" && ${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh init <id> --kind tasks-repo --ref <column>#<id> --body-file "${TMPDIR:-/tmp}/hefesto-<id>.body"`
-   `init` is idempotent; an existing entry is left untouched.
+   `init` is idempotent; an existing entry is left untouched. An entry whose id no longer appears on
+   the board is **orphaned**: report it by id and leave it — never delete a ledger entry.
 
 2. **One worker per repository.** If `list --active` printed a non-empty array, report which entry
    is owned by which session and **stop**. Two concurrent workers on one repository is the 41.7 %
@@ -72,7 +73,10 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
 5. **Launch the worker, then the verifier.** Run with the Bash tool:
    `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh implement <id> $ARGUMENTS`
    If it exits non-zero, show its stderr and stop — the ledger already holds the state (`blocked_on`,
-   `attempts`, cost). If it exits zero, run with the Bash tool:
+   `attempts`, cost). Two refusals are for a person, not for you: **changed since claim** (the item's
+   text differs from the hash taken at registration — someone edited the board; a person re-reads it
+   and re-hashes with `ledger.sh record <id> --body-file <raw>`), and **blocked_on: budget** (the
+   session hit its spend cap; split the item or raise the cap). If it exits zero, run with the Bash tool:
    `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh verify <id> $ARGUMENTS`
    With `--dry-run` both print the exact `claude -p` line and claim nothing — use it to review the
    flags before the first real run.

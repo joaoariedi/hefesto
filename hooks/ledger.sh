@@ -32,7 +32,7 @@ usage: ledger.sh <subcommand> …
   block <id> --kind <kind> [--question <path>]
   unblock <id> [--reviewed-by-human]                    human:* kinds need artifact evidence
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
-  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d]
+  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f]   (--body-file re-hashes the item)
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next
 EOF
   exit 2
@@ -40,6 +40,8 @@ EOF
 
 command -v jq >/dev/null 2>&1 || die "ledger: jq not found — install jq: https://jqlang.org"
 
+# Sort ids by prefix then NUMERIC suffix: lexical order would dispatch HEF-10 before HEF-9 (review 2026-09-27).
+ID_SORT='sort_by(.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])'
 PHASES=(queued intake spec plan plan-review tasks implement verify quality security pr merged released)
 KINDS="human:clarify human:plan-review human:merge human:intake ci conflict budget stall verdict"
 GATES="verify review quality scan mutate"
@@ -202,6 +204,7 @@ case "$SUB" in
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1
     setf() { E=$(jq --arg v "$2" "$1" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set $1 to '$2'"; }
     while [ $# -gt 0 ]; do case "$1" in
+      --body-file) [ -f "${2:-}" ] || die "ledger record $ID: body file not found: '${2:-}'"; setf '.source.body_sha256 = $v' "$(sha256sum "$2" | cut -c1-64)"; shift ;;
       --worktree) setf '.worktree = $v' "${2:-}"; shift ;;
       --branch)   setf '.branch = $v' "${2:-}"; shift ;;
       --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; setf '.route = $v' "$2"; shift ;;
@@ -217,12 +220,18 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in
       --phase) PH="${2:-}"; shift ;; --blocked) BLOCKED=1 ;; --active) ACTIVE=1 ;; --today) TODAY=1 ;; *) usage ;; esac; shift; done
     D=$(date -u +%Y-%m-%d)
-    jq -s --arg ph "$PH" --argjson b "$BLOCKED" --argjson a "$ACTIVE" --argjson t "$TODAY" --arg d "$D" '
-      map(select(($ph == "" or .phase == $ph) and ($b == 0 or .blocked_on != null) and ($a == 0 or .owner != null)
-                 and ($t == 0 or (.updated | startswith($d))))) | sort_by(.id)' "$DIR"/*.json 2>/dev/null || echo '[]' ;;
+    shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
+    [ "${#FILES[@]}" -gt 0 ] || { echo '[]'; exit 0; }              # an empty ledger is an answer; an unreadable one is not
+    jq -s --arg ph "$PH" --argjson b "$BLOCKED" --argjson a "$ACTIVE" --argjson t "$TODAY" --arg d "$D" "
+      map(select((\$ph == \"\" or .phase == \$ph) and (\$b == 0 or .blocked_on != null) and (\$a == 0 or .owner != null)
+                 and (\$t == 0 or (.updated | startswith(\$d))))) | $ID_SORT" "${FILES[@]}" \
+      || die "ledger list: an entry in $DIR is not valid JSON — repair or remove it (jq . $DIR/*.json names it)" ;;
 
   next)
-    N=$(jq -rs 'map(select(.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "implement"))) | sort_by(.id) | .[0].id // empty' "$DIR"/*.json 2>/dev/null)
+    shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
+    [ "${#FILES[@]}" -gt 0 ] || die "ledger next: no entries in $DIR (run: ledger.sh init <id> …)"
+    N=$(jq -rs "map(select(.owner == null and .blocked_on == null and (.phase == \"queued\" or .phase == \"implement\"))) | $ID_SORT | .[0].id // empty" "${FILES[@]}") \
+      || die "ledger next: an entry in $DIR is not valid JSON — repair or remove it"
     [ -n "$N" ] || die "ledger next: no dispatchable entry (queued or implement, unowned, unblocked) in $DIR"
     echo "$N" ;;
 

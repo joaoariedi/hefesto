@@ -237,6 +237,8 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    never model ids; the reviewer tier must rank at or above the author's.
 2. **Protect `main`**: require a pull request before merging (0 approvals is enough on a solo repo,
    include administrators). No launched session can then push `main`, whatever its prompt says.
+   Merge with **merge commits**, not squash or rebase: the `human:merge` gate is cleared by
+   `git merge-base --is-ancestor <branch> main`, which a squash- or rebase-merged branch never satisfies.
 3. **Open the orchestrator pane with its own sandbox off**, in the main checkout, on the always-on
    host that holds GitHub access and nothing else:
    `claude --settings '{"sandbox":{"enabled":false}}'` (under herdr: one pane in the company

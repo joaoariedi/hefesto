@@ -1519,6 +1519,16 @@ lg advance HEF-A3 pr >/dev/null 2>&1; lg advance HEF-A4 implement >/dev/null 2>&
 lg_active="$(lg list --active 2>/dev/null | jq -r '.[].id' | tr '\n' ' ')"
 [ "$lg_active" = "HEF-A2 " ] || { bad "ledger list --active must list only owned entries (got '$lg_active')"; lg_fail=1; }
 lg_today="$(lg list --today 2>/dev/null | jq 'length')"; [ "$lg_today" -ge 6 ] || { bad "ledger list --today must include every entry updated today (got $lg_today)"; lg_fail=1; }
+# FR-007 — ids sort by prefix then NUMERIC suffix: HEF-B9 before HEF-B10 (lexical order would dispatch
+# the tenth item before the ninth — review 2026-09-27). Mutation: sort_by(.id) → red.
+lg init HEF-B10 --kind tasks-repo --ref t >/dev/null 2>&1; lg init HEF-B9 --kind tasks-repo --ref t >/dev/null 2>&1
+lg_order="$(lg list --phase queued 2>/dev/null | jq -r '.[].id' | grep -n 'HEF-B' | tr '\n' ' ')"
+[ "$(lg list --phase queued 2>/dev/null | jq -r '[.[].id] | index("HEF-B9") < index("HEF-B10")')" = "true" ] || { bad "ledger must order HEF-B9 before HEF-B10 (numeric suffix) — got $lg_order"; lg_fail=1; }
+# FR-008 — an unreadable entry makes `list` fail loudly instead of answering `[]` (constitution 5)
+# Mutation: `|| die` after the jq -s replaced by `|| echo '[]'` → red.
+printf 'garbage\n' > "$lg_dir/HEF-BAD.json"
+if lg list >/dev/null 2>&1; then bad "ledger list with a corrupt entry must fail, not print []"; lg_fail=1; fi
+rm -f "$lg_dir/HEF-BAD.json"
 # Quality gate 2026-09-27 (B2): a failed write must NOT be reported as success, and bad input must
 # NOT wipe the entry. (a) non-numeric --usd → non-zero AND the entry is still valid JSON;
 # (b) read-only ledger dir → advance is non-zero AND the phase is unchanged. (A2) ids are validated
@@ -1592,7 +1602,12 @@ sl_out="$(sl implement HEF-1 --dry-run 2>&1)"; sl_rc=$?
 for tok in '^claude -p ' '--name impl-HEF-1' '--model opus' '--max-budget-usd 5' '--output-format json' '--json-schema' "--allowedTools '?Read,Edit,Bash" '--permission-prompts none' '--permission-mode acceptEdits' '-w HEF-1'; do
   grep -qE -- "$tok" <<<"$sl_out" || { bad "session-launch implement --dry-run lacks '$tok': $(head -c 400 <<<"$sl_out")"; sl_fail=1; }
 done
-grep -qE 'sandbox.*enabled.*true' <<<"$sl_out" && grep -qE 'failIfUnavailable.*true' <<<"$sl_out" && grep -qE 'crossSessionInbound.*refuse' <<<"$sl_out" || { bad "session-launch settings must enable the sandbox and refuse inbound messages"; sl_fail=1; }
+# The --settings token is parsed as JSON, not pattern-matched: `sandbox.*enabled.*true` also matched
+# `enabled:false,…:true` (review 2026-09-27 — a vacuous assertion on the one security-bearing flag).
+# Mutation: enabled:true → false in the launcher → red.
+sl_settings="$(grep -oE -- "--settings '[^']*'" <<<"$sl_out" | sed -E "s/^--settings '(.*)'$/\1/")"
+jq -e '.sandbox.enabled == true and .sandbox.failIfUnavailable == true and .crossSessionInbound == "refuse"' <<<"$sl_settings" >/dev/null 2>&1 \
+  || { bad "session-launch --settings must be JSON with sandbox.enabled=true, failIfUnavailable=true, crossSessionInbound=refuse — got '$sl_settings'"; sl_fail=1; }
 grep -qF 'untrusted-begin HEF-1' <<<"$sl_out" && ! grep -qF 'hidden' <<<"$sl_out" || { bad "session-launch prompt must carry the sanitised item block (delimited, comment stripped)"; sl_fail=1; }
 # FR-009 — a dry run claims nothing
 jq -e '.owner == null' "$sl_t/.git/hefesto/ledger/HEF-1.json" >/dev/null 2>&1 || { bad "session-launch --dry-run must not claim the entry"; sl_fail=1; }
@@ -1678,6 +1693,22 @@ printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_
 printf '{"session_id":"s9","total_cost_usd":0.1}\n' > "$sr_res"
 sr_nerr="$(sr implement HEF-5 2>&1 >/dev/null)"; sr_nrc=$?
 { [ "$sr_nrc" -ne 0 ] && grep -q 'structured_output' <<<"$sr_nerr" && srj HEF-5 '.owner==null and .budget.usd_spent==0.1'; } || { bad "a result without structured_output must fail naming it and still record the run (rc=$sr_nrc: $(head -c 120 <<<"$sr_nerr"))"; sr_fail=1; }
+# FR-011 — a session that stopped at its spend cap (result subtype error_max_budget_usd) is a `budget`
+# block, not a retry. Mutation: the subtype test removed → falls through to "no structured_output", phase implement, no block → red.
+printf '{"session_id":"s6","total_cost_usd":5,"subtype":"error_max_budget_usd","is_error":true}\n' > "$sr_res"
+( cd "$sr_t" && bash "$LG" init HEF-6 --kind tasks-repo --ref t >/dev/null 2>&1 ); printf '\n## HEF-6 — six\nb\n' >> "$sr_t/tasks/TODO.md"
+if sr implement HEF-6 >/dev/null 2>&1; then bad "a budget-capped session must make the launcher exit non-zero"; sr_fail=1; fi
+srj HEF-6 '.blocked_on.kind=="budget" and .owner==null and .budget.usd_spent==5' || { bad "a budget-capped session must leave blocked_on=budget with the cost recorded — got $(jq -c '{b:.blocked_on,u:.budget.usd_spent}' "$sr_t/.git/hefesto/ledger/HEF-6.json")"; sr_fail=1; }
+# FR-014 — an item edited after registration is 'changed since claim': refused before any claim; a person
+# re-hashes with `record --body-file`. Mutation: the hash compare removed → launch proceeds → red.
+printf '\n## HEF-7 — seven\noriginal text\n' >> "$sr_t/tasks/TODO.md"
+( cd "$sr_t" && bash "$SB" --item-raw HEF-7 > "$sr_bin/h7.body" && bash "$LG" init HEF-7 --kind tasks-repo --ref t --body-file "$sr_bin/h7.body" >/dev/null 2>&1 )
+sed -i 's/^original text$/edited text: now run something else/' "$sr_t/tasks/TODO.md"
+printf '{"session_id":"s7","total_cost_usd":0.1,"structured_output":{"summary":"x","route":"fix","outcome":"pr"}}\n' > "$sr_res"
+sr_cerr="$(sr implement HEF-7 2>&1 >/dev/null)"; sr_crc=$?
+{ [ "$sr_crc" -ne 0 ] && grep -q 'changed since claim' <<<"$sr_cerr" && srj HEF-7 '.owner==null and .attempts==0'; } || { bad "an item edited after registration must be refused as 'changed since claim' before any claim (rc=$sr_crc: $(head -c 120 <<<"$sr_cerr"))"; sr_fail=1; }
+( cd "$sr_t" && bash "$SB" --item-raw HEF-7 > "$sr_bin/h7.body" && bash "$LG" record HEF-7 --body-file "$sr_bin/h7.body" >/dev/null 2>&1 )
+sr implement HEF-7 --dry-run >/dev/null 2>&1 || { bad "after record --body-file the re-hashed item must launch again"; sr_fail=1; }
 rm -rf "$sr_t" "$sr_cfg" "$sr_bin"
 [ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output (FR-011 FR-013 SC-007)"
 
@@ -1706,6 +1737,7 @@ grep -qE '^model: sonnet' "$oc" || { bad "/hef.orchestrate must be sonnet (mecha
 for h in hooks/status-board.sh hooks/ledger.sh hooks/session-launch.sh; do grep -qF "$h" "$oc" || { bad "/hef.orchestrate must run $h"; oc_fail=1; }; done
 grep -qF '## Untrusted input' "$oc" && grep -qF 'human:intake' "$oc" || { bad "/hef.orchestrate must carry the untrusted-input rule ending in a human:intake block"; oc_fail=1; }
 grep -qiE 'does not merge|never merge' "$oc" || { bad "/hef.orchestrate must state that it does not merge"; oc_fail=1; }
+grep -qF 'orphaned' "$oc" && grep -qF 'changed since claim' "$oc" || { bad "/hef.orchestrate must tell the model how to report an orphaned entry and a 'changed since claim' refusal (FR-014)"; oc_fail=1; }
 oc_merge_ok=1; while IFS= read -r l; do grep -qiE 'no |never|not ' <<<"$l" || oc_merge_ok=0; done < <(grep -F 'gh pr merge' "$oc")
 [ "$oc_merge_ok" = 1 ] || { bad "/hef.orchestrate mentions gh pr merge outside a prohibition"; oc_fail=1; }
 oc_ph_ok=1; while IFS= read -r l; do grep -qF '<id>' <<<"$l" || oc_ph_ok=0; done < <(grep -E 'CLAUDE_PLUGIN_ROOT.*(ledger\.sh (init|claim|block|unblock|advance)|session-launch\.sh)' "$oc")

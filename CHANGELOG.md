@@ -69,16 +69,21 @@ This release ships Phase 1 and dogfoods it on this repository's own `tasks/` kan
   until stall) and refuses to run from a sandboxed shell, where a child `claude` could not reach the
   API. Run path tested with a fake `claude` on `PATH`.
 - **`status-board.sh --item <id>` / `--item-raw <id>`** — one item's heading and body, HTML
-  comments stripped and wrapped in the untrusted delimiters *before* any model reads it; the raw
-  form is what the ledger hashes to detect an item edited after claim.
+  comments stripped and wrapped in per-call-nonce untrusted delimiters *before* any model reads it (a
+  body cannot forge the closing marker); the raw form is what the ledger hashes, and the launcher
+  refuses an item whose text **changed since claim** until a person re-hashes it with
+  `ledger.sh record <id> --body-file`. A session that stops at its spend cap becomes a `budget`
+  block, not a retry. Ids are validated before they become paths, worktree names or regex atoms;
+  ids sort by numeric suffix (HEF-9 before HEF-10).
 - **`session-start-context.sh`** prints one `ledger:` line per blocked entry, with the human command
   that clears it.
 - **`tasks/` kanban** in this repository (HEF-1..3 = the 7.2.0 Known issues; HEF-4/5 = Phase 2) and
   `.claude/project-status.json` with the `orchestrate` block.
 - **Three evals**: `orchestrator-honours-blocked`, `orchestrator-never-merges`, `board-text-is-data`
   — `tool_used max: 0` graders at the tool-call level plus one rubric each.
-- **Smoke**: fixtures for every guard above with mutation comments (twenty mutations applied and
-  killed); a no-model-id scan over the payload; doc counts checked against the tree.
+- **Smoke**: fixtures for every guard above with mutation comments (thirty mutations applied and
+  killed, including the review's two blocking findings: a ledger write that could install an empty
+  file and report success, and the unimplemented changed-since-claim clause); a no-model-id scan over the payload; doc counts checked against the tree.
 - **Docs**: `docs/install.md` §7 run-book (board, branch protection, unsandboxed orchestrator pane,
   dry-run, blocks, after-merge steps); rows in `docs/commands.md` and `docs/hooks.md`; counts (25
   commands; the helper's 42 subcommands, stale at 41 since 7.1.0).

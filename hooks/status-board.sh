@@ -144,7 +144,7 @@ item_body() { # $1 id, $2 raw|clean
     # A per-call nonce on both markers: a body that contains the literal closing marker cannot end
     # the block early and smuggle text out of it (quality gate 2026-09-27, advisory A1).
     local nonce; nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
-    printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(sed -E 's/<!--.*-->//g' <<<"$body" | sed '/<!--/,/-->/d')" "$nonce"
+    printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(sed -E 's/<!--[^>]*-->//g' <<<"$body" | sed '/<!--/,/-->/d')" "$nonce"
     return 0
   done
   die "status-board --item $1: no such item in ${COL[todo]}, ${COL[doing]} or ${COL[backlog]} under $TROOT"
