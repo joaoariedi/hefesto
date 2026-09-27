@@ -24,7 +24,7 @@ by building the wrong thing well.
 Hefesto is a Claude Code plugin that adds the missing middle: a **workflow** (idea → spec → plan →
 tasks → code → verification, with a human gate at each seam), **six specialist agents** the workflow
 dispatches, **fifteen hooks** that enforce the gates, **skills** the agents reason with, and a set
-of **rules** that load into every session. It is one namespace of 24 `hef.*` commands; you pick the
+of **rules** that load into every session. It is one namespace of 25 `hef.*` commands; you pick the
 path that fits the change, from a one-line fix to a full specification pipeline.
 
 The parts that matter are the ones you cannot talk your way past:
@@ -87,9 +87,9 @@ sees. `CHANGELOG.md` says what each release changed.
 
 | Directory | What lives there |
 |---|---|
-| 🛠️ `commands/` | The 24 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
+| 🛠️ `commands/` | The 25 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Six specialist subagents — testing, quality, review, security, PR coordination, recon. |
-| ⚙️ `hooks/` | Fifteen hooks, `release.sh`, plus `speckit-helper.sh` (41 subcommands) that the commands call for live git data, requirement traceability, and the mutation ratchet. |
+| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (42 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |
@@ -229,7 +229,7 @@ The hooks ship with the plugin — you do not register them:
 | | |
 |---|---|
 | 📦 [Installing & Configuring](docs/install.md) | Install, the permission rule, verification, updating, what the plugin cannot ship. |
-| 🛠️ [Commands](docs/commands.md) | All 24, with arguments. |
+| 🛠️ [Commands](docs/commands.md) | All 25, with arguments. |
 | 🕵️ [Agents & Parallelism](docs/agents.md) | The six agents; when to use a subagent vs. a team vs. a workflow. |
 | ⚙️ [Hooks & Quality Gates](docs/hooks.md) | Every hook, the Iron Laws, and the security posture. |
 | 🧬 [Spec-Driven Development](docs/sdd.md) | The lifecycle in depth, `.specify/` artifacts, task management. |

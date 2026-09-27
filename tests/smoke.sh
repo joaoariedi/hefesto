@@ -1684,6 +1684,28 @@ oc_ph_ok=1; while IFS= read -r l; do grep -qF '<id>' <<<"$l" || oc_ph_ok=0; done
 [ "$oc_ph_ok" = 1 ] || { bad "/hef.orchestrate: every ledger/launcher invocation must carry an <id> placeholder"; oc_fail=1; }
 [ "$oc_fail" -eq 0 ] && ok "/hef.orchestrate is sonnet, runs the helpers, treats board text as data, never merges, placeholders on every side-effecting line (FR-013 FR-014)"
 
+# SC-004 — no concrete model id anywhere in the payload or the board config: tiers only, each
+# environment binds them (.claude/CLAUDE.md policy). Excludes the comment in session-launch.sh that
+# names the pattern itself.
+if grep -rnE 'claude-(fable|opus|sonnet|haiku)-[0-9]' "$REPO/hooks" "$REPO/commands" "$REPO/evals" "$REPO/agents" "$REPO/.claude/project-status.json" 2>/dev/null | grep -vE 'session-launch\.sh:[0-9]+:#' | grep -q .; then
+  bad "a concrete model id appears in the payload: $(grep -rnE 'claude-(fable|opus|sonnet|haiku)-[0-9]' "$REPO/hooks" "$REPO/commands" "$REPO/evals" "$REPO/agents" "$REPO/.claude/project-status.json" 2>/dev/null | grep -vE 'session-launch\.sh:[0-9]+:#' | head -2 | tr '\n' '|')"
+else ok "no concrete model id in hooks/, commands/, evals/, agents/ or the board config — tiers only (SC-004)"; fi
+
+# SC-006 — the counts the docs state match the tree, so the next addition cannot drift silently:
+# commands in docs/architecture.md and README.md; registered hooks in docs/architecture.md, docs/hooks.md
+# and README.md; speckit-helper subcommands in docs/architecture.md and README.md (was stale at 41).
+dc_cmds=$(find "$REPO/commands" -name 'hef.*.md' | wc -l | tr -d ' ')
+dc_hooks=$(jq -r '.. | .command? // empty' "$REPO/hooks/hooks.json" | sort -u | wc -l | tr -d ' ')
+dc_subs=$(grep -cE '^  [a-z][a-z0-9-]*(\|[a-z][a-z0-9-]*)*\)' "$REPO/hooks/speckit-helper.sh")
+dc_words() { case "$1" in 15) echo fifteen ;; 16) echo sixteen ;; 17) echo seventeen ;; 18) echo eighteen ;; *) echo "$1" ;; esac; }
+dc_fail=0
+grep -qE "# $dc_cmds slash commands" "$REPO/docs/architecture.md" || { bad "docs/architecture.md must say '$dc_cmds slash commands' (tree has $dc_cmds)"; dc_fail=1; }
+grep -qE "# $dc_hooks hooks" "$REPO/docs/architecture.md" || { bad "docs/architecture.md must say '$dc_hooks hooks' (hooks.json registers $dc_hooks)"; dc_fail=1; }
+grep -qE "\($dc_subs subcommands\)" "$REPO/docs/architecture.md" && grep -qE "\($dc_subs subcommands\)" "$REPO/README.md" || { bad "docs/architecture.md and README.md must say ($dc_subs subcommands) — speckit-helper.sh has $dc_subs case arms"; dc_fail=1; }
+grep -qE "\b$dc_cmds \`hef\.\*\` commands" "$REPO/README.md" || { bad "README.md must say '$dc_cmds \`hef.*\` commands'"; dc_fail=1; }
+grep -qiE "$(dc_words "$dc_hooks") hooks" "$REPO/README.md" && grep -qiE "$(dc_words "$dc_hooks") hooks" "$REPO/docs/hooks.md" || { bad "README.md and docs/hooks.md must say '$(dc_words "$dc_hooks") hooks'"; dc_fail=1; }
+[ "$dc_fail" -eq 0 ] && ok "doc counts match the tree: $dc_cmds commands, $dc_hooks hooks, $dc_subs helper subcommands (SC-006)"
+
 # --- doctor-copies: the doctor measures the copy that RUNS ---------------------------------
 # Measured 2026-09-23: the running copy is the per-profile cache (a plain copy, no .git); the
 # doctor used to rev-parse it, get "not a git clone", and skip — while three profiles disagreed.
