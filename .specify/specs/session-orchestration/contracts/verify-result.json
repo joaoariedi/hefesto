@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "required": [
+    "summary",
+    "verdicts"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "gate",
+          "verdict"
+        ],
+        "properties": {
+          "gate": {
+            "enum": [
+              "verify",
+              "review",
+              "quality",
+              "scan",
+              "mutate"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "SKIPPED"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      }
+    }
+  }
+}

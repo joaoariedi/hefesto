@@ -23,3 +23,4 @@
 | CHK018 | FR-017: three evals with tool_used max 0 graders | [consistency] constitution 3 (tool-call level) | [ ] |
 | CHK019 | FR-018: mutation checks for every guard | [completeness] one per guard in the list | [ ] |
 | CHK020 | FR-019: docs and counts | [completeness] 25 commands, 17 hook scripts | [ ] |
+| CHK021 | FR-020: launcher refuses a sandboxed host | [testability] read-only config-dir fixture → non-zero | [ ] |
