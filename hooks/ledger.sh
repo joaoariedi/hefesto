@@ -102,13 +102,16 @@ case "$SUB" in
     E=$(entry "$ID") || exit 1
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
-    N=$(jq '.attempts + 1' <<<"$E")
+    # attempts count IMPLEMENT claims only: a verify claim after each run would otherwise stall an
+    # entry on its second implement attempt.
+    INC=0; [ "$ROLE" = implement ] && INC=1
+    N=$(jq --argjson i "$INC" '.attempts + $i' <<<"$E")
     if [ "$N" -gt 2 ]; then
       jq '.blocked_on = {kind: "stall", since: (now | todate), question_path: null} | .attempts += 1' <<<"$E" | write_entry "$ID"
       die "ledger claim $ID: attempt $N exceeds 2 — blocked_on: stall (a human decides whether to split or drop it)"
     fi
-    jq --arg s "$SESSION" --arg r "$ROLE" --argjson p "$$" \
-      '.owner = {session_name: $s, role: $r, pid: $p, started: (now | todate)} | .attempts += 1' <<<"$E" | write_entry "$ID"
+    jq --arg s "$SESSION" --arg r "$ROLE" --argjson p "$$" --argjson i "$INC" \
+      '.owner = {session_name: $s, role: $r, pid: $p, started: (now | todate)} | .attempts += $i' <<<"$E" | write_entry "$ID"
     echo "$ID claimed by $SESSION (attempt $N)" ;;
 
   advance)

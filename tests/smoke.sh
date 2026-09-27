@@ -1546,6 +1546,144 @@ if (cd "$si_t" && bash "$SB" --item HEF-1 >/dev/null 2>&1); then bad "status-boa
 rm -rf "$si_t"
 [ "$si_fail" -eq 0 ] && ok "status-board --item: one sanitised delimited item, --item-raw for hashing, missing id and github-project fail loudly (FR-014)"
 
+# The launcher (FR-009 FR-010 FR-012 FR-020): one `claude -p` command line per role, assembled from
+# the config and the ledger entry; --dry-run prints it and claims nothing. Fixture: a repo with the
+# kanban, the config, a claimed entry, and a writable fake config dir.
+SL="$REPO/hooks/session-launch.sh"
+if [ -x "$SL" ]; then ok "hook session-launch.sh exists and is executable"; else bad "hooks/session-launch.sh missing or not executable"; fi
+sl_t="$(mktemp -d)"; sl_cfg="$(mktemp -d)"; sl_fail=0
+( cd "$sl_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && mkdir -p tasks .claude \
+  && printf '# TODO\n\n## HEF-1 — first\nbody one\n<!-- hidden -->\n' > tasks/TODO.md && printf '# D\n' > tasks/DOING.md && printf '# D\n' > tasks/DONE.md && printf '# B\n' > tasks/BACKLOG.md \
+  && printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":25,"tiers":{"implement":"opus","verify":"fable"},"allowed_tools":{"implement":["Read","Edit","Bash(git *)"],"verify":["Read","Grep"]}}}\n' > .claude/project-status.json \
+  && bash "$LG" init HEF-1 --kind tasks-repo --ref tasks/TODO.md#HEF-1 >/dev/null ) >/dev/null 2>&1
+sl() { (cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$SL" "$@"); }
+# FR-009 — implement dry-run: every required flag present, the prompt right after -p, tool list comma-joined,
+# settings JSON with sandbox on and inbound refused, budget cap from config, worktree via -w <id>
+sl_out="$(sl implement HEF-1 --dry-run 2>&1)"; sl_rc=$?
+[ "$sl_rc" -eq 0 ] || { bad "session-launch implement --dry-run exited $sl_rc: $(head -c 300 <<<"$sl_out")"; sl_fail=1; }
+for tok in '^claude -p ' '--name impl-HEF-1' '--model opus' '--max-budget-usd 5' '--output-format json' '--json-schema' "--allowedTools '?Read,Edit,Bash" '--permission-prompts none' '--permission-mode acceptEdits' '-w HEF-1'; do
+  grep -qE -- "$tok" <<<"$sl_out" || { bad "session-launch implement --dry-run lacks '$tok': $(head -c 400 <<<"$sl_out")"; sl_fail=1; }
+done
+grep -qE 'sandbox.*enabled.*true' <<<"$sl_out" && grep -qE 'failIfUnavailable.*true' <<<"$sl_out" && grep -qE 'crossSessionInbound.*refuse' <<<"$sl_out" || { bad "session-launch settings must enable the sandbox and refuse inbound messages"; sl_fail=1; }
+grep -qF 'untrusted-begin HEF-1' <<<"$sl_out" && ! grep -qF 'hidden' <<<"$sl_out" || { bad "session-launch prompt must carry the sanitised item block (delimited, comment stripped)"; sl_fail=1; }
+# FR-009 — a dry run claims nothing
+jq -e '.owner == null' "$sl_t/.git/hefesto/ledger/HEF-1.json" >/dev/null 2>&1 || { bad "session-launch --dry-run must not claim the entry"; sl_fail=1; }
+# FR-012 — the verify line carries none of the transcript-forwarding flags and runs read-only in the recorded worktree
+( cd "$sl_t" && bash "$LG" record HEF-1 --worktree "$sl_t" --branch main --route fix >/dev/null 2>&1 )
+sl_v="$(sl verify HEF-1 --dry-run 2>&1)"; sl_vrc=$?
+[ "$sl_vrc" -eq 0 ] || { bad "session-launch verify --dry-run exited $sl_vrc: $(head -c 300 <<<"$sl_v")"; sl_fail=1; }
+for tok in '--name verify-HEF-1' '--model fable' '--disallowedTools Edit,Write' '--allowedTools Read,Grep'; do grep -qE -- "$tok" <<<"$sl_v" || { bad "session-launch verify lacks '$tok'"; sl_fail=1; }; done
+for tok in '--resume' '--continue' '--fork-session' '--forward-subagent-text' '--bare' ' -w '; do grep -qF -- "$tok" <<<"$sl_v" && { bad "session-launch verify must not carry '$tok' (the verifier never sees the author transcript)"; sl_fail=1; }; done
+# SC-004 — no concrete model id on either line
+grep -qE 'claude-[a-z]+-[0-9]' <<<"$sl_out$sl_v" && { bad "session-launch emitted a concrete model id — tiers only"; sl_fail=1; }
+# FR-010 — reviewer tier below the author tier is refused (the −8.6 pp configuration); model id in config refused
+# Mutations: the rank compare removed → sonnet reviewer over opus author accepted → red; the id grep removed → red.
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"tiers":{"implement":"opus","verify":"sonnet"}}}\n' > "$sl_t/.claude/project-status.json"
+sl_err="$(sl verify HEF-1 --dry-run 2>&1 >/dev/null)"; sl_trc=$?
+{ [ "$sl_trc" -ne 0 ] && grep -qiE 'tier' <<<"$sl_err"; } || { bad "session-launch must refuse a sonnet verifier over an opus author (rc=$sl_trc: $sl_err)"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"tiers":{"implement":"claude-opus-5-5","verify":"fable"}}}\n' > "$sl_t/.claude/project-status.json"
+if sl implement HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse a concrete model id in the config"; sl_fail=1; fi
+printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
+sl_def="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_def" && grep -qE -- '--max-budget-usd 5' <<<"$sl_def" || { bad "session-launch must fall back to the default tiers and cap without an orchestrate block"; sl_fail=1; }
+# FR-020 — an unwritable config dir means a sandboxed host: refuse with the reason, even on --dry-run
+# Mutation: the writable test removed → launch proceeds → red.
+chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; sl_src=$?; chmod 755 "$sl_cfg"
+{ [ "$sl_src" -ne 0 ] && grep -qi 'sandbox' <<<"$sl_serr"; } || { bad "session-launch must refuse when the config dir is not writable, naming the sandbox (rc=$sl_src: $sl_serr)"; sl_fail=1; }
+if sl bogus HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an unknown role"; sl_fail=1; fi
+if sl implement HEF-NOPE --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an id without a ledger entry"; sl_fail=1; fi
+rm -rf "$sl_t" "$sl_cfg"
+[ "$sl_fail" -eq 0 ] && ok "session-launch --dry-run: flags per role, sanitised prompt, no claim, no transcript flags, tier rank, model-id refusal, defaults, sandboxed-host refusal (FR-009 FR-010 FR-012 FR-020)"
+
+# FR-011 FR-013 SC-007 — the run path, with a FAKE claude on PATH (a named fake, like the fake gh above):
+# it records argv, creates the worktree when -w is given (as the CLI does), and prints whatever JSON
+# result the test points it at. The assertions are on the ledger the launcher wrote and on the argv
+# log — never on text the model could produce.
+sr_t="$(mktemp -d)"; sr_cfg="$(mktemp -d)"; sr_bin="$(mktemp -d)"; sr_log="$sr_bin/calls"; sr_res="$sr_bin/result.json"; sr_fail=0
+cat > "$sr_bin/claude" <<CLEOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$sr_log"
+prev=""; for a in "\$@"; do if [ "\$prev" = "-w" ]; then git worktree add -q "\$PWD/.claude/worktrees/\$a" -b "\$a" >/dev/null 2>&1; fi; prev="\$a"; done
+cat "$sr_res"
+CLEOF
+chmod +x "$sr_bin/claude"
+( cd "$sr_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && mkdir -p tasks .claude \
+  && printf '# TODO\n\n## HEF-1 — one\nb\n\n## HEF-2 — two\nb\n\n## HEF-3 — three\nb\n\n## HEF-4 — four\nb\n\n## HEF-5 — five\nb\n' > tasks/TODO.md \
+  && printf '# D\n' > tasks/DOING.md && printf '# D\n' > tasks/DONE.md && printf '# B\n' > tasks/BACKLOG.md \
+  && printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":25}}\n' > .claude/project-status.json \
+  && for i in 1 2 3 4 5; do bash "$LG" init HEF-$i --kind tasks-repo --ref t >/dev/null; done ) >/dev/null 2>&1
+sr() { (cd "$sr_t" && PATH="$sr_bin:$PATH" CLAUDE_CONFIG_DIR="$sr_cfg" bash "$SL" "$@"); }
+srj() { jq -e "$2" "$sr_t/.git/hefesto/ledger/$1.json" >/dev/null 2>&1; }
+# implement, outcome pr → claimed then released, run + cost recorded, worktree/branch/route/pr recorded, phase verify
+printf '{"session_id":"s1","total_cost_usd":1.25,"structured_output":{"summary":"did it","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/12","blocked_on":null,"spec_dir":null}}\n' > "$sr_res"
+sr implement HEF-1 >/dev/null 2>&1 || { bad "session-launch implement (fake claude) exited non-zero"; sr_fail=1; }
+srj HEF-1 '.phase=="verify" and .owner==null and .budget.usd_spent==1.25 and .runs[0].session_id=="s1" and .runs[0].session_name=="impl-HEF-1" and .route=="fix" and .pr.number==12 and .branch=="HEF-1" and (.worktree|endswith(".claude/worktrees/HEF-1"))' \
+  || { bad "session-launch implement must transcribe the result into the ledger — got $(jq -c '{p:.phase,o:.owner,u:.budget.usd_spent,r:.route,pr:.pr,b:.branch,w:.worktree}' "$sr_t/.git/hefesto/ledger/HEF-1.json")"; sr_fail=1; }
+grep -qE -- '--name impl-HEF-1' "$sr_log" && grep -qE -- '-w HEF-1' "$sr_log" || { bad "fake claude was not called with --name impl-HEF-1 -w HEF-1: $(head -c 200 "$sr_log")"; sr_fail=1; }
+# verify, all PASS → verdicts by verify-HEF-1, phase pr, blocked_on human:merge; the call carries no -w and denies edits
+printf '{"session_id":"s2","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS","evidence":"APPROVE"},{"gate":"quality","verdict":"PASS"}]}}\n' > "$sr_res"
+: > "$sr_log"; sr verify HEF-1 >/dev/null 2>&1 || { bad "session-launch verify (fake claude) exited non-zero"; sr_fail=1; }
+srj HEF-1 '.phase=="pr" and .blocked_on.kind=="human:merge" and (.verdicts|length)==2 and .verdicts[0].by=="verify-HEF-1" and .budget.usd_spent==1.75 and .owner==null' \
+  || { bad "session-launch verify must record verdicts, advance to pr and block on human:merge — got $(jq -c '{p:.phase,b:.blocked_on,v:(.verdicts|length),u:.budget.usd_spent}' "$sr_t/.git/hefesto/ledger/HEF-1.json")"; sr_fail=1; }
+grep -qE -- '--disallowedTools Edit,Write' "$sr_log" && ! grep -qE -- ' -w ' "$sr_log" || { bad "verify call must deny Edit/Write and not create a worktree"; sr_fail=1; }
+# verify with a FAIL → blocked_on verdict, phase stays verify
+# Mutation: the FAIL branch removed → human:merge set after a FAIL → red.
+printf '{"session_id":"s3","total_cost_usd":1,"structured_output":{"summary":"x","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/13"}}\n' > "$sr_res"; sr implement HEF-2 >/dev/null 2>&1
+printf '{"session_id":"s4","total_cost_usd":0.5,"structured_output":{"summary":"bad","verdicts":[{"gate":"review","verdict":"FAIL","evidence":"REQUEST_CHANGES"}]}}\n' > "$sr_res"; sr verify HEF-2 >/dev/null 2>&1
+srj HEF-2 '.phase=="verify" and .blocked_on.kind=="verdict"' || { bad "a FAIL verdict must block on 'verdict' and keep phase verify — got $(jq -c '{p:.phase,b:.blocked_on}' "$sr_t/.git/hefesto/ledger/HEF-2.json")"; sr_fail=1; }
+# outcome failed twice → phase stays implement, owner released each time, worktree reused (one -w), third launch stalls
+# Mutation: the worktree-exists branch removed → -w appears twice → red.
+printf '{"session_id":"s5","total_cost_usd":0.2,"structured_output":{"summary":"could not","route":"fix","outcome":"failed"}}\n' > "$sr_res"
+: > "$sr_log"
+if sr implement HEF-3 >/dev/null 2>&1; then bad "session-launch must exit non-zero when the worker reports outcome failed"; sr_fail=1; fi
+sr implement HEF-3 >/dev/null 2>&1
+srj HEF-3 '.phase=="implement" and .owner==null and .attempts==2 and (.runs|length)==2' || { bad "two failed runs must leave phase implement, owner null, attempts 2 — got $(jq -c '{p:.phase,o:.owner,a:.attempts,r:(.runs|length)}' "$sr_t/.git/hefesto/ledger/HEF-3.json")"; sr_fail=1; }
+[ "$(grep -c -- '-w HEF-3' "$sr_log")" = "1" ] || { bad "a retry must reuse the existing worktree (expected one -w HEF-3 call, got $(grep -c -- '-w HEF-3' "$sr_log"))"; sr_fail=1; }
+if sr implement HEF-3 >/dev/null 2>&1; then bad "the third launch of HEF-3 must be refused (stall)"; sr_fail=1; fi
+srj HEF-3 '.blocked_on.kind=="stall"' || { bad "the third launch must leave HEF-3 blocked on stall"; sr_fail=1; }
+# FR-013 — daily cap: spent today 3.45 + cap 5 > 8 → refused before any claim
+# Mutation: the awk guard removed → launch proceeds → red.
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":8}}\n' > "$sr_t/.claude/project-status.json"
+sr_derr="$(sr implement HEF-4 2>&1 >/dev/null)"; sr_drc=$?
+{ [ "$sr_drc" -ne 0 ] && grep -qi 'daily cap' <<<"$sr_derr" && srj HEF-4 '.owner==null and .attempts==0'; } || { bad "session-launch must refuse when the daily cap would be exceeded, before claiming (rc=$sr_drc: $sr_derr)"; sr_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":100}}\n' > "$sr_t/.claude/project-status.json"
+# a result without structured_output → non-zero naming the field; the run and its cost are still recorded and the owner released
+printf '{"session_id":"s9","total_cost_usd":0.1}\n' > "$sr_res"
+sr_nerr="$(sr implement HEF-5 2>&1 >/dev/null)"; sr_nrc=$?
+{ [ "$sr_nrc" -ne 0 ] && grep -q 'structured_output' <<<"$sr_nerr" && srj HEF-5 '.owner==null and .budget.usd_spent==0.1'; } || { bad "a result without structured_output must fail naming it and still record the run (rc=$sr_nrc: $(head -c 120 <<<"$sr_nerr"))"; sr_fail=1; }
+rm -rf "$sr_t" "$sr_cfg" "$sr_bin"
+[ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output (FR-011 FR-013 SC-007)"
+
+# FR-015 — session-start-context prints one `ledger:` line per BLOCKED entry of the repo's common
+# dir, nothing when there is no ledger, and still exits 0 on `{}`.
+# Mutation: the blocked_on select removed → the unblocked entry prints too → red.
+ss_t="$(mktemp -d)"; ss_fail=0
+( cd "$ss_t" && git init -q -b main . && bash "$LG" init HEF-7 --kind tasks-repo --ref t >/dev/null && bash "$LG" init HEF-8 --kind tasks-repo --ref t >/dev/null \
+  && bash "$LG" block HEF-7 --kind human:merge >/dev/null ) >/dev/null 2>&1
+ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | bash "$REPO/hooks/session-start-context.sh" 2>&1)"
+[ "$(grep -c '^ledger: ' <<<"$ss_out")" = "1" ] && grep -qE '^ledger: HEF-7 blocked_on human:merge since [0-9]{4}-' <<<"$ss_out" \
+  || { bad "session-start must print exactly one 'ledger: HEF-7 blocked_on human:merge since <t>' line — got: $(grep ledger <<<"$ss_out" | tr '\n' '|')"; ss_fail=1; }
+ss_n="$(mktemp -d)"; ( cd "$ss_n" && git init -q . ) >/dev/null 2>&1
+ss_out2="$(printf '{"cwd":"%s","source":"startup"}' "$ss_n" | bash "$REPO/hooks/session-start-context.sh" 2>&1)"
+grep -q '^ledger: ' <<<"$ss_out2" && { bad "session-start must print no ledger line when the repo has no ledger"; ss_fail=1; }
+rm -rf "$ss_t" "$ss_n"
+[ "$ss_fail" -eq 0 ] && ok "session-start-context reports blocked ledger entries, one line each, and nothing otherwise (FR-015)"
+
+# FR-013 FR-014 — /hef.orchestrate: mechanical (sonnet), runs the three helpers, carries the untrusted-
+# input rule and the never-merge rule, and every side-effecting helper line uses an <id> placeholder
+# (live smoke would otherwise execute it against a scratch repo). `gh pr merge` may appear only in
+# a prohibition sentence.
+oc="$REPO/commands/hef.orchestrate.md"; oc_fail=0
+[ -f "$oc" ] || { bad "commands/hef.orchestrate.md missing"; oc_fail=1; }
+grep -qE '^model: sonnet' "$oc" || { bad "/hef.orchestrate must be sonnet (mechanical; it dispatches)"; oc_fail=1; }
+for h in hooks/status-board.sh hooks/ledger.sh hooks/session-launch.sh; do grep -qF "$h" "$oc" || { bad "/hef.orchestrate must run $h"; oc_fail=1; }; done
+grep -qF '## Untrusted input' "$oc" && grep -qF 'human:intake' "$oc" || { bad "/hef.orchestrate must carry the untrusted-input rule ending in a human:intake block"; oc_fail=1; }
+grep -qiE 'does not merge|never merge' "$oc" || { bad "/hef.orchestrate must state that it does not merge"; oc_fail=1; }
+oc_merge_ok=1; while IFS= read -r l; do grep -qiE 'no |never|not ' <<<"$l" || oc_merge_ok=0; done < <(grep -F 'gh pr merge' "$oc")
+[ "$oc_merge_ok" = 1 ] || { bad "/hef.orchestrate mentions gh pr merge outside a prohibition"; oc_fail=1; }
+oc_ph_ok=1; while IFS= read -r l; do grep -qF '<id>' <<<"$l" || oc_ph_ok=0; done < <(grep -E 'CLAUDE_PLUGIN_ROOT.*(ledger\.sh (init|claim|block|unblock|advance)|session-launch\.sh)' "$oc")
+[ "$oc_ph_ok" = 1 ] || { bad "/hef.orchestrate: every ledger/launcher invocation must carry an <id> placeholder"; oc_fail=1; }
+[ "$oc_fail" -eq 0 ] && ok "/hef.orchestrate is sonnet, runs the helpers, treats board text as data, never merges, placeholders on every side-effecting line (FR-013 FR-014)"
+
 # --- doctor-copies: the doctor measures the copy that RUNS ---------------------------------
 # Measured 2026-09-23: the running copy is the per-profile cache (a plain copy, no .git); the
 # doctor used to rev-parse it, get "not a git clone", and skip — while three profiles disagreed.

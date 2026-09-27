@@ -44,6 +44,17 @@ for m in plan implement; do
   [ -f "$CWD/.specify/.$m-in-progress" ] && echo "phase marker SET: .specify/.$m-in-progress (hooks are enforcing the $m phase)"
 done
 
+# Blocked ledger entries (session-orchestration FR-015): one line per entry waiting on a human or a
+# failed gate, read from the repository's COMMON git dir so every worktree sees the same list. A
+# blocked item that nobody can see is the escalation gap no vendor documents (report 17 §5d).
+LDIR="${HEFESTO_LEDGER_DIR:-$(git -C "$CWD" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/hefesto/ledger}"
+if [ -d "$LDIR" ]; then
+  for f in "$LDIR"/*.json; do
+    [ -f "$f" ] || continue
+    jq -r 'select(.blocked_on != null) | "ledger: \(.id) blocked_on \(.blocked_on.kind) since \(.blocked_on.since) — resolve with the human command it names, then ledger.sh unblock \(.id)"' "$f" 2>/dev/null
+  done
+fi
+
 KEY=$(printf '%s' "$CWD" | sha1sum | cut -c1-16)
 CKPT="${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/progress/$KEY.md"
 if [ -f "$CKPT" ] && [ -n "$(find "$CKPT" -mtime -7 2>/dev/null)" ]; then
