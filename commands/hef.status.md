@@ -21,10 +21,14 @@ columns are markdown files (`TODO.md` / `DOING.md` / `DONE.md` / `BACKLOG.md`).
 
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh $ARGUMENTS`
 
-If it exits non-zero, run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --check`
+If `status-board.sh` exits non-zero, run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --check`
 and **stop**: report exactly which prerequisite is `[MISSING]` and the one-line fix it prints
 (commonly no `.claude/project-status.json` yet — the helper prints an example for each source —
 a missing `read:project` token scope, or a column file that moved). Do not guess numbers.
+
+Then run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh metrics` — the AI-delivery numbers
+(report 17 §7). **Its non-zero exit is normal** on a repository without a ledger: it means the brief
+has no fifth section, never that the brief stops.
 
 ## Instructions
 
@@ -44,6 +48,9 @@ a missing `read:project` token scope, or a column file that moved). Do not guess
      that outgrows todo, an initiative whose completed count has not changed since the last brief
      if you have one to compare with. Name the item ids.
    - **Bottom line** — one or two sentences a manager can repeat.
+   - **AI delivery** — only when `ledger.sh metrics` exited 0: dispatched, PRs opened, merged and the
+     merge rate, verify-FAIL rate, spend total and per merged PR, the two median hours (approx.), and
+     what is blocked by kind with the oldest date. Quote the helper; do not recompute.
 
 3. **`--detailed`** unfolds the columns (tasks repository: every item with id, sub-state, title) or
    the epics (GitHub Project: every sub-issue with marker, board phase, assignee). Reach for it when
