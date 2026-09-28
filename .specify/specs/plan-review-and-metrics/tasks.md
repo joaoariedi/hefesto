@@ -3,17 +3,17 @@
 <!-- Date: 2026-09-28 -->
 
 ## Phase 1: Metrics
-- [ ] T101 [US2] [FR-105] [FR-106] [FR-108] Smoke fixture first (red): ledger with four entries (merged with two runs and PASS verdicts; pr + human:merge; stalled; queued), assert every figure of `metrics` text and `--json`, `--since` filter, no-entries non-zero, unreadable non-zero `tests/smoke.sh`
-- [ ] T102 [US2] [FR-105] [FR-106] `hooks/ledger.sh metrics [--since d] [--json]` — one jq program, text formatter; mutations: merge-rate denominator, USD per merged PR, --since `hooks/ledger.sh`
+- [x] T101 [US2] [FR-105] [FR-106] [FR-108] Smoke fixture first (red): ledger with four entries (merged with two runs and PASS verdicts; pr + human:merge; stalled; queued), assert every figure of `metrics` text and `--json`, `--since` filter, no-entries non-zero, unreadable non-zero `tests/smoke.sh`
+- [x] T102 [US2] [FR-105] [FR-106] `hooks/ledger.sh metrics [--since d] [--json]` — one jq program, text formatter; mutations: merge-rate denominator, USD per merged PR, --since `hooks/ledger.sh`
 
 ## Phase 2: Plan review
-- [ ] T103 [US1] [FR-101] [FR-102] [FR-103] `commands/hef.review.md` plan mode → spawn `code-reviewer` with the brief; `--inline` self-review path; the `## Reviewed` write stays in the command; smoke: plan-mode section names `code-reviewer` and the Agent/Task tool, `--inline` documented, "do not edit" in the brief `commands/hef.review.md`
-- [ ] T104 [P] [US1] [FR-104] `evals/plan-review-is-not-self-review/{case.yaml,scaffold.sh}` owns: evals/plan-review-is-not-self-review/case.yaml, evals/plan-review-is-not-self-review/scaffold.sh `evals/plan-review-is-not-self-review/case.yaml`
+- [x] T103 [US1] [FR-101] [FR-102] [FR-103] `commands/hef.review.md` plan mode → spawn `code-reviewer` with the brief; `--inline` self-review path; the `## Reviewed` write stays in the command; smoke: plan-mode section names `code-reviewer` and the Agent/Task tool, `--inline` documented, "do not edit" in the brief `commands/hef.review.md`
+- [x] T104 [P] [US1] [FR-104] `evals/plan-review-is-not-self-review/{case.yaml,scaffold.sh}` owns: evals/plan-review-is-not-self-review/case.yaml, evals/plan-review-is-not-self-review/scaffold.sh `evals/plan-review-is-not-self-review/case.yaml`
 
 ## Phase 3: Status and docs
-- [ ] T105 [US3] [FR-107] `commands/hef.status.md` fifth section "AI delivery" from `ledger.sh metrics`, omitted when it exits non-zero; smoke structural check `commands/hef.status.md`
-- [ ] T106 [P] [FR-109] Docs rows and CHANGELOG `[Unreleased]` owns: docs/commands.md, docs/hooks.md, README.md, CHANGELOG.md `docs/commands.md`
-- [ ] T107 [SC-103] Dogfood: `ledger.sh metrics` on this repository's ledger (HEF-1..3 queued) prints entries 3, dispatched 0 `hooks/ledger.sh`
+- [x] T105 [US3] [FR-107] `commands/hef.status.md` fifth section "AI delivery" from `ledger.sh metrics`, omitted when it exits non-zero; smoke structural check `commands/hef.status.md`
+- [x] T106 [P] [FR-109] Docs rows and CHANGELOG `[Unreleased]` owns: docs/commands.md, docs/hooks.md, README.md, CHANGELOG.md `docs/commands.md`
+- [x] T107 [SC-103] Dogfood: `ledger.sh metrics` on this repository's ledger (HEF-1..3 queued) prints entries 3, dispatched 0 `hooks/ledger.sh`
 
 ---
 **Legend**: `[P]` = parallelizable | `[US#]` = user scenario | `[FR-NNN]` = functional requirement
