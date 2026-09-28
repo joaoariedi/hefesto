@@ -197,6 +197,18 @@ CLAUDE_CONFIG_DIR=~/.claude-work claude plugin update hefesto@hefesto  # each ot
 
 `plugin update` compares manifest versions, not commits: a pull that did not bump `plugin.json` reports "already at the latest version" and leaves the cache as it was. Releases always bump it; between releases, `plugin uninstall` + `install` is the way to pick up an unreleased commit.
 
+**Rolling a release out to a team** — the message to send, with `X.Y.Z` filled in:
+
+```bash
+# Hefesto X.Y.Z is out. Upgrade (about a minute):
+git -C ~/.claude-framework pull --ff-only
+claude plugin marketplace update hefesto
+claude plugin update hefesto@hefesto                     # once per profile: CLAUDE_CONFIG_DIR=~/.claude-<profile> claude plugin update hefesto@hefesto
+cp ~/.claude-framework/.claude/rules/*.md ~/.claude/rules/
+diff ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md        # merge by hand if you customised it
+# Restart Claude Code, then /hef.doctor must report RUNNING_MATCHES_CLONE at X.Y.Z.
+```
+
 ### 6️⃣ The two things the plugin cannot ship
 
 `plugin.json` ships **skills, commands, agents, hooks, workflows, and the MCP server**. There is no plugin component for **`rules/`** or **`CLAUDE.md`** — so installing the plugin does *not* give you the framework's global rules (code quality, git workflow, the Iron Laws, security, context management). If you want those to apply everywhere, copy them into `~/.claude/` yourself:

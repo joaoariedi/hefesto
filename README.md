@@ -71,15 +71,23 @@ single most common failure, and [`docs/install.md`](docs/install.md) explains ex
 installing does *not* give you the framework's global rules. Copy them yourself, and re-copy after
 an upgrade — see [`docs/install.md`](docs/install.md).
 
-**Updating** is a pull plus a per-profile refresh, then a restart:
+**Updating** is a pull plus a per-profile refresh, then a restart. This is the message to send the
+engineers on your team when a release is out — replace `X.Y.Z` and paste it:
 
 ```bash
+# Hefesto X.Y.Z is out. Upgrade (about a minute):
 git -C ~/.claude-framework pull --ff-only
-claude plugin update hefesto@hefesto        # once per profile (CLAUDE_CONFIG_DIR) you run
+claude plugin marketplace update hefesto                 # re-read the manifest
+claude plugin update hefesto@hefesto                     # once per profile you run:
+#   CLAUDE_CONFIG_DIR=~/.claude-<profile> claude plugin update hefesto@hefesto
+cp ~/.claude-framework/.claude/rules/*.md ~/.claude/rules/            # rules are not plugin components
+diff ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md        # merge by hand if you customised it
+# Restart Claude Code, then run /hef.doctor — it must report RUNNING_MATCHES_CLONE at X.Y.Z.
 ```
 
 Each profile runs its own cached copy of the plugin, so the pull alone changes nothing a session
-sees. `CHANGELOG.md` says what each release changed.
+sees, and `plugin update` keys off the manifest version — releases always bump it. `CHANGELOG.md`
+says what each release changed.
 
 ---
 
@@ -186,6 +194,49 @@ Reverse-engineer the spec from what is already there, then proceed normally.
 
 Read the generated spec before trusting it — it is inferred, not authoritative. Once you have
 one, treat the module as scenario 2.
+
+### 🧵 5. Several sessions, one board
+
+The way the harness is meant to be run once a project is live: **one long-lived pane per
+responsibility, short-lived workers for the code**, and one shared truth nobody has to repeat to
+anybody. The evidence for that shape — and against a mesh of sessions that talk to each other — is
+[`reports/17-multi-agent-session-orchestration.md`](reports/17-multi-agent-session-orchestration.md).
+
+| Pane (start it with `claude --name <repo>-<role>`) | Responsibility | Runs | Owns |
+|---|---|---|---|
+| 📋 `<repo>-project` | the board and the documents: intake, specs, tasks, status | `/hef.status`, `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks`, `/hef.adr`, and `/hef.orchestrate` to dispatch workers | `tasks/`, `.specify/`, `docs/`, the ledger |
+| ✨ `<repo>-feature` | one feature at a time, by hand, in its own worktree | `/hef.implement` or `hefesto:workflow`, `/hef.verify`, `/hef.quality`, `/hef.review`, `/hef.pr` | one branch |
+| 🔧 `<repo>-chore` | general tasks, fixes, merges, releases | `/hef.fix`, `/hef.doctor`, `/hef.release`; the merges themselves | `main` |
+| 🤖 workers (headless, launched by `/hef.orchestrate`) | one board item each, then they exit | the size-routed pipeline, then a separate read-only verifier | one worktree under `.claude/worktrees/<id>` |
+
+**The shared truth is three things, none of them a conversation:** the board (`tasks/` or the
+GitHub Project), the ledger (`.git/hefesto/ledger/<id>.json` — shared by every worktree, never
+committed), and the pull requests. Every pane opened in the checkout is told at start which entries
+are blocked and on what (`ledger: HEF-7 blocked_on human:merge …`), so nothing has to be announced.
+
+**A message is a pointer, never a payload.** Panes can message each other (Claude Code's
+cross-session messaging; `claude agents --json` lists them by the name you gave). Keep it to one
+line — an id, a phase, a path: `ledger HEF-7 pr https://…/pull/7 — merge?` — never a diff, a review
+or a transcript. Each inbound message costs the receiver a full-context turn, and the ledger already
+holds everything the line points at.
+
+**Aligning a release across the panes** is a sequence the ledger makes visible, not a meeting:
+
+1. `project` dispatches or a person in `feature` claims an item (`hooks/ledger.sh claim HEF-7
+   --session <repo>-feature --role implement`) — the orchestrator then leaves it alone.
+2. The PR lands the item in `pr`, blocked on `human:merge`. That block is the release queue.
+3. `chore` merges (a person, with a merge commit), then `git pull --ff-only`,
+   `hooks/ledger.sh unblock HEF-7`, `hooks/ledger.sh advance HEF-7 merged`, and removes the worktree.
+4. When `hooks/ledger.sh list --phase merged` is the release, `chore` runs `/hef.release X.Y.Z`,
+   tags, and sends `project` one line: `release X.Y.Z tagged — HEF-7 HEF-8`.
+5. `project` moves the items to `DONE.md`; `/hef.status` shows the quarter delivered.
+
+A hand-run item in `feature` goes through the same ledger steps a worker does (`run --role implement
+--exit 0 --usd 0`, `record --pr … --branch …`, `advance pr`, `block --kind human:merge`); a one-call
+shortcut for that is backlog item HEF-6. Two rules keep the panes honest: the `project` pane that runs
+`/hef.orchestrate` has **its own sandbox off** (the workers it launches get theirs), see
+[`docs/install.md`](docs/install.md) §7; and no pane ever merges, approves or pushes `main` for a
+worker — branch protection on `main` is the backstop, not the prompt.
 
 ### 🧰 Also available, any time
 
