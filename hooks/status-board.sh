@@ -21,17 +21,24 @@ set -uo pipefail
 
 die() { echo "$*" >&2; exit 1; }
 
-MODE="run"; CONFIG=""
+MODE="run"; CONFIG=""; ITEM_ID=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --check|-c) MODE="check" ;;
     --detailed|-d) MODE="detailed" ;;
+    --item) shift; MODE="item"; ITEM_ID="${1:-}" ;;
+    --item-raw) shift; MODE="item-raw"; ITEM_ID="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
-    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed] [--config <path>]"; exit 0 ;;
-    *) echo "unknown option: $1 (try --check, --detailed, --config <path>, or --help)" >&2; exit 2 ;;
+    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id>] [--config <path>]"; exit 0 ;;
+    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --config <path>, or --help)" >&2; exit 2 ;;
   esac
   shift
 done
+case "$MODE" in item|item-raw)
+  [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
+  # the id becomes an awk regex atom and a file-name stem downstream: one shape only
+  [[ "$ITEM_ID" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || { echo "status-board: invalid item id '$ITEM_ID' (expected [A-Za-z][A-Za-z0-9_-]*, e.g. HEF-12)" >&2; exit 2; } ;;
+esac
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 [ -n "$CONFIG" ] || CONFIG="$ROOT/.claude/project-status.json"
@@ -119,6 +126,30 @@ column_items() {
   done
 }
 
+# One item's heading + body (FR-014 of session-orchestration): from the first column that holds a
+# heading carrying the id, up to the next heading. `--item` strips HTML comments and wraps the text in
+# the untrusted delimiters BEFORE any model reads it — the strip is mechanical and upstream of the
+# judgement, so a hidden instruction never reaches the orchestrator (report 17 §1f). `--item-raw`
+# prints the text as written; that is what the ledger hashes to detect an item edited after claim.
+item_body() { # $1 id, $2 raw|clean
+  local col f body
+  for col in todo doing backlog; do
+    f="$TROOT/${COL[$col]}"
+    body=$(awk -v h="$ITEM_HEADING" -v id="$1" '
+      BEGIN { p = 0 }
+      $0 ~ h { if (p) exit; p = ($0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)")) }
+      p' "$f" 2>/dev/null)
+    [ -n "$body" ] || continue
+    if [ "$2" = raw ]; then printf '%s\n' "$body"; return 0; fi
+    # A per-call nonce on both markers: a body that contains the literal closing marker cannot end
+    # the block early and smuggle text out of it (quality gate 2026-09-27, advisory A1).
+    local nonce; nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
+    printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(sed -E 's/<!--[^>]*-->//g' <<<"$body" | sed '/<!--/,/-->/d')" "$nonce"
+    return 0
+  done
+  die "status-board --item $1: no such item in ${COL[todo]}, ${COL[doing]} or ${COL[backlog]} under $TROOT"
+}
+
 marker_summary() { # items → "label n · label n"
   local m n out=""
   while read -r n m; do
@@ -183,7 +214,7 @@ spec_epics() { # only when epics.specs is true (FR-010)
   done
 }
 
-source_tasks() {
+tasks_config() { # the tasks-repo settings and the preflight, shared by the board and by --item
   declare -gA COL
   COL[todo]="$(cfg '.columns.todo // "TODO.md"')"; COL[doing]="$(cfg '.columns.doing // "DOING.md"')"
   COL[done]="$(cfg '.columns.done // "DONE.md"')"; COL[backlog]="$(cfg '.columns.backlog // "BACKLOG.md"')"
@@ -192,6 +223,9 @@ source_tasks() {
   ID_PATTERN="$(cfg '.id_pattern // "[A-Z][A-Z0-9]+(-[A-Z0-9]+){1,4}"')"
   DONE_SECTION="$(cfg '.done_section // "^## ([0-9]{4}-[0-9]{2}-[0-9]{2}) "')"
   tasks_preflight; finish_preflight
+}
+
+source_tasks() {
   quarter_bounds
   local name key items n delivered
   name="$(cfg '.name // empty')"; [ -n "$name" ] || name="$(basename "$ROOT")"
@@ -310,6 +344,11 @@ source_github() {
 }
 
 case "$SOURCE" in
-  tasks-repo) source_tasks ;;
-  github-project) source_github ;;
+  tasks-repo)
+    tasks_config
+    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; esac
+    source_tasks ;;
+  github-project)
+    case "$MODE" in item|item-raw) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; esac
+    source_github ;;
 esac

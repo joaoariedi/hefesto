@@ -35,6 +35,72 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.3.0] - 2026-09-28
+
+**The multi-session pipeline, Phase 1: one board item → a fresh worker → a separate verifier → a PR, over a file ledger.**
+
+`reports/17-multi-agent-session-orchestration.md` (accepted 2026-09-27) weighed dedicated sessions
+that talk to each other against the evidence and chose a board-driven pipeline of short-lived,
+narrow-context sessions coordinated through files and pull requests — no live mesh, no agent teams.
+This release ships Phase 1 and dogfoods it on this repository's own `tasks/` kanban.
+
+### Added
+
+- **`/hef.orchestrate`** (`sonnet`) — registers the `todo` items of the board `/hef.status` reads,
+  picks the next dispatchable entry, reads its text **as data** (instruction-shaped text blocks the
+  item on `human:intake`), launches one worker and then one verifier, and briefs. One worker per
+  repository at a time. It never merges, approves, pushes `main`, or clears a `human:*` block.
+  `--dry-run` prints the launch line and claims nothing.
+- **`hooks/ledger.sh`** — one JSON entry per board item in the git common dir
+  (`.git/hefesto/ledger/<id>.json`: shared by every worktree, never committed, not under `.claude/`,
+  writable from a sandboxed session). Written only by the helper: `init`, `claim` (exclusive; the
+  third attempt sets `stall`), `advance` (forward-only), `verdict` (a review by any session that
+  authored the change is refused), `block`/`unblock` (a `human:*` block clears only on the artifact
+  the human's action leaves: `## Reviewed`, no clarification markers, branch merged into `main`, or a
+  person at a TTY), `run` (records cost, releases the owner), `record`, `show`, `list`, `next`.
+- **`hooks/session-launch.sh <implement|verify> <id> [--dry-run]`** — the one `claude -p` line a
+  session may not choose for itself: sandbox + inbound-refuse settings validated with `jq` first
+  (headless mode ignores an invalid settings file silently), a tier never a model id, reviewer tier
+  ≥ author tier (a weaker reviewer over a stronger author regresses the code), `--max-budget-usd`
+  plus a daily total across the ledger, comma-joined tool lists, `--permission-prompts none`,
+  `-w <id>` or the existing worktree on retry; the verifier runs read-only on the recorded worktree
+  and never sees the author's transcript. It transcribes the structured result into the ledger
+  (`pr` → verify → verdicts → `human:merge`; `FAIL` → `verdict` block; failed → re-dispatchable
+  until stall) and refuses to run from a sandboxed shell, where a child `claude` could not reach the
+  API. Run path tested with a fake `claude` on `PATH`.
+- **`status-board.sh --item <id>` / `--item-raw <id>`** — one item's heading and body, HTML
+  comments stripped and wrapped in per-call-nonce untrusted delimiters *before* any model reads it (a
+  body cannot forge the closing marker); the raw form is what the ledger hashes, and the launcher
+  refuses an item whose text **changed since claim** until a person re-hashes it with
+  `ledger.sh record <id> --body-file`. A session that stops at its spend cap becomes a `budget`
+  block, not a retry. Ids are validated before they become paths, worktree names or regex atoms;
+  ids sort by numeric suffix (HEF-9 before HEF-10).
+- **`session-start-context.sh`** prints one `ledger:` line per blocked entry, with the human command
+  that clears it.
+- **`tasks/` kanban** in this repository (HEF-1..3 = the 7.2.0 Known issues; HEF-4/5 = Phase 2) and
+  `.claude/project-status.json` with the `orchestrate` block.
+- **Three evals**: `orchestrator-honours-blocked`, `orchestrator-never-merges`, `board-text-is-data`
+  — `tool_used max: 0` graders at the tool-call level plus one rubric each.
+- **Smoke**: fixtures for every guard above with mutation comments (thirty mutations applied and
+  killed, including the review's two blocking findings: a ledger write that could install an empty
+  file and report success, and the unimplemented changed-since-claim clause); a no-model-id scan over the payload; doc counts checked against the tree.
+- **Docs**: `docs/install.md` §7 run-book (board, branch protection, unsandboxed orchestrator pane,
+  dry-run, blocks, after-merge steps); rows in `docs/commands.md` and `docs/hooks.md`; counts (25
+  commands; the helper's 42 subcommands, stale at 41 since 7.1.0).
+
+### Known limitations (Phase 1, by design)
+
+- Worktree cleanup after merge is a human step (`git worktree remove .claude/worktrees/<id>`); the
+  CLI's `rm` only knows background sessions.
+- The daily cap sums entries by their `updated` date (UTC), so a run spanning midnight counts on
+  the later day.
+- Only `source: tasks-repo` boards dispatch; `github-project` items are read by `/hef.status` but
+  `--item` says unsupported.
+- The structured-output field name (`structured_output`) is read from the CLI's JSON result and
+  fails loudly if absent; confirmed against the fake, to be confirmed on the first real run.
+- No board write-back and no cross-session message yet — Phase 2 (HEF-4, HEF-5), only with Phase 1
+  numbers behind it.
+
 ## [7.2.0] - 2026-09-25
 
 **One status brief, any board: `/hef.status` reads a GitHub Project or a tasks repository.**

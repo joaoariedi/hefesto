@@ -24,7 +24,7 @@ by building the wrong thing well.
 Hefesto is a Claude Code plugin that adds the missing middle: a **workflow** (idea → spec → plan →
 tasks → code → verification, with a human gate at each seam), **six specialist agents** the workflow
 dispatches, **fifteen hooks** that enforce the gates, **skills** the agents reason with, and a set
-of **rules** that load into every session. It is one namespace of 24 `hef.*` commands; you pick the
+of **rules** that load into every session. It is one namespace of 25 `hef.*` commands; you pick the
 path that fits the change, from a one-line fix to a full specification pipeline.
 
 The parts that matter are the ones you cannot talk your way past:
@@ -71,15 +71,23 @@ single most common failure, and [`docs/install.md`](docs/install.md) explains ex
 installing does *not* give you the framework's global rules. Copy them yourself, and re-copy after
 an upgrade — see [`docs/install.md`](docs/install.md).
 
-**Updating** is a pull plus a per-profile refresh, then a restart:
+**Updating** is a pull plus a per-profile refresh, then a restart. This is the message to send the
+engineers on your team when a release is out — replace `X.Y.Z` and paste it:
 
 ```bash
+# Hefesto X.Y.Z is out. Upgrade (about a minute):
 git -C ~/.claude-framework pull --ff-only
-claude plugin update hefesto@hefesto        # once per profile (CLAUDE_CONFIG_DIR) you run
+claude plugin marketplace update hefesto                 # re-read the manifest
+claude plugin update hefesto@hefesto                     # once per profile you run:
+#   CLAUDE_CONFIG_DIR=~/.claude-<profile> claude plugin update hefesto@hefesto
+cp ~/.claude-framework/.claude/rules/*.md ~/.claude/rules/            # rules are not plugin components
+diff ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md        # merge by hand if you customised it
+# Restart Claude Code, then run /hef.doctor — it must report RUNNING_MATCHES_CLONE at X.Y.Z.
 ```
 
 Each profile runs its own cached copy of the plugin, so the pull alone changes nothing a session
-sees. `CHANGELOG.md` says what each release changed.
+sees, and `plugin update` keys off the manifest version — releases always bump it. `CHANGELOG.md`
+says what each release changed.
 
 ---
 
@@ -87,9 +95,9 @@ sees. `CHANGELOG.md` says what each release changed.
 
 | Directory | What lives there |
 |---|---|
-| 🛠️ `commands/` | The 24 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
+| 🛠️ `commands/` | The 25 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Six specialist subagents — testing, quality, review, security, PR coordination, recon. |
-| ⚙️ `hooks/` | Fifteen hooks, `release.sh`, plus `speckit-helper.sh` (41 subcommands) that the commands call for live git data, requirement traceability, and the mutation ratchet. |
+| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (42 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |
@@ -187,6 +195,49 @@ Reverse-engineer the spec from what is already there, then proceed normally.
 Read the generated spec before trusting it — it is inferred, not authoritative. Once you have
 one, treat the module as scenario 2.
 
+### 🧵 5. Several sessions, one board
+
+The way the harness is meant to be run once a project is live: **one long-lived pane per
+responsibility, short-lived workers for the code**, and one shared truth nobody has to repeat to
+anybody. The evidence for that shape — and against a mesh of sessions that talk to each other — is
+[`reports/17-multi-agent-session-orchestration.md`](reports/17-multi-agent-session-orchestration.md).
+
+| Pane (start it with `claude --name <repo>-<role>`) | Responsibility | Runs | Owns |
+|---|---|---|---|
+| 📋 `<repo>-project` | the board and the documents: intake, specs, tasks, status | `/hef.status`, `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks`, `/hef.adr`, and `/hef.orchestrate` to dispatch workers | `tasks/`, `.specify/`, `docs/`, the ledger |
+| ✨ `<repo>-feature` | one feature at a time, by hand, in its own worktree | `/hef.implement` or `hefesto:workflow`, `/hef.verify`, `/hef.quality`, `/hef.review`, `/hef.pr` | one branch |
+| 🔧 `<repo>-chore` | general tasks, fixes, merges, releases | `/hef.fix`, `/hef.doctor`, `/hef.release`; the merges themselves | `main` |
+| 🤖 workers (headless, launched by `/hef.orchestrate`) | one board item each, then they exit | the size-routed pipeline, then a separate read-only verifier | one worktree under `.claude/worktrees/<id>` |
+
+**The shared truth is three things, none of them a conversation:** the board (`tasks/` or the
+GitHub Project), the ledger (`.git/hefesto/ledger/<id>.json` — shared by every worktree, never
+committed), and the pull requests. Every pane opened in the checkout is told at start which entries
+are blocked and on what (`ledger: HEF-7 blocked_on human:merge …`), so nothing has to be announced.
+
+**A message is a pointer, never a payload.** Panes can message each other (Claude Code's
+cross-session messaging; `claude agents --json` lists them by the name you gave). Keep it to one
+line — an id, a phase, a path: `ledger HEF-7 pr https://…/pull/7 — merge?` — never a diff, a review
+or a transcript. Each inbound message costs the receiver a full-context turn, and the ledger already
+holds everything the line points at.
+
+**Aligning a release across the panes** is a sequence the ledger makes visible, not a meeting:
+
+1. `project` dispatches or a person in `feature` claims an item (`hooks/ledger.sh claim HEF-7
+   --session <repo>-feature --role implement`) — the orchestrator then leaves it alone.
+2. The PR lands the item in `pr`, blocked on `human:merge`. That block is the release queue.
+3. `chore` merges (a person, with a merge commit), then `git pull --ff-only`,
+   `hooks/ledger.sh unblock HEF-7`, `hooks/ledger.sh advance HEF-7 merged`, and removes the worktree.
+4. When `hooks/ledger.sh list --phase merged` is the release, `chore` runs `/hef.release X.Y.Z`,
+   tags, and sends `project` one line: `release X.Y.Z tagged — HEF-7 HEF-8`.
+5. `project` moves the items to `DONE.md`; `/hef.status` shows the quarter delivered.
+
+A hand-run item in `feature` goes through the same ledger steps a worker does (`run --role implement
+--exit 0 --usd 0`, `record --pr … --branch …`, `advance pr`, `block --kind human:merge`); a one-call
+shortcut for that is backlog item HEF-6. Two rules keep the panes honest: the `project` pane that runs
+`/hef.orchestrate` has **its own sandbox off** (the workers it launches get theirs), see
+[`docs/install.md`](docs/install.md) §7; and no pane ever merges, approves or pushes `main` for a
+worker — branch protection on `main` is the backstop, not the prompt.
+
 ### 🧰 Also available, any time
 
 | | |
@@ -229,7 +280,7 @@ The hooks ship with the plugin — you do not register them:
 | | |
 |---|---|
 | 📦 [Installing & Configuring](docs/install.md) | Install, the permission rule, verification, updating, what the plugin cannot ship. |
-| 🛠️ [Commands](docs/commands.md) | All 24, with arguments. |
+| 🛠️ [Commands](docs/commands.md) | All 25, with arguments. |
 | 🕵️ [Agents & Parallelism](docs/agents.md) | The six agents; when to use a subagent vs. a team vs. a workflow. |
 | ⚙️ [Hooks & Quality Gates](docs/hooks.md) | Every hook, the Iron Laws, and the security posture. |
 | 🧬 [Spec-Driven Development](docs/sdd.md) | The lifecycle in depth, `.specify/` artifacts, task management. |
@@ -255,4 +306,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-**Framework Version**: 7.2.0 &nbsp;|&nbsp; **Last Updated**: 2026-09-25 &nbsp;|&nbsp; **Compatibility**: Claude Code with sub-agents, hooks, skills (`<name>/SKILL.md`), MCP, Agent Teams
+**Framework Version**: 7.3.0 &nbsp;|&nbsp; **Last Updated**: 2026-09-28 &nbsp;|&nbsp; **Compatibility**: Claude Code with sub-agents, hooks, skills (`<name>/SKILL.md`), MCP, Agent Teams

@@ -197,6 +197,18 @@ CLAUDE_CONFIG_DIR=~/.claude-work claude plugin update hefesto@hefesto  # each ot
 
 `plugin update` compares manifest versions, not commits: a pull that did not bump `plugin.json` reports "already at the latest version" and leaves the cache as it was. Releases always bump it; between releases, `plugin uninstall` + `install` is the way to pick up an unreleased commit.
 
+**Rolling a release out to a team** — the message to send, with `X.Y.Z` filled in:
+
+```bash
+# Hefesto X.Y.Z is out. Upgrade (about a minute):
+git -C ~/.claude-framework pull --ff-only
+claude plugin marketplace update hefesto
+claude plugin update hefesto@hefesto                     # once per profile: CLAUDE_CONFIG_DIR=~/.claude-<profile> claude plugin update hefesto@hefesto
+cp ~/.claude-framework/.claude/rules/*.md ~/.claude/rules/
+diff ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md        # merge by hand if you customised it
+# Restart Claude Code, then /hef.doctor must report RUNNING_MATCHES_CLONE at X.Y.Z.
+```
+
 ### 6️⃣ The two things the plugin cannot ship
 
 `plugin.json` ships **skills, commands, agents, hooks, workflows, and the MCP server**. There is no plugin component for **`rules/`** or **`CLAUDE.md`** — so installing the plugin does *not* give you the framework's global rules (code quality, git workflow, the Iron Laws, security, context management). If you want those to apply everywhere, copy them into `~/.claude/` yourself:
@@ -225,3 +237,37 @@ Keep `CLAUDE.md` and `rules/` if your dotfiles carry them — as above, the plug
 
 ---
 
+### 7️⃣ Running the orchestrator (the multi-session pipeline, Phase 1)
+
+`/hef.orchestrate` dispatches **one** board item at a time to a fresh headless worker and then a
+separate verifier, through a ledger in the repository's git common dir (`.git/hefesto/ledger/`).
+The design and the evidence behind it are `reports/17-multi-agent-session-orchestration.md`.
+
+1. **Declare the board** in `.claude/project-status.json` (the same file `/hef.status` reads; only
+   `source: tasks-repo` is dispatchable in Phase 1) and add the `orchestrate` block:
+   `{"usd_cap": 5, "daily_usd_cap": 25, "tiers": {"implement": "opus", "verify": "fable"}}` — tiers,
+   never model ids; the reviewer tier must rank at or above the author's.
+2. **Protect `main`**: require a pull request before merging (0 approvals is enough on a solo repo,
+   include administrators). No launched session can then push `main`, whatever its prompt says.
+   Merge with **merge commits**, not squash or rebase: the `human:merge` gate is cleared by
+   `git merge-base --is-ancestor <branch> main`, which a squash- or rebase-merged branch never satisfies.
+3. **Open the orchestrator pane with its own sandbox off**, in the main checkout, on the always-on
+   host that holds GitHub access and nothing else:
+   `claude --settings '{"sandbox":{"enabled":false}}'` (under herdr: one pane in the company
+   workspace). The launcher spawns `claude -p` as a child of the shell, and a sandboxed shell would
+   let it neither reach the API nor save its transcript — `session-launch.sh` refuses with that
+   reason. The workers it starts are sandboxed by the settings it passes them.
+4. **Dry-run first**: `/hef.orchestrate --dry-run` prints the exact `claude -p` line for the next
+   item and claims nothing. Then `/hef.orchestrate` for real: one item, a PR, verdicts in the ledger,
+   the entry blocked on `human:merge`.
+5. **Watch for blocks**: every session opened in the checkout prints `ledger: <id> blocked_on <kind>`
+   at start; `herdr agent wait --until blocked` and `claude agents --json` show the pane. A `human:*`
+   block is cleared only by the artifact the human command leaves behind (`/hef.clarify`,
+   `/hef.review`, the merge itself), never by a flag.
+6. **After you merge**: `git pull --ff-only`, then `hooks/ledger.sh unblock <id>` and
+   `hooks/ledger.sh advance <id> merged`; remove the worktree with
+   `git worktree remove .claude/worktrees/<id>`.
+
+Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
+the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the
+`runs[]` on each entry.

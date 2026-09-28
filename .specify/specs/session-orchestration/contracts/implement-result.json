@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": [
+    "summary",
+    "route",
+    "outcome"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "route": {
+      "enum": [
+        "fix",
+        "light",
+        "full"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "pr",
+        "blocked",
+        "failed"
+      ]
+    },
+    "pr_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "blocked_on": {
+      "enum": [
+        "human:clarify",
+        "human:plan-review",
+        "human:merge",
+        "ci",
+        "conflict",
+        null
+      ]
+    },
+    "spec_dir": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}
