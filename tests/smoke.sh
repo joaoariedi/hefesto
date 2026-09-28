@@ -1565,18 +1565,30 @@ lm_t="$(mktemp -d)"; lm_fail=0
   && bash "$LG" claim HEF-F1 --session verify-F1 --role verify && bash "$LG" run HEF-F1 --role verify --exit 0 --usd 0.3 && bash "$LG" verdict HEF-F1 --gate review --verdict FAIL --by verify-F1 && bash "$LG" block HEF-F1 --kind verdict \
   && bash "$LG" claim HEF-S1 --session impl-S1 --role implement && bash "$LG" run HEF-S1 --role implement --exit 1 --usd 0.2 && bash "$LG" claim HEF-S1 --session impl-S1 --role implement && bash "$LG" run HEF-S1 --role implement --exit 1 --usd 0.2 ) >/dev/null 2>&1
 ( cd "$lm_t" && bash "$LG" claim HEF-S1 --session impl-S1 --role implement ) >/dev/null 2>&1   # the third claim stalls (non-zero by design)
+# Timestamps are the test's to set (review 2026-09-28): implement→verify 2h/4h/6h → median 4; M1's
+# verify→updated 3h → median 3; two `ci` blocks with different `since` → oldest is the earlier one.
+# Mutations: median → .[0] → 2 → red; oldest `min` → `max` → red.
+lm_dir="$lm_t/.git/hefesto/ledger"; lm_t0="2026-09-01T00:00:00Z"
+lm_patch() { jq "$2" "$lm_dir/$1.json" > "$lm_dir/.p" && mv "$lm_dir/.p" "$lm_dir/$1.json"; }
+lm_patch HEF-M1 '.runs[0].at="2026-09-01T00:00:00Z" | .runs[1].at="2026-09-01T02:00:00Z" | .updated="2026-09-01T05:00:00Z"'
+lm_patch HEF-P1 '.runs[0].at="2026-09-01T00:00:00Z" | .runs[1].at="2026-09-01T04:00:00Z"'
+lm_patch HEF-F1 '.runs[0].at="2026-09-01T00:00:00Z" | .runs[1].at="2026-09-01T06:00:00Z"'
+( cd "$lm_t" && bash "$LG" init HEF-C1 --kind tasks-repo --ref t && bash "$LG" init HEF-C2 --kind tasks-repo --ref t && bash "$LG" block HEF-C1 --kind ci && bash "$LG" block HEF-C2 --kind ci ) >/dev/null 2>&1
+lm_patch HEF-C1 '.blocked_on.since="2026-09-02T00:00:00Z"'; lm_patch HEF-C2 '.blocked_on.since="2026-08-20T00:00:00Z"'
 lm_txt="$(cd "$lm_t" && bash "$LG" metrics 2>&1)"; lm_rc=$?
 [ "$lm_rc" -eq 0 ] || { bad "ledger metrics exited $lm_rc: $(head -c 200 <<<"$lm_txt")"; lm_fail=1; }
-for tok in 'entries +5' 'dispatched 4' 'PRs opened 2' 'merged 1' 'merge rate 50%' 'FAIL rate 33%' 'per merged PR 2\.00' 'human:merge 1' 'verdict 1' 'stall 1'; do
+for tok in 'entries +7' 'dispatched 4' 'PRs opened 2' 'merged 1' 'merge rate 50%' 'FAIL rate 33%' 'per merged PR 2\.00' 'human:merge 1' 'verdict 1' 'stall 1' 'ci 2 \(oldest 2026-08-20\)' 'implement→verify median 4\.0' 'verify→merge median 3\.0'; do
   grep -qE -- "$tok" <<<"$lm_txt" || { bad "ledger metrics text lacks '$tok': $(tr '\n' '|' <<<"$lm_txt" | head -c 400)"; lm_fail=1; }
 done
 lm_json="$(cd "$lm_t" && bash "$LG" metrics --json 2>/dev/null)"
-jq -e '.entries==5 and .dispatched==4 and .prs_opened==2 and .merged==1 and .merge_rate==0.5 and .usd_total==4.95 and .usd_per_merged_pr==2 and .stalled==1 and .blocked["human:merge"].count==1 and (.median_hours_implement_to_verify|type)=="number" and (.by_phase.merged==1)' <<<"$lm_json" >/dev/null 2>&1 \
+jq -e '.entries==7 and .dispatched==4 and .prs_opened==2 and .merged==1 and .merge_rate==0.5 and .usd_total==4.95 and .usd_per_merged_pr==2 and .stalled==1 and .blocked["human:merge"].count==1 and .blocked.ci.count==2 and .blocked.ci.oldest_since=="2026-08-20T00:00:00Z" and .median_hours_implement_to_verify==4 and .median_hours_verify_to_merge==3 and (.by_phase.merged==1)' <<<"$lm_json" >/dev/null 2>&1 \
   || { bad "ledger metrics --json figures wrong: $lm_json"; lm_fail=1; }
+# --since takes YYYY-MM-DD only: '2026-9-1' would silently sort after every '2026-09-…' entry
+if (cd "$lm_t" && bash "$LG" metrics --since 2026-9-1 >/dev/null 2>&1) || (cd "$lm_t" && bash "$LG" metrics --since >/dev/null 2>&1); then bad "ledger metrics --since must refuse a malformed or missing date"; lm_fail=1; fi
 lm_future="$(cd "$lm_t" && bash "$LG" metrics --since 2999-01-01 2>/dev/null)"; lm_frc=$?
 { [ "$lm_frc" -ne 0 ] && [ -z "$lm_future" ]; } || { bad "ledger metrics --since a future date must be non-zero with empty stdout (rc=$lm_frc)"; lm_fail=1; }
 lm_past="$(cd "$lm_t" && bash "$LG" metrics --since 2020-01-01 2>/dev/null)"
-grep -qE 'entries +5' <<<"$lm_past" || { bad "ledger metrics --since a past date must include every entry"; lm_fail=1; }
+grep -qE 'entries +7' <<<"$lm_past" || { bad "ledger metrics --since a past date must include every entry"; lm_fail=1; }
 lm_e="$(mktemp -d)"; ( cd "$lm_e" && git init -q . ) >/dev/null 2>&1
 if (cd "$lm_e" && bash "$LG" metrics >/dev/null 2>&1); then bad "ledger metrics on an empty ledger must be non-zero"; lm_fail=1; fi
 rm -rf "$lm_t" "$lm_e"

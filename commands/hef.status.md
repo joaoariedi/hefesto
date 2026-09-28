@@ -20,14 +20,15 @@ columns are markdown files (`TODO.md` / `DOING.md` / `DONE.md` / `BACKLOG.md`).
 > substituted into this note and the warning would read as nonsense.
 
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh $ARGUMENTS`
-Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh metrics` — the AI-delivery numbers
-(report 17 §7). It exits non-zero when this repository has no ledger; that is normal and means the
-brief has no fifth section, not an error to report.
 
-If it exits non-zero, run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --check`
+If `status-board.sh` exits non-zero, run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --check`
 and **stop**: report exactly which prerequisite is `[MISSING]` and the one-line fix it prints
 (commonly no `.claude/project-status.json` yet — the helper prints an example for each source —
 a missing `read:project` token scope, or a column file that moved). Do not guess numbers.
+
+Then run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh metrics` — the AI-delivery numbers
+(report 17 §7). **Its non-zero exit is normal** on a repository without a ledger: it means the brief
+has no fifth section, never that the brief stops.
 
 ## Instructions
 
