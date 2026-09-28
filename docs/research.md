@@ -4,7 +4,7 @@
 
 ## 📚 Research Corpus
 
-`reports/` holds the research behind the framework, split into seventeen files with no overlap between them — twelve single-subject topic files, one field report, two tool evaluations, one harness review, and one design proposal. It is the **"why" layer**: `.claude/rules/` states *what* to do, and `reports/` records the evidence, benchmark, or threat model that produced the rule. Where a finding is already codified, the report points at the rule with a `> **Codified in**` callout instead of restating it — so no text lives in two places.
+`reports/` holds the research behind the framework, split into eighteen files with no overlap between them — twelve single-subject topic files, one field report, two tool evaluations, one harness review, one design proposal, and one gap analysis. It is the **"why" layer**: `.claude/rules/` states *what* to do, and `reports/` records the evidence, benchmark, or threat model that produced the rule. Where a finding is already codified, the report points at the rule with a `> **Codified in**` callout instead of restating it — so no text lives in two places.
 
 | # | Subject | Codified in |
 |---|---------|-------------|
@@ -25,6 +25,7 @@
 | 15 | Jev — a hosted state-to-decision model, mapped against where the framework spends and enforces, evaluated but **not adopted** | *not yet codified* |
 | 16 | Spec-first vs incremental prompting — the evidence behind "newer models make specs unnecessary", the three meanings of spec-driven, and the rung this framework stands on, with its own artifact-to-code ratio | `.claude/CLAUDE.md` routing, `/hef.agent`, `/hef.verify` + `req-coverage --all` + `spec-cite-probe.sh`, both routing evals |
 | 17 | Multi-session orchestration — the evidence for a board-driven pipeline of fresh sessions over a file ledger (not a live mesh, not agent teams), the platform primitives table, per-role session definitions, and the proposed `ledger.sh` / `session-launch.sh` / `/hef.orchestrate` components with a three-phase adoption plan — accepted 2026-09-27, Phase 1 on hefesto under herdr | Phase 1 shipped: `/hef.orchestrate`, `hooks/ledger.sh`, `hooks/session-launch.sh`, `status-board.sh --item`, the `ledger:` session-start line, `tasks/` dogfood board, three evals (`orchestrator-honours-blocked`, `orchestrator-never-merges`, `board-text-is-data`); Phase 2 items are HEF-4/HEF-5 in `tasks/BACKLOG.md` |
+| 18 | A big-tech AI-native SDLC (Galbiati, 2026-09) against hefesto 7.3.0 — the deck confirms the hub topology and hooks-as-gates; six borrowings ranked: fresh-context plan review, a PR babysitter that loops on CI and comments up to the human gate, delivery metrics from the ledger, a bounded read-only arena in `/hef.plan`, a dependency audit, board item kinds — accepted 2026-09-28 (#1 + #3 built first, #2 next, the rest on the board) | *in progress* |
 
 Files 05, 08, 09, and 13 carry no pointers because their subject is genuinely unadopted, and each says so in its own header — an unadopted idea is recorded as prior art, not smuggled in as current practice.
 
