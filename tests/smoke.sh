@@ -1591,8 +1591,13 @@ grep -qF 'Do not edit files. Do not write `## Reviewed`' <<<"$rv_plan" || { bad 
 grep -qE '\*\*you\*\* append `## Reviewed' <<<"$rv_plan" || { bad "/hef.review: the command, not the agent, appends ## Reviewed on APPROVE"; rv_fail=1; }
 grep -qF -- '--inline' <<<"$rv_plan" && grep -qiE 'second opinion' <<<"$rv_plan" && grep -qiE 'Never append `## Reviewed` from this path' <<<"$rv_plan" || { bad "/hef.review --inline must be documented as a second opinion that never writes ## Reviewed"; rv_fail=1; }
 grep -qF 'ledger.sh metrics' "$REPO/commands/hef.status.md" && grep -qF 'AI delivery' "$REPO/commands/hef.status.md" || { bad "/hef.status must run ledger.sh metrics and describe the AI delivery section"; rv_fail=1; }
-[ -f "$REPO/evals/plan-review-is-not-self-review/case.yaml" ] && grep -qE 'tool: Agent' "$REPO/evals/plan-review-is-not-self-review/case.yaml" || { bad "eval plan-review-is-not-self-review must require a spawned Agent"; rv_fail=1; }
-[ "$rv_fail" -eq 0 ] && ok "/hef.review plan mode spawns the reviewer and keeps the write; --inline never passes the gate; /hef.status reports AI delivery (FR-101 FR-102 FR-103 FR-107)"
+# FR-104 — the eval exists, is scaffolded, and asserts at the tool-call level that a reviewer was spawned
+[ -f "$REPO/evals/plan-review-is-not-self-review/case.yaml" ] && [ -x "$REPO/evals/plan-review-is-not-self-review/scaffold.sh" ] && grep -qE 'tool: Agent' "$REPO/evals/plan-review-is-not-self-review/case.yaml" \
+  || { bad "eval plan-review-is-not-self-review must exist with an executable scaffold and require a spawned Agent (FR-104)"; rv_fail=1; }
+# FR-109 — the docs rows say what changed: review through a fresh context, status with AI delivery, ledger with metrics
+grep -qiE 'fresh context' "$REPO/docs/commands.md" && grep -qF 'AI delivery' "$REPO/docs/commands.md" && grep -qF '`metrics`' "$REPO/docs/hooks.md" && grep -qF 'fresh context' "$REPO/README.md" \
+  || { bad "docs must describe the fresh-context review, the AI-delivery section and ledger metrics (FR-109)"; rv_fail=1; }
+[ "$rv_fail" -eq 0 ] && ok "/hef.review plan mode spawns the reviewer and keeps the write; --inline never passes the gate; /hef.status reports AI delivery; eval and docs present (FR-101 FR-102 FR-103 FR-104 FR-107 FR-109)"
 
 # FR-014 — status-board --item <id>: the heading + body of ONE item, HTML comments stripped, wrapped in
 # the untrusted delimiters, so the judging model and the launcher's prompt see the same sanitised
