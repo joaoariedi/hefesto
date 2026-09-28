@@ -231,6 +231,24 @@ holds everything the line points at.
    tags, and sends `project` one line: `release X.Y.Z tagged — HEF-7 HEF-8`.
 5. `project` moves the items to `DONE.md`; `/hef.status` shows the quarter delivered.
 
+**Switching it on** (once per repository; the long form is [`docs/install.md`](docs/install.md) §7):
+
+1. Put the board in `tasks/` — one heading per item, `## HEF-1 — title`, then the body a worker
+   receives as data — and declare it in `.claude/project-status.json`:
+   `{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":25,"tiers":{"implement":"opus","verify":"fable"}}}`
+   (tiers, never model ids; the reviewer tier must rank at or above the author's).
+2. Protect `main`: require a pull request before merging, administrators included. Merge with merge
+   commits — the `human:merge` gate is cleared by branch ancestry, which a squash never satisfies.
+3. Open the project pane **with its own sandbox off**, in the main checkout, on the host that holds
+   GitHub access and nothing else: `claude --name <repo>-project --settings '{"sandbox":{"enabled":false}}'`.
+   The launcher spawns `claude -p` as a child of the shell; the workers get their sandbox from the
+   settings it passes them.
+4. `/hef.orchestrate --dry-run` prints the exact launch line for the next item and claims nothing.
+5. `/hef.orchestrate` — one item: a worker in `.claude/worktrees/<id>`, then a separate verifier,
+   then a PR and an entry blocked on `human:merge`. Run it again for the next item.
+6. After you merge: `git pull --ff-only`, `hooks/ledger.sh unblock <id>`,
+   `hooks/ledger.sh advance <id> merged`, `git worktree remove .claude/worktrees/<id>`.
+
 A hand-run item in `feature` goes through the same ledger steps a worker does (`run --role implement
 --exit 0 --usd 0`, `record --pr … --branch …`, `advance pr`, `block --kind human:merge`); a one-call
 shortcut for that is backlog item HEF-6. Two rules keep the panes honest: the `project` pane that runs
@@ -251,6 +269,7 @@ worker — branch protection on `main` is the backstop, not the prompt.
 | 📝 `/hef.pr` | Open or update the PR. Spawns `review-coordinator`; never merges. `--summary-only` writes just the description. |
 | 🩺 `/hef.doctor` | The framework's own check-up: the running copy against the clone and upstream, rules against upstream, hooks linted, manifest valid; `--eval` scores its prompts. |
 | 📊 `/hef.status` | Management status brief from the source `.claude/project-status.json` declares — a GitHub Project or a tasks repository of kanban files. `--detailed` unfolds, `--check` diagnoses. |
+| 🧵 `/hef.orchestrate` | Dispatch ONE board item to a fresh headless worker and a separate verifier through the ledger; one worker per repository at a time; never merges, approves, or pushes `main`. `--dry-run` prints the launch line and claims nothing. Run it from a pane with its own sandbox off. |
 | 📜 `/hef.adr` | Record a decision under `reports/` with machine-readable status. |
 
 Full reference: [`docs/commands.md`](docs/commands.md).
