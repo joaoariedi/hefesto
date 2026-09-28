@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased]
+## [7.3.0] - 2026-09-28
 
 **The multi-session pipeline, Phase 1: one board item → a fresh worker → a separate verifier → a PR, over a file ledger.**
 
@@ -100,26 +100,6 @@ This release ships Phase 1 and dogfoods it on this repository's own `tasks/` kan
   fails loudly if absent; confirmed against the fake, to be confirmed on the first real run.
 - No board write-back and no cross-session message yet — Phase 2 (HEF-4, HEF-5), only with Phase 1
   numbers behind it.
-
-## [7.3.0] - 2026-09-28
-
-**<one-sentence thesis of this release — written by a human, not derived from commits>**
-
-### Added
-
-- the launcher, the session-start ledger line, and /hef.orchestrate (T008–T011)
-- the ledger, the board item reader, and the dogfood kanban (T001–T007)
-
-### Changed
-
-- how the multi-session model runs, and the upgrade message to send a team
-- run-book, rows, counts, changelog; generic smoke checks for model ids and doc counts (T015–T017)
-- 17 — multi-session orchestration research, accepted with Phase 1 parked
-
-### Fixed
-
-- the code review's second blocker and seven suggestions
-- the quality gate's two blocking findings and two advisories
 
 ## [7.2.0] - 2026-09-25
 
