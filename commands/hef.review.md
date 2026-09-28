@@ -1,14 +1,15 @@
 ---
 model: fable
 description: "Review — the plan before tasks exist (read-only gate), or the code before the PR (two stages, via code-reviewer)"
-argument-hint: "[plan | code] [focus: file, module, or FR id]"
+argument-hint: "[plan | code] [--inline] [focus: file, module, or FR id]"
 ---
 
 # Review
 
-One command, two moments. Before tasks exist it reviews the **plan** — a read-only gate between
-`/hef.plan` and `/hef.tasks`. Once code exists it reviews the **code** — spec compliance, then
-quality — through the `code-reviewer` agent.
+One command, two moments, one reviewer. Before tasks exist it reviews the **plan** — a read-only
+gate between `/hef.plan` and `/hef.tasks`. Once code exists it reviews the **code** — spec
+compliance, then quality. Both go through the `code-reviewer` agent in a fresh context: the session
+that wrote the thing never grades it.
 
 ## Pre-Flight
 
@@ -29,37 +30,58 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh pr-files`
 - Otherwise: `plan.md` exists, is **not** marked `## Reviewed`, and `tasks.md` is missing → **plan
   mode**. Anything else → **code mode**. State the mode and the reason in one line before starting.
 
-## Plan mode — read-only
+## Plan mode — via `code-reviewer`, in a fresh context
 
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh spec`
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh plan`
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh constitution`
 
 Both `spec.md` and `plan.md` must exist; if either is missing, name the command to run first
-(`/hef.spec` or `/hef.plan`). Challenge the plan on six dimensions, with specific references:
+(`/hef.spec` or `/hef.plan`) and spawn nothing.
 
-1. **Scope** — too much? deferrable requirements? does every planned change map to an FR?
-2. **Architecture** — aligned with existing patterns? a simpler approach? does the file list fit?
-3. **Design** — data model fit, contract consistency, edge cases addressed?
-4. **Tests** — every level accounted for? untestable areas needing a design change? security paths
-   planned for dedicated tests?
-5. **Performance** — scale for expected load? N+1, missing indexes, blocking I/O, caching?
-6. **Constitution** — every principle addressed, no hand-waved justification, no conflict?
+**The session that wrote the plan does not review it.** Self-review by the strongest model measured
++0 pp; a reviewer in a fresh context recovers most of the cross-model gain, and the spec-compliance
+review of `session-orchestration` (2026-09-27) found two real defects the inline plan review had
+missed (`reports/17` §1d, `reports/18` #1). So this mode spawns the project's reviewer with the
+three artifacts and nothing of this conversation.
 
-```
-PLAN REVIEW — <branch>
-======================
-## Scope · ## Architecture · ## Design · ## Tests · ## Performance · ## Constitution
-- [OK/CONCERN] <assessment with specific references>
+Use the Task tool to spawn the `code-reviewer` agent with this brief, verbatim, followed by the three
+pre-flight outputs (spec, plan, constitution) in full:
 
-## Verdict: APPROVE / REVISE_PLAN / NEEDS_DISCUSSION
-## Suggested Changes (if REVISE_PLAN)
-```
+> Review the PLAN below, not code — this is the read-only gate between `/hef.plan` and `/hef.tasks`.
+> You did not write it and must not look for the conversation that did; the spec, the plan and the
+> constitution are your whole input. Challenge it on six dimensions, with specific references:
+> **Scope** (too much? deferrable requirements? does every planned change map to an FR?),
+> **Architecture** (aligned with existing patterns? a simpler approach? does the file list fit?),
+> **Design** (data model fit, contract consistency, edge cases), **Tests** (every level accounted
+> for? untestable areas needing a design change? security paths planned for dedicated tests?),
+> **Performance** (scale, N+1, blocking I/O, caching), **Constitution** (every principle addressed,
+> nothing hand-waved). Focus, if given: **$ARGUMENTS**.
+>
+> Produce exactly:
+> ```
+> PLAN REVIEW — <branch>
+> ======================
+> ## Scope · ## Architecture · ## Design · ## Tests · ## Performance · ## Constitution
+> - [OK/CONCERN] <assessment with specific references>
+>
+> ## Verdict: APPROVE / REVISE_PLAN / NEEDS_DISCUSSION
+> ## Suggested Changes (if REVISE_PLAN, numbered)
+> ```
+> Do not edit files. Do not write `## Reviewed`. Report.
 
-- `APPROVE` → append `## Reviewed <YYYY-MM-DD>` to `plan.md` (the one write this mode makes — it is
-  how `/hef.tasks` and the next `/hef.review` know the gate passed), then `/hef.tasks`.
+When the agent returns, relay the report unchanged. Then:
+
+- `APPROVE` → **you** append `## Reviewed <YYYY-MM-DD>` to `plan.md` (the one write this mode makes —
+  it is how `/hef.tasks` and the next `/hef.review` know the gate passed), then `/hef.tasks`.
 - `REVISE_PLAN` → the numbered changes are the next edit to `plan.md`; re-run `/hef.review plan`.
 - `NEEDS_DISCUSSION` → stop and surface the question to the user.
+
+### `--inline` — a second opinion, not the gate
+
+With `--inline` in **$ARGUMENTS**, run the six dimensions yourself instead of spawning, and open the
+report with one line: *"Inline self-review by the authoring session — a second opinion; it does not
+pass the gate."* Never append `## Reviewed` from this path.
 
 ## Code mode — via `code-reviewer`
 

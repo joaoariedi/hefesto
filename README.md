@@ -265,10 +265,10 @@ worker — branch protection on `main` is the backstop, not the prompt.
 | 🛡️ `/hef.quality` | The quality gate. Spawns `quality-guardian`. |
 | 🧬 `/hef.mutate` | Mutation-tests the changed code against a raise-only score ratchet. Coverage says a line ran; this says a test would notice. |
 | 🚀 `/hef.release <X.Y.Z>` | Moves every version declaration together and scaffolds the changelog entry for you to edit. |
-| 🔍 `/hef.review` | Plan mode before tasks exist; code mode after (spawns `code-reviewer`). |
+| 🔍 `/hef.review` | Plan mode before tasks exist; code mode after. Both spawn `code-reviewer` in a fresh context — the session that wrote it never grades it. `--inline` for a self-review second opinion. |
 | 📝 `/hef.pr` | Open or update the PR. Spawns `review-coordinator`; never merges. `--summary-only` writes just the description. |
 | 🩺 `/hef.doctor` | The framework's own check-up: the running copy against the clone and upstream, rules against upstream, hooks linted, manifest valid; `--eval` scores its prompts. |
-| 📊 `/hef.status` | Management status brief from the source `.claude/project-status.json` declares — a GitHub Project or a tasks repository of kanban files. `--detailed` unfolds, `--check` diagnoses. |
+| 📊 `/hef.status` | Management status brief from the source `.claude/project-status.json` declares — a GitHub Project or a tasks repository of kanban files. `--detailed` unfolds, `--check` diagnoses. Adds an AI-delivery section (merge rate, spend per merged PR, blocked by kind) when the repository has a ledger. |
 | 🧵 `/hef.orchestrate` | Dispatch ONE board item to a fresh headless worker and a separate verifier through the ledger; one worker per repository at a time; never merges, approves, or pushes `main`. `--dry-run` prints the launch line and claims nothing. Run it from a pane with its own sandbox off. |
 | 📜 `/hef.adr` | Record a decision under `reports/` with machine-readable status. |
 

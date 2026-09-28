@@ -34,6 +34,7 @@ usage: ledger.sh <subcommand> …
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
   record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f]   (--body-file re-hashes the item)
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next
+  metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
 EOF
   exit 2
 }
@@ -234,6 +235,53 @@ case "$SUB" in
       || die "ledger next: an entry in $DIR is not valid JSON — repair or remove it"
     [ -n "$N" ] || die "ledger next: no dispatchable entry (queued or implement, unowned, unblocked) in $DIR"
     echo "$N" ;;
+
+  metrics)
+    # The Phase 1 numbers report 17 §7 committed to, from what the launcher wrote — never from memory.
+    # Two figures are approximations and say so: implement→verify uses the first run of each role;
+    # verify→merge uses the merged entry's `updated` (normally the `advance merged` write).
+    SINCE=""; JSON=0
+    while [ $# -gt 0 ]; do case "$1" in --since) SINCE="${2:-}"; shift ;; --json) JSON=1 ;; *) usage ;; esac; shift; done
+    shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
+    [ "${#FILES[@]}" -gt 0 ] || die "ledger metrics: no entries in $DIR"
+    M=$(jq -s --arg since "$SINCE" '
+      def hours($a; $b): (($b | fromdate) - ($a | fromdate)) / 3600;
+      def median: if length == 0 then null else (sort | .[(length / 2) | floor]) end;
+      def r1: if . == null then null else ((. * 10) | round) / 10 end;
+      map(select($since == "" or .created >= $since)) as $e
+      | ($e | map(select(.phase == "merged" or .phase == "released"))) as $m
+      | ($e | map(select(.phase == "pr" or .phase == "merged" or .phase == "released" or .pr != null))) as $p
+      | ($e | map(select(any(.runs[]?; .role == "verify")))) as $v
+      | { entries: ($e | length),
+          by_phase: ($e | group_by(.phase) | map({key: .[0].phase, value: length}) | from_entries),
+          dispatched: ($e | map(select(any(.runs[]?; .role == "implement"))) | length),
+          prs_opened: ($p | length),
+          merged: ($m | length),
+          merge_rate: (if ($p | length) > 0 then ($m | length) / ($p | length) else null end),
+          verified: ($v | length),
+          verify_fail_rate: (if ($v | length) > 0 then (($v | map(select(any(.verdicts[]?; .verdict == "FAIL"))) | length) / ($v | length)) else null end),
+          usd_total: ($e | map(.budget.usd_spent // 0) | add // 0),
+          usd_per_merged_pr: (if ($m | length) > 0 then (($m | map(.budget.usd_spent // 0) | add) / ($m | length)) else null end),
+          median_hours_implement_to_verify: ($e | map(select(any(.runs[]?; .role == "implement") and any(.runs[]?; .role == "verify"))
+              | hours((.runs | map(select(.role == "implement")) | .[0].at); (.runs | map(select(.role == "verify")) | .[0].at))) | median | r1),
+          median_hours_verify_to_merge: ($m | map(select(any(.runs[]?; .role == "verify"))
+              | hours((.runs | map(select(.role == "verify")) | .[-1].at); .updated)) | median | r1),
+          blocked: ($e | map(select(.blocked_on != null)) | group_by(.blocked_on.kind)
+              | map({key: .[0].blocked_on.kind, value: {count: length, oldest_since: (map(.blocked_on.since) | min)}}) | from_entries),
+          stalled: ($e | map(select((.blocked_on.kind? // "") == "stall")) | length) }' "${FILES[@]}") \
+      || die "ledger metrics: an entry in $DIR is not valid JSON — repair or remove it (jq . $DIR/*.json names it)"
+    [ "$(jq '.entries' <<<"$M")" -gt 0 ] || die "ledger metrics: no entries${SINCE:+ created since $SINCE} in $DIR"
+    if [ "$JSON" = 1 ]; then echo "$M"; exit 0; fi
+    pct() { jq -r "$1 | if . == null then \"n/a\" else \"\(((. * 100) | round))%\" end" <<<"$M"; }
+    usd() { local v; v=$(jq -r "$1 // \"n/a\"" <<<"$M"); [ "$v" = n/a ] && echo n/a || printf '%.2f USD' "$v"; }
+    hrs() { local v; v=$(jq -r "$1 // \"n/a\"" <<<"$M"); [ "$v" = n/a ] && echo n/a || printf '%.1f' "$v"; }
+    printf '  AI delivery (ledger: %s entries%s)\n' "$(jq -r .entries <<<"$M")" "${SINCE:+ created since $SINCE}"
+    printf '  entries   %s — %s\n' "$(jq -r .entries <<<"$M")" "$(jq -r '.by_phase | to_entries | map("\(.key) \(.value)") | join(" · ")' <<<"$M")"
+    printf '  dispatched %s · PRs opened %s · merged %s · merge rate %s\n' "$(jq -r .dispatched <<<"$M")" "$(jq -r .prs_opened <<<"$M")" "$(jq -r .merged <<<"$M")" "$(pct .merge_rate)"
+    printf '  verify    FAIL rate %s (%s verified)\n' "$(pct .verify_fail_rate)" "$(jq -r .verified <<<"$M")"
+    printf '  spend     %s total · per merged PR %s\n' "$(usd .usd_total)" "$(usd .usd_per_merged_pr)"
+    printf '  hours     implement→verify median %s · verify→merge median %s (approx.)\n' "$(hrs .median_hours_implement_to_verify)" "$(hrs .median_hours_verify_to_merge)"
+    printf '  blocked   %s — %s\n' "$(jq -r '[.blocked[].count] | add // 0' <<<"$M")" "$(jq -r '.blocked | to_entries | map("\(.key) \(.value.count) (oldest \(.value.oldest_since[0:10]))") | join(" · ") | if . == "" then "none" else . end' <<<"$M")" ;;
 
   *) echo "ledger: unknown subcommand '$SUB'" >&2; usage ;;
 esac

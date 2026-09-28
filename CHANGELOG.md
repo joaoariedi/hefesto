@@ -35,6 +35,32 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+**The plan is reviewed by a session that did not write it, and the pipeline reports its own numbers.**
+
+Report 18 (`reports/18-big-tech-ai-native-sdlc-gap-analysis.md`) read a big-tech AI-native SDLC
+against 7.3.0; its first two borrowings ship here.
+
+### Changed
+
+- **`/hef.review` plan mode spawns `code-reviewer` in a fresh context** with the spec, the plan and
+  the constitution only, instead of reviewing inline in the session that wrote the plan. Self-review
+  by the strongest model measured +0 pp; the inline plan review of `session-orchestration` missed two
+  defects a separate reviewer then found. On `APPROVE` the command, never the agent, appends
+  `## Reviewed`. `--inline` keeps the old path as a labelled second opinion that does not pass the gate.
+- **`/hef.status`** gains a fifth section, **AI delivery**, whenever the repository has a ledger.
+
+### Added
+
+- **`ledger.sh metrics [--since d] [--json]`** — the Phase 1 numbers report 17 §7 committed to,
+  computed from the entries: dispatched, PRs opened, merged, merge rate, verify-FAIL rate, spend
+  total and per merged PR, median hours implement→verify and verify→merge (approx.), blocked by kind
+  with the oldest date, stalled. Empty ledger → non-zero. Fixture and three mutations in smoke.
+- **Eval `plan-review-is-not-self-review`** — a spec and an unreviewed plan; the grader requires a
+  spawned reviewer (`tool_used` Agent ≥ 1) and a verdict.
+- Backlog on the board: HEF-7 PR babysitter, HEF-8 arena, HEF-9 dependency audit, HEF-10 item kinds.
+
 ## [7.3.0] - 2026-09-28
 
 **The multi-session pipeline, Phase 1: one board item → a fresh worker → a separate verifier → a PR, over a file ledger.**

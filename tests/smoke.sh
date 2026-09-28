@@ -1550,6 +1550,50 @@ if lg show '../ledger/HEF-A4' >/dev/null 2>&1 || lg init 'HEF 1' --kind tasks-re
 ( cd "$lg_t" && git worktree remove --force wt ) >/dev/null 2>&1; rm -rf "$lg_t"
 [ "$lg_fail" -eq 0 ] && ok "ledger: common-dir location, schema, exclusive claim, stall, forward-only phases, run releases owner, reviewer≠author, evidence-gated unblock, next/list (FR-001 FR-002 FR-003 FR-004 FR-005 FR-006 FR-007 FR-008)"
 
+# plan-review-and-metrics FR-105 FR-106 FR-108 — `ledger metrics`: the Phase 1 numbers report 17 §7
+# committed to, computed from what the launcher wrote. Fixture built with the helper: M1 merged
+# (2.0 USD), P1 in pr blocked human:merge (1.25), F1 verify with a FAIL verdict (1.3), S1 stalled after
+# two failed runs (0.4), Q1 queued. Mutations: merge-rate denominator over all entries → 20% → red;
+# USD per merged PR over all entries → red; --since filter removed → future date still answers → red.
+lm_t="$(mktemp -d)"; lm_fail=0
+( cd "$lm_t" && git init -q -b main . && for i in M1 P1 F1 S1 Q1; do bash "$LG" init HEF-$i --kind tasks-repo --ref t >/dev/null; done \
+  && bash "$LG" claim HEF-M1 --session impl-M1 --role implement && bash "$LG" run HEF-M1 --role implement --exit 0 --usd 1.5 && bash "$LG" record HEF-M1 --pr https://x/pull/1 --branch b1 && bash "$LG" advance HEF-M1 verify \
+  && bash "$LG" claim HEF-M1 --session verify-M1 --role verify && bash "$LG" run HEF-M1 --role verify --exit 0 --usd 0.5 && bash "$LG" verdict HEF-M1 --gate review --verdict PASS --by verify-M1 && bash "$LG" advance HEF-M1 pr && bash "$LG" advance HEF-M1 merged \
+  && bash "$LG" claim HEF-P1 --session impl-P1 --role implement && bash "$LG" run HEF-P1 --role implement --exit 0 --usd 1 && bash "$LG" record HEF-P1 --pr https://x/pull/2 --branch b2 && bash "$LG" advance HEF-P1 verify \
+  && bash "$LG" claim HEF-P1 --session verify-P1 --role verify && bash "$LG" run HEF-P1 --role verify --exit 0 --usd 0.25 && bash "$LG" verdict HEF-P1 --gate review --verdict PASS --by verify-P1 && bash "$LG" advance HEF-P1 pr && bash "$LG" block HEF-P1 --kind human:merge \
+  && bash "$LG" claim HEF-F1 --session impl-F1 --role implement && bash "$LG" run HEF-F1 --role implement --exit 0 --usd 1 && bash "$LG" advance HEF-F1 verify \
+  && bash "$LG" claim HEF-F1 --session verify-F1 --role verify && bash "$LG" run HEF-F1 --role verify --exit 0 --usd 0.3 && bash "$LG" verdict HEF-F1 --gate review --verdict FAIL --by verify-F1 && bash "$LG" block HEF-F1 --kind verdict \
+  && bash "$LG" claim HEF-S1 --session impl-S1 --role implement && bash "$LG" run HEF-S1 --role implement --exit 1 --usd 0.2 && bash "$LG" claim HEF-S1 --session impl-S1 --role implement && bash "$LG" run HEF-S1 --role implement --exit 1 --usd 0.2 ) >/dev/null 2>&1
+( cd "$lm_t" && bash "$LG" claim HEF-S1 --session impl-S1 --role implement ) >/dev/null 2>&1   # the third claim stalls (non-zero by design)
+lm_txt="$(cd "$lm_t" && bash "$LG" metrics 2>&1)"; lm_rc=$?
+[ "$lm_rc" -eq 0 ] || { bad "ledger metrics exited $lm_rc: $(head -c 200 <<<"$lm_txt")"; lm_fail=1; }
+for tok in 'entries +5' 'dispatched 4' 'PRs opened 2' 'merged 1' 'merge rate 50%' 'FAIL rate 33%' 'per merged PR 2\.00' 'human:merge 1' 'verdict 1' 'stall 1'; do
+  grep -qE -- "$tok" <<<"$lm_txt" || { bad "ledger metrics text lacks '$tok': $(tr '\n' '|' <<<"$lm_txt" | head -c 400)"; lm_fail=1; }
+done
+lm_json="$(cd "$lm_t" && bash "$LG" metrics --json 2>/dev/null)"
+jq -e '.entries==5 and .dispatched==4 and .prs_opened==2 and .merged==1 and .merge_rate==0.5 and .usd_total==4.95 and .usd_per_merged_pr==2 and .stalled==1 and .blocked["human:merge"].count==1 and (.median_hours_implement_to_verify|type)=="number" and (.by_phase.merged==1)' <<<"$lm_json" >/dev/null 2>&1 \
+  || { bad "ledger metrics --json figures wrong: $lm_json"; lm_fail=1; }
+lm_future="$(cd "$lm_t" && bash "$LG" metrics --since 2999-01-01 2>/dev/null)"; lm_frc=$?
+{ [ "$lm_frc" -ne 0 ] && [ -z "$lm_future" ]; } || { bad "ledger metrics --since a future date must be non-zero with empty stdout (rc=$lm_frc)"; lm_fail=1; }
+lm_past="$(cd "$lm_t" && bash "$LG" metrics --since 2020-01-01 2>/dev/null)"
+grep -qE 'entries +5' <<<"$lm_past" || { bad "ledger metrics --since a past date must include every entry"; lm_fail=1; }
+lm_e="$(mktemp -d)"; ( cd "$lm_e" && git init -q . ) >/dev/null 2>&1
+if (cd "$lm_e" && bash "$LG" metrics >/dev/null 2>&1); then bad "ledger metrics on an empty ledger must be non-zero"; lm_fail=1; fi
+rm -rf "$lm_t" "$lm_e"
+[ "$lm_fail" -eq 0 ] && ok "ledger metrics: entries, dispatched, PRs, merge rate, FAIL rate, spend per merged PR, medians, blocked by kind, --since, --json, empty → non-zero (FR-105 FR-106 FR-108)"
+
+# plan-review-and-metrics FR-101 FR-102 FR-103 FR-107 — /hef.review plan mode is a spawned reviewer, the
+# command performs the one write, --inline is labelled and never writes; /hef.status runs the metrics.
+rv="$REPO/commands/hef.review.md"; rv_fail=0
+rv_plan="$(awk '/^## Plan mode/{f=1} /^## Code mode/{f=0} f' "$rv")"
+grep -qF 'code-reviewer' <<<"$rv_plan" && grep -qiE 'Task tool|Agent tool' <<<"$rv_plan" || { bad "/hef.review plan mode must spawn code-reviewer through the Task/Agent tool"; rv_fail=1; }
+grep -qF 'Do not edit files. Do not write `## Reviewed`' <<<"$rv_plan" || { bad "/hef.review plan-mode brief must forbid the agent from editing or writing ## Reviewed"; rv_fail=1; }
+grep -qE '\*\*you\*\* append `## Reviewed' <<<"$rv_plan" || { bad "/hef.review: the command, not the agent, appends ## Reviewed on APPROVE"; rv_fail=1; }
+grep -qF -- '--inline' <<<"$rv_plan" && grep -qiE 'second opinion' <<<"$rv_plan" && grep -qiE 'Never append `## Reviewed` from this path' <<<"$rv_plan" || { bad "/hef.review --inline must be documented as a second opinion that never writes ## Reviewed"; rv_fail=1; }
+grep -qF 'ledger.sh metrics' "$REPO/commands/hef.status.md" && grep -qF 'AI delivery' "$REPO/commands/hef.status.md" || { bad "/hef.status must run ledger.sh metrics and describe the AI delivery section"; rv_fail=1; }
+[ -f "$REPO/evals/plan-review-is-not-self-review/case.yaml" ] && grep -qE 'tool: Agent' "$REPO/evals/plan-review-is-not-self-review/case.yaml" || { bad "eval plan-review-is-not-self-review must require a spawned Agent"; rv_fail=1; }
+[ "$rv_fail" -eq 0 ] && ok "/hef.review plan mode spawns the reviewer and keeps the write; --inline never passes the gate; /hef.status reports AI delivery (FR-101 FR-102 FR-103 FR-107)"
+
 # FR-014 — status-board --item <id>: the heading + body of ONE item, HTML comments stripped, wrapped in
 # the untrusted delimiters, so the judging model and the launcher's prompt see the same sanitised
 # text; --item-raw keeps the comment (that is what the ledger hashes). Missing id → non-zero, empty
