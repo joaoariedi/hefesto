@@ -101,6 +101,26 @@ This release ships Phase 1 and dogfoods it on this repository's own `tasks/` kan
 - No board write-back and no cross-session message yet — Phase 2 (HEF-4, HEF-5), only with Phase 1
   numbers behind it.
 
+## [7.3.0] - 2026-09-28
+
+**<one-sentence thesis of this release — written by a human, not derived from commits>**
+
+### Added
+
+- the launcher, the session-start ledger line, and /hef.orchestrate (T008–T011)
+- the ledger, the board item reader, and the dogfood kanban (T001–T007)
+
+### Changed
+
+- how the multi-session model runs, and the upgrade message to send a team
+- run-book, rows, counts, changelog; generic smoke checks for model ids and doc counts (T015–T017)
+- 17 — multi-session orchestration research, accepted with Phase 1 parked
+
+### Fixed
+
+- the code review's second blocker and seven suggestions
+- the quality gate's two blocking findings and two advisories
+
 ## [7.2.0] - 2026-09-25
 
 **One status brief, any board: `/hef.status` reads a GitHub Project or a tasks repository.**
