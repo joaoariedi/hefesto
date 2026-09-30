@@ -29,13 +29,18 @@
 set -uo pipefail
 
 die() { echo "$*" >&2; exit 1; }
-usage() { sed -n '5,17p' "$0" | sed 's/^#   /  /' >&2; echo "usage: pr-watch.sh <subcommand> …" >&2; exit 2; }
+usage() { sed -n '/^#   --check/,/^#   fixes/p' "$0" | sed 's/^#   /  /' >&2; echo "usage: pr-watch.sh <subcommand> …" >&2; exit 2; }
 
 GH="${HEFESTO_GH_BIN:-gh}"
 MARKER='_hef.babysit_'
 FIX_RE='^fixed in [0-9a-f]{7,40}'
 CI_CONFIG_RE='^(\.github/|\.gitlab-ci\.yml$|\.circleci/|Jenkinsfile$|azure-pipelines\.yml$)'
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Every temp file or dir this run creates is listed here and removed on exit — a reply body waiting to be
+# posted must not outlive the call (quality gate 2026-09-30).
+PW_TMP=(); trap 'rm -rf "${PW_TMP[@]}"' EXIT
+tmpf() { local t; t="$(mktemp)"; PW_TMP+=("$t"); echo "$t"; }
+tmpd() { local t; t="$(mktemp -d)"; PW_TMP+=("$t"); echo "$t"; }
 
 # --- git, with the same fallback ledger.sh carries: the eval sandbox denies the git BINARY ------------
 have_git() { git rev-parse --git-dir >/dev/null 2>&1; }
@@ -59,19 +64,24 @@ current_branch() {
 
 need() {
   command -v "$GH" >/dev/null 2>&1 || die "pr-watch: gh not found — install GitHub CLI (https://cli.github.com) or set HEFESTO_GH_BIN"
-  "$GH" auth status >/dev/null 2>&1 || die "pr-watch: gh is not authenticated — run: gh auth login"
+  local auth; auth=$("$GH" auth status 2>&1) || die "pr-watch: gh auth status failed — a login (gh auth login) or, under the sandbox, api.github.com not granted: $(tail -1 <<<"$auth")"
   command -v jq >/dev/null 2>&1 || die "pr-watch: jq not found — install jq: https://jqlang.org"
   TIMEOUT="$(command -v timeout || command -v gtimeout)" || die "pr-watch: timeout not found — coreutils on Linux, 'brew install coreutils' (gtimeout) on macOS"
   remote_ok || die "pr-watch: no git remote in $(git_dir)/config — add one: git remote add origin <url>"
 }
 
 # Untrusted text: strip HTML comments and wrap in per-call nonce delimiters BEFORE any model reads it —
-# byte-for-byte the status-board.sh --item rule (a hidden instruction never reaches the babysitter).
+# the status-board.sh --item rule (a hidden instruction never reaches the babysitter). The first sed
+# removes any closed comment, including one containing `>` (status-board's `[^>]*` would leave it to the
+# second pass, which deletes whole lines to the END of the body — code review 2026-09-30); the second
+# pass still drops an UNCLOSED comment to the end, which loses text but never leaks it.
 sanitise() { # $1 label; body on stdin
   local body nonce; body=$(cat)
   nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
-  printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(sed -E 's/<!--[^>]*-->//g' <<<"$body" | sed '/<!--/,/-->/d')" "$nonce"
+  printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(sed -E 's/<!--([^-]|-[^-])*-->//g' <<<"$body" | sed '/<!--/,/-->/d')" "$nonce"
 }
+# Header fields (path, login) are contributor-controlled too; outside the delimiters they get a safe charset.
+safe() { tr -cd 'A-Za-z0-9._/@:#-' <<<"$1" | head -c 200; }
 
 pr_json() { # $1 pr or ""
   local out
@@ -82,7 +92,7 @@ pr_json() { # $1 pr or ""
 
 # --- checks: the buckets are the answer, never the exit code (gh exits 8 while pending, 1 on a failure, and prints JSON either way)
 checks_json() { # $1 pr → the raw array; "no checks reported" → []
-  local err out; err="$(mktemp)"; out="$("$GH" pr checks "$1" --json name,bucket,link,workflow 2>"$err")"
+  local err out; err="$(tmpf)"; out="$("$GH" pr checks "$1" --json name,bucket,link,workflow 2>"$err")"
   if [ -z "$out" ]; then
     if grep -qi 'no checks reported' "$err"; then out='[]'; else die "pr-watch checks $1: $(cat "$err")"; fi
   fi
@@ -98,7 +108,8 @@ checks_state() { # $1 waited (true|false); array on stdin. cancel counts as a fa
 # grace runs out with no check (the caller answers `pending`); dies when the head moved to another sha.
 wait_after() { # $1 pr, $2 sha
   local grace step t0 oid cj n
-  grace="${HEFESTO_PR_WATCH_GRACE:-90}"; step=5; [ "$grace" -lt 5 ] && step=1; t0=$(date +%s)
+  grace="${HEFESTO_PR_WATCH_GRACE:-90}"; [[ "$grace" =~ ^[0-9]+$ ]] || die "pr-watch checks: HEFESTO_PR_WATCH_GRACE must be seconds (got '$grace')"
+  step=5; [ "$grace" -lt 5 ] && step=1; t0=$(date +%s)
   while :; do
     oid=$("$GH" pr view "$1" --json headRefOid --jq .headRefOid 2>/dev/null) || die "pr-watch checks $1: gh pr view failed while waiting for $2"
     cj=$(checks_json "$1") || exit 1; n=$(jq length <<<"$cj")
@@ -161,32 +172,34 @@ fetch_all() { # $1 pr
 cmd_threads() {
   local pr="$1" last b t
   fetch_all "$pr"
-  # The babysitter's own words end with the marker: a thread it answered last is skipped; an issue comment older
-  # than its last word was already seen. Both filters are what make a pass idempotent.
-  last=$(jq -r --arg m "$MARKER" '([.threads[].comments.nodes[] | select(.body | contains($m)) | .createdAt] + [.issue[] | select(.body | contains($m)) | .created_at]) | max // ""' <<<"$ALL")
-  jq -r --arg m "$MARKER" '.threads[] | select(.isResolved | not) | select((.comments.nodes | length) > 0) | select((.comments.nodes | last | .body | contains($m)) | not) | @base64' <<<"$ALL" \
+  # The babysitter's own words end with the marker: a thread it answered last is skipped; an issue comment
+  # older than the babysitter's last ANSWER on the issue thread was already seen. A fix notice
+  # ("fixed in … (check …)") is not an answer — it must not hide the comments that arrived before it
+  # (code review 2026-09-30). Both filters are what make a pass idempotent.
+  last=$(jq -r --arg m "$MARKER" --arg re "$FIX_RE" '[.issue[] | select((.body // "") | contains($m)) | select(((.body // "") | split("\n")[0] | test($re)) | not) | .created_at] | max // ""' <<<"$ALL")
+  jq -r --arg m "$MARKER" '.threads[] | select(.isResolved | not) | select((.comments.nodes | length) > 0) | select((.comments.nodes | last | (.body // "") | contains($m)) | not) | @base64' <<<"$ALL" \
   | while IFS= read -r b; do
       t=$(base64 -d <<<"$b")
-      printf 'thread %s %s:%s %s %s comments=%s\n' "$(jq -r .id <<<"$t")" "$(jq -r '.path // "-"' <<<"$t")" "$(jq -r '.line // "-"' <<<"$t")" \
-        "$(jq -r '.comments.nodes[0].author.login // "?"' <<<"$t")" "$(jq -r '.comments.nodes | last | .createdAt' <<<"$t")" "$(jq -r '.comments.nodes | length' <<<"$t")"
-      jq -r '.comments.nodes[] | "-- \(.author.login // "?") \(.createdAt)\n\(.body)"' <<<"$t" | sanitise "$pr"
+      printf 'thread %s %s:%s %s %s comments=%s\n' "$(safe "$(jq -r .id <<<"$t")")" "$(safe "$(jq -r '.path // "-"' <<<"$t")")" "$(safe "$(jq -r '.line // "-"' <<<"$t")")" \
+        "$(safe "$(jq -r '.comments.nodes[0].author.login // "?"' <<<"$t")")" "$(safe "$(jq -r '.comments.nodes | last | .createdAt' <<<"$t")")" "$(jq -r '.comments.nodes | length' <<<"$t")"
+      jq -r '.comments.nodes[] | "-- \(.author.login // "?") \(.createdAt)\n\(.body // "")"' <<<"$t" | sanitise "$pr"
     done
-  jq -r --arg m "$MARKER" --arg last "$last" '.issue[] | select((.body | contains($m)) | not) | select(.created_at > $last) | @base64' <<<"$ALL" \
+  jq -r --arg m "$MARKER" --arg last "$last" '.issue[] | select(((.body // "") | contains($m)) | not) | select(.created_at > $last) | @base64' <<<"$ALL" \
   | while IFS= read -r b; do
       t=$(base64 -d <<<"$b")
-      printf 'comment %s %s %s\n' "$(jq -r .html_url <<<"$t")" "$(jq -r '.user.login // "?"' <<<"$t")" "$(jq -r .created_at <<<"$t")"
-      jq -r .body <<<"$t" | sanitise "$pr"
+      printf 'comment %s %s %s\n' "$(safe "$(jq -r .html_url <<<"$t")")" "$(safe "$(jq -r '.user.login // "?"' <<<"$t")")" "$(safe "$(jq -r .created_at <<<"$t")")"
+      jq -r '.body // ""' <<<"$t" | sanitise "$pr"
     done
 }
 cmd_fixes() {
   fetch_all "$1"
-  jq -r --arg m "$MARKER" --arg re "$FIX_RE" '[.threads[].comments.nodes[].body, .issue[].body] | map(select(contains($m)) | split("\n")[0] | select(test($re))) | length' <<<"$ALL"
+  jq -r --arg m "$MARKER" --arg re "$FIX_RE" '[.threads[].comments.nodes[].body, .issue[].body] | map((. // "") | select(contains($m)) | split("\n")[0] | select(test($re))) | length' <<<"$ALL"
 }
 
 # --- the only two write calls in the file --------------------------------------------------------------
 post() { # $1 pr, $2 thread id or "", $3 body file
   [ -f "$3" ] || die "pr-watch: body file '$3' not found"
-  local d url; d="$(mktemp -d)"; { cat "$3"; printf '\n\n%s\n' "$MARKER"; } > "$d/body.md"
+  local d url; d="$(tmpd)"; { cat "$3"; printf '\n\n%s\n' "$MARKER"; } > "$d/body.md"
   # CSA's recommendation after Comment-and-Control (report 17 §5e): scan agent-posted content before publication.
   if command -v gitleaks >/dev/null 2>&1; then
     gitleaks detect --no-git --source "$d" --no-banner >/dev/null 2>&1 || die "pr-watch: refused — gitleaks found a secret in $3; nothing posted"
@@ -210,10 +223,11 @@ cmd_post() { # $1 reply|comment, $2 pr, rest
 }
 
 cmd_state() {
-  local pr="$1" ckj ck cn
+  local pr="$1" ckj ck cn view
   ckj=$(checks_json "$pr" | checks_state false) || exit 1; ck=$(jq -r .state <<<"$ckj"); cn=$(jq -r .checks <<<"$ckj")
-  "$GH" pr view "$pr" --json number,url,state,isDraft,mergeable,mergeStateStatus,reviewDecision,headRefName,baseRefName,headRefOid 2>/dev/null \
-  | jq -c --arg ck "$ck" --argjson cn "$cn" '. + {checks: $ck, verdict: (
+  view=$("$GH" pr view "$pr" --json number,url,state,isDraft,mergeable,mergeStateStatus,reviewDecision,headRefName,baseRefName,headRefOid 2>&1) \
+    || die "pr-watch state $pr: gh pr view failed: $(tail -1 <<<"$view")"
+  jq -c --arg ck "$ck" --argjson cn "$cn" '. + {checks: $ck, verdict: (
       if .state != "OPEN" then "closed"
       elif .mergeStateStatus == "DIRTY" then "conflict"
       elif $ck == "fail" then "checks"
@@ -222,7 +236,7 @@ cmd_state() {
       elif .mergeStateStatus == "CLEAN" or .mergeStateStatus == "BEHIND" or .mergeStateStatus == "HAS_HOOKS" then "mergeable"
       elif .mergeStateStatus == "UNSTABLE" then "checks"
       elif .mergeStateStatus == "BLOCKED" then "review"
-      else "pending" end)}' || die "pr-watch state $pr: gh pr view failed"
+      else "pending" end)}' <<<"$view" || die "pr-watch state $pr: gh pr view returned something jq could not read: $(head -c 200 <<<"$view")"
 }
 
 cmd_resolve() {

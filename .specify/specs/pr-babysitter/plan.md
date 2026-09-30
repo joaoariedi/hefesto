@@ -8,6 +8,8 @@ Truth map: `research.md`. Second plan review (2026-09-30, fresh `code-reviewer`,
 
 Third plan review (2026-09-30, fresh `code-reviewer`, REVISE_PLAN with two line-level edits and the note that a fourth pass is not needed if made as written) → applied: no `git fetch` in `resolve --local` — the ancestor test runs on the API-supplied sha against local objects, rc 1 and rc 128 both refuse (1); `--wait` is the call's total budget, the helper subtracts the `--after` grace before `timeout`, so 540 + grace never exceeds the Bash tool ceiling (2); the nits: `research.md` says opus, `--max-fixes 0` skips step 2, capture-then-grep for the static assertion, no empty `.specify/` left behind (3).
 
+Code review 2026-09-30 (fresh `code-reviewer`, REQUEST_CHANGES: one blocker — the injection eval's unquoted heredoc executed the injected backticks at scaffold time and lost the text; fixed by a quoted fixture file the recorded `gh` cats, with a scaffold self-check) plus six suggestions and the quality gate's advisories, all applied: `--max-fixes 0` goes to step 3; a test-guard block is a boundary hit; the comment strip handles `>` inside a comment; `--check` carries gh's stderr; null bodies; the issue-comment "last word" excludes fix notices; usage range; temp cleanup on exit; safe header fields; `state` keeps gh's stderr; the comments-page guard has its fixture and mutation; the static assertion refuses an empty read.
+
 Nothing in the ledger changes — kinds `ci` and `human:merge` exist and
 nothing sets `ci` today. The untrusted-text delimiter is copied from `status-board.sh:144-147`. The
 `gh` surface is seven calls, all read-only except `pr comment` and the `addPullRequestReviewThreadReply`
@@ -114,7 +116,7 @@ jq -r '.comments.nodes[] | "-- \(.author.login) \(.createdAt)\n\(.body)"' <<<"$t
 ```bash
 # issue comments: $GH api "repos/$OWNER/$NAME/issues/$PR/comments" --paginate --slurp | jq 'flatten'
 # pageInfo.hasNextPage on threads (first:100) or comments (first:50) → die "pr-watch threads $PR: more than N … — handle by hand" (no silent partial answer)
-# last_marker = max(created_at of comments containing $MARKER, thread replies included) // ""
+# last_marker = max(created_at of ISSUE comments containing $MARKER whose first line is NOT a fix notice) // ""   (a fix notice never hides earlier comments — code review 2026-09-30)
 # list: select(.body | contains($MARKER) | not) | select(.created_at > $last_marker) → "comment <url> <author> <date>" + sanitised body
 ```
 **Why this shape:** the same two-sed strip and nonce as `status-board.sh:144-147`; the marker filter is what makes the loop idempotent across passes, for threads (last comment) and for issue comments (newer than the babysitter's last word) alike — review change 12; `--slurp` because `--paginate` emits one array per page (change 5).

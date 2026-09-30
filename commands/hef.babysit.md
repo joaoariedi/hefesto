@@ -70,7 +70,7 @@ to the person (or, headless, into the report), never into a fix.
 Define once and apply before **every** fix, on both paths below.
 
 **bound()** — re-run `pr-watch.sh fixes <number>`. If `fixes ≥ --max-fixes`: with `--max-fixes 0`
-this is observe-only — report what you would have fixed and continue; otherwise run
+this is observe-only — report what you would have fixed, apply nothing, and **go to step 3**; otherwise run
 `${CLAUDE_PLUGIN_ROOT}/hooks/pr-watch.sh ledger-id <url>` and, if it exits 0, run
 `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh block <id> --kind ci`; report the last failing check and
 its log path; **stop** (exit 3 from `ledger-id` means no ledger records this PR — fine; exit 1
@@ -97,8 +97,10 @@ means the ledger is unreadable — report it).
      to the person through AskUserQuestion (apply it by hand / skip), or headless: report it,
      `questions + 1`; disarm the guard; go to step 3. Never widen the diff to make a check green.
    - Edit; run the failed check's local equivalent (the project's test or lint command the log
-     names — `tests/smoke.sh` here); commit in the git-workflow format with the trailer. A
-     `quality-before-commit.sh` block is a boundary hit: same handling as a refusal.
+     names — `tests/smoke.sh` here); commit in the git-workflow format with the trailer. An edit
+     the armed test guard blocks (`implement-phase-test-guard.sh`: a test shrinking, a snapshot
+     update) and a `quality-before-commit.sh` block are boundary hits: same handling as an
+     `in-diff` refusal — never a different edit that gets around the guard.
    - **Disarm**: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement-phase-end`, then
      `rmdir .specify 2>/dev/null || true` — on a repository without SDD the start call created it empty.
    - `git push origin <headRefName>` — no other flags. Rejected (non-fast-forward, network) → print
