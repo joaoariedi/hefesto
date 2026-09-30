@@ -277,6 +277,15 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    the exact `git push origin <branch>` line for you to run with the `!` prefix and ends the
    pass. It never merges, approves, force-pushes, or edits CI configuration — a fix that would
    need any of those becomes a question for you.
+8. **Running the by-stage layout** (README §5): `/hef.orchestrate --stage plan` plans the next
+   queued item in a fresh session that writes only under `.specify/`; the default stage builds it;
+   `--stage deploy` runs one babysitter pass on the next PR. Two settings matter: every role's
+   allowlist gets the plugin's own hooks directory appended automatically, so put the **project's
+   test command** in `orchestrate.allowed_tools.<role>` (this repository: `Bash(bash tests/smoke.sh*)`
+   for `implement` and `deploy`) without fear of losing the helpers; and every launch is one Bash
+   call that can block for many minutes (a deploy pass waits on CI inside the babysitter), so the
+   command makes it with the tool timeout raised to 600 000 ms. `orchestrate.panes` maps block
+   kinds to your pane names; the session-start line then says whose block it is.
 
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the

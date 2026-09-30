@@ -33,7 +33,7 @@ usage: ledger.sh <subcommand> …
   unblock <id> [--reviewed-by-human]                    human:* kinds need artifact evidence
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
   record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f]   (--body-file re-hashes the item)
-  show <id> | list [--phase p] [--blocked] [--active] [--today] | next
+  show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
 EOF
   exit 2
@@ -276,11 +276,24 @@ case "$SUB" in
       || die "ledger list: an entry in $DIR is not valid JSON — repair or remove it (jq . $DIR/*.json names it)" ;;
 
   next)
+    # --stage (feature stage-roles FR-001): plan picks what has no spec yet (queued, or intake after a failed
+    # or unblocked plan run); build picks queued (no plan stage), tasks (planned) or implement (a retry);
+    # deploy picks a pr entry with a PR — even while blocked on human:merge, since that wait is what the
+    # babysitter babysits — unblocked first, then the one babysat least recently, so a PR parked at the
+    # gate never monopolises the stage.
+    STAGE=build; while [ $# -gt 0 ]; do case "$1" in --stage) STAGE="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    case "$STAGE" in
+      plan)   SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "intake")'; ORDER="$ID_SORT" ;;
+      build)  SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "tasks" or .phase == "implement")'; ORDER="$ID_SORT" ;;
+      deploy) SEL='.owner == null and .phase == "pr" and ((.pr.url // "") != "") and (.blocked_on == null or .blocked_on.kind == "human:merge")'
+              ORDER='sort_by([(if .blocked_on == null then 0 else 1 end), (([.runs[]? | select(.role == "deploy") | .at] | max) // "")])' ;;
+      *) usage ;;
+    esac
     shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
     [ "${#FILES[@]}" -gt 0 ] || die "ledger next: no entries in $DIR (run: ledger.sh init <id> …)"
-    N=$(jq -rs "map(select(.owner == null and .blocked_on == null and (.phase == \"queued\" or .phase == \"implement\"))) | $ID_SORT | .[0].id // empty" "${FILES[@]}") \
+    N=$(jq -rs "map(select($SEL)) | $ORDER | .[0].id // empty" "${FILES[@]}") \
       || die "ledger next: an entry in $DIR is not valid JSON — repair or remove it"
-    [ -n "$N" ] || die "ledger next: no dispatchable entry (queued or implement, unowned, unblocked) in $DIR"
+    [ -n "$N" ] || die "ledger next: no dispatchable entry for stage $STAGE in $DIR (plan: queued|intake; build: queued|tasks|implement, unowned, unblocked; deploy: pr with a PR)"
     echo "$N" ;;
 
   metrics)

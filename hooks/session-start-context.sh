@@ -49,9 +49,19 @@ done
 # blocked item that nobody can see is the escalation gap no vendor documents (report 17 §5d).
 LDIR="${HEFESTO_LEDGER_DIR:-$(git -C "$CWD" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/hefesto/ledger}"
 if [ -d "$LDIR" ]; then
+  # Every blocked line names the pane that owns the kind (stage-roles FR-010; report 18 addendum A3), from
+  # orchestrate.panes in the project config merged over the built-in map. The config's entries come AFTER
+  # the default's and from_entries is last-wins, so a config pane that names a kind already in a default
+  # pane takes it over. A malformed map must never cost the line: `panes` that is not an object → {}
+  # (select() would yield EMPTY output at exit 0 and an || would not fire); a pane value that is not an
+  # array breaks `.value[]` → the fallback below; an empty result is caught before --argjson.
+  PANES_DEFAULT='{"orchestrator":["human:intake"],"plan":["human:clarify","human:plan-review"],"build":["verdict","stall","budget","conflict"],"deploy":["ci","human:merge"]}'
+  CFG_PANES="$(jq -c '(.orchestrate.panes // {}) | if type == "object" then . else {} end' "$CWD/.claude/project-status.json" 2>/dev/null)"; [ -n "$CFG_PANES" ] || CFG_PANES='{}'
+  KIND2PANE="$(jq -nc --argjson d "$PANES_DEFAULT" --argjson c "$CFG_PANES" '[$d, $c] | map(to_entries[]) | map(.key as $p | .value[] | select(type == "string") | {key: ., value: $p}) | from_entries' 2>/dev/null)"
+  [ -n "$KIND2PANE" ] || KIND2PANE="$(jq -nc --argjson d "$PANES_DEFAULT" '$d | to_entries | map(.key as $p | .value[] | {key: ., value: $p}) | from_entries')"
   for f in "$LDIR"/*.json; do
     [ -f "$f" ] || continue
-    jq -r 'select(.blocked_on != null) | "ledger: \(.id) blocked_on \(.blocked_on.kind) since \(.blocked_on.since) — resolve with the human command it names, then ledger.sh unblock \(.id)"' "$f" 2>/dev/null
+    jq -r --argjson k "$KIND2PANE" 'select(.blocked_on != null) | "ledger: \(.id) blocked_on \(.blocked_on.kind) since \(.blocked_on.since) → \($k[.blocked_on.kind] // "orchestrator") pane — resolve with the human command it names, then ledger.sh unblock \(.id)"' "$f" 2>/dev/null
   done
 fi
 

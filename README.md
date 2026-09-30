@@ -216,9 +216,9 @@ each launching headless sessions for its stage's work and holding that stage's h
 | Pane | Owns (ledger phases) | Human gates | Launches / runs |
 |---|---|---|---|
 | 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | `human:intake` | `/hef.status`, `/hef.orchestrate`, `ledger.sh list\|next\|metrics` |
-| 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | `human:clarify`, `human:plan-review` | `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks` |
-| 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | the implement worker, then the verifier (what `/hef.orchestrate` launches today) |
-| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, `human:merge`, tag/deploy | `/hef.pr`, `/hef.babysit` (`/loop 25m /hef.babysit <n> --once` while a review is pending), `/hef.release`; the merge itself, by a person |
+| 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | `human:clarify`, `human:plan-review` | `/hef.orchestrate --stage plan` (a fresh planner: spec → plan → fresh-context review → tasks, writes only under `.specify/`), or by hand `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks` |
+| 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | `/hef.orchestrate` (the default stage: the implement worker — continuing from the planner's tasks when there are any — then the separate verifier) |
+| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, `human:merge`, tag/deploy | `/hef.orchestrate --stage deploy` (one headless `/hef.babysit --once` pass on the next PR), or by hand `/hef.babysit` (`/loop 25m /hef.babysit <n> --once` while a review is pending); `/hef.release`; the merge itself, by a person |
 
 Choose by object when one person runs the repository and a feature should stay in one pane end to
 end; by stage when more than one person attends, when the panes sit on different hosts (CI and the
@@ -230,7 +230,8 @@ layout is in use.
 **The shared truth is three things, none of them a conversation:** the board (`tasks/` or the
 GitHub Project), the ledger (`.git/hefesto/ledger/<id>.json` — shared by every worktree, never
 committed), and the pull requests. Every pane opened in the checkout is told at start which entries
-are blocked and on what (`ledger: HEF-7 blocked_on human:merge …`), so nothing has to be announced.
+are blocked, on what, and whose they are (`ledger: HEF-7 blocked_on human:merge … → deploy pane`), so
+nothing has to be announced; `orchestrate.panes` in `.claude/project-status.json` renames the panes.
 
 **A message is a pointer, never a payload.** Panes can message each other (Claude Code's
 cross-session messaging; `claude agents --json` lists them by the name you gave). Keep it to one

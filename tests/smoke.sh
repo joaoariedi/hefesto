@@ -1676,7 +1676,7 @@ jq -e '.owner == null' "$sl_t/.git/hefesto/ledger/HEF-1.json" >/dev/null 2>&1 ||
 ( cd "$sl_t" && bash "$LG" record HEF-1 --worktree "$sl_t" --branch main --route fix >/dev/null 2>&1 )
 sl_v="$(sl verify HEF-1 --dry-run 2>&1)"; sl_vrc=$?
 [ "$sl_vrc" -eq 0 ] || { bad "session-launch verify --dry-run exited $sl_vrc: $(head -c 300 <<<"$sl_v")"; sl_fail=1; }
-for tok in '--name verify-HEF-1' '--model fable' '--disallowedTools Edit,Write' '--allowedTools Read,Grep'; do grep -qE -- "$tok" <<<"$sl_v" || { bad "session-launch verify lacks '$tok'"; sl_fail=1; }; done
+for tok in '--name verify-HEF-1' '--model fable' '--disallowedTools Edit,Write' "--allowedTools .Read,Grep,Bash\\($REPO/hooks/\\*\\)"; do grep -qE -- "$tok" <<<"$sl_v" || { bad "session-launch verify lacks '$tok'"; sl_fail=1; }; done   # the hooks rule is appended after the config list (stage-roles FR-003)
 for tok in '--resume' '--continue' '--fork-session' '--forward-subagent-text' '--bare' ' -w '; do grep -qF -- "$tok" <<<"$sl_v" && { bad "session-launch verify must not carry '$tok' (the verifier never sees the author transcript)"; sl_fail=1; }; done
 # SC-004 — no concrete model id on either line
 grep -qE 'claude-[a-z]+-[0-9]' <<<"$sl_out$sl_v" && { bad "session-launch emitted a concrete model id — tiers only"; sl_fail=1; }
@@ -1770,6 +1770,130 @@ sr_cerr="$(sr implement HEF-7 2>&1 >/dev/null)"; sr_crc=$?
 { [ "$sr_crc" -ne 0 ] && grep -q 'changed since claim' <<<"$sr_cerr" && srj HEF-7 '.owner==null and .attempts==0'; } || { bad "an item edited after registration must be refused as 'changed since claim' before any claim (rc=$sr_crc: $(head -c 120 <<<"$sr_cerr"))"; sr_fail=1; }
 ( cd "$sr_t" && bash "$SB" --item-raw HEF-7 > "$sr_bin/h7.body" && bash "$LG" record HEF-7 --body-file "$sr_bin/h7.body" >/dev/null 2>&1 )
 sr implement HEF-7 --dry-run >/dev/null 2>&1 || { bad "after record --body-file the re-hashed item must launch again"; sr_fail=1; }
+# --- feature stage-roles (FR-001..FR-011, SC-001): the plan and deploy roles on the same fake claude ---
+# State here: HEF-1 in pr/human:merge with a worktree and PR 12; HEF-2 verify/verdict; HEF-3 stalled;
+# HEF-4, HEF-7 queued; HEF-5 implement; HEF-6 budget. New entries HEF-8..HEF-11 carry the new cases.
+st_fail=0; st_hooks="Bash($REPO/hooks/*)"
+sr2() { (cd "$sr_t" && PATH="$sr_bin:$PATH" CLAUDE_CONFIG_DIR="$sr_cfg" bash "${SL_BIN:-$SL}" "$@"); }
+lg2() { (cd "$sr_t" && bash "${LG_BIN:-$LG}" "$@"); }
+st_init() { printf '\n## HEF-%s — item %s\nbody %s\n' "$1" "$1" "$1" >> "$sr_t/tasks/TODO.md"; lg2 init "HEF-$1" --kind tasks-repo --ref t >/dev/null 2>&1; }
+st_init 8; st_init 9   # HEF-10 and HEF-11 are registered when their cases need them, so the plan stage sees one candidate at a time
+# FR-001 next --stage: plan and build both start at the lowest queued id; deploy finds the pr entry even while blocked on human:merge
+[ "$(lg2 next --stage plan 2>/dev/null)" = HEF-4 ] || { bad "next --stage plan must return the lowest queued entry (HEF-4), got '$(lg2 next --stage plan 2>&1)'"; st_fail=1; }
+[ "$(lg2 next --stage build 2>/dev/null)" = HEF-4 ] && [ "$(lg2 next 2>/dev/null)" = HEF-4 ] || { bad "next --stage build (and the default) must return HEF-4"; st_fail=1; }
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "next --stage deploy must return HEF-1 (pr, PR recorded, blocked human:merge), got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
+lg2 next --stage bogus >/dev/null 2>&1; [ $? -eq 2 ] || { bad "next --stage bogus must be a usage error (2)"; st_fail=1; }
+# FR-004 FR-005 plan run: outcome tasks → phase tasks, absolute spec_dir under the worktree, route full, branch, owner released
+printf '{"session_id":"p1","total_cost_usd":0.8,"structured_output":{"summary":"planned","outcome":"tasks","spec_dir":".specify/specs/eight","blocked_on":null}}\n' > "$sr_res"
+: > "$sr_log"; sr2 plan HEF-8 >/dev/null 2>&1 || { bad "session-launch plan (fake claude) exited non-zero"; st_fail=1; }
+srj HEF-8 '.phase=="tasks" and .owner==null and .route=="full" and .branch=="HEF-8" and (.worktree|endswith(".claude/worktrees/HEF-8")) and (.spec_dir|endswith(".claude/worktrees/HEF-8/.specify/specs/eight")) and .runs[0].session_name=="plan-HEF-8" and .budget.usd_spent==0.8' \
+  || { bad "plan must transcribe tasks/spec_dir/route full/worktree into the ledger — got $(jq -c '{p:.phase,r:.route,s:.spec_dir,w:.worktree,b:.branch}' "$sr_t/.git/hefesto/ledger/HEF-8.json")"; st_fail=1; }
+st_argv="$(cat "$sr_log")"
+{ grep -qF -- '--name plan-HEF-8' <<<"$st_argv" && grep -qF -- '-w HEF-8' <<<"$st_argv" && grep -qF -- '--permission-mode default' <<<"$st_argv" && ! grep -qF 'acceptEdits' <<<"$st_argv" \
+  && grep -qF 'Edit(.specify/**)' <<<"$st_argv" && grep -qF "$st_hooks" <<<"$st_argv" && grep -qF '/hef.spec' <<<"$st_argv" && grep -qF 'untrusted-begin HEF-8' <<<"$st_argv"; } \
+  || { bad "plan argv must carry --name plan-HEF-8, -w, --permission-mode default (no acceptEdits), Edit(.specify/**), the hooks rule and the delimited item: $(head -c 300 <<<"$st_argv")"; st_fail=1; }
+# FR-006 implement on the planned entry: the prompt names /hef.implement and the spec dir, never /hef.agent; tasks → implement → verify
+: > "$sr_log"; st_dry="$(sr2 implement HEF-8 --dry-run 2>&1)"
+{ grep -qF '/hef.implement' <<<"$st_dry" && grep -qF 'specs/eight' <<<"$st_dry" && ! grep -qF '/hef.agent' <<<"$st_dry"; } || { bad "implement on a tasks entry must prompt /hef.implement at the spec dir, not /hef.agent"; st_fail=1; }
+printf '{"session_id":"p2","total_cost_usd":1,"structured_output":{"summary":"built","route":"full","outcome":"pr","pr_url":"https://github.com/o/r/pull/18","blocked_on":null,"spec_dir":".specify/specs/eight"}}\n' > "$sr_res"
+sr2 implement HEF-8 >/dev/null 2>&1 || { bad "implement on a tasks entry exited non-zero"; st_fail=1; }
+srj HEF-8 '.phase=="verify" and .pr.number==18 and .route=="full"' || { bad "implement on a tasks entry must reach verify with the PR recorded — got $(jq -c '{p:.phase,pr:.pr}' "$sr_t/.git/hefesto/ledger/HEF-8.json")"; st_fail=1; }
+# plan blocked on human:clarify → phase intake with spec_dir; a person clears the marker → unblock → next --stage plan returns it; the resume prompt is phase-aware
+lg2 block HEF-4 --kind human:intake >/dev/null 2>&1; lg2 block HEF-7 --kind human:intake >/dev/null 2>&1   # park the queued ones so the plan stage has one candidate
+printf '{"session_id":"p3","total_cost_usd":0.3,"structured_output":{"summary":"needs a decision","outcome":"blocked","spec_dir":".specify/specs/nine","blocked_on":"human:clarify"}}\n' > "$sr_res"
+sr2 plan HEF-9 >/dev/null 2>&1 || { bad "plan with outcome blocked exited non-zero"; st_fail=1; }
+srj HEF-9 '.phase=="intake" and .blocked_on.kind=="human:clarify" and (.spec_dir|endswith("HEF-9/.specify/specs/nine"))' || { bad "plan blocked must leave phase intake, human:clarify and the spec_dir — got $(jq -c '{p:.phase,b:.blocked_on,s:.spec_dir}' "$sr_t/.git/hefesto/ledger/HEF-9.json")"; st_fail=1; }
+lg2 next --stage plan >/dev/null 2>&1 && { bad "next --stage plan must find nothing while the only candidate is blocked"; st_fail=1; }
+mkdir -p "$sr_t/.claude/worktrees/HEF-9/.specify/specs/nine"; printf '# Spec\n\nno markers here\n' > "$sr_t/.claude/worktrees/HEF-9/.specify/specs/nine/spec.md"
+lg2 unblock HEF-9 >/dev/null 2>&1 || { bad "unblock human:clarify with a marker-free spec must succeed"; st_fail=1; }
+[ "$(lg2 next --stage plan 2>/dev/null)" = HEF-9 ] || { bad "next --stage plan must return the unblocked intake entry HEF-9, got '$(lg2 next --stage plan 2>&1)'"; st_fail=1; }
+st_dry="$(sr2 plan HEF-9 --dry-run 2>&1)"
+{ grep -qF 'do not re-spec' <<<"$st_dry" && grep -qF 'lacks "## Reviewed"' <<<"$st_dry" && grep -qF 'specs/nine' <<<"$st_dry" && ! grep -qF 'untrusted-begin' <<<"$st_dry"; } \
+  || { bad "a plan retry must carry the phase-aware resume prompt (spec dir, do not re-spec, only if plan.md lacks ## Reviewed), not the item: $(head -c 300 <<<"$st_dry")"; st_fail=1; }
+printf '{"session_id":"p4","total_cost_usd":0.4,"structured_output":{"summary":"resumed","outcome":"tasks","spec_dir":".specify/specs/nine","blocked_on":null}}\n' > "$sr_res"
+sr2 plan HEF-9 >/dev/null 2>&1; srj HEF-9 '.phase=="tasks" and .route=="full"' || { bad "the resumed plan run must reach tasks"; st_fail=1; }
+# plan failed → non-zero, phase intake, owner released, picked again by next --stage plan
+st_init 10
+printf '{"session_id":"p5","total_cost_usd":0.2,"structured_output":{"summary":"could not","outcome":"failed","spec_dir":null,"blocked_on":null}}\n' > "$sr_res"
+if sr2 plan HEF-10 >/dev/null 2>&1; then bad "plan with outcome failed must exit non-zero"; st_fail=1; fi
+srj HEF-10 '.phase=="intake" and .owner==null and .blocked_on==null' || { bad "a failed plan run must leave phase intake, unowned, unblocked — got $(jq -c '{p:.phase,o:.owner,b:.blocked_on}' "$sr_t/.git/hefesto/ledger/HEF-10.json")"; st_fail=1; }
+[ "$(lg2 next --stage plan 2>/dev/null)" = HEF-10 ] || { bad "next --stage plan must pick the failed intake entry HEF-10 again, got '$(lg2 next --stage plan 2>&1)'"; st_fail=1; }
+# FR-007 FR-008 deploy on HEF-1: mergeable keeps human:merge and its `since`; no -w; --name deploy-HEF-1; no merge verbs in the allowlist
+st_since="$(jq -r .blocked_on.since "$sr_t/.git/hefesto/ledger/HEF-1.json")"
+printf '{"session_id":"d1","total_cost_usd":0.3,"structured_output":{"summary":"green","verdict":"mergeable","fixes":0,"questions":0}}\n' > "$sr_res"
+: > "$sr_log"; sr2 deploy HEF-1 >/dev/null 2>&1 || { bad "session-launch deploy (fake claude) exited non-zero"; st_fail=1; }
+jq -e --arg s "$st_since" '.blocked_on.kind=="human:merge" and .blocked_on.since==$s and .owner==null and .runs[-1].role=="deploy"' "$sr_t/.git/hefesto/ledger/HEF-1.json" >/dev/null 2>&1 \
+  || { bad "deploy mergeable on an entry already at human:merge must keep the block and its since — got $(jq -c '{b:.blocked_on,r:.runs[-1].role}' "$sr_t/.git/hefesto/ledger/HEF-1.json")"; st_fail=1; }
+st_argv="$(cat "$sr_log")"
+{ grep -qF -- '--name deploy-HEF-1' <<<"$st_argv" && ! grep -qE -- ' -w ' <<<"$st_argv" && grep -qF -- '--permission-mode acceptEdits' <<<"$st_argv" && grep -qF '/hef.babysit 12 --once --max-fixes 3' <<<"$st_argv" \
+  && grep -qF "$st_hooks" <<<"$st_argv" && ! grep -qE 'gh pr merge|gh pr review|gh api' <<<"$st_argv"; } \
+  || { bad "deploy argv must carry --name deploy-HEF-1, no -w, acceptEdits, the babysit line, the hooks rule and no merge verbs: $(head -c 300 <<<"$st_argv")"; st_fail=1; }
+st_dep() { printf '{"session_id":"dx","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"%s","fixes":%s,"questions":%s}}\n' "$1" "$2" "$3" > "$sr_res"; sr2 deploy HEF-1 >/dev/null 2>&1; jq -r '.blocked_on.kind // "none"' "$sr_t/.git/hefesto/ledger/HEF-1.json"; }
+[ "$(st_dep pending 0 0)" = human:merge ] || { bad "deploy pending must leave the block untouched"; st_fail=1; }
+[ "$(st_dep checks 2 0)" = human:merge ] || { bad "deploy checks under the bound must leave the block untouched"; st_fail=1; }
+[ "$(st_dep checks 3 0)" = ci ] || { bad "deploy checks with fixes == max_fixes must block ci"; st_fail=1; }
+[ "$(st_dep conflict 0 0)" = conflict ] || { bad "deploy conflict must block conflict"; st_fail=1; }
+[ "$(st_dep refused 0 0)" = conflict ] || { bad "deploy refused must leave the block untouched"; st_fail=1; }
+[ "$(st_dep review 0 1)" = human:intake ] || { bad "deploy with questions must block human:intake whatever the verdict"; st_fail=1; }
+lg2 block HEF-1 --kind human:merge >/dev/null 2>&1
+[ "$(st_dep closed 0 0)" = human:intake ] || { bad "deploy closed must block human:intake (the PR leaves the deploy set)"; st_fail=1; }
+sr2 deploy HEF-10 >/dev/null 2>&1 && { bad "deploy must refuse an entry without a recorded PR (HEF-10 has a worktree but never opened one)"; st_fail=1; }
+# deploy ordering: an unblocked pr entry first; then the least recently babysat
+st_init 11; lg2 record HEF-11 --pr https://github.com/o/r/pull/21 --worktree "$sr_t" --branch HEF-11 >/dev/null 2>&1; lg2 advance HEF-11 pr >/dev/null 2>&1
+lg2 block HEF-1 --kind human:merge >/dev/null 2>&1
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-11 ] || { bad "next --stage deploy must prefer the unblocked pr entry (HEF-11), got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
+lg2 block HEF-11 --kind human:merge >/dev/null 2>&1
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-11 ] || { bad "next --stage deploy must prefer the entry never babysat (HEF-11) over HEF-1, got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
+sleep 1; printf '{"session_id":"d9","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"; sr2 deploy HEF-11 >/dev/null 2>&1
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "after HEF-11's pass, next --stage deploy must return the least recently babysat (HEF-1), got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
+# FR-003 the hooks rule survives a config override, last in the list; FR-002 tiers per stage
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":100,"tiers":{"plan":"sonnet","deploy":"fable"},"allowed_tools":{"implement":["Read","Bash(bash tests/smoke.sh*)"]}}}\n' > "$sr_t/.claude/project-status.json"
+st_dry="$(sr2 implement HEF-7 --dry-run 2>&1)"; grep -qF "Read,Bash(bash tests/smoke.sh*),$st_hooks'" <<<"$st_dry" || { bad "a config allowlist must still end with the hooks rule: $(grep -o -- "--allowedTools '[^']*'" <<<"$st_dry")"; st_fail=1; }
+lg2 unblock HEF-4 >/dev/null 2>&1 || true
+st_dry="$(sr2 plan HEF-10 --dry-run 2>&1)"; grep -qF -- '--model sonnet' <<<"$st_dry" || { bad "plan must take orchestrate.tiers.plan"; st_fail=1; }
+st_dry="$(sr2 deploy HEF-11 --dry-run 2>&1)"; grep -qF -- '--model fable' <<<"$st_dry" || { bad "deploy must take orchestrate.tiers.deploy"; st_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":100}}\n' > "$sr_t/.claude/project-status.json"
+# no default allowlist admits a merge verb (the structural "never merges")
+st_defaults="$(grep -E "^  (implement|verify|plan|deploy)\) +ALLOWED=" "$SL")"
+[ "$(grep -c . <<<"$st_defaults")" -eq 4 ] || { bad "expected four default allowlists in session-launch.sh"; st_fail=1; }
+grep -qE 'gh pr merge|gh pr review|gh api' <<<"$st_defaults" && { bad "a default allowlist admits a merge verb: $(grep -E 'gh pr merge|gh pr review|gh api' <<<"$st_defaults" | head -c 200)"; st_fail=1; }
+[ "$st_fail" -eq 0 ] && ok "stage roles: next --stage (plan/build/deploy, ordering), plan run (tasks, blocked→unblock→next, failed→resume, mode default), implement on a planned entry, deploy verdicts + refusal, tiers, hooks rule after a config list, no merge verbs (stage-roles FR-001..FR-008, FR-011)"
+
+# Mutations on copies (SC-001). The launcher copy sits beside symlinks to the helpers it calls.
+st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
+SL_MUT="$st_mutdir/session-launch.sh"; LG_MUT="$st_mutdir/ledger-mut.sh"; st_mfail=0
+st_mut() { cp "$SL" "$SL_MUT"; sed -i "$1" "$SL_MUT"; cmp -s "$SL" "$SL_MUT" && { bad "stage-roles mutation did not apply: $1"; st_mfail=1; }; }
+st_lmut() { cp "$LG" "$LG_MUT"; sed -i "$1" "$LG_MUT"; cmp -s "$LG" "$LG_MUT" && { bad "stage-roles ledger mutation did not apply: $1"; st_mfail=1; }; }
+st_lmut 's/(.phase == "queued" or .phase == "intake")/(.phase == "queued")/'
+[ "$(LG_BIN="$LG_MUT" lg2 next --stage plan 2>/dev/null)" != HEF-10 ] || { bad "mutation survived: intake dropped from the plan filter, HEF-10 still returned"; st_mfail=1; }
+lg2 advance HEF-11 merged >/dev/null 2>&1 || true   # HEF-11 leaves the deploy set (phase merged)
+st_lmut 's/ORDER=.sort_by(\[(if .blocked_on == null then 0 else 1 end), .*$/ORDER="$ID_SORT" ;;/'
+lg2 init HEF-12 --kind tasks-repo --ref t >/dev/null 2>&1; lg2 record HEF-12 --pr https://github.com/o/r/pull/22 >/dev/null 2>&1; lg2 advance HEF-12 pr >/dev/null 2>&1
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-12 ] || { bad "next --stage deploy must prefer the unblocked HEF-12 over the blocked HEF-1"; st_mfail=1; }
+[ "$(LG_BIN="$LG_MUT" lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "mutation survived: deploy ordering replaced by id order, HEF-12 still preferred"; st_mfail=1; }
+st_mut 's/if \[ "$Q" -gt 0 \]; then/if false; then/'
+lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; printf '{"session_id":"m1","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"review","fixes":0,"questions":1}}\n' > "$sr_res"
+SL_BIN="$SL_MUT" sr2 deploy HEF-1 >/dev/null 2>&1; [ "$(jq -r .blocked_on.kind "$sr_t/.git/hefesto/ledger/HEF-1.json")" != human:intake ] || { bad "mutation survived: questions branch removed, still human:intake"; st_mfail=1; }
+st_mut 's/\[ "$F" -ge "$MAX_FIXES" \]/[ "$F" -gt "$MAX_FIXES" ]/'
+lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; printf '{"session_id":"m2","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"checks","fixes":3,"questions":0}}\n' > "$sr_res"
+SL_BIN="$SL_MUT" sr2 deploy HEF-1 >/dev/null 2>&1; [ "$(jq -r .blocked_on.kind "$sr_t/.git/hefesto/ledger/HEF-1.json")" != ci ] || { bad "mutation survived: -ge → -gt, fixes == max still blocks ci"; st_mfail=1; }
+st_mut '/\[ -n "$PRN" \] || die/d'
+printf '{"session_id":"m3","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"
+SL_BIN="$SL_MUT" sr2 deploy HEF-10 >/dev/null 2>&1 && : || { bad "mutation survived: pr.url refusal removed, deploy on HEF-10 still refused"; st_mfail=1; }
+st_mut 's/if \[ -n "$SPEC_DIR" \] \&\& \[ "$PHASE" = tasks \]; then/if false; then/'
+st_dry="$(SL_BIN="$SL_MUT" sr2 implement HEF-9 --dry-run 2>&1)"; grep -qF '/hef.agent' <<<"$st_dry" || { bad "mutation survived: tasks-phase prompt conditional removed, /hef.agent still absent"; st_mfail=1; }
+st_mut 's/mergeable) \[ "$CURK" = human:merge \] || {/mergeable) {/'
+lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; st_since="$(jq -r .blocked_on.since "$sr_t/.git/hefesto/ledger/HEF-1.json")"; sleep 1
+printf '{"session_id":"m4","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"mergeable","fixes":0,"questions":0}}\n' > "$sr_res"
+SL_BIN="$SL_MUT" sr2 deploy HEF-1 >/dev/null 2>&1; [ "$(jq -r .blocked_on.since "$sr_t/.git/hefesto/ledger/HEF-1.json")" != "$st_since" ] || { bad "mutation survived: mergeable-already-set guard removed, since unchanged"; st_mfail=1; }
+st_mut 's/ + \[\\$h\] | join/ | join/'
+st_dry="$(SL_BIN="$SL_MUT" sr2 implement HEF-7 --dry-run 2>&1)"; grep -qF "$st_mutdir/*" <<<"$st_dry" && { bad "mutation survived: hooks-rule append dropped, rule still present"; st_mfail=1; }
+st_mut 's/CMD+=(--permission-mode default)/CMD+=(--permission-mode acceptEdits)/'
+st_dry="$(SL_BIN="$SL_MUT" sr2 plan HEF-10 --dry-run 2>&1)"; grep -qF -- '--permission-mode acceptEdits' <<<"$st_dry" || { bad "mutation check: acceptEdits mutation not visible in the plan argv"; st_mfail=1; }
+st_mut "s/\"Bash(gh auth status)\"\]/\"Bash(gh auth status)\",\"Bash(gh api *)\"]/"
+st_defaults="$(grep -E "^  (implement|verify|plan|deploy)\) +ALLOWED=" "$SL_MUT")"; grep -qE 'gh api' <<<"$st_defaults" || { bad "mutation survived: a gh api rule added to a default array was not caught"; st_mfail=1; }
+[ "$st_mfail" -eq 0 ] && ok "stage-roles mutations: plan filter, deploy ordering, questions branch, ci bound, pr.url refusal, tasks prompt, mergeable guard, hooks-rule append, plan mode, merge verbs — all caught (SC-001)"
+rm -rf "$st_mutdir"
 rm -rf "$sr_t" "$sr_cfg" "$sr_bin"
 [ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output (FR-011 FR-013 SC-007)"
 
@@ -1785,6 +1909,34 @@ ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | bash "$REPO/hooks/s
 ss_n="$(mktemp -d)"; ( cd "$ss_n" && git init -q . ) >/dev/null 2>&1
 ss_out2="$(printf '{"cwd":"%s","source":"startup"}' "$ss_n" | bash "$REPO/hooks/session-start-context.sh" 2>&1)"
 grep -q '^ledger: ' <<<"$ss_out2" && { bad "session-start must print no ledger line when the repo has no ledger"; ss_fail=1; }
+# stage-roles FR-010 (SC-002): every blocked line names its owner pane — default map, config override,
+# a config pane re-homing a default kind (config wins), and two malformed maps that must not cost the line.
+( cd "$ss_t" && bash "$LG" init HEF-9 --kind tasks-repo --ref t >/dev/null && bash "$LG" block HEF-9 --kind human:clarify >/dev/null ) >/dev/null 2>&1
+ss_pane() { printf '{"cwd":"%s","source":"startup"}' "$ss_t" | bash "${SS_BIN:-$REPO/hooks/session-start-context.sh}" 2>&1 | grep -E "^ledger: $1 " | sed -n 's/.*→ \([a-z]*\) pane.*/\1/p'; }
+{ [ "$(ss_pane HEF-7)" = deploy ] && [ "$(ss_pane HEF-9)" = plan ]; } || { bad "session-start must name the default owner pane: HEF-7 → '$(ss_pane HEF-7)' (deploy), HEF-9 → '$(ss_pane HEF-9)' (plan)"; ss_fail=1; }
+mkdir -p "$ss_t/.claude"
+printf '{"orchestrate":{"panes":{"release":["human:merge"]}}}\n' > "$ss_t/.claude/project-status.json"
+{ [ "$(ss_pane HEF-7)" = release ] && [ "$(ss_pane HEF-9)" = plan ]; } || { bad "a config pane must own its kinds and leave the rest to the defaults: HEF-7 → '$(ss_pane HEF-7)' (release), HEF-9 → '$(ss_pane HEF-9)' (plan)"; ss_fail=1; }
+printf '{"orchestrate":{"panes":{"build":["human:merge"]}}}\n' > "$ss_t/.claude/project-status.json"
+[ "$(ss_pane HEF-7)" = build ] || { bad "a config pane that re-homes a default kind must win: HEF-7 → '$(ss_pane HEF-7)' (build)"; ss_fail=1; }
+printf '{"orchestrate":{"panes":{"release":"human:merge"}}}\n' > "$ss_t/.claude/project-status.json"
+[ "$(ss_pane HEF-7)" = deploy ] || { bad "a pane value that is not an array must fall back to the default map, never lose the line: HEF-7 → '$(ss_pane HEF-7)'"; ss_fail=1; }
+printf '{"orchestrate":{"panes":"oops"}}\n' > "$ss_t/.claude/project-status.json"
+[ "$(ss_pane HEF-7)" = deploy ] || { bad "a panes value that is not an object must fall back to the default map, never lose the line: HEF-7 → '$(ss_pane HEF-7)'"; ss_fail=1; }
+# mutations: the default map emptied → orchestrator; the object guard weakened to select() → the string-panes line vanishes
+ss_mut="$(mktemp)"; cp "$REPO/hooks/session-start-context.sh" "$ss_mut"; sed -i "s/^  PANES_DEFAULT='{.*}'$/  PANES_DEFAULT='{}'/" "$ss_mut"
+cmp -s "$REPO/hooks/session-start-context.sh" "$ss_mut" && { bad "session-start mutation (default map emptied) did not apply"; ss_fail=1; }
+rm -f "$ss_t/.claude/project-status.json"
+[ "$(SS_BIN="$ss_mut" ss_pane HEF-7)" = orchestrator ] || { bad "mutation survived: default panes map emptied, HEF-7 still → '$(SS_BIN="$ss_mut" ss_pane HEF-7)'"; ss_fail=1; }
+# The three guards are layered (the if, the [ -n CFG_PANES ] check, the KIND2PANE fallback): any one alone is
+# absorbed by the next, so the mutation removes the family — the line must then vanish, proving it is load-bearing.
+cp "$REPO/hooks/session-start-context.sh" "$ss_mut"
+sed -i -e 's/| if type == "object" then . else {} end/| select(type == "object")/' -e 's/; \[ -n "$CFG_PANES" \] || CFG_PANES=.{}.$//' -e '/^  \[ -n "$KIND2PANE" \] || KIND2PANE=/d' "$ss_mut"
+cmp -s "$REPO/hooks/session-start-context.sh" "$ss_mut" && { bad "session-start mutation (guard family removed) did not apply"; ss_fail=1; }
+printf '{"orchestrate":{"panes":"oops"}}\n' > "$ss_t/.claude/project-status.json"
+ss_mline="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | bash "$ss_mut" 2>&1 | grep -c '^ledger: HEF-7 ')"
+[ "$ss_mline" -eq 0 ] || { bad "mutation survived: object guard weakened to select(), the HEF-7 line is still printed under a string panes value"; ss_fail=1; }
+rm -f "$ss_mut" "$ss_t/.claude/project-status.json"
 rm -rf "$ss_t" "$ss_n"
 [ "$ss_fail" -eq 0 ] && ok "session-start-context reports blocked ledger entries, one line each, and nothing otherwise (FR-015)"
 
@@ -1799,6 +1951,12 @@ for h in hooks/status-board.sh hooks/ledger.sh hooks/session-launch.sh; do grep 
 grep -qF '## Untrusted input' "$oc" && grep -qF 'human:intake' "$oc" || { bad "/hef.orchestrate must carry the untrusted-input rule ending in a human:intake block"; oc_fail=1; }
 grep -qiE 'does not merge|never merge' "$oc" || { bad "/hef.orchestrate must state that it does not merge"; oc_fail=1; }
 grep -qF 'orphaned' "$oc" && grep -qF 'changed since claim' "$oc" || { bad "/hef.orchestrate must tell the model how to report an orphaned entry and a 'changed since claim' refusal (FR-014)"; oc_fail=1; }
+# stage-roles FR-009 FR-012: the stage switch, the per-stage launch lines, only --dry-run forwarded, the raised tool timeout
+grep -qF -- '--stage plan|build|deploy' "$oc" && grep -qF 'next --stage <stage>' "$oc" && grep -qF 'session-launch.sh plan <id>' "$oc" && grep -qF 'session-launch.sh deploy <id>' "$oc" \
+  && grep -qF '600000' "$oc" && ! grep -qF 'session-launch.sh implement <id> $ARGUMENTS' "$oc" \
+  || { bad "/hef.orchestrate must switch on --stage, run next --stage, launch plan/deploy, forward only --dry-run and raise the tool timeout (stage-roles FR-009)"; oc_fail=1; }
+grep -qF -- '--stage' "$REPO/docs/commands.md" && grep -qF -- '--stage' "$REPO/docs/install.md" && grep -qF '`plan`' "$REPO/docs/hooks.md" && grep -qF 'orchestrate.panes' "$REPO/docs/hooks.md" \
+  || { bad "the stage switch, the four roles and orchestrate.panes must be documented (stage-roles FR-012)"; oc_fail=1; }
 oc_merge_ok=1; while IFS= read -r l; do grep -qiE 'no |never|not ' <<<"$l" || oc_merge_ok=0; done < <(grep -F 'gh pr merge' "$oc")
 [ "$oc_merge_ok" = 1 ] || { bad "/hef.orchestrate mentions gh pr merge outside a prohibition"; oc_fail=1; }
 oc_ph_ok=1; while IFS= read -r l; do grep -qF '<id>' <<<"$l" || oc_ph_ok=0; done < <(grep -E 'CLAUDE_PLUGIN_ROOT.*(ledger\.sh (init|claim|block|unblock|advance)|session-launch\.sh)' "$oc")
