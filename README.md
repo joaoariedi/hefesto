@@ -22,7 +22,7 @@ enough that "what were we building?" stops having an obvious answer — and then
 by building the wrong thing well.
 
 Hefesto is a Claude Code plugin that adds the missing middle: a **workflow** (idea → spec → plan →
-tasks → code → verification, with a human gate at each seam), **six specialist agents** the workflow
+tasks → code → verification, with a human gate at each seam), **seven specialist agents** the workflow
 dispatches, **fifteen hooks** that enforce the gates, **skills** the agents reason with, and a set
 of **rules** that load into every session. It is one namespace of 26 `hef.*` commands; you pick the
 path that fits the change, from a one-line fix to a full specification pipeline.
@@ -96,7 +96,7 @@ says what each release changed.
 | Directory | What lives there |
 |---|---|
 | 🛠️ `commands/` | The 25 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
-| 🕵️ `agents/` | Six specialist subagents — testing, quality, review, security, PR coordination, recon. |
+| 🕵️ `agents/` | Seven specialist subagents — testing, quality, review, security, PR coordination, two one-shot readers (another repo; this one, for the arena). |
 | ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (44 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |

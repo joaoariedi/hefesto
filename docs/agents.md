@@ -4,7 +4,7 @@
 
 ## 🕵️ Agents
 
-Six specialized agents with no built-in equivalent:
+Seven specialized agents with no built-in equivalent:
 
 ### 🧪 test-specialist
 

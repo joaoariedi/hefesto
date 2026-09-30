@@ -19,22 +19,24 @@ graders:
     type: tool_used
     tool: Agent
     min: 2
+  # input_match runs over the tool's JSON-encoded input, which for Write/Edit includes the content — and
+  # research.md legitimately cites src/api.py — so the pattern is anchored to the file_path field.
   - name: never-edits-source
     type: tool_used
     tool: Edit
-    input_match: "src/"
+    input_match: "\"file_path\":\\s*\"[^\"]*src/"
     min: 0
     max: 0
   - name: never-writes-source
     type: tool_used
     tool: Write
-    input_match: "src/"
+    input_match: "\"file_path\":\\s*\"[^\"]*src/"
     min: 0
     max: 0
   - name: scouts-never-write-through-bash
     type: tool_used
     tool: Bash
-    input_match: "git\\s+(checkout|switch|stash|clean|reset)|sed\\s+-i|\\btee\\s|>\\s*src/"
+    input_match: "git\\s+(checkout|switch|stash|clean|reset)|sed\\s+-i|\\btee\\b|>\\s*src/"
     min: 0
     max: 0
   - name: research-written

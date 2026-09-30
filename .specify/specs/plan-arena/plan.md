@@ -165,7 +165,7 @@ graders: tool_used Agent min 2; tool_used Edit input_match "src/" max 0; tool_us
 **Why this shape:** two-grader pattern as `plan-review-is-not-self-review`.
 
 ### Docs — No sketch — trivial
-Rows, the counts (7 agents, 43 subcommands), the truth-scout section, the CLAUDE.md agents row, CHANGELOG, board move.
+Rows, the counts (7 agents, 44 subcommands), the truth-scout section, the CLAUDE.md agents row, CHANGELOG, board move.
 
 ## Constitution Compliance
 - [x] **1** payload at the root (`agents/`, `commands/`, `hooks/`, `evals/`).

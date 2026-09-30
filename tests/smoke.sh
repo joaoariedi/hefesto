@@ -2362,8 +2362,17 @@ ar_out="$(ar arena-cite-check .specify/specs/thing/arena/opus.md 2>&1)"; ar_rc=$
 { [ "$ar_rc" -ne 0 ] && grep -qF 'missing src/a.py:999' <<<"$ar_out" && grep -qF 'missing src/nope.py:1' <<<"$ar_out" && grep -qF 'ok src/a.py:2' <<<"$ar_out"; } \
   || { bad "arena-cite-check must name each missing citation (line beyond the end, no such file) and exit non-zero (rc=$ar_rc): $ar_out"; ar_fail=1; }
 ar_out="$(ar arena-cite-check .specify/specs/thing/arena/none.md 2>&1)"; ar_rc=$?; [ "$ar_rc" -eq 2 ] || { bad "arena-cite-check on a missing digest file must be a usage error (2), got $ar_rc"; ar_fail=1; }
+# code review 2026-09-30: a dotfile path keeps its dot; a last line without a trailing newline counts; line 0, `..` and absolute paths are
+# refused with their reason; prose tokens (times, ratios, host:port, FR-001:2, an Open: entry) are not citations and are not scanned
+( cd "$ar_t" && mkdir -p .claude && printf 'a\nb\n' > .claude/x.md && printf 'no newline at the end' > src/nonl.py )
+printf '<truth-digest>\nTier: fable\nQuestions: 1. runs at 10:30, ratio 1:1, listens on localhost:8080, FR-001:2\nClaims:\n- C1 .claude/x.md:2 — dotfile\n- C2 src/nonl.py:1 — last line without newline\n- C3 src/a.py:0 — line zero\n- C4 src/../../etc/hostname:1 — traversal\n- C5 /etc/hostname:1 — absolute\nOpen:\n- src/missing.py:9 was expected but not found\nVerdict: PARTIAL\n</truth-digest>\n' > "$ar_t/.specify/specs/thing/arena/fable.md"
+ar_out="$(ar arena-cite-check .specify/specs/thing/arena/fable.md 2>&1)"; ar_rc=$?
+{ [ "$ar_rc" -ne 0 ] && grep -qxF 'ok .claude/x.md:2' <<<"$ar_out" && grep -qxF 'ok src/nonl.py:1' <<<"$ar_out" && grep -qF 'missing src/a.py:0 — line numbers start at 1' <<<"$ar_out" \
+  && grep -qF 'missing src/../../etc/hostname:1 — outside the checkout' <<<"$ar_out" && grep -qF 'missing /etc/hostname:1 — outside the checkout' <<<"$ar_out" \
+  && ! grep -qE 'missing (10|1|localhost|FR-001|src/missing.py):' <<<"$ar_out" && [ "$(grep -c . <<<"$ar_out")" -eq 5 ]; } \
+  || { bad "arena-cite-check must keep dotfiles, count a final line without \\n, refuse line 0 / .. / absolute with a reason, and ignore prose tokens (rc=$ar_rc): $(tr '\n' '|' <<<"$ar_out")"; ar_fail=1; }
 printf 'no citations here\n' > "$ar_t/.specify/specs/thing/arena/empty.md"
-ar_out="$(ar arena-cite-check .specify/specs/thing/arena/empty.md 2>&1)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'no path:line citation' <<<"$ar_out"; } || { bad "arena-cite-check on a digest without citations must fail loudly, never report ok (rc=$ar_rc)"; ar_fail=1; }
+ar_out="$(ar arena-cite-check .specify/specs/thing/arena/empty.md 2>&1)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'no claim citation' <<<"$ar_out"; } || { bad "arena-cite-check on a digest without citations must fail loudly, never report ok (rc=$ar_rc): $ar_out"; ar_fail=1; }
 # arena-metrics: footer + Disagreements C5 + Unverified C7; plan cites C2 and C5
 cat > "$ar_t/.specify/specs/thing/research.md" <<'RM'
 # Research: thing
@@ -2374,26 +2383,34 @@ cat > "$ar_t/.specify/specs/thing/research.md" <<'RM'
 | C2 | two | src/a.py:2 | ✓ | ✓ |
 | C5 | where | src/a.py:1 | ✓ | ✗ |
 | C7 | ghost | src/nope.py:1 | – | ✗ |
+| C12 | reset | src/b.py:1 | ✗ | ✓ |
 
 ### Disagreements
 - C5: src/a.py:1 (sonnet) vs src/b.py:1 (opus)
+- C12: src/b.py:1 (opus) vs src/a.py:3 (sonnet)
 
 ### Unverified
 - C7: src/nope.py:1 (opus) — citation missing
 
-<!-- arena K=2 tiers=sonnet,opus claims=3 agreed=1 disagreements=1 unverified=1 -->
+<!-- arena K=2 tiers=sonnet,opus claims=4 agreed=1 disagreements=2 unverified=1 -->
 RM
-printf '# Plan\nThe counter lives in a.py [C2]; the boundary is disputed [C5] and resolved by the marker. [C2] again.\n' > "$ar_t/.specify/specs/thing/plan.md"
+# claim ids above 9 are normal (up to 36 claims): C12 is cited and disputed — a one-digit regex would misread it (quality gate 2026-09-30)
+printf '# Plan\nThe counter lives in a.py [C2]; the boundary is disputed [C5] and resolved by the marker. [C2] again; the reset [C12] too.\n' > "$ar_t/.specify/specs/thing/plan.md"
 ar_out="$(ar arena-metrics 2>&1)"; ar_rc=$?
 ar_want='K=2
 tiers=sonnet,opus
-claims=3
+claims=4
 agreed=1
-disagreements=1
+disagreements=2
 unverified=1
-cited=2
-cited_from_disagreements=1'
+cited=3
+cited_from_disagreements=2'
 { [ "$ar_rc" -eq 0 ] && [ "$ar_out" = "$ar_want" ]; } || { bad "arena-metrics must print the eight key=value lines (rc=$ar_rc): $(tr '\n' '|' <<<"$ar_out")"; ar_fail=1; }
+ar_err="$(cd "$ar_t" && bash "$HELPER" arena-metrics .specify/specs/absent 2>&1 >/dev/null)"; ar_rc=$?
+{ [ "$ar_rc" -ne 0 ] && grep -qF 'research.md' <<<"$ar_err"; } || { bad "arena-metrics on a spec dir without research.md must die naming research.md (rc=$ar_rc): $ar_err"; ar_fail=1; }
+cp "$ar_t/.specify/specs/thing/research.md" "$ar_t/research.num"; sed -i 's/claims=4/claims=four/' "$ar_t/.specify/specs/thing/research.md"
+ar_err="$(ar arena-metrics 2>&1 >/dev/null)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'claims=four is not a number' <<<"$ar_err"; } || { bad "arena-metrics must refuse a non-numeric footer field naming it (rc=$ar_rc): $ar_err"; ar_fail=1; }
+cp "$ar_t/research.num" "$ar_t/.specify/specs/thing/research.md"
 ar_out="$(ar arena-metrics .specify/specs/thing 2>&1)"; [ "$ar_out" = "$ar_want" ] || { bad "arena-metrics must accept an explicit spec dir"; ar_fail=1; }
 mv "$ar_t/.specify/specs/thing/plan.md" "$ar_t/.specify/specs/thing/plan.keep"
 ar_out="$(ar arena-metrics 2>&1)"; ar_rc=$?; { [ "$ar_rc" -eq 0 ] && grep -qx 'cited=0' <<<"$ar_out" && grep -qx 'cited_from_disagreements=0' <<<"$ar_out"; } || { bad "arena-metrics without plan.md must answer cited=0 at exit 0 (rc=$ar_rc)"; ar_fail=1; }
@@ -2403,24 +2420,29 @@ sed -i 's/^<!-- arena K=.*$//' "$ar_t/.specify/specs/thing/research.md"
 ar_err="$(ar arena-metrics 2>&1 >/dev/null)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'no arena footer in' <<<"$ar_err"; } || { bad "arena-metrics without a footer must die saying 'no arena footer in' (rc=$ar_rc): $ar_err"; ar_fail=1; }
 cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"; sed -i 's/ agreed=1//' "$ar_t/.specify/specs/thing/research.md"
 ar_err="$(ar arena-metrics 2>&1 >/dev/null)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'footer lacks agreed=' <<<"$ar_err"; } || { bad "arena-metrics with a footer lacking agreed= must die naming it (rc=$ar_rc): $ar_err"; ar_fail=1; }
-cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"; sed -i 's/disagreements=1/disagreements=2/' "$ar_t/.specify/specs/thing/research.md"
-ar_err="$(ar arena-metrics 2>&1 >/dev/null)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'disagreements=2' <<<"$ar_err" && grep -qF 'lists 1' <<<"$ar_err"; } || { bad "arena-metrics must refuse a footer whose disagreements= differs from the listed entries, naming both (rc=$ar_rc): $ar_err"; ar_fail=1; }
+cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"; sed -i 's/disagreements=2/disagreements=3/' "$ar_t/.specify/specs/thing/research.md"
+ar_err="$(ar arena-metrics 2>&1 >/dev/null)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'disagreements=3' <<<"$ar_err" && grep -qF 'lists 2' <<<"$ar_err"; } || { bad "arena-metrics must refuse a footer whose disagreements= differs from the listed entries, naming both (rc=$ar_rc): $ar_err"; ar_fail=1; }
 cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"
 [ "$ar_fail" -eq 0 ] && ok "arena-cite-check (ok/missing per citation, loud on none) and arena-metrics (eight fields, explicit dir, no plan → cited=0, footer/field/consistency failures named) (FR-006 FR-008)"
 # Mutations on a copy of the helper (constitution 3)
 ar_mut="$(mktemp)"; ar_mfail=0
 armut() { cp "$HELPER" "$ar_mut"; sed -i "$1" "$ar_mut"; cmp -s "$HELPER" "$ar_mut" && { bad "arena mutation did not apply: $1"; ar_mfail=1; }; }
 armut "s|awk '/^### Disagreements/{f=1;next} /^#/{f=0} f' \"\$r\"|true|"
-ar_out="$(AR_BIN="$ar_mut" ar arena-metrics 2>/dev/null)"; grep -qx 'cited_from_disagreements=1' <<<"$ar_out" && { bad "mutation survived: Disagreements parse dropped, cited_from_disagreements still 1"; ar_mfail=1; }
+ar_out="$(AR_BIN="$ar_mut" ar arena-metrics 2>/dev/null)"; grep -qx 'cited_from_disagreements=2' <<<"$ar_out" && { bad "mutation survived: Disagreements parse dropped, the run still reports cited_from_disagreements=2 (the consistency die or a zero count must catch it)"; ar_mfail=1; }
+# a one-digit claim regex misreads C12 — on the Disagreements bullets and on the plan's citations alike (quality gate 2026-09-30)
+armut "s|grep -oE '\^- C\[0-9\]+'|grep -oE '^- C[0-9]'|"
+ar_out="$(AR_BIN="$ar_mut" ar arena-metrics 2>/dev/null)"; grep -qx 'cited_from_disagreements=2' <<<"$ar_out" && { bad "mutation survived: one-digit Disagreements regex, C12 still counted"; ar_mfail=1; }
+armut "s|grep -oE '\\\\\[C\[0-9\]+\\\\\]'|grep -oE '\\\\[C[0-9]\\\\]'|"
+ar_out="$(AR_BIN="$ar_mut" ar arena-metrics 2>/dev/null)"; grep -qx 'cited=3' <<<"$ar_out" && { bad "mutation survived: one-digit citation regex, [C12] still counted"; ar_mfail=1; }
 armut "s|grep -oE '<!-- arena K=\[^>\]\*-->'|grep -oE '<!--[^>]*-->'|"
 sed -i 's/^<!-- arena K=.*$//' "$ar_t/.specify/specs/thing/research.md"
 ar_err="$(AR_BIN="$ar_mut" ar arena-metrics 2>&1 >/dev/null)"; grep -qF 'no arena footer in' <<<"$ar_err" && { bad "mutation survived: footer grep loosened to any comment, still reports 'no arena footer'"; ar_mfail=1; }
 cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"
 armut 's|\[ "$nd" -eq "$fd" \] \|\| die|true \|\| die|'
-sed -i 's/disagreements=1/disagreements=2/' "$ar_t/.specify/specs/thing/research.md"
-AR_BIN="$ar_mut" ar arena-metrics >/dev/null 2>&1 && : || { bad "mutation survived: consistency check dropped, disagreements=2 still refused"; ar_mfail=1; }
+sed -i 's/disagreements=2/disagreements=3/' "$ar_t/.specify/specs/thing/research.md"
+AR_BIN="$ar_mut" ar arena-metrics >/dev/null 2>&1 && : || { bad "mutation survived: consistency check dropped, disagreements=3 still refused"; ar_mfail=1; }
 cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"
-armut 's|elif \[ "$(wc -l < "$p")" -lt "$n" \]; then|elif false; then|'
+armut "s|elif \\[ \"\$(awk 'END{print NR}' \"\$p\")\" -lt \"\$n\" \\]; then|elif false; then|"
 ar_out="$(AR_BIN="$ar_mut" ar arena-cite-check .specify/specs/thing/arena/opus.md 2>&1)"; grep -qF 'missing src/a.py:999' <<<"$ar_out" && { bad "mutation survived: line-count test dropped, a line beyond the end still missing"; ar_mfail=1; }
 [ "$ar_mfail" -eq 0 ] && ok "arena helper mutations: Disagreements parse, footer grep, consistency check, line-count test — all caught (SC-002)"
 rm -rf "$ar_t" "$ar_mut"

@@ -80,6 +80,12 @@ becomes the truth map. Same vendor, different tiers; cross-vendor explorers are 
 - **K** is the number after `--arena`, default 2, **clamped to 2..3** — say so when you clamp (one
   scout is not an arena; four is the 15× cost the evidence warns about). Tiers in order: `sonnet`,
   `opus`, `fable` — the first K.
+- **A re-run keeps the arena.** If `research.md` already carries an arena footer (`<!-- arena K=`),
+  keep its `## Arena` section, `### Disagreements`, `### Unverified` and footer verbatim and spawn no
+  scouts — with or without `--arena`. A resumed plan (the headless `plan` role re-runs `/hef.plan`
+  after a person clears `human:clarify`; an interactive re-run after an answer) must not overwrite
+  the attributed truth map with a single-reader one, or `arena-metrics` loses the number HEF-13
+  waits on.
 
 1. **Derive 3–6 questions** from `spec.md`: which modules each FR touches; the symbols behind them;
    the patterns (errors, DI, logging) the change must follow; the risks the spec names.

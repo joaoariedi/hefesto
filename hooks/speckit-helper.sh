@@ -463,13 +463,19 @@ case "$1" in
   arena-cite-check)
     target="${2:-}"
     [ -f "$target" ] || { echo "arena-cite-check: no digest file '$target' (expected the saved <truth-digest> block)" >&2; exit 2; }
-    cites="$(grep -oE '\b[A-Za-z0-9_][A-Za-z0-9_./-]*:[0-9]+\b' "$target" | sort | uniq)"
-    [ -n "$cites" ] || { echo "arena-cite-check: no path:line citation in $target — a digest without citations has no claims" >&2; exit 1; }
+    # Only the citation token of a claim line (`- C<n> <path>:<line> — …`) is scanned: prose in the digest
+    # (times, ratios, host:port, FR-001:2) is not a citation. The path keeps its leading dot — a citation
+    # into .claude/ or .specify/ is routine here (code review 2026-09-30) — and anything with `..` or an
+    # absolute path is outside the checkout by definition.
+    cites="$(grep -oE '^- C[0-9]+ +[^ ]+:[0-9]+' "$target" | sed -E 's/^- C[0-9]+ +//' | sort | uniq)"
+    [ -n "$cites" ] || { echo "arena-cite-check: no claim citation (- C<n> <path>:<line>) in $target — a digest without citations has no claims" >&2; exit 1; }
     bad=0
     while read -r c; do
       p="${c%:*}"; n="${c##*:}"
-      if [ ! -f "$p" ]; then echo "missing $c — no such file"; bad=1
-      elif [ "$(wc -l < "$p")" -lt "$n" ]; then echo "missing $c — file has $(wc -l < "$p") lines"; bad=1
+      case "/$p/" in */../*|//*) echo "missing $c — outside the checkout"; bad=1; continue ;; esac
+      if [ "$n" -lt 1 ]; then echo "missing $c — line numbers start at 1"; bad=1
+      elif [ ! -f "$p" ]; then echo "missing $c — no such file"; bad=1
+      elif [ "$(awk 'END{print NR}' "$p")" -lt "$n" ]; then echo "missing $c — file has $(awk 'END{print NR}' "$p") lines"; bad=1   # NR counts a last line without \n; wc -l does not
       else echo "ok $c"; fi
     done <<<"$cites"
     exit "$bad"
@@ -485,6 +491,7 @@ case "$1" in
     for k in K tiers claims agreed disagreements unverified; do
       v="$(grep -oE "\b$k=[A-Za-z0-9,]+" <<<"$foot" | head -1 | cut -d= -f2)"
       [ -n "$v" ] || die "arena-metrics: footer lacks $k= in: $foot"
+      if [ "$k" != tiers ] && ! [[ "$v" =~ ^[0-9]+$ ]]; then die "arena-metrics: footer field $k=$v is not a number in: $foot"; fi
       echo "$k=$v"
     done
     dis="$(awk '/^### Disagreements/{f=1;next} /^#/{f=0} f' "$r" | grep -oE '^- C[0-9]+' | sed 's/^- //' | sort | uniq)"

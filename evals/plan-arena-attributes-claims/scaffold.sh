@@ -48,6 +48,26 @@ def handle(request):
         return 400, {"error": "client id required"}
     return 200, {"ok": True}
 EOF
+cat > src/middleware.py <<'EOF'
+"""Request pipeline: every request passes through the chain before api.handle() sees it."""
+from src.api import handle
+
+CHAIN = []  # callables (request) -> None | (status, body); a tuple short-circuits
+
+
+def use(fn):
+    """Register a middleware; the last registered runs first."""
+    CHAIN.insert(0, fn)
+
+
+def dispatch(request):
+    """Run the chain, then the API. This is where a rate limiter would sit."""
+    for fn in CHAIN:
+        early = fn(request)
+        if early is not None:
+            return early
+    return handle(request)
+EOF
 cat > tests/test_api.py <<'EOF'
 from src.api import handle
 
