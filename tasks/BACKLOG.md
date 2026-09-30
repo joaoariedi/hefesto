@@ -23,15 +23,6 @@ the release queue (`run --role implement --exit 0 --usd 0`, `record --pr … --b
 `advance pr`, `block --kind human:merge`). Add `ledger.sh handoff <id> --pr <url>` that does exactly
 those four, reading the branch from the current checkout, with the same guards and a smoke fixture.
 
-## HEF-7 — PR babysitter: loop on CI and review comments up to the human merge gate
-
-Report 18 #2. After `/hef.pr`, a `--watch` mode (or `/hef.babysit <pr>`) loops with `ScheduleWakeup`
-on `gh pr checks`: a red check → fetch the failed job log, `/hef.fix` on the branch, push, reply with
-the commit hash; a review comment → the untrusted-input rule, pertinent → address and reply with the
-hash, doubtful → ask the user; mergeable → stop and set `blocked_on: human:merge`. Never merges.
-Helper `hooks/pr-watch.sh` (fetcher over `gh`; fake-`gh` smoke). Evidence: each CI failure −15 %
-merge odds; reviewer abandonment 38 % of rejections (report 17 §1f).
-
 ## HEF-8 — arena: bounded read-only fan-out in /hef.plan Phase 0
 
 Report 18 #4 (deck slide 23). `/hef.plan --arena K` sends the truth-map questions to K `repo-scout`

@@ -1,0 +1,12 @@
+{
+  "resolve": {"number": 80, "headRefOid": "37d290c…", "url": "https://github.com/o/r/pull/80", "headRefName": "feature/x", "baseRefName": "main", "state": "OPEN", "isDraft": false},
+  "checks": {"state": "pass|fail|pending", "checks": 2, "waited": true, "failed": [{"name": "smoke", "run_id": "36709948095", "url": "https://github.com/o/r/actions/runs/36709948095/job/1"}]},
+  "failed-log": "<stdout line 1: absolute log path> then the last N lines",
+  "threads": "thread <id> <path>:<line> <author> <date> comments=<n>\\n<<<untrusted-begin <pr> <nonce>\\n-- <author> <date>\\n<body>\\nuntrusted-end <nonce>>>>  ...  comment <url> <author> <date> then the same delimited body",
+  "reply|comment": "<url of the posted comment>; non-zero and nothing posted when gitleaks finds a secret",
+  "state": {"number": 80, "url": "…", "state": "OPEN", "isDraft": false, "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN", "reviewDecision": "APPROVED", "headRefName": "feature/x", "baseRefName": "main", "verdict": "mergeable|conflict|checks|review|pending|closed"},
+  "ledger-id": "<id> on stdout; exit 3: no ledger entry records <url>; exit 1: ledger unreadable",
+  "in-diff": "exit 0 when every path is in git diff --name-only <base>...HEAD and none is CI configuration; else non-zero listing each offending path and why",
+  "fixes": "<n> — the babysitter's own marker comments (thread replies and issue comments) whose first line matches ^fixed in [0-9a-f]{7,40}",
+  "babysit line": "babysit <number> <verdict> fixes=<n> questions=<q>", "re-run line (not --once, review|pending)": "/loop 25m /hef.babysit <number> --once | /loop 9m /hef.babysit <number> --once"
+}

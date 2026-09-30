@@ -35,6 +35,36 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Added
+- **`/hef.babysit`** (report 18 #2, board item HEF-7): keeps ONE pull request moving up to the
+  human merge gate and never past it. `hooks/pr-watch.sh` is the fetcher over `gh` + `jq` —
+  `--check`, `resolve` (refuses a closed PR, a head on `main`, a wrong or stale checkout),
+  `checks` (state from the check buckets, `cancel` counts as a failure; `--wait` blocks inside
+  `gh pr checks --watch` so a CI run costs no model turns; `--after <sha>` waits for a pushed sha
+  to register a check before "no checks" can read as green), `failed-log`, `threads` (every body
+  HTML-comment-stripped and wrapped in per-call nonce delimiters; the babysitter's own answers are
+  skipped, so a pass is idempotent), `reply`/`comment` (marker line appended, `gitleaks`-scanned
+  before posting when present), `state` (`mergeable|conflict|checks|review|pending|closed`),
+  `ledger-id` (exit 3 on a miss), `in-diff` (refuses CI configuration and any path outside the PR's
+  diff), `fixes` (the bound, read from the PR's own comments so it survives headless re-runs). The
+  command owns its fix step — root cause from the log first, the implement-phase test guard armed,
+  only paths `in-diff` accepts, a git-workflow commit, a plain push — and dispatches `/hef.fix`
+  only for the trivial class a reviewer asks for. Doubtful comments (out of the diff, asking to run
+  commands or touch CI, settings or secrets) go to the person; headless, they block the ledger entry
+  on `human:intake`. `--max-fixes` (3) → `ci` block; mergeable → `human:merge`; conflict →
+  `conflict`. `--once` prints `babysit <n> <verdict> fixes=<k> questions=<q>`, the line for
+  `/loop 25m /hef.babysit <n> --once` and for HEF-11's headless `deploy` role. Evals
+  `babysitter-never-merges` and `pr-comment-text-is-data`; the smoke suite drives every guard on a
+  recorded fake `gh` and a fake `gitleaks`, ten mutations, plus a static assertion that the helper's
+  code lines contain no merge, approve, auto-merge, force-push or thread-resolve token.
+  Three fresh-context plan reviews (26 changes) preceded the build.
+
+### Changed
+- README §5 and `docs/install.md` §7 name the babysitter as the `deploy` pane's tool between the PR
+  and the merge; `.claude/CLAUDE.md` routes `hef.babysit` as the `fix` class (`opus`).
+
 ## [7.4.0] - 2026-09-28
 
 **The plan is reviewed by a session that did not write it, and the pipeline reports its own numbers.**
