@@ -23,13 +23,6 @@ the release queue (`run --role implement --exit 0 --usd 0`, `record --pr … --b
 `advance pr`, `block --kind human:merge`). Add `ledger.sh handoff <id> --pr <url>` that does exactly
 those four, reading the branch from the current checkout, with the same guards and a smoke fixture.
 
-## HEF-8 — arena: bounded read-only fan-out in /hef.plan Phase 0
-
-Report 18 #4 (deck slide 23). `/hef.plan --arena K` sends the truth-map questions to K `repo-scout`
-agents at different tiers, read-only, each returning a ≤2k-token digest; the planner merges them
-into `research.md` with per-claim attribution and turns disagreements into `[NEEDS CLARIFICATION]`.
-Cross-vendor explorers only when their CLIs are detected (optional-provider lane). K ≤ 3.
-
 ## HEF-9 — dependency audit in /hef.scan
 
 Report 18 #5 (the deck's Builder role). Detect `osv-scanner`, `npm audit`, `pip-audit`,

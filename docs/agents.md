@@ -50,11 +50,32 @@ Cybersecurity specialist for defensive forensics. Handles incident response, thr
 
 ### 🔭 repo-scout
 
-The framework's only **one-shot subagent**. Answers a single targeted question about a repository *other than* the current project, then returns a citation-backed `<repo-scout-digest>` — never raw file contents or a transcript. Its working context is discarded, so a foreign repo can be interrogated without bloating the main session.
+One of the framework's two **one-shot subagents** (the other is `truth-scout`, for the current project). Answers a single targeted question about a repository *other than* the current project, then returns a citation-backed `<repo-scout-digest>` — never raw file contents or a transcript. Its working context is discarded, so a foreign repo can be interrogated without bloating the main session.
 
 Read-only by construction (`Read`, `Grep`, `Glob`, `Bash` only). It must never mutate the current project; if a change is needed it returns a *proposal* and the main agent executes it.
 
-**When to use**: "How does upstream library X implement Y?" — not for the current project, where `Explore`/`Grep` are cheaper. See the `agent-collaboration` skill for the design contract.
+**When to use**: "How does upstream library X implement Y?" — not for the current project, where `Explore`/`Grep` are cheaper and `truth-scout` is the arena's reader. See the `agent-collaboration` skill for the design contract.
+
+### 🔎 truth-scout
+
+The second one-shot subagent, for the **current** project: `/hef.plan --arena [K]` spawns two or three
+of them in one message at different tiers (`sonnet`, `opus`, `fable`) with the same numbered question
+list, and each returns a `<truth-digest>` — up to twelve claims, every one with a `path:line` it read
+in that run — never raw files or a transcript. The planner verifies the citations with
+`speckit-helper.sh arena-cite-check`, merges the digests into `research.md` with **per-claim
+attribution** (one ✓/✗/– column per tier), turns a claim the readers contradict into a
+`[NEEDS CLARIFICATION]` marker, keeps a claim whose citation cannot be read under `### Unverified`
+(never a disagreement), and leaves a footer `arena-metrics` reads back — the number that decides
+whether cross-vendor readers (HEF-13) are worth adding. Evidence: report 17 §1a/§1e (parallel
+exploration pays on decomposable, read-only work; digests keep the 15× cost down), report 18 #4.
+
+Read-only by construction (`Read`, `Grep`, `Glob`, `Bash` — and the never-list forbids `sed -i`,
+`tee`, redirections, `git checkout/stash/clean/reset`, tests, builds, agent calls); during Phase 0 the
+plan-phase write-block denies Edit/Write outside `.specify/` regardless. A question about another
+repository returns `OUT_OF_SCOPE` — that is `repo-scout`'s job.
+
+**When to use**: only through `/hef.plan --arena`; by hand it is one reader, which is what the default
+Phase 0 already is.
 
 > Built-in agents handle general tasks: `Explore` (codebase search), `Plan` (architecture), `general-purpose` (implementation).
 

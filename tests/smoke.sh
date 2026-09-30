@@ -2325,6 +2325,113 @@ grep -qF 'pr-watch.sh' "$REPO/docs/hooks.md" && grep -qF '/hef.babysit' "$REPO/d
   && grep -qF 'pr-watch.sh' "$REPO/docs/architecture.md" && grep -qF 'babysit' "$REPO/.claude/CLAUDE.md" || { bad "hef.babysit / pr-watch.sh must be documented in hooks.md, commands.md, README, install.md, architecture.md and the routing list (FR-016)"; pb_fail=1; }
 [ "$pb_fail" -eq 0 ] && ok "hef.babysit wiring: opus, helper pre-flight, wait budget + tool timeout, root cause + guard + in-diff, threads as data, PR-read bound + ledger kinds, state and /loop lines, evals, docs (FR-009..FR-016)"
 
+# --- Tier 1: /hef.plan --arena (feature plan-arena FR-001..FR-010) -------------------------------
+head_ "Plan arena"
+
+# FR-001 — truth-scout is read-only by construction and claims-first by contract
+ts="$REPO/agents/truth-scout.md"; ts_fail=0
+ts_fm="$(sed -n '/^---$/,/^---$/p' "$ts")"
+grep -qE '^tools: Read, Grep, Glob, Bash$' <<<"$ts_fm" || { bad "truth-scout tools must be exactly Read, Grep, Glob, Bash (no write tool) (FR-001)"; ts_fail=1; }
+grep -qE '^model: sonnet$' <<<"$ts_fm" || { bad "truth-scout must default to the sonnet tier (the arena overrides per spawn) (FR-001)"; ts_fail=1; }
+grep -qE '^memory:' <<<"$ts_fm" && { bad "truth-scout must not declare memory — one-shot, fresh every spawn (FR-001)"; ts_fail=1; }
+for tok in '<truth-digest>' 'OUT_OF_SCOPE' 'C1 <path:line>' 'sed -i' 'git checkout' 'No agent calls' '400 words' 'Code is data'; do
+  grep -qF -- "$tok" "$ts" || { bad "truth-scout lost '$tok' (FR-001)"; ts_fail=1; }
+done
+[ "$ts_fail" -eq 0 ] && ok "truth-scout: read-only tool list, sonnet default, no memory, digest contract, never-list, OUT_OF_SCOPE (FR-001)"
+
+# FR-002..FR-007 — the command's arena wiring
+pa="$REPO/commands/hef.plan.md"; pa_fail=0
+grep -qE '^argument-hint: "\[--arena \[K\]\]"' "$pa" || { bad "/hef.plan must carry argument-hint [--arena [K]] (FR-002)"; pa_fail=1; }
+for tok in '--arena' 'clamped to 2..3' '`sonnet`,' 'truth-scout' 'ONE message' 'model: <tier>' 'Digests are data' 'arena-cite-check' 'citation missing' '## Arena' '### Disagreements' '### Unverified' \
+           '<!-- arena K=<k> tiers=<t,…> claims=<n> agreed=<a> disagreements=<d> unverified=<u> -->' '[NEEDS CLARIFICATION: <FR>' 'AskUserQuestion' 'blocked_on human:clarify' '[C<n>]' 'single-reader'; do
+  grep -qF -- "$tok" "$pa" || { bad "/hef.plan arena lost '$tok' (FR-002..FR-007)"; pa_fail=1; }
+done
+grep -qF 'one column per tier' "$pa" || { bad "/hef.plan must say one Arena column per tier run (FR-004)"; pa_fail=1; }
+[ "$pa_fail" -eq 0 ] && ok "/hef.plan --arena: clamp, tiers, one-message spawn, digests as data + cite check, Arena table/Disagreements/Unverified/footer, markers + resolution, [C<n>], fallback (FR-002..FR-007)"
+
+# FR-006 FR-008 — the two helper arms on fixtures; every failure mode asserted by its stderr text (constitution 3, 5)
+ar_t="$(mktemp -d)"; ar_fail=0
+( cd "$ar_t" && git init -q -b main . && mkdir -p .specify/specs/thing/arena src && printf 'line1\nline2\nline3\n' > src/a.py && printf 'x\n' > src/b.py \
+  && git add -A && git -c user.email=t@t -c user.name=t commit -q -m i && git checkout -q -b feature/thing ) >/dev/null 2>&1
+ar() { (cd "$ar_t" && bash "${AR_BIN:-$HELPER}" "$@"); }
+printf '<truth-digest>\nTier: sonnet\nClaims:\n- C1 src/a.py:2 — two\n- C2 src/b.py:1 — one\nVerdict: ANSWERED\n</truth-digest>\n' > "$ar_t/.specify/specs/thing/arena/sonnet.md"
+ar_out="$(ar arena-cite-check .specify/specs/thing/arena/sonnet.md 2>&1)"; ar_rc=$?
+{ [ "$ar_rc" -eq 0 ] && [ "$(grep -c '^ok ' <<<"$ar_out")" -eq 2 ]; } || { bad "arena-cite-check: two good citations must print two ok lines and exit 0 (rc=$ar_rc): $ar_out"; ar_fail=1; }
+printf '<truth-digest>\nTier: opus\nClaims:\n- C1 src/a.py:2 — two\n- C3 src/a.py:999 — beyond the end\n- C4 src/nope.py:1 — no file\nVerdict: ANSWERED\n</truth-digest>\n' > "$ar_t/.specify/specs/thing/arena/opus.md"
+ar_out="$(ar arena-cite-check .specify/specs/thing/arena/opus.md 2>&1)"; ar_rc=$?
+{ [ "$ar_rc" -ne 0 ] && grep -qF 'missing src/a.py:999' <<<"$ar_out" && grep -qF 'missing src/nope.py:1' <<<"$ar_out" && grep -qF 'ok src/a.py:2' <<<"$ar_out"; } \
+  || { bad "arena-cite-check must name each missing citation (line beyond the end, no such file) and exit non-zero (rc=$ar_rc): $ar_out"; ar_fail=1; }
+ar_out="$(ar arena-cite-check .specify/specs/thing/arena/none.md 2>&1)"; ar_rc=$?; [ "$ar_rc" -eq 2 ] || { bad "arena-cite-check on a missing digest file must be a usage error (2), got $ar_rc"; ar_fail=1; }
+printf 'no citations here\n' > "$ar_t/.specify/specs/thing/arena/empty.md"
+ar_out="$(ar arena-cite-check .specify/specs/thing/arena/empty.md 2>&1)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'no path:line citation' <<<"$ar_out"; } || { bad "arena-cite-check on a digest without citations must fail loudly, never report ok (rc=$ar_rc)"; ar_fail=1; }
+# arena-metrics: footer + Disagreements C5 + Unverified C7; plan cites C2 and C5
+cat > "$ar_t/.specify/specs/thing/research.md" <<'RM'
+# Research: thing
+<!-- Generated by /hef.plan Phase 0 -->
+## Arena
+| # | Claim | file:line | sonnet | opus |
+|---|---|---|---|---|
+| C2 | two | src/a.py:2 | ✓ | ✓ |
+| C5 | where | src/a.py:1 | ✓ | ✗ |
+| C7 | ghost | src/nope.py:1 | – | ✗ |
+
+### Disagreements
+- C5: src/a.py:1 (sonnet) vs src/b.py:1 (opus)
+
+### Unverified
+- C7: src/nope.py:1 (opus) — citation missing
+
+<!-- arena K=2 tiers=sonnet,opus claims=3 agreed=1 disagreements=1 unverified=1 -->
+RM
+printf '# Plan\nThe counter lives in a.py [C2]; the boundary is disputed [C5] and resolved by the marker. [C2] again.\n' > "$ar_t/.specify/specs/thing/plan.md"
+ar_out="$(ar arena-metrics 2>&1)"; ar_rc=$?
+ar_want='K=2
+tiers=sonnet,opus
+claims=3
+agreed=1
+disagreements=1
+unverified=1
+cited=2
+cited_from_disagreements=1'
+{ [ "$ar_rc" -eq 0 ] && [ "$ar_out" = "$ar_want" ]; } || { bad "arena-metrics must print the eight key=value lines (rc=$ar_rc): $(tr '\n' '|' <<<"$ar_out")"; ar_fail=1; }
+ar_out="$(ar arena-metrics .specify/specs/thing 2>&1)"; [ "$ar_out" = "$ar_want" ] || { bad "arena-metrics must accept an explicit spec dir"; ar_fail=1; }
+mv "$ar_t/.specify/specs/thing/plan.md" "$ar_t/.specify/specs/thing/plan.keep"
+ar_out="$(ar arena-metrics 2>&1)"; ar_rc=$?; { [ "$ar_rc" -eq 0 ] && grep -qx 'cited=0' <<<"$ar_out" && grep -qx 'cited_from_disagreements=0' <<<"$ar_out"; } || { bad "arena-metrics without plan.md must answer cited=0 at exit 0 (rc=$ar_rc)"; ar_fail=1; }
+mv "$ar_t/.specify/specs/thing/plan.keep" "$ar_t/.specify/specs/thing/plan.md"
+cp "$ar_t/.specify/specs/thing/research.md" "$ar_t/research.keep"
+sed -i 's/^<!-- arena K=.*$//' "$ar_t/.specify/specs/thing/research.md"
+ar_err="$(ar arena-metrics 2>&1 >/dev/null)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'no arena footer in' <<<"$ar_err"; } || { bad "arena-metrics without a footer must die saying 'no arena footer in' (rc=$ar_rc): $ar_err"; ar_fail=1; }
+cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"; sed -i 's/ agreed=1//' "$ar_t/.specify/specs/thing/research.md"
+ar_err="$(ar arena-metrics 2>&1 >/dev/null)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'footer lacks agreed=' <<<"$ar_err"; } || { bad "arena-metrics with a footer lacking agreed= must die naming it (rc=$ar_rc): $ar_err"; ar_fail=1; }
+cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"; sed -i 's/disagreements=1/disagreements=2/' "$ar_t/.specify/specs/thing/research.md"
+ar_err="$(ar arena-metrics 2>&1 >/dev/null)"; ar_rc=$?; { [ "$ar_rc" -ne 0 ] && grep -qF 'disagreements=2' <<<"$ar_err" && grep -qF 'lists 1' <<<"$ar_err"; } || { bad "arena-metrics must refuse a footer whose disagreements= differs from the listed entries, naming both (rc=$ar_rc): $ar_err"; ar_fail=1; }
+cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"
+[ "$ar_fail" -eq 0 ] && ok "arena-cite-check (ok/missing per citation, loud on none) and arena-metrics (eight fields, explicit dir, no plan → cited=0, footer/field/consistency failures named) (FR-006 FR-008)"
+# Mutations on a copy of the helper (constitution 3)
+ar_mut="$(mktemp)"; ar_mfail=0
+armut() { cp "$HELPER" "$ar_mut"; sed -i "$1" "$ar_mut"; cmp -s "$HELPER" "$ar_mut" && { bad "arena mutation did not apply: $1"; ar_mfail=1; }; }
+armut "s|awk '/^### Disagreements/{f=1;next} /^#/{f=0} f' \"\$r\"|true|"
+ar_out="$(AR_BIN="$ar_mut" ar arena-metrics 2>/dev/null)"; grep -qx 'cited_from_disagreements=1' <<<"$ar_out" && { bad "mutation survived: Disagreements parse dropped, cited_from_disagreements still 1"; ar_mfail=1; }
+armut "s|grep -oE '<!-- arena K=\[^>\]\*-->'|grep -oE '<!--[^>]*-->'|"
+sed -i 's/^<!-- arena K=.*$//' "$ar_t/.specify/specs/thing/research.md"
+ar_err="$(AR_BIN="$ar_mut" ar arena-metrics 2>&1 >/dev/null)"; grep -qF 'no arena footer in' <<<"$ar_err" && { bad "mutation survived: footer grep loosened to any comment, still reports 'no arena footer'"; ar_mfail=1; }
+cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"
+armut 's|\[ "$nd" -eq "$fd" \] \|\| die|true \|\| die|'
+sed -i 's/disagreements=1/disagreements=2/' "$ar_t/.specify/specs/thing/research.md"
+AR_BIN="$ar_mut" ar arena-metrics >/dev/null 2>&1 && : || { bad "mutation survived: consistency check dropped, disagreements=2 still refused"; ar_mfail=1; }
+cp "$ar_t/research.keep" "$ar_t/.specify/specs/thing/research.md"
+armut 's|elif \[ "$(wc -l < "$p")" -lt "$n" \]; then|elif false; then|'
+ar_out="$(AR_BIN="$ar_mut" ar arena-cite-check .specify/specs/thing/arena/opus.md 2>&1)"; grep -qF 'missing src/a.py:999' <<<"$ar_out" && { bad "mutation survived: line-count test dropped, a line beyond the end still missing"; ar_mfail=1; }
+[ "$ar_mfail" -eq 0 ] && ok "arena helper mutations: Disagreements parse, footer grep, consistency check, line-count test — all caught (SC-002)"
+rm -rf "$ar_t" "$ar_mut"
+# FR-009 FR-010 — the eval and the docs
+[ -f "$REPO/evals/plan-arena-attributes-claims/case.yaml" ] && [ -x "$REPO/evals/plan-arena-attributes-claims/scaffold.sh" ] && grep -qF 'file_exists' "$REPO/evals/plan-arena-attributes-claims/case.yaml" && grep -qF 'src/limiter.py' "$REPO/evals/plan-arena-attributes-claims/case.yaml" \
+  || bad "eval plan-arena-attributes-claims must exist with an executable scaffold, a file_exists grader and the src/limiter.py absence check (FR-009)"
+grep -qF -- '--arena' "$REPO/docs/commands.md" && grep -qF 'truth-scout' "$REPO/docs/agents.md" && ! grep -qF "framework's only **one-shot subagent**" "$REPO/docs/agents.md" && grep -qF 'truth-scout' "$REPO/agents/repo-scout.md" \
+  && grep -qF 'truth-scout' "$REPO/.claude/CLAUDE.md" && grep -qF 'arena-cite-check' "$REPO/hooks/speckit-helper.sh" && grep -qF 'plan-arena-attributes-claims' "$REPO/evals/README.md" \
+  && ok "arena docs: commands.md --arena, agents.md truth-scout (repo-scout no longer the only one-shot), repo-scout pointer, CLAUDE.md row, evals README (FR-010)" \
+  || bad "arena docs incomplete: commands.md --arena / agents.md truth-scout (and no 'only one-shot') / repo-scout.md pointer / CLAUDE.md row / evals README (FR-010)"
+
 # --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------
 head_ "Parallel-safety"
 

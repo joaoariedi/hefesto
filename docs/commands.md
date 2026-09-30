@@ -24,7 +24,7 @@
 | `/hef.brainstorm` | `<idea>` | Socratic design exploration before specification |
 | `/hef.spec` | `<feature>` | Generate spec with scenarios, requirements, criteria |
 | `/hef.clarify` | — | Scan spec for ambiguities, ask targeted questions |
-| `/hef.plan` | — | Generate implementation plan from spec |
+| `/hef.plan` | `[--arena [K]]` | Generate implementation plan from spec. `--arena [K]` (K 2..3, default 2) fans the truth-map questions out to K read-only `truth-scout` agents at `sonnet`, `opus`, `fable` in one message, verifies their citations with `speckit-helper.sh arena-cite-check`, and writes `research.md` with an `## Arena` table attributing every claim per tier, `### Disagreements` (→ `[NEEDS CLARIFICATION]` markers, resolved before Phase 1) and `### Unverified`, plus a footer `speckit-helper.sh arena-metrics` reads back |
 | `/hef.tasks` | — | Generate phased task list from plan and spec |
 | `/hef.checklist` | — | Generate requirement quality checklists |
 | `/hef.analyze` | — | Read-only cross-artifact consistency analysis |

@@ -456,6 +456,45 @@ case "$1" in
     ;;
 
   # --- RTK CLI output compression (optional, auto-detected) ---
+  # --- /hef.plan --arena (feature plan-arena FR-006, FR-008) ---------------------------------------
+  # arena-cite-check: every `path:line` a truth-scout cited must exist in the checkout — verified here
+  # in ONE call so the planner never reads up to 36 cited lines into its own context. A missing
+  # citation is printed, never silently dropped (constitution 5).
+  arena-cite-check)
+    target="${2:-}"
+    [ -f "$target" ] || { echo "arena-cite-check: no digest file '$target' (expected the saved <truth-digest> block)" >&2; exit 2; }
+    cites="$(grep -oE '\b[A-Za-z0-9_][A-Za-z0-9_./-]*:[0-9]+\b' "$target" | sort | uniq)"
+    [ -n "$cites" ] || { echo "arena-cite-check: no path:line citation in $target — a digest without citations has no claims" >&2; exit 1; }
+    bad=0
+    while read -r c; do
+      p="${c%:*}"; n="${c##*:}"
+      if [ ! -f "$p" ]; then echo "missing $c — no such file"; bad=1
+      elif [ "$(wc -l < "$p")" -lt "$n" ]; then echo "missing $c — file has $(wc -l < "$p") lines"; bad=1
+      else echo "ok $c"; fi
+    done <<<"$cites"
+    exit "$bad"
+    ;;
+  # arena-metrics: the number the arena exists for, read back from research.md's footer and plan.md's
+  # [C<n>] citations. Lexical on purpose: nobody types `<!-- arena K=` or `[C7]` by accident. The footer
+  # may not claim more disagreements than ### Disagreements lists — the metric must be self-consistent.
+  arena-metrics)
+    dir="${2:-.specify/specs/$BRANCH}"; r="$dir/research.md"; p="$dir/plan.md"
+    [ -f "$r" ] || { [ -n "${2:-}" ] && die "arena-metrics: no $r" || missing_artifact research.md; }
+    foot="$(grep -oE '<!-- arena K=[^>]*-->' "$r" | tail -1)"
+    [ -n "$foot" ] || die "arena-metrics: no arena footer in $r (Phase 0 ran without --arena?)"
+    for k in K tiers claims agreed disagreements unverified; do
+      v="$(grep -oE "\b$k=[A-Za-z0-9,]+" <<<"$foot" | head -1 | cut -d= -f2)"
+      [ -n "$v" ] || die "arena-metrics: footer lacks $k= in: $foot"
+      echo "$k=$v"
+    done
+    dis="$(awk '/^### Disagreements/{f=1;next} /^#/{f=0} f' "$r" | grep -oE '^- C[0-9]+' | sed 's/^- //' | sort | uniq)"
+    nd="$(grep -c . <<<"${dis:-}")"; fd="$(grep -oE '\bdisagreements=[0-9]+' <<<"$foot" | cut -d= -f2)"
+    [ "$nd" -eq "$fd" ] || die "arena-metrics: footer says disagreements=$fd but ### Disagreements lists $nd entries in $r"
+    cited="$( [ -f "$p" ] && grep -oE '\[C[0-9]+\]' "$p" | tr -d '[]' | sort | uniq || true)"
+    echo "cited=$(grep -c . <<<"${cited:-}")"
+    echo "cited_from_disagreements=$(comm -12 <(printf '%s\n' "$cited") <(printf '%s\n' "$dis") | grep -c .)"
+    ;;
+
   rtk-available)
     # PREDICATE. The answer is BOTH the string and the exit code.
     #
@@ -504,7 +543,7 @@ case "$1" in
     echo "  plan-phase-start, plan-phase-end, plan-phase-status,"
     echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage [<spec>|--all],"
     echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>, doctor-copies,"
-    echo "  rtk-available, rtk-run"
+    echo "  arena-cite-check <digest-file>, arena-metrics [<spec-dir>], rtk-available, rtk-run"
     exit 1
     ;;
 esac

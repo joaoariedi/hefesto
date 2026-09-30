@@ -97,7 +97,7 @@ says what each release changed.
 |---|---|
 | 🛠️ `commands/` | The 25 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Six specialist subagents — testing, quality, review, security, PR coordination, recon. |
-| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (42 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
+| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (44 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |
@@ -320,7 +320,7 @@ The hooks ship with the plugin — you do not register them:
 |---|---|
 | 📦 [Installing & Configuring](docs/install.md) | Install, the permission rule, verification, updating, what the plugin cannot ship. |
 | 🛠️ [Commands](docs/commands.md) | All 25, with arguments. |
-| 🕵️ [Agents & Parallelism](docs/agents.md) | The six agents; when to use a subagent vs. a team vs. a workflow. |
+| 🕵️ [Agents & Parallelism](docs/agents.md) | The seven agents; when to use a subagent vs. a team vs. a workflow. |
 | ⚙️ [Hooks & Quality Gates](docs/hooks.md) | Every hook, the Iron Laws, and the security posture. |
 | 🧬 [Spec-Driven Development](docs/sdd.md) | The lifecycle in depth, `.specify/` artifacts, task management. |
 | 🏗️ [Architecture](docs/architecture.md) | Package structure, request flow, the five-layer stack, deployment topology. |
