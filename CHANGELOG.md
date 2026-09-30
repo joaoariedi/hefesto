@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased]
+## [7.5.0] - 2026-09-30
 
 ### Added
 - **`/hef.babysit`** (report 18 #2, board item HEF-7): keeps ONE pull request moving up to the
@@ -64,6 +64,14 @@ it is what caught the hand-bumped era:
 ### Changed
 - README §5 and `docs/install.md` §7 name the babysitter as the `deploy` pane's tool between the PR
   and the merge; `.claude/CLAUDE.md` routes `hef.babysit` as the `fix` class (`opus`).
+- **Docs (PR #79, #80)**: report 15 gains an addendum crossing GPT Researcher's context filter with
+  the Jev verdict (still rejected; a filter with a keyword fallback is admissible, a router is not);
+  report 18 gains the 2026-09-30 addendum reading Galbiati's deck as the macro layer — four stage
+  panes (orchestrator, plan, build, deploy) over the report 17 spine, five rules that keep it out of
+  the rejected live mesh, block kinds mapped to owner panes, the arena in three phases starting from
+  the shipped tier split; README §5 documents the by-stage layout beside the by-object one; board
+  items HEF-11 (stage roles in the launcher), HEF-12 (pane-aware block routing), HEF-13 (providers
+  registry) on the backlog.
 
 ## [7.4.0] - 2026-09-28
 
