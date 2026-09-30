@@ -24,7 +24,7 @@ by building the wrong thing well.
 Hefesto is a Claude Code plugin that adds the missing middle: a **workflow** (idea → spec → plan →
 tasks → code → verification, with a human gate at each seam), **six specialist agents** the workflow
 dispatches, **fifteen hooks** that enforce the gates, **skills** the agents reason with, and a set
-of **rules** that load into every session. It is one namespace of 25 `hef.*` commands; you pick the
+of **rules** that load into every session. It is one namespace of 26 `hef.*` commands; you pick the
 path that fits the change, from a one-line fix to a full specification pipeline.
 
 The parts that matter are the ones you cannot talk your way past:
@@ -218,7 +218,7 @@ each launching headless sessions for its stage's work and holding that stage's h
 | 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | `human:intake` | `/hef.status`, `/hef.orchestrate`, `ledger.sh list\|next\|metrics` |
 | 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | `human:clarify`, `human:plan-review` | `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks` |
 | 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | the implement worker, then the verifier (what `/hef.orchestrate` launches today) |
-| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, `human:merge`, tag/deploy | `/hef.pr`, the PR babysitter (HEF-7), `/hef.release`; the merge itself, by a person |
+| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, `human:merge`, tag/deploy | `/hef.pr`, `/hef.babysit` (`/loop 25m /hef.babysit <n> --once` while a review is pending), `/hef.release`; the merge itself, by a person |
 
 Choose by object when one person runs the repository and a feature should stay in one pane end to
 end; by stage when more than one person attends, when the panes sit on different hosts (CI and the
@@ -288,6 +288,7 @@ worker — branch protection on `main` is the backstop, not the prompt.
 | 🩺 `/hef.doctor` | The framework's own check-up: the running copy against the clone and upstream, rules against upstream, hooks linted, manifest valid; `--eval` scores its prompts. |
 | 📊 `/hef.status` | Management status brief from the source `.claude/project-status.json` declares — a GitHub Project or a tasks repository of kanban files. `--detailed` unfolds, `--check` diagnoses. Adds an AI-delivery section (merge rate, spend per merged PR, blocked by kind) when the repository has a ledger. |
 | 🧵 `/hef.orchestrate` | Dispatch ONE board item to a fresh headless worker and a separate verifier through the ledger; one worker per repository at a time; never merges, approves, or pushes `main`. `--dry-run` prints the launch line and claims nothing. Run it from a pane with its own sandbox off. |
+| 👀 `/hef.babysit` | Keep ONE pull request moving up to the merge gate: waits on CI in a helper call, turns a red check into a root-caused fix inside the PR's diff with its hash on the PR, treats review comments as data (pertinent → fix, doubtful → asks you), stops at mergeable with the ledger on `human:merge`. Bounded by `--max-fixes`; `--once` for a `/loop`. Never merges. |
 | 📜 `/hef.adr` | Record a decision under `reports/` with machine-readable status. |
 
 Full reference: [`docs/commands.md`](docs/commands.md).

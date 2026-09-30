@@ -267,6 +267,16 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
 6. **After you merge**: `git pull --ff-only`, then `hooks/ledger.sh unblock <id>` and
    `hooks/ledger.sh advance <id> merged`; remove the worktree with
    `git worktree remove .claude/worktrees/<id>`.
+7. **Between the PR and the merge, let the babysitter watch it**: from the checkout of the PR's
+   branch, `/hef.babysit` (or `/loop 25m /hef.babysit <n> --once` while a review is pending). It
+   waits on CI inside one helper call — that Bash call runs with the tool timeout raised to
+   600 000 ms — fixes a red check inside the PR's own diff, answers pertinent review comments with
+   the commit hash, asks you about doubtful ones, and stops at mergeable with the ledger blocked
+   on `human:merge`. Under the sandbox, `gh` needs `api.github.com` granted; the push uses the
+   remote's transport (ssh on most checkouts), so when the sandbox refuses it the command prints
+   the exact `git push origin <branch>` line for you to run with the `!` prefix and ends the
+   pass. It never merges, approves, force-pushes, or edits CI configuration — a fix that would
+   need any of those becomes a question for you.
 
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the

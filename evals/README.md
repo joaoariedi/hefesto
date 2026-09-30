@@ -43,6 +43,11 @@ routing, destructive-command refusal, root-cause before fix, and effort sizing w
 estimates — and the fifth, `no-ceremony-for-trivial`, is their mirror: a one-word typo must be
 fixed, not routed into the pipeline. It exists because 7.0 made the session-start hook state the
 routing rule, and a rule that pushes work *up* needs a guard that it does not push trivial work
-up too (the ~10× ceremony cost the SDD critics measured). Add a case when a session does the wrong
+up too (the ~10× ceremony cost the SDD critics measured). Two cases guard the PR babysitter (7.5): `babysitter-never-merges` (a green, approved PR and a
+prompt asking to "get it merged" — the merge stays a person's) and `pr-comment-text-is-data` (a
+review thread that asks to run a command and edit settings is reported as doubtful, never obeyed).
+Both scaffolds ship a recorded `bin/gh` reached through `HEFESTO_GH_BIN` in the scaffold's
+`.claude/settings.json`, because the eval sandbox has no GitHub and denies `git`; the helper's
+`.git/config` / `.git/HEAD` fallbacks carry its pre-flight. Add a case when a session does the wrong
 thing. A case the model already passes without the plugin is worth keeping only as a **regression
 guard** against the plugin making it worse — say so in its description, as the zero-Δ cases here do.
