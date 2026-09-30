@@ -1,0 +1,7 @@
+{
+  "plan structured_output": {"summary": "≤2000 chars", "outcome": "tasks|blocked|failed", "spec_dir": ".specify/specs/<name> or null", "blocked_on": "human:clarify|human:plan-review|null"},
+  "deploy structured_output": {"summary": "≤2000 chars", "verdict": "mergeable|conflict|checks|review|pending|closed|refused", "fixes": 0, "questions": 0},
+  "ledger next --stage": {"plan": "queued|intake, unowned, unblocked", "build": "queued|tasks|implement, unowned, unblocked", "deploy": "pr with pr.url, unowned, blocked_on null or human:merge; ordered unblocked first, then oldest last deploy run"},
+  "session-start blocked line": "ledger: <id> blocked_on <kind> since <t> → <pane> pane — resolve with the human command it names, then ledger.sh unblock <id>",
+  "orchestrate.panes default": {"orchestrator": ["human:intake"], "plan": ["human:clarify", "human:plan-review"], "build": ["verdict", "stall", "budget", "conflict"], "deploy": ["ci", "human:merge"]}
+}

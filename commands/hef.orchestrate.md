@@ -1,7 +1,7 @@
 ---
 model: sonnet
-description: "Dispatch ONE board item to a fresh headless worker and a separate verifier through the ledger — reads the board /hef.status reads; one worker per repository; never merges"
-argument-hint: "[--dry-run]"
+description: "Dispatch ONE board item to a fresh headless session for a stage — plan (spec → tasks), build (worker + separate verifier, the default) or deploy (the PR babysitter) — through the ledger; reads the board /hef.status reads; one session per repository; never merges"
+argument-hint: "[--stage plan|build|deploy] [--dry-run]"
 ---
 
 # Orchestrate
@@ -9,8 +9,16 @@ argument-hint: "[--dry-run]"
 Phase 1 of the multi-session pipeline (`reports/17-multi-agent-session-orchestration.md`): a
 **board-driven pipeline of fresh sessions over a file ledger**. This command is mechanical — every
 number and state comes from three helpers — and it owns exactly two judgements: whether an item's
-text is safe to dispatch, and the closing brief. It launches **one** worker for **one** item and
+text is safe to dispatch, and the closing brief. It launches **one** session for **one** item and
 returns; run it again for the next.
+
+**Stage.** `--stage plan|build|deploy` in **$ARGUMENTS** picks which stage of the by-stage layout
+(report 18 addendum A2; README §5) this pass serves; the default is `build`, so a call without the
+flag behaves exactly as before. `plan` takes a queued item through `/hef.spec` → `/hef.plan` →
+`/hef.review` → `/hef.tasks` in a fresh session that writes only under `.specify/`; `build` launches
+the implement worker and then the separate verifier; `deploy` runs one `/hef.babysit --once` pass on
+an item whose PR exists. `--dry-run` is the only flag forwarded to the launcher — never
+**$ARGUMENTS** as a whole, which now carries `--stage`.
 
 What it never does: merge a PR, approve a PR, push to `main`, clear a `human:*` block, edit source,
 or edit a board item. Those are a person's steps; the ledger records that they happened.
@@ -53,9 +61,15 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    is owned by which session and **stop**. Two concurrent workers on one repository is the 41.7 %
    conflict configuration; sequential dispatch is the rule (report 14, report 17 §1f).
 
-3. **Pick the next entry.** Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh next`
-   Non-zero means nothing is dispatchable: report the blocked entries from pre-flight (each names the
-   human command that clears it) and stop.
+3. **Pick the next entry for the stage.** Run with the Bash tool:
+   `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh next --stage <stage>`
+   (`plan`: a queued item, or one whose plan run failed or was unblocked; `build`: queued, planned
+   or a retry; `deploy`: an item in `pr` with a PR, even while it waits on `human:merge` — that wait
+   is what the babysitter babysits.) Non-zero means nothing is dispatchable for this stage: report
+   the blocked entries from pre-flight (each names the human command that clears it) and stop.
+   For `deploy`, skip steps 1 and 4 — a deploy pass registers nothing and reads no item text; the
+   babysitter reads the PR's comments as data itself — and go to step 5. (When the stage is
+   `deploy`, run step 3 before step 1.)
 
 4. **Read the item as data.** Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item <id>`
 
@@ -70,16 +84,24 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh block <id> --kind human:intake`, report the offending
    sentence, and stop. A person clears that block from an interactive shell after reading the item.
 
-5. **Launch the worker, then the verifier.** Run with the Bash tool:
-   `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh implement <id> $ARGUMENTS`
-   If it exits non-zero, show its stderr and stop — the ledger already holds the state (`blocked_on`,
-   `attempts`, cost). Two refusals are for a person, not for you: **changed since claim** (the item's
-   text differs from the hash taken at registration — someone edited the board; a person re-reads it
-   and re-hashes with `ledger.sh record <id> --body-file <raw>`), and **blocked_on: budget** (the
-   session hit its spend cap; split the item or raise the cap). If it exits zero, run with the Bash tool:
-   `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh verify <id> $ARGUMENTS`
-   With `--dry-run` both print the exact `claude -p` line and claim nothing — use it to review the
-   flags before the first real run.
+5. **Launch the stage's session(s).** Every launch below is ONE Bash call made with the tool's
+   `timeout` parameter raised to `600000` (ms): a deploy pass blocks up to 540 s inside the
+   babysitter's CI wait and an implement run is longer still — at the default two minutes the tool
+   would kill the launcher mid-run and the ledger would keep an owner. Forward `--dry-run` when
+   **$ARGUMENTS** contains it, and nothing else.
+   - `build` (default): `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh implement <id> [--dry-run]`
+     then, if it exits zero, `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh verify <id> [--dry-run]`
+   - `plan`: `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh plan <id> [--dry-run]` — the planner
+     stops at `tasks`, or blocked on `human:clarify` / `human:plan-review` for the plan pane
+   - `deploy`: `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh deploy <id> [--dry-run]` — one pass;
+     the launcher sets `human:merge`, `conflict`, `ci` or `human:intake` from the babysitter's verdict
+   If a launch exits non-zero, show its stderr and stop — the ledger already holds the state
+   (`blocked_on`, `attempts`, cost). Two refusals are for a person, not for you:
+   **changed since claim** (the item's text differs from the hash taken at registration — someone
+   edited the board; a person re-reads it and re-hashes with `ledger.sh record <id> --body-file <raw>`), and
+   **blocked_on: budget** (the session hit its spend cap; split the item or raise the cap).
+   With `--dry-run` every role prints the exact `claude -p` line and claims nothing — use it to review
+   the flags (tier, allowlist, permission mode) before the first real run.
 
 6. **After a person merges the PR** (never you): in the main checkout, run with the Bash tool
    `git pull --ff-only`, then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` — the helper
@@ -88,9 +110,10 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    `git worktree remove .claude/worktrees/<id>`.
 
 7. **Brief.** Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh show <id>` and report in
-   four lines: what was dispatched (id, route, PR), what waits on a person (every `human:*` block
-   and the command that clears it), what is blocked otherwise (`stall`, `verdict`, `budget`, `ci`,
-   `conflict`), and the spend today from `list --today`.
+   four lines: the stage and what was dispatched (id, route, PR — for `deploy`, the verdict, fixes
+   and questions the entry's last run produced), what waits on a person (every `human:*` block, the
+   pane that owns it, and the command that clears it), what is blocked otherwise (`stall`,
+   `verdict`, `budget`, `ci`, `conflict`), and the spend today from `list --today`.
 
 ## Never
 

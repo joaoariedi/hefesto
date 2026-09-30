@@ -35,6 +35,33 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Added
+- **Stage roles for the orchestrator** (board items HEF-11 and HEF-12; report 18 addendum A2/A3):
+  `hooks/session-launch.sh` gains `plan` (a fresh session that takes a queued item through
+  `/hef.spec` → `/hef.plan` → `/hef.review` → `/hef.tasks` in the item's worktree, runs in
+  `--permission-mode default` with `Edit(.specify/**)` so it writes only under `.specify/`, and on a
+  retry resumes at the first missing artifact) and `deploy` (one `/hef.babysit <pr> --once` pass in
+  the worktree; the launcher sets `human:merge`, `conflict`, `ci` or `human:intake` from the
+  babysitter's verdict — `closed` leaves the deploy set through `human:intake`); `implement` on a
+  planned entry continues from the task list instead of re-running `/hef.agent`;
+  `ledger.sh next --stage plan|build|deploy` picks the stage's next entry (deploy: even while blocked
+  on `human:merge`, unblocked first, then least recently babysat); `/hef.orchestrate --stage`
+  (default `build`, unchanged behaviour); `orchestrate.tiers.plan|deploy`, `allowed_tools.plan|deploy`,
+  `max_fixes`. Every blocked line at session start names the pane that owns the kind
+  (`orchestrate.panes`, default map orchestrator / plan / build / deploy; a malformed map falls back,
+  never to a missing line). Two fresh-context plan reviews (13 changes) preceded the build.
+
+### Changed
+- **Every existing install's `implement` and `verify` allowlists change**: the plugin's own hooks
+  directory (`Bash(<plugin>/hooks/*)`) is now appended after the configured or default list for every
+  role. Without it a launched session could not run a single `hef.*` pre-flight helper — a gap since
+  7.3.0. A project that sets `orchestrate.allowed_tools.<role>` keeps its list and gains the rule.
+- The deploy role's default allowlist carries no `gh pr *`/`gh api *`: every `gh` call the babysitter
+  makes lives inside `pr-watch.sh`, so `gh pr merge` and `gh pr review` are structurally absent from
+  every role (asserted by the smoke suite).
+
 ## [7.5.0] - 2026-09-30
 
 ### Added
