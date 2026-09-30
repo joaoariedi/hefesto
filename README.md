@@ -209,6 +209,24 @@ anybody. The evidence for that shape — and against a mesh of sessions that tal
 | 🔧 `<repo>-chore` | general tasks, fixes, merges, releases | `/hef.fix`, `/hef.doctor`, `/hef.release`; the merges themselves | `main` |
 | 🤖 workers (headless, launched by `/hef.orchestrate`) | one board item each, then they exit | the size-routed pipeline, then a separate read-only verifier | one worktree under `.claude/worktrees/<id>` |
 
+That is the layout **by object** — the documents, one feature, `main`. The same spine also runs
+**by stage**, the layout of Galbiati's deck (`reports/18-…`, addendum A2): one pane per stage,
+each launching headless sessions for its stage's work and holding that stage's human gates.
+
+| Pane | Owns (ledger phases) | Human gates | Launches / runs |
+|---|---|---|---|
+| 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | `human:intake` | `/hef.status`, `/hef.orchestrate`, `ledger.sh list\|next\|metrics` |
+| 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | `human:clarify`, `human:plan-review` | `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks` |
+| 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | the implement worker, then the verifier (what `/hef.orchestrate` launches today) |
+| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, `human:merge`, tag/deploy | `/hef.pr`, the PR babysitter (HEF-7), `/hef.release`; the merge itself, by a person |
+
+Choose by object when one person runs the repository and a feature should stay in one pane end to
+end; by stage when more than one person attends, when the panes sit on different hosts (CI and the
+PR on the workstation, the production release on the laptop), or when each stage should own its own
+clarifications. Either way a pane never does a stage's work in its own context: it launches a fresh
+session per item, or does the human step by hand, then `/clear`s. The ledger does not know which
+layout is in use.
+
 **The shared truth is three things, none of them a conversation:** the board (`tasks/` or the
 GitHub Project), the ledger (`.git/hefesto/ledger/<id>.json` — shared by every worktree, never
 committed), and the pull requests. Every pane opened in the checkout is told at start which entries

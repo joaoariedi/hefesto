@@ -271,3 +271,10 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the
 `runs[]` on each entry.
+
+**Two hosts, if you run the by-stage layout** (README §5): the `deploy` pane splits along the
+trust boundary in `docs/architecture.md` — CI, the PR and the babysitter on the always-on
+workstation that holds GitHub access only; environment transitions and the production release on
+the laptop that holds the credentials. The ledger is per checkout, so the laptop reads the release
+queue with `git pull --ff-only` and `hooks/ledger.sh list --phase merged`; board write-back (HEF-4)
+is what makes that queue visible across both machines without a message.
