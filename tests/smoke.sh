@@ -1792,14 +1792,20 @@ st_argv="$(cat "$sr_log")"
 { grep -qF -- '--name plan-HEF-8' <<<"$st_argv" && grep -qF -- '-w HEF-8' <<<"$st_argv" && grep -qF -- '--permission-mode default' <<<"$st_argv" && ! grep -qF 'acceptEdits' <<<"$st_argv" \
   && grep -qF 'Edit(.specify/**)' <<<"$st_argv" && grep -qF "$st_hooks" <<<"$st_argv" && grep -qF '/hef.spec' <<<"$st_argv" && grep -qF 'untrusted-begin HEF-8' <<<"$st_argv"; } \
   || { bad "plan argv must carry --name plan-HEF-8, -w, --permission-mode default (no acceptEdits), Edit(.specify/**), the hooks rule and the delimited item: $(head -c 300 <<<"$st_argv")"; st_fail=1; }
-# FR-006 implement on the planned entry: the prompt names /hef.implement and the spec dir, never /hef.agent; tasks → implement → verify
+# FR-006 implement on the planned entry: keyed on the ARTIFACT (spec_dir/tasks.md), so the prompt names /hef.implement and the
+# spec dir, never /hef.agent — on the first run and on a retry after a failed run alike; tasks → implement → verify
+mkdir -p "$sr_t/.claude/worktrees/HEF-8/.specify/specs/eight"; printf '# Tasks\n- [ ] T001 x\n' > "$sr_t/.claude/worktrees/HEF-8/.specify/specs/eight/tasks.md"
 : > "$sr_log"; st_dry="$(sr2 implement HEF-8 --dry-run 2>&1)"
 { grep -qF '/hef.implement' <<<"$st_dry" && grep -qF 'specs/eight' <<<"$st_dry" && ! grep -qF '/hef.agent' <<<"$st_dry"; } || { bad "implement on a tasks entry must prompt /hef.implement at the spec dir, not /hef.agent"; st_fail=1; }
+printf '{"session_id":"p2f","total_cost_usd":0.5,"structured_output":{"summary":"broke","route":"full","outcome":"failed","spec_dir":".specify/specs/eight"}}\n' > "$sr_res"
+sr2 implement HEF-8 >/dev/null 2>&1 && { bad "implement outcome failed must exit non-zero"; st_fail=1; }
+st_dry="$(sr2 implement HEF-8 --dry-run 2>&1)"
+{ srj HEF-8 '.phase=="implement"' && grep -qF '/hef.implement' <<<"$st_dry" && ! grep -qF '/hef.agent' <<<"$st_dry"; } || { bad "a retry of implement on a planned entry (phase implement, tasks.md present) must keep the /hef.implement prompt, never /hef.agent"; st_fail=1; }
 printf '{"session_id":"p2","total_cost_usd":1,"structured_output":{"summary":"built","route":"full","outcome":"pr","pr_url":"https://github.com/o/r/pull/18","blocked_on":null,"spec_dir":".specify/specs/eight"}}\n' > "$sr_res"
 sr2 implement HEF-8 >/dev/null 2>&1 || { bad "implement on a tasks entry exited non-zero"; st_fail=1; }
 srj HEF-8 '.phase=="verify" and .pr.number==18 and .route=="full"' || { bad "implement on a tasks entry must reach verify with the PR recorded — got $(jq -c '{p:.phase,pr:.pr}' "$sr_t/.git/hefesto/ledger/HEF-8.json")"; st_fail=1; }
 # plan blocked on human:clarify → phase intake with spec_dir; a person clears the marker → unblock → next --stage plan returns it; the resume prompt is phase-aware
-lg2 block HEF-4 --kind human:intake >/dev/null 2>&1; lg2 block HEF-7 --kind human:intake >/dev/null 2>&1   # park the queued ones so the plan stage has one candidate
+lg2 block HEF-4 --kind human:intake >/dev/null 2>&1; lg2 block HEF-7 --kind human:intake >/dev/null 2>&1; lg2 block HEF-5 --kind human:intake >/dev/null 2>&1   # park the queued/implement ones so each stage has one candidate
 printf '{"session_id":"p3","total_cost_usd":0.3,"structured_output":{"summary":"needs a decision","outcome":"blocked","spec_dir":".specify/specs/nine","blocked_on":"human:clarify"}}\n' > "$sr_res"
 sr2 plan HEF-9 >/dev/null 2>&1 || { bad "plan with outcome blocked exited non-zero"; st_fail=1; }
 srj HEF-9 '.phase=="intake" and .blocked_on.kind=="human:clarify" and (.spec_dir|endswith("HEF-9/.specify/specs/nine"))' || { bad "plan blocked must leave phase intake, human:clarify and the spec_dir — got $(jq -c '{p:.phase,b:.blocked_on,s:.spec_dir}' "$sr_t/.git/hefesto/ledger/HEF-9.json")"; st_fail=1; }
@@ -1812,6 +1818,8 @@ st_dry="$(sr2 plan HEF-9 --dry-run 2>&1)"
   || { bad "a plan retry must carry the phase-aware resume prompt (spec dir, do not re-spec, only if plan.md lacks ## Reviewed), not the item: $(head -c 300 <<<"$st_dry")"; st_fail=1; }
 printf '{"session_id":"p4","total_cost_usd":0.4,"structured_output":{"summary":"resumed","outcome":"tasks","spec_dir":".specify/specs/nine","blocked_on":null}}\n' > "$sr_res"
 sr2 plan HEF-9 >/dev/null 2>&1; srj HEF-9 '.phase=="tasks" and .route=="full"' || { bad "the resumed plan run must reach tasks"; st_fail=1; }
+# the planned entry is what the build stage picks up next (HEF-8 is in verify, the queued/implement ones are parked)
+[ "$(lg2 next --stage build 2>/dev/null)" = HEF-9 ] || { bad "next --stage build must return the planned entry HEF-9 (phase tasks), got '$(lg2 next --stage build 2>&1)'"; st_fail=1; }
 # plan failed → non-zero, phase intake, owner released, picked again by next --stage plan
 st_init 10
 printf '{"session_id":"p5","total_cost_usd":0.2,"structured_output":{"summary":"could not","outcome":"failed","spec_dir":null,"blocked_on":null}}\n' > "$sr_res"
@@ -1846,6 +1854,12 @@ lg2 block HEF-11 --kind human:merge >/dev/null 2>&1
 [ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-11 ] || { bad "next --stage deploy must prefer the entry never babysat (HEF-11) over HEF-1, got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
 sleep 1; printf '{"session_id":"d9","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"; sr2 deploy HEF-11 >/dev/null 2>&1
 [ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "after HEF-11's pass, next --stage deploy must return the least recently babysat (HEF-1), got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
+# "least recently" means the LATEST run per entry: HEF-1 has old runs and now a newer one than HEF-11's, so HEF-11 comes first again
+sleep 1; sr2 deploy HEF-1 >/dev/null 2>&1
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-11 ] || { bad "deploy ordering must compare each entry's latest deploy run: HEF-1 just ran, so HEF-11 is due — got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
+# an entry in pr WITHOUT a recorded PR url is not a deploy candidate, however early it sorts
+st_init 13; lg2 advance HEF-13 pr >/dev/null 2>&1
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-11 ] || { bad "next --stage deploy must skip a pr entry with no PR url (HEF-13), got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
 # FR-003 the hooks rule survives a config override, last in the list; FR-002 tiers per stage
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":100,"tiers":{"plan":"sonnet","deploy":"fable"},"allowed_tools":{"implement":["Read","Bash(bash tests/smoke.sh*)"]}}}\n' > "$sr_t/.claude/project-status.json"
 st_dry="$(sr2 implement HEF-7 --dry-run 2>&1)"; grep -qF "Read,Bash(bash tests/smoke.sh*),$st_hooks'" <<<"$st_dry" || { bad "a config allowlist must still end with the hooks rule: $(grep -o -- "--allowedTools '[^']*'" <<<"$st_dry")"; st_fail=1; }
@@ -1853,6 +1867,10 @@ lg2 unblock HEF-4 >/dev/null 2>&1 || true
 st_dry="$(sr2 plan HEF-10 --dry-run 2>&1)"; grep -qF -- '--model sonnet' <<<"$st_dry" || { bad "plan must take orchestrate.tiers.plan"; st_fail=1; }
 st_dry="$(sr2 deploy HEF-11 --dry-run 2>&1)"; grep -qF -- '--model fable' <<<"$st_dry" || { bad "deploy must take orchestrate.tiers.deploy"; st_fail=1; }
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":100}}\n' > "$sr_t/.claude/project-status.json"
+# FR-011 an unknown role is a usage error (2); FR-005 an absolute spec_dir is recorded as given
+sr2 bogus HEF-8 >/dev/null 2>&1; [ $? -eq 2 ] || { bad "session-launch with an unknown role must exit 2 (usage)"; st_fail=1; }
+st_init 14; printf '{"session_id":"p6","total_cost_usd":0.1,"structured_output":{"summary":"abs","outcome":"tasks","spec_dir":"%s/elsewhere/specs/fourteen","blocked_on":null}}\n' "$sr_t" > "$sr_res"
+sr2 plan HEF-14 >/dev/null 2>&1; jq -e --arg d "$sr_t/elsewhere/specs/fourteen" '.spec_dir==$d' "$sr_t/.git/hefesto/ledger/HEF-14.json" >/dev/null 2>&1 || { bad "an absolute spec_dir must be recorded as given, not prefixed with the worktree — got $(jq -r .spec_dir "$sr_t/.git/hefesto/ledger/HEF-14.json")"; st_fail=1; }
 # no default allowlist admits a merge verb (the structural "never merges")
 st_defaults="$(grep -E "^  (implement|verify|plan|deploy)\) +ALLOWED=" "$SL")"
 [ "$(grep -c . <<<"$st_defaults")" -eq 4 ] || { bad "expected four default allowlists in session-launch.sh"; st_fail=1; }
@@ -1871,6 +1889,23 @@ st_lmut 's/ORDER=.sort_by(\[(if .blocked_on == null then 0 else 1 end), .*$/ORDE
 lg2 init HEF-12 --kind tasks-repo --ref t >/dev/null 2>&1; lg2 record HEF-12 --pr https://github.com/o/r/pull/22 >/dev/null 2>&1; lg2 advance HEF-12 pr >/dev/null 2>&1
 [ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-12 ] || { bad "next --stage deploy must prefer the unblocked HEF-12 over the blocked HEF-1"; st_mfail=1; }
 [ "$(LG_BIN="$LG_MUT" lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "mutation survived: deploy ordering replaced by id order, HEF-12 still preferred"; st_mfail=1; }
+# the build filter without `tasks` never picks up a planned entry (quality gate 2026-09-30)
+st_lmut 's/(.phase == "queued" or .phase == "tasks" or .phase == "implement")/(.phase == "queued" or .phase == "implement")/'
+[ "$(lg2 next --stage build 2>/dev/null)" = HEF-9 ] || { bad "fixture drift: next --stage build should return the planned HEF-9 here, got '$(lg2 next --stage build 2>&1)'"; st_mfail=1; }
+[ "$(LG_BIN="$LG_MUT" lg2 next --stage build 2>/dev/null)" != HEF-9 ] || { bad "mutation survived: tasks dropped from the build filter, HEF-9 still returned"; st_mfail=1; }
+# the deploy filter without the PR-url test dispatches a pr entry that has nothing to babysit
+lg2 block HEF-12 --kind ci >/dev/null 2>&1   # park the unblocked one: ci is not a deploy candidate
+st_lmut 's/ and ((.pr.url \/\/ "") != "") and / and /'
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "fixture drift: next --stage deploy should return HEF-1 with HEF-12 parked, got '$(lg2 next --stage deploy 2>&1)'"; st_mfail=1; }
+[ "$(LG_BIN="$LG_MUT" lg2 next --stage deploy 2>/dev/null)" = HEF-13 ] || { bad "mutation survived: PR-url test dropped from the deploy filter, HEF-13 (no PR) still skipped — got '$(LG_BIN="$LG_MUT" lg2 next --stage deploy 2>&1)'"; st_mfail=1; }
+# the deploy ordering must compare each entry's LATEST run (max), not its first: HEF-14 runs once, then HEF-1 runs again
+st_init 15; lg2 record HEF-15 --pr https://github.com/o/r/pull/25 --worktree "$sr_t" --branch HEF-15 >/dev/null 2>&1; lg2 advance HEF-15 pr >/dev/null 2>&1; lg2 block HEF-15 --kind human:merge >/dev/null 2>&1
+printf '{"session_id":"o1","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"
+sleep 1; sr2 deploy HEF-15 >/dev/null 2>&1; sleep 1; sr2 deploy HEF-1 >/dev/null 2>&1
+st_lmut 's/select(.role == "deploy") | .at\] | max/select(.role == "deploy") | .at] | min/'
+[ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-15 ] || { bad "deploy ordering must use each entry's latest run: HEF-1 ran last, so HEF-15 is due — got '$(lg2 next --stage deploy 2>&1)'"; st_mfail=1; }
+[ "$(LG_BIN="$LG_MUT" lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "mutation survived: max → min in the deploy ordering, HEF-15 still first"; st_mfail=1; }
+lg2 unblock HEF-12 >/dev/null 2>&1
 st_mut 's/if \[ "$Q" -gt 0 \]; then/if false; then/'
 lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; printf '{"session_id":"m1","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"review","fixes":0,"questions":1}}\n' > "$sr_res"
 SL_BIN="$SL_MUT" sr2 deploy HEF-1 >/dev/null 2>&1; [ "$(jq -r .blocked_on.kind "$sr_t/.git/hefesto/ledger/HEF-1.json")" != human:intake ] || { bad "mutation survived: questions branch removed, still human:intake"; st_mfail=1; }
@@ -1880,8 +1915,8 @@ SL_BIN="$SL_MUT" sr2 deploy HEF-1 >/dev/null 2>&1; [ "$(jq -r .blocked_on.kind "
 st_mut '/\[ -n "$PRN" \] || die/d'
 printf '{"session_id":"m3","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"
 SL_BIN="$SL_MUT" sr2 deploy HEF-10 >/dev/null 2>&1 && : || { bad "mutation survived: pr.url refusal removed, deploy on HEF-10 still refused"; st_mfail=1; }
-st_mut 's/if \[ -n "$SPEC_DIR" \] \&\& \[ "$PHASE" = tasks \]; then/if false; then/'
-st_dry="$(SL_BIN="$SL_MUT" sr2 implement HEF-9 --dry-run 2>&1)"; grep -qF '/hef.agent' <<<"$st_dry" || { bad "mutation survived: tasks-phase prompt conditional removed, /hef.agent still absent"; st_mfail=1; }
+st_mut 's/if \[ -n "$SPEC_DIR" \] \&\& \[ -f "$SPEC_DIR\/tasks.md" \]; then/if false; then/'
+st_dry="$(SL_BIN="$SL_MUT" sr2 implement HEF-8 --dry-run 2>&1)"; grep -qF '/hef.agent' <<<"$st_dry" || { bad "mutation survived: planned-entry prompt conditional removed, /hef.agent still absent"; st_mfail=1; }
 st_mut 's/mergeable) \[ "$CURK" = human:merge \] || {/mergeable) {/'
 lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; st_since="$(jq -r .blocked_on.since "$sr_t/.git/hefesto/ledger/HEF-1.json")"; sleep 1
 printf '{"session_id":"m4","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"mergeable","fixes":0,"questions":0}}\n' > "$sr_res"
@@ -1923,6 +1958,15 @@ printf '{"orchestrate":{"panes":{"release":"human:merge"}}}\n' > "$ss_t/.claude/
 [ "$(ss_pane HEF-7)" = deploy ] || { bad "a pane value that is not an array must fall back to the default map, never lose the line: HEF-7 → '$(ss_pane HEF-7)'"; ss_fail=1; }
 printf '{"orchestrate":{"panes":"oops"}}\n' > "$ss_t/.claude/project-status.json"
 [ "$(ss_pane HEF-7)" = deploy ] || { bad "a panes value that is not an object must fall back to the default map, never lose the line: HEF-7 → '$(ss_pane HEF-7)'"; ss_fail=1; }
+# every default kind has its pane (quality gate 2026-09-30: human:plan-review was unasserted); a non-string kind in a config list is skipped, not fatal
+( cd "$ss_t" && bash "$LG" init HEF-8 --kind tasks-repo --ref t >/dev/null && bash "$LG" block HEF-8 --kind human:plan-review >/dev/null ) >/dev/null 2>&1
+rm -f "$ss_t/.claude/project-status.json"; [ "$(ss_pane HEF-8)" = plan ] || { bad "human:plan-review must belong to the plan pane by default: HEF-8 → '$(ss_pane HEF-8)'"; ss_fail=1; }
+printf '{"orchestrate":{"panes":{"release":[42,"human:merge"]}}}\n' > "$ss_t/.claude/project-status.json"
+[ "$(ss_pane HEF-7)" = release ] || { bad "a numeric kind in a config list must be skipped and the string kinds kept: HEF-7 → '$(ss_pane HEF-7)' (release)"; ss_fail=1; }
+ss_mut2="$(mktemp)"; cp "$REPO/hooks/session-start-context.sh" "$ss_mut2"; sed -i 's/| select(type == "string") | {key: ., value: $p}/| {key: ., value: $p}/' "$ss_mut2"
+cmp -s "$REPO/hooks/session-start-context.sh" "$ss_mut2" && { bad "session-start mutation (string guard removed) did not apply"; ss_fail=1; }
+[ "$(SS_BIN="$ss_mut2" ss_pane HEF-7)" != release ] || { bad "mutation survived: the string guard on kinds removed, the numeric-kind config still yields release"; ss_fail=1; }
+rm -f "$ss_mut2" "$ss_t/.claude/project-status.json"
 # mutations: the default map emptied → orchestrator; the object guard weakened to select() → the string-panes line vanishes
 ss_mut="$(mktemp)"; cp "$REPO/hooks/session-start-context.sh" "$ss_mut"; sed -i "s/^  PANES_DEFAULT='{.*}'$/  PANES_DEFAULT='{}'/" "$ss_mut"
 cmp -s "$REPO/hooks/session-start-context.sh" "$ss_mut" && { bad "session-start mutation (default map emptied) did not apply"; ss_fail=1; }

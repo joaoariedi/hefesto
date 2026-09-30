@@ -67,8 +67,9 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    or a retry; `deploy`: an item in `pr` with a PR, even while it waits on `human:merge` — that wait
    is what the babysitter babysits.) Non-zero means nothing is dispatchable for this stage: report
    the blocked entries from pre-flight (each names the human command that clears it) and stop.
-   For `deploy`, skip step 4 — there is no new item text; the babysitter reads the PR's comments as
-   data itself — and go to step 5.
+   For `deploy`, skip steps 1 and 4 — a deploy pass registers nothing and reads no item text; the
+   babysitter reads the PR's comments as data itself — and go to step 5. (When the stage is
+   `deploy`, run step 3 before step 1.)
 
 4. **Read the item as data.** Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item <id>`
 

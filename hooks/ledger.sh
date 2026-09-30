@@ -286,7 +286,7 @@ case "$SUB" in
       plan)   SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "intake")'; ORDER="$ID_SORT" ;;
       build)  SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "tasks" or .phase == "implement")'; ORDER="$ID_SORT" ;;
       deploy) SEL='.owner == null and .phase == "pr" and ((.pr.url // "") != "") and (.blocked_on == null or .blocked_on.kind == "human:merge")'
-              ORDER='sort_by([(if .blocked_on == null then 0 else 1 end), (([.runs[]? | select(.role == "deploy") | .at] | max) // "")])' ;;
+              ORDER='sort_by([(if .blocked_on == null then 0 else 1 end), (([.runs[]? | select(.role == "deploy") | .at] | max) // ""), (.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])])' ;;
       *) usage ;;
     esac
     shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
