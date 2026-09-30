@@ -28,7 +28,7 @@
 ## Phase 4: Polish
 - [x] T016 [FR-016] Docs: `docs/commands.md`, `docs/hooks.md`, `docs/architecture.md` (26 commands; helpers), `README.md` (also-available row, deploy cell), `docs/install.md` §7, `CHANGELOG.md`, `evals/README.md`, `.claude/CLAUDE.md` routing; board: HEF-7 → `tasks/DOING.md`
 - [x] T017 [SC-001] [SC-002] [SC-005] Full `tests/smoke.sh` green; every mutation confirmed red on a copy `tests/smoke.sh`
-- [ ] T018 [SC-004] Real run: `pr-watch.sh resolve --local`, `checks --wait 300`, `state` against this branch's PR (during `/hef.verify`)
+- [x] T018 [SC-004] Real run: `pr-watch.sh resolve --local`, `checks --wait 300`, `state` against this branch's PR (during `/hef.verify`)
 
 ---
 **Legend**: `[P]` = parallelizable | `[US#]` = user scenario | `[FR-NNN]` = functional requirement
