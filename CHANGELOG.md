@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased]
+## [7.7.0] - 2026-10-01
 
 ### Added
 - **`/hef.plan --arena [K]`** (board item HEF-8; report 18 #4, addendum A4 phase 1): Phase 0 fans the

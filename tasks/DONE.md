@@ -38,3 +38,14 @@ pane names (`human:clarify` → `plan`, `human:merge` → `deploy`, …); `sessi
 appends the owner to each blocked line (`ledger: HEF-7 blocked_on human:merge → deploy`) so every
 pane sees the queue and each line says whose it is — no filtering by session name, which hooks
 cannot see. HEF-5's escalation message then targets the kind's pane instead of one named session.
+
+## 2026-10-01 — **HEF-8** — arena: bounded read-only fan-out in /hef.plan Phase 0
+
+Shipped in 7.7.0 (PR #85): `/hef.plan --arena [K]`, `agents/truth-scout.md`, `speckit-helper.sh arena-cite-check|arena-metrics`. Spec `.specify/specs/plan-arena/`. The number HEF-13 waits on is `arena-metrics` `cited_from_disagreements` over real runs.
+
+## HEF-8 — arena: bounded read-only fan-out in /hef.plan Phase 0
+
+Report 18 #4 (deck slide 23). `/hef.plan --arena K` sends the truth-map questions to K `truth-scout`
+agents (a new read-only one-shot for the current project — `repo-scout`'s contract forbids it) at different tiers, read-only, each returning a ≤2k-token digest; the planner merges them
+into `research.md` with per-claim attribution and turns disagreements into `[NEEDS CLARIFICATION]`.
+Cross-vendor explorers only when their CLIs are detected (optional-provider lane). K ≤ 3.
