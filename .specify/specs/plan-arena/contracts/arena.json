@@ -1,0 +1,9 @@
+{
+  "truth-digest": "<truth-digest>\nTier: <sonnet|opus|fable>\nQuestions: <n restated in one line each>\nClaims:\n- C1 <path:line> — <one-line claim>\n- C2 …  (≤12)\nOpen:\n- <what could not be found, or none>\nCaveats:\n- <what limits the answer, or None>\nVerdict: ANSWERED | PARTIAL | NOT_FOUND | OUT_OF_SCOPE\n</truth-digest>  (≤400 words, no code block over 10 lines)",
+  "research.md ## Arena": "| # | Claim | file:line | sonnet | opus | fable |  (one column per tier in tiers=)\n|---|---|---|---|---|---|\n| C1 | … | path:line | ✓ | ✓ | – |\n\n### Disagreements\n- C5: <reading A (path:line)> vs <reading B (path:line)>\n\n### Unverified\n- C7: <path:line> (fable) — citation missing\n\n<!-- arena K=3 tiers=sonnet,opus,fable claims=9 agreed=6 disagreements=1 unverified=1 -->",
+  "spec.md marker": "[NEEDS CLARIFICATION: FR-003 — the limiter lives in src/limiter.py:12 (sonnet, opus) vs src/api.py:40 (fable)]",
+  "plan.md citation": "… the middleware calls the limiter before routing [C2] …",
+  "arena-metrics stdout": "K=3\ntiers=sonnet,opus,fable\nclaims=9\nagreed=6\ndisagreements=1\nunverified=1\ncited=2\ncited_from_disagreements=1",
+  "arena-cite-check stdout": "ok src/api.py:12\nmissing src/limiter.py:40 — no such file   (exit non-zero when any is missing)",
+  "digest file": ".specify/specs/<branch>/arena/<tier>.md — the raw <truth-digest> block, saved so arena-cite-check can read it"
+}

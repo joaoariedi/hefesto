@@ -14,9 +14,9 @@ hefesto/
 │   ├── plugin.json             # the plugin manifest — declares every component below
 │   └── marketplace.json        # makes the repo installable (`claude plugin install`)
 ├── .mcp.json                   # GitHub MCP server (project scope)
-├── agents/                     # 6 agents (5 pipeline + repo-scout one-shot)
+├── agents/                     # 7 agents (5 pipeline + repo-scout and truth-scout one-shot)
 ├── commands/                   # 26 slash commands, all hef.*
-├── hooks/                      # 15 hooks + hooks.json; helpers: release.sh, speckit-helper.sh (42 subcommands), status-board.sh, ledger.sh, session-launch.sh, pr-watch.sh
+├── hooks/                      # 15 hooks + hooks.json; helpers: release.sh, speckit-helper.sh (44 subcommands), status-board.sh, ledger.sh, session-launch.sh, pr-watch.sh
 ├── skills/                     # 7 skills, each a <name>/SKILL.md directory
 ├── workflows/                  # workflow.js — the deterministic task-list executor
 ├── tests/                      # smoke.sh — the plugin's own test suite

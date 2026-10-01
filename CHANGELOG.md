@@ -35,6 +35,28 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Added
+- **`/hef.plan --arena [K]`** (board item HEF-8; report 18 #4, addendum A4 phase 1): Phase 0 fans the
+  truth-map questions out to K (2..3, default 2) `truth-scout` agents at `sonnet`, `opus`, `fable` in
+  one message; their citations are verified in one call by `speckit-helper.sh arena-cite-check`; the
+  planner merges the digests into `research.md` with an `## Arena` table attributing every claim per
+  tier, `### Disagreements` (a claim another reader contradicted → a `[NEEDS CLARIFICATION]` marker
+  while the spec holds fewer than three, resolved before Phase 1; plan.md cites arena claims as
+  `[C<n>]`) and `### Unverified` (a citation that cannot be read — never a disagreement), plus a footer
+  `speckit-helper.sh arena-metrics` reads back with a consistency check: the one number that decides
+  whether cross-vendor readers (HEF-13) are worth adding. Same vendor, different tiers, read-only.
+- **`agents/truth-scout`**: the second one-shot subagent — a read-only reader of the CURRENT project
+  with a `<truth-digest>` contract (≤12 cited claims, ≤400 words, `OUT_OF_SCOPE` for any other repo).
+- Eval `plan-arena-attributes-claims`; smoke fixtures for both helper arms with stderr-text assertions
+  and four mutations. One fresh-context plan review (8 changes) preceded the build.
+
+### Changed
+- `evals/README.md`'s run line grants `Write,Edit` beside `Bash` (the arena case writes research.md).
+- `agents/repo-scout.md`'s description points at `truth-scout` for the current project; `docs/agents.md`
+  no longer calls repo-scout the only one-shot subagent.
+
 ## [7.6.0] - 2026-09-30
 
 ### Added

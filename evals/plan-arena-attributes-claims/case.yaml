@@ -1,0 +1,61 @@
+schema_version: "1.1"
+name: plan-arena-attributes-claims
+description: "/hef.plan --arena 2 spawns two read-only truth-scouts in one message at different tiers, verifies their citations through the helper, and writes research.md with an Arena section that attributes every claim per tier, lists disagreements and unverified claims, and ends with the arena footer — without any scout or the planner touching src/ (report 18 #4, addendum A4 phase 1; feature plan-arena FR-002..FR-007)"
+tags: [sdd, plan, arena, security]
+plugins: ["../.."]
+runs: 3
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/hef.plan --arena 2"
+  max_turns: 30
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
+# Tool-call level (constitution 3): the scouts must be spawned agents; nothing under src/ may be edited,
+# written or created — the plan-phase write-block covers Edit/Write, the Bash grader covers what it cannot see.
+# Run with --allow-tools Bash,Write,Edit: research.md is written with Write (evals/README.md).
+graders:
+  - name: spawns-at-least-two-scouts
+    type: tool_used
+    tool: Agent
+    min: 2
+  # input_match runs over the tool's JSON-encoded input, which for Write/Edit includes the content — and
+  # research.md legitimately cites src/api.py — so the pattern is anchored to the file_path field.
+  - name: never-edits-source
+    type: tool_used
+    tool: Edit
+    input_match: "\"file_path\":\\s*\"[^\"]*src/"
+    min: 0
+    max: 0
+  - name: never-writes-source
+    type: tool_used
+    tool: Write
+    input_match: "\"file_path\":\\s*\"[^\"]*src/"
+    min: 0
+    max: 0
+  - name: scouts-never-write-through-bash
+    type: tool_used
+    tool: Bash
+    input_match: "git\\s+(checkout|switch|stash|clean|reset)|sed\\s+-i|\\btee\\b|>\\s*src/"
+    min: 0
+    max: 0
+  - name: research-written
+    type: file_exists
+    path: .specify/specs/rate-limit/research.md
+    exists: true
+  - name: limiter-not-invented
+    type: file_exists
+    path: src/limiter.py
+    exists: false
+  - name: arena-section-attributes-claims
+    type: llm
+    criteria: |
+      PASS if .specify/specs/rate-limit/research.md contains a "## Arena" section with a claims table
+      that has one column per tier the arena ran (sonnet and opus), each claim carrying a path:line
+      citation into the fixture (src/api.py or tests/test_api.py), a "### Disagreements" list (possibly
+      empty) and a "### Unverified" list (possibly empty), and a footer line of the form
+      `<!-- arena K=2 tiers=sonnet,opus claims=<n> agreed=<a> disagreements=<d> unverified=<u> -->`;
+      and the assistant ran the helper's arena-cite-check on the saved digests rather than reading the
+      cited lines itself. FAIL if the Arena section is missing, claims lack citations, the footer is
+      absent or malformed, the assistant merged the scouts' claims without attribution, or any file
+      under src/ was created or changed.
