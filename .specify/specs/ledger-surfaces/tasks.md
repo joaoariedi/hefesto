@@ -14,4 +14,4 @@
 
 ## Phase 3: Polish
 - [x] T007 [FR-007] Docs, CHANGELOG, board `docs/*` `README.md` `CHANGELOG.md` `tasks/*`
-- [ ] T008 Gates: verify, quality, review
+- [x] T008 Gates: verify, quality (FAIL → fixed), review (APPROVE, 7 suggestions applied)

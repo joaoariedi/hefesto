@@ -302,10 +302,12 @@ case "$SUB" in
     [ -n "$BR" ] || BR=$(git branch --show-current 2>/dev/null)
     case "$BR" in ""|main|master) die "ledger handoff $ID: the branch is '${BR:-<detached>}' — hand off from the feature branch (or pass --branch)" ;; esac
     jq '.owner = {session_name: "hand", role: "implement", pid: null, started: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
-    "$0" run "$ID" --role implement --exit 0 --usd 0 >/dev/null || exit 1
-    "$0" record "$ID" --pr "$PR" --branch "$BR" --worktree "$PWD" >/dev/null || exit 1
-    if [ "$CI" -lt "$PI" ]; then "$0" advance "$ID" pr >/dev/null || exit 1; fi
-    "$0" block "$ID" --kind human:merge >/dev/null || exit 1
+    # A failure after the owner write must not strand the entry under a session that does not exist.
+    unhand() { local e; e=$(entry "$ID") && jq 'if .owner.session_name == "hand" then .owner = null else . end' <<<"$e" | write_entry "$ID"; die "ledger handoff $ID: $1 failed — the entry is released; fix the cause and run handoff again"; }
+    bash "$0" run "$ID" --role implement --exit 0 --usd 0 >/dev/null || unhand run
+    bash "$0" record "$ID" --pr "$PR" --branch "$BR" --worktree "$PWD" >/dev/null || unhand record
+    if [ "$CI" -lt "$PI" ]; then bash "$0" advance "$ID" pr >/dev/null || unhand advance; fi
+    bash "$0" block "$ID" --kind human:merge >/dev/null || unhand block
     entry "$ID" ;;
 
   # publish: the board shows where an item is. tasks-repo: verify the item's hash BEFORE writing (a
@@ -330,16 +332,17 @@ case "$SUB" in
         bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: the board has no item $ID"; }
         STORED=$(jq -r '.source.body_sha256 // empty' <<<"$E"); NOW=$(sha256sum < "$T" | cut -c1-64)
         if [ -n "$STORED" ] && [ "$NOW" != "$STORED" ]; then rm -f "$T"; die "ledger publish $ID: item text changed since claim (board sha256 ${NOW:0:12}…, ledger ${STORED:0:12}…) — a person re-reads it and re-hashes with ledger.sh record $ID --body-file <raw>; the board is untouched"; fi
-        bash "$SB" --mark "$ID" "${M:--}" >/dev/null || { rm -f "$T"; exit 1; }
+        PREVM=$(jq -r '.published.state // empty' <<<"$E")
+        MARKED=$(bash "$SB" --mark "$ID" "${M:--}" ${PREVM:+--was "$PREVM"}) || { rm -f "$T"; exit 1; }
         bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: cannot re-read the item after marking"; }
         "$0" record "$ID" --body-file "$T" >/dev/null || { rm -f "$T"; exit 1; }
-        rm -f "$T"; WHERE="the board" ;;
+        rm -f "$T"; WHERE="the board"; case "$MARKED" in *"not marked"*) WHERE="not marked — the item is in DONE" ;; esac ;;
       github-project)
         URL=$(jq -r '.source.url // empty' <<<"$E")
         [ -n "$URL" ] || die "ledger publish $ID: a github-project entry needs source.url (ledger.sh init … --url <issue-url>)"
         command -v gh >/dev/null 2>&1 || die "ledger publish $ID: gh not found — install GitHub CLI (https://cli.github.com)"
-        gh issue comment "$URL" --body "ledger: $ID phase $(jq -r .phase <<<"$E") blocked_on $(jq -r '.blocked_on.kind // "none"' <<<"$E")" >/dev/null 2>&1 \
-          || die "ledger publish $ID: gh issue comment $URL failed"
+        GHERR=$(gh issue comment "$URL" --body "ledger: $ID phase $(jq -r .phase <<<"$E") blocked_on $(jq -r '.blocked_on.kind // "none"' <<<"$E")" 2>&1 >/dev/null) \
+          || die "ledger publish $ID: gh issue comment $URL failed: $(tail -1 <<<"$GHERR")"
         WHERE="$URL" ;;
       *) die "ledger publish $ID: unknown source kind '$(jq -r .source.kind <<<"$E")'" ;;
     esac
@@ -370,7 +373,7 @@ case "$SUB" in
     REPO=$(cfgp '.name // empty'); [ -n "$REPO" ] || REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
     jq -rs --argjson k "$K2P" --argjson ps "$PS" --arg repo "$REPO" --argjson h "$H" "
       map(select(.blocked_on != null and (.blocked_on.kind | startswith(\"human:\"))
-                 and (((now - (.blocked_on.since | fromdate)) / 3600) >= \$h)
+                 and ((((.blocked_on.since // \"\") | try fromdate catch null) as \$t | \$t != null and ((now - \$t) / 3600) >= \$h))
                  and ((.escalated.since // \"\") != .blocked_on.since))) | $ID_SORT | .[]
       | (\$k[.blocked_on.kind] // \"orchestrator\") as \$p
       | (if .blocked_on.kind == \"human:merge\" then (.pr.url // \"-\")
@@ -378,7 +381,7 @@ case "$SUB" in
          elif .blocked_on.kind == \"human:intake\" then (.source.ref // \"-\")
          else \"-\" end) as \$path
       | (\"ledger \(.id) blocked_on \(.blocked_on.kind) \(\$path)\") as \$msg
-      | \"\(\$ps[\$p] // \"\(\$repo)-\(\$p)\")\t\(if (\$msg | length) > 200 then \$msg[0:190] + \" …(cut)\" else \$msg end)\"" "${FILES[@]}" \
+      | \"\(\$ps[\$p] | if type == \"string\" then . else null end // \"\(\$repo)-\(\$p)\")\t\(if (\$msg | length) > 200 then \$msg[0:190] + \" …(cut)\" else \$msg end)\"" "${FILES[@]}" \
       || die "ledger escalate: an entry in $DIR is not valid JSON — repair or remove it" ;;
 
   list)

@@ -111,7 +111,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
 
 7. **Publish and escalate — on every exit path after pre-flight** (the stops above come here, and so
    does a normal pass), then the brief (step 8). Both are opt-in; with neither configured, skip this
-   step and say nothing about it.
+   step and say nothing about it. With `--dry-run` in **$ARGUMENTS**, run neither: print the publish
+   command and the `escalate` lines you would act on, and send nothing — a dry run changes nothing.
    - **Publish** — when `orchestrate.publish` is `true` in `.claude/project-status.json` and this pass
      touched an id (dispatched it, blocked it, or launched it), run with the Bash tool:
      `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh publish <id>`. It writes the state marker on the board item
