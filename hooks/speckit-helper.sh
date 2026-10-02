@@ -71,6 +71,50 @@ pr_base() {
   echo ""   # root commit: the caller diffs against the commit itself
 }
 
+# --- dependency parsers (feature dependency-audit FR-001): manifest text on stdin → name<TAB>spec ---
+# Manifests, not lockfiles: the review item is the DIRECT dependency a person or an agent chose
+# (llm-security.md — 5–22 % of LLM-suggested package names do not exist and are squattable).
+npm_deps() { jq -r '[.dependencies, .devDependencies, .optionalDependencies, .peerDependencies] | map(. // {}) | add | to_entries[] | "\(.key)\t\(.value)"' 2>/dev/null; }
+# requirements files: every non-option, non-comment line ("-r base.txt", "--hash" are options, not names)
+py_req_deps() { sed -E 's/[[:space:]]*#.*//; s/^[[:space:]]+//; s/[[:space:]]+$//' | awk 'NF && !/^-/' | sed -E 's/^([A-Za-z0-9_.-]+)(\[[^]]*\])?[[:space:]]*(.*)$/\1\t\3/'; }
+# pyproject.toml: ONLY the [project] table's dependencies array — every other table is not a dependency list
+# The array ends at a `]` OUTSIDE quotes (an extras bracket like "rich[jupyter]" is inside one), and
+# items are the quoted strings themselves (extras may contain commas: "rich[a,b]").
+py_toml_deps() {
+  awk -v q="'" '
+    /^\[/ { p = ($0 == "[project]"); a = 0; next }
+    p && /^dependencies[[:space:]]*=/ { a = 1; sub(/^[^=]*=[[:space:]]*/, "") }
+    a {
+      line = $0; bare = line; gsub("\"[^\"]*\"|" q "[^" q "]*" q, "", bare)
+      while (match(line, "\"[^\"]*\"|" q "[^" q "]*" q)) { print substr(line, RSTART + 1, RLENGTH - 2); line = substr(line, RSTART + RLENGTH) }
+      if (bare ~ /\]/) a = 0
+    }' | sed -E 's/^[[:space:]]+//; s/^([A-Za-z0-9_.-]+)(\[[^]]*\])?[[:space:]]*(.*)$/\1\t\3/'
+}
+cargo_deps() { awk '/^\[/{s = ($0 ~ /^\[(dev-|build-)?dependencies\]$/); next} s && /=/{n = $1; sub(/^[^=]*=[[:space:]]*/, ""); print n "\t" $0}'; }
+# go.mod: require entries, block and single-line; `// indirect` lines are tidy's, not a person's choice
+go_deps() { awk '/^require[[:space:]]*\(/{b = 1; next} b && /^\)/{b = 0} b && NF >= 2 && !/\/\/ indirect/{print $1 "\t" $2} /^require[[:space:]]+[^(]/ && !/\/\/ indirect/{print $2 "\t" $3}'; }
+deps_parser() { # basename → "<ecosystem> <function>", or nothing
+  case "$1" in
+    package.json) echo "npm npm_deps" ;; requirements*.txt) echo "pypi py_req_deps" ;; pyproject.toml) echo "pypi py_toml_deps" ;;
+    Cargo.toml) echo "crates cargo_deps" ;; go.mod) echo "go go_deps" ;;
+  esac
+}
+DEPS_MANIFEST_RE='(^|/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Cargo\.toml|go\.mod)$'
+# One auditor run (FR-002): the count is a number ONLY when the exit is in the tool's valid set AND the
+# expression yields a number — an ENOLOCK error document or a no-lockfile exit is never "clean".
+run_auditor() { # $1 tool label, $2 valid exits ("0 1"), $3 jq count expr, $4 jq slurp (0|1), $@:5 command
+  local tool="$1" valid="$2" expr="$3" slurp="$4" out rc n=unknown; shift 4
+  out="$DEPS_DIR/$tool.json"
+  "$@" > "$out" 2>"$out.err"; rc=$?
+  if [[ " $valid " == *" $rc "* ]]; then
+    if [ "$slurp" = 1 ]; then n=$(jq -es "$expr | numbers" "$out" 2>/dev/null) || n=unknown
+    else n=$(jq -e "$expr | numbers" "$out" 2>/dev/null) || n=unknown; fi
+  fi
+  echo "$tool exit $rc findings $n report $out"
+  AUDIT_RAN=1
+  if [ "$n" = unknown ] || [ "$n" -gt 0 ]; then AUDIT_FOUND=1; fi
+}
+
 case "$1" in
   # --- Branch & git ---
   branch)
@@ -502,6 +546,64 @@ case "$1" in
     echo "cited_from_disagreements=$(comm -12 <(printf '%s\n' "$cited") <(printf '%s\n' "$dis") | grep -c .)"
     ;;
 
+  # --- dependencies (feature dependency-audit FR-001, FR-002) ------------------------------------------
+  deps-diff)
+    shift; staged=0; base=""
+    for a in "$@"; do case "$a" in --staged) staged=1 ;; -*) die "deps-diff: unknown option '$a' (expected --staged or a base ref)" ;; *) base="$a" ;; esac; done
+    git rev-parse --git-dir >/dev/null 2>&1 || die "deps-diff: not a git repository ($PWD)"
+    if [ "$staged" = 1 ]; then
+      old="HEAD"; git rev-parse --verify -q HEAD >/dev/null 2>&1 || old=""
+      files=$(git diff --cached --name-only 2>/dev/null)
+    else
+      if [ -z "$base" ]; then
+        for b in main master; do git rev-parse --verify -q "$b" >/dev/null 2>&1 && { base=$(git merge-base HEAD "$b" 2>/dev/null); break; }; done
+        [ -n "$base" ] || base=$(pr_base)
+      fi
+      [ -n "$base" ] || die "deps-diff: no base to compare with (no main/master, no upstream, no parent) — pass one: deps-diff <ref>"
+      git rev-parse --verify -q "$base^{commit}" >/dev/null 2>&1 || die "deps-diff: base '$base' does not resolve to a commit"
+      old="$base"; files=$(git diff --name-only "$base" 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null)
+    fi
+    grep -E "$DEPS_MANIFEST_RE" <<<"$files" | sort | uniq | while IFS= read -r f; do
+      read -r eco fn <<<"$(deps_parser "$(basename "$f")")"; [ -n "${fn:-}" ] || continue
+      o=$( [ -n "$old" ] && git show "$old:$f" 2>/dev/null | "$fn" | sort )
+      if [ "$staged" = 1 ]; then n=$(git show ":$f" 2>/dev/null | "$fn" | sort); else n=$( [ -f "$f" ] && "$fn" < "$f" | sort ); fi
+      # NF on both sides: an absent side is an empty list, never one empty record (a phantom "removed").
+      awk -F'\t' -v e="$eco" 'NR == FNR { if (NF) o[$1] = $2; next } NF { if (!($1 in o)) print "added " e " " $1 " " $2; else if (o[$1] != $2) print "changed " e " " $1 " " o[$1] " -> " $2; delete o[$1] } END { for (k in o) print "removed " e " " k " " o[k] }' \
+        <(printf '%s\n' "$o") <(printf '%s\n' "$n")
+    done | sort
+    ;;
+  deps-audit)
+    git rev-parse --git-dir >/dev/null 2>&1 || die "deps-audit: not a git repository ($PWD)"
+    DEPS_DIR="${HEFESTO_DEPS_DIR:-$(git rev-parse --path-format=absolute --git-common-dir)/hefesto/deps}"
+    mkdir -p "$DEPS_DIR" || die "deps-audit: cannot create $DEPS_DIR"
+    AUDIT_RAN=0; AUDIT_FOUND=0; MISSING=0
+    have() { command -v "$1" >/dev/null 2>&1; }
+    miss() { echo "missing $1: $2 ($3)"; MISSING=1; }
+    if [ -f package.json ]; then
+      if have npm; then run_auditor npm-audit "0 1" '.metadata.vulnerabilities.total' 0 npm audit --json
+      else miss npm npm "install Node.js"; fi
+    fi
+    reqs=$(ls requirements*.txt 2>/dev/null)
+    if [ -n "$reqs" ] || [ -f pyproject.toml ]; then
+      if have pip-audit; then
+        if [ -n "$reqs" ]; then for r in $reqs; do run_auditor "pip-audit-${r%.txt}" "0 1" '[.dependencies[].vulns | length] | add // 0' 0 pip-audit -f json -r "$r"; done
+        else run_auditor pip-audit "0 1" '[.dependencies[].vulns | length] | add // 0' 0 pip-audit -f json .; fi
+      else miss pypi pip-audit "pipx install pip-audit"; fi
+    fi
+    if [ -f Cargo.toml ]; then
+      if have cargo-audit; then run_auditor cargo-audit "0 1" '.vulnerabilities.count' 0 cargo-audit audit --json
+      else miss crates cargo-audit "cargo install cargo-audit"; fi
+    fi
+    if [ -f go.mod ]; then
+      # govulncheck -json is a STREAM of objects; exit 0 whether or not it finds — count distinct advisories.
+      if have govulncheck; then run_auditor govulncheck "0" '[.[] | select(.finding) | .finding.osv] | unique | length' 1 govulncheck -json ./...
+      else miss go govulncheck "go install golang.org/x/vuln/cmd/govulncheck@latest"; fi
+    fi
+    if have osv-scanner; then run_auditor osv-scanner "0 1" '[.results[].packages[].vulnerabilities[]] | length' 0 osv-scanner --format json -r .; fi
+    [ "$AUDIT_RAN" = 1 ] || { [ "$MISSING" = 1 ] || echo "no manifest with a known auditor here"; exit 3; }
+    [ "$AUDIT_FOUND" = 0 ] || exit 1
+    ;;
+
   rtk-available)
     # PREDICATE. The answer is BOTH the string and the exit code.
     #
@@ -550,7 +652,8 @@ case "$1" in
     echo "  plan-phase-start, plan-phase-end, plan-phase-status,"
     echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage [<spec>|--all],"
     echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>, doctor-copies,"
-    echo "  arena-cite-check <digest-file>, arena-metrics [<spec-dir>], rtk-available, rtk-run"
+    echo "  arena-cite-check <digest-file>, arena-metrics [<spec-dir>], deps-diff [--staged] [<base>], deps-audit,"
+    echo "  rtk-available, rtk-run"
     exit 1
     ;;
 esac

@@ -62,6 +62,23 @@ fi
 # bug on any machine without the linter.
 STAGED=$(git -C "$CWD" diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
 
+# --- Advisory: a staged change that ADDS a dependency (feature dependency-audit FR-004) ---------
+# Never a block: an audit needs the network and seconds, and this tier is <5 s and offline. The
+# advisory reaches the model through PreToolUse `additionalContext` (JSON on stdout at exit 0), which
+# is emitted only on the success path below. This is the first hook that RUNS the helper rather than
+# naming it: `$(dirname "$0")` is the hooks dir both under ${CLAUDE_PLUGIN_ROOT} and under the smoke
+# suite's `bash "$QBC"`. A failing deps-diff emits nothing.
+ADVISORY=""
+if grep -qE '(^|/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Cargo\.toml|go\.mod)$' <<<"$STAGED"; then
+  DEPS_ADDED=$( (cd "$CWD" && bash "$(dirname "$0")/speckit-helper.sh" deps-diff --staged) 2>/dev/null | grep '^added ' || true)
+  if [ -n "$DEPS_ADDED" ]; then
+    DEPS_N=$(grep -c . <<<"$DEPS_ADDED")
+    DEPS_LIST=$(awk '{print $2 " " $3}' <<<"$DEPS_ADDED" | paste -sd, - | sed 's/,/, /g')
+    if [ "$DEPS_N" -eq 1 ]; then DEPS_WORD="dependency"; else DEPS_WORD="dependencies"; fi
+    ADVISORY="$DEPS_N new $DEPS_WORD staged ($DEPS_LIST) — verify each exists on its registry and is the intended package, then run /hef.scan --deps before the PR"
+  fi
+fi
+
 # Shell: bash -n always; shellcheck when present.
 SH_FILES=$(echo "$STAGED" | grep -E '\.(sh|bash)$' || true)
 if [ -n "$SH_FILES" ]; then
@@ -245,4 +262,7 @@ if [ -n "$ERRORS" ]; then
   exit 2
 fi
 
+if [ -n "$ADVISORY" ]; then
+  jq -nc --arg c "$ADVISORY" '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: $c}}'
+fi
 exit 0

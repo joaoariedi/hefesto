@@ -149,6 +149,30 @@ explicit opt-in.
 - Ask user for specific quality commands if unclear
 - Adapt patterns to match existing project structure
 
+## Dependency Audit
+
+Two helper arms make the supply-chain rule mechanical (board item HEF-9); `/hef.scan --deps` runs both.
+
+- **`speckit-helper.sh deps-diff [--staged] [<base>]`** — the DIRECT dependencies a change adds,
+  re-versions or removes, read lexically from the manifests (zero-install, offline): `package.json`
+  (dependencies, dev, optional, peer), `requirements*.txt` (option lines skipped), `pyproject.toml`
+  (`[project] dependencies` only), `Cargo.toml` (`[dependencies]`, `[dev-dependencies]`,
+  `[build-dependencies]`), `go.mod` (`require`, `// indirect` skipped). Tier 1: the pre-commit hook runs
+  it on staged manifests and adds an advisory line — never a block.
+- **`speckit-helper.sh deps-audit`** — the installed auditors for the manifests present, each report
+  saved under `<git-common-dir>/hefesto/deps/`. Tier 2 (network, minutes):
+
+| Ecosystem | Auditor | Detected as | Install hint | Count read from |
+|---|---|---|---|---|
+| npm | `npm audit --json` | `npm` | Node.js | `.metadata.vulnerabilities.total` |
+| pypi | `pip-audit -f json -r <file>` / `pip-audit -f json .` | `pip-audit` | `pipx install pip-audit` | vulns across dependencies |
+| crates | `cargo-audit audit --json` | `cargo-audit` (cargo alone is not enough) | `cargo install cargo-audit` | `.vulnerabilities.count` |
+| go | `govulncheck -json ./...` | `govulncheck` | `go install golang.org/x/vuln/cmd/govulncheck@latest` | distinct advisories among findings (a stream) |
+| any | `osv-scanner --format json -r .` | `osv-scanner` | osv.dev | vulnerabilities across results (reads lockfiles) |
+
+A count is a number only when the auditor's exit is in its valid set and the JSON yields a number; an
+error document (npm ENOLOCK), a missing lockfile or a build failure reads `unknown` — never clean.
+
 ## Tiered Validation Strategy
 
 ### Tier 1: Pre-commit (<5 seconds)

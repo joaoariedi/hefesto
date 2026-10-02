@@ -23,13 +23,6 @@ the release queue (`run --role implement --exit 0 --usd 0`, `record --pr … --b
 `advance pr`, `block --kind human:merge`). Add `ledger.sh handoff <id> --pr <url>` that does exactly
 those four, reading the branch from the current checkout, with the same guards and a smoke fixture.
 
-## HEF-9 — dependency audit in /hef.scan
-
-Report 18 #5 (the deck's Builder role). Detect `osv-scanner`, `npm audit`, `pip-audit`,
-`cargo audit`, `govulncheck`; list dependencies new in the diff and known vulnerabilities as a
-`--deps` section; advisory line in `quality-before-commit.sh`. Detection lives in the
-`quality-tooling` skill; nothing is installed.
-
 ## HEF-10 — board item kinds with kind-specific verifier gates
 
 Report 18 #6 (deck slides 32–33). A heading marker the board already parses (🐞 incident,
