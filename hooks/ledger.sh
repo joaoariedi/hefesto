@@ -35,11 +35,31 @@ usage: ledger.sh <subcommand> …
   record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f]   (--body-file re-hashes the item)
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
+  handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
+  publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish)
+  escalate [--record <id>]                              old human:* blocks as one-line pointers (opt-in: orchestrate.escalate_after_hours)
 EOF
   exit 2
 }
 
 command -v jq >/dev/null 2>&1 || die "ledger: jq not found — install jq: https://jqlang.org"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# The kind → pane map (stage-roles FR-010) — byte-identical to session-start-context.sh's copy; the smoke
+# suite compares the two strings (ledger-surfaces FR-005). Config `orchestrate.panes` wins per pane.
+PANES_DEFAULT='{"orchestrator":["human:intake"],"plan":["human:clarify","human:plan-review"],"build":["verdict","stall","budget","conflict"],"deploy":["ci","human:merge"]}'
+# The publish state markers (ledger-surfaces FR-003) — byte-identical to status-board.sh's copy, which
+# `--mark` uses to know which leading heading tokens are ITS markers (replace, never stack).
+PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build":"🔨","pr":"🔀","done":"✅"}'
+
+project_config() { # the board config the launcher and the board read: <toplevel>/.claude/project-status.json
+  local top; top=$(git rev-parse --show-toplevel 2>/dev/null) || top="$PWD"
+  [ -f "$top/.claude/project-status.json" ] && echo "$top/.claude/project-status.json"
+}
+cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
+  local c; c=$(project_config) || return 0
+  jq -r "$@" "$c" 2>/dev/null
+}
 
 # Sort ids by prefix then NUMERIC suffix: lexical order would dispatch HEF-10 before HEF-9 (review 2026-09-27).
 ID_SORT='sort_by(.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])'
@@ -262,6 +282,107 @@ case "$SUB" in
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 
   show) ID="${1:-}"; [ -n "$ID" ] || usage; entry "$ID" ;;
+
+  # --- ledger-surfaces (HEF-6, HEF-4, HEF-5) -------------------------------------------------------
+  # handoff: the four calls a person makes for a hand-run item, through the same arms (their guards
+  # apply). The temporary owner `hand` gives the run a session name, so the review guard (verdict --by ≠
+  # an implement session) has something to compare. A blocked entry is refused: a handoff must never
+  # clear a human:intake or stall block that only a person at a TTY may clear.
+  handoff)
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; PR=""; BR=""
+    while [ $# -gt 0 ]; do case "$1" in --pr) PR="${2:-}"; shift ;; --branch) BR="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    [[ "$PR" =~ /pull/[0-9]+$ ]] || die "ledger handoff $ID: --pr must be a pull-request URL ending in /pull/<n> (got '$PR')"
+    E=$(entry "$ID") || exit 1
+    OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
+    [ -z "$OWNER" ] || die "ledger handoff $ID: owned by $OWNER — a session holds it; wait for its run to finish"
+    K=$(jq -r '.blocked_on.kind // empty' <<<"$E")
+    [ -z "$K" ] || die "ledger handoff $ID: blocked on $K — clear it with the command it names first (a handoff never clears a block)"
+    CI=$(phase_index "$(jq -r .phase <<<"$E")") || exit 1; PI=$(phase_index pr) || exit 1
+    [ "$CI" -le "$PI" ] || die "ledger handoff $ID: phase $(jq -r .phase <<<"$E") is already past pr"
+    [ -n "$BR" ] || BR=$(git branch --show-current 2>/dev/null)
+    case "$BR" in ""|main|master) die "ledger handoff $ID: the branch is '${BR:-<detached>}' — hand off from the feature branch (or pass --branch)" ;; esac
+    jq '.owner = {session_name: "hand", role: "implement", pid: null, started: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
+    # A failure after the owner write must not strand the entry under a session that does not exist.
+    unhand() { local e; e=$(entry "$ID") && jq 'if .owner.session_name == "hand" then .owner = null else . end' <<<"$e" | write_entry "$ID"; die "ledger handoff $ID: $1 failed — the entry is released; fix the cause and run handoff again"; }
+    bash "$0" run "$ID" --role implement --exit 0 --usd 0 >/dev/null || unhand run
+    bash "$0" record "$ID" --pr "$PR" --branch "$BR" --worktree "$PWD" >/dev/null || unhand record
+    if [ "$CI" -lt "$PI" ]; then bash "$0" advance "$ID" pr >/dev/null || unhand advance; fi
+    bash "$0" block "$ID" --kind human:merge >/dev/null || unhand block
+    entry "$ID" ;;
+
+  # publish: the board shows where an item is. tasks-repo: verify the item's hash BEFORE writing (a
+  # person's edit is still "changed since claim"), write the state marker through status-board.sh --mark
+  # (the board's one write path), re-hash after (publish's own marker is not an edit). github-project:
+  # one issue comment. Nothing is written when the state did not change.
+  publish)
+    ID="${1:-}"; [ -n "$ID" ] || usage
+    [ "$(cfgp '.orchestrate.publish // false')" = true ] || die "ledger publish $ID: publish is off — set orchestrate.publish to true in .claude/project-status.json"
+    E=$(entry "$ID") || exit 1
+    MAP=$(jq -c --argjson d "$PUBLISH_MARKERS_DEFAULT" '$d + ((.orchestrate.publish_markers // {}) | if type == "object" then . else {} end)' "$(project_config)") || die "ledger publish: cannot read the publish markers"
+    M=$(jq -r --argjson m "$MAP" '
+      if .blocked_on != null then (if (.blocked_on.kind | startswith("human:")) then $m.human_block else $m.block end)
+      else ({queued: null, intake: "plan", spec: "plan", plan: "plan", "plan-review": "plan", tasks: "plan",
+             implement: "build", verify: "build", quality: "build", security: "build", pr: "pr", merged: "done", released: "done"}[.phase]) as $k
+           | if $k == null then null else $m[$k] end end // empty' <<<"$E")
+    PREV=$(jq -r 'if has("published") then (.published.state // "-") else "unset" end' <<<"$E")
+    if [ "$PREV" = "${M:--}" ]; then echo "$ID publish: unchanged (${M:-no marker})"; exit 0; fi
+    case "$(jq -r .source.kind <<<"$E")" in
+      tasks-repo)
+        SB="$HERE/status-board.sh"; T=$(mktemp) || die "ledger publish: mktemp failed"
+        bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: the board has no item $ID"; }
+        STORED=$(jq -r '.source.body_sha256 // empty' <<<"$E"); NOW=$(sha256sum < "$T" | cut -c1-64)
+        if [ -n "$STORED" ] && [ "$NOW" != "$STORED" ]; then rm -f "$T"; die "ledger publish $ID: item text changed since claim (board sha256 ${NOW:0:12}…, ledger ${STORED:0:12}…) — a person re-reads it and re-hashes with ledger.sh record $ID --body-file <raw>; the board is untouched"; fi
+        PREVM=$(jq -r '.published.state // empty' <<<"$E")
+        MARKED=$(bash "$SB" --mark "$ID" "${M:--}" ${PREVM:+--was "$PREVM"}) || { rm -f "$T"; exit 1; }
+        bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: cannot re-read the item after marking"; }
+        "$0" record "$ID" --body-file "$T" >/dev/null || { rm -f "$T"; exit 1; }
+        rm -f "$T"; WHERE="the board"; case "$MARKED" in *"not marked"*) WHERE="not marked — the item is in DONE" ;; esac ;;
+      github-project)
+        URL=$(jq -r '.source.url // empty' <<<"$E")
+        [ -n "$URL" ] || die "ledger publish $ID: a github-project entry needs source.url (ledger.sh init … --url <issue-url>)"
+        command -v gh >/dev/null 2>&1 || die "ledger publish $ID: gh not found — install GitHub CLI (https://cli.github.com)"
+        GHERR=$(gh issue comment "$URL" --body "ledger: $ID phase $(jq -r .phase <<<"$E") blocked_on $(jq -r '.blocked_on.kind // "none"' <<<"$E")" 2>&1 >/dev/null) \
+          || die "ledger publish $ID: gh issue comment $URL failed: $(tail -1 <<<"$GHERR")"
+        WHERE="$URL" ;;
+      *) die "ledger publish $ID: unknown source kind '$(jq -r .source.kind <<<"$E")'" ;;
+    esac
+    E=$(entry "$ID") || exit 1
+    jq --arg s "$M" '.published = {state: (if $s == "" then null else $s end), at: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
+    echo "$ID published ${M:-no marker} ($WHERE)" ;;
+
+  # escalate: report 17's single message type. Lists human:* blocks older than the threshold that were
+  # not yet escalated for THIS block, one `<session>\t<pointer>` line each; the command sends the
+  # pointer and then records it. Empty output at exit 0 is the answer "nothing to escalate".
+  escalate)
+    H=$(cfgp '.orchestrate.escalate_after_hours // empty')
+    [ -n "$H" ] || die "ledger escalate: escalation is off — set orchestrate.escalate_after_hours in .claude/project-status.json"
+    [[ "$H" =~ ^[0-9]+$ ]] || die "ledger escalate: orchestrate.escalate_after_hours must be a whole number of hours (got '$H')"
+    if [ "${1:-}" = --record ]; then
+      ID="${2:-}"; [ -n "$ID" ] || usage; E=$(entry "$ID") || exit 1
+      [ -n "$(jq -r '.blocked_on.since // empty' <<<"$E")" ] || die "ledger escalate --record $ID: not blocked — nothing to record"
+      jq '.escalated = {since: .blocked_on.since, at: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
+      echo "$ID escalation recorded"; exit 0
+    fi
+    [ $# -eq 0 ] || usage
+    shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
+    [ "${#FILES[@]}" -gt 0 ] || exit 0
+    CFG_PANES=$(cfgp -c '(.orchestrate.panes // {}) | if type == "object" then . else {} end'); [ -n "$CFG_PANES" ] || CFG_PANES='{}'
+    K2P=$(jq -nc --argjson d "$PANES_DEFAULT" --argjson c "$CFG_PANES" '[$d, $c] | map(to_entries[]) | map(.key as $p | .value[] | select(type == "string") | {key: ., value: $p}) | from_entries' 2>/dev/null)
+    [ -n "$K2P" ] || K2P=$(jq -nc --argjson d "$PANES_DEFAULT" '$d | to_entries | map(.key as $p | .value[] | {key: ., value: $p}) | from_entries')
+    PS=$(cfgp -c '(.orchestrate.pane_sessions // {}) | if type == "object" then . else {} end'); [ -n "$PS" ] || PS='{}'
+    REPO=$(cfgp '.name // empty'); [ -n "$REPO" ] || REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+    jq -rs --argjson k "$K2P" --argjson ps "$PS" --arg repo "$REPO" --argjson h "$H" "
+      map(select(.blocked_on != null and (.blocked_on.kind | startswith(\"human:\"))
+                 and ((((.blocked_on.since // \"\") | try fromdate catch null) as \$t | \$t != null and ((now - \$t) / 3600) >= \$h))
+                 and ((.escalated.since // \"\") != .blocked_on.since))) | $ID_SORT | .[]
+      | (\$k[.blocked_on.kind] // \"orchestrator\") as \$p
+      | (if .blocked_on.kind == \"human:merge\" then (.pr.url // \"-\")
+         elif .blocked_on.kind == \"human:clarify\" or .blocked_on.kind == \"human:plan-review\" then (.blocked_on.question_path // .spec_dir // \"-\")
+         elif .blocked_on.kind == \"human:intake\" then (.source.ref // \"-\")
+         else \"-\" end) as \$path
+      | (\"ledger \(.id) blocked_on \(.blocked_on.kind) \(\$path)\") as \$msg
+      | \"\(\$ps[\$p] | if type == \"string\" then . else null end // \"\(\$repo)-\(\$p)\")\t\(if (\$msg | length) > 200 then \$msg[0:190] + \" …(cut)\" else \$msg end)\"" "${FILES[@]}" \
+      || die "ledger escalate: an entry in $DIR is not valid JSON — repair or remove it" ;;
 
   list)
     PH=""; BLOCKED=0; ACTIVE=0; TODAY=0

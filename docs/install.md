@@ -287,6 +287,19 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    command makes it with the tool timeout raised to 600 000 ms. `orchestrate.panes` maps block
    kinds to your pane names; the session-start line then says whose block it is.
 
+9. **Hand-run items, the board and escalation** (all optional): a person who ran an item by hand runs
+   `hooks/ledger.sh handoff <id> --pr <url>` on its branch — one call instead of four. Set
+   `orchestrate.publish: true` and every orchestrator pass writes the item's state as the first token
+   of its board heading (⏸ waits on a person, ⛔ blocked otherwise, 📐 planning, 🔨 building, 🔀 PR, ✅
+   merged); add those glyphs to the board's `states` map so `/hef.status` labels them, and override
+   them with `orchestrate.publish_markers`. Set `orchestrate.escalate_after_hours: <n>` and a `human:*`
+   block older than `<n>` hours is sent once, as one line, to the session that owns it
+   (`orchestrate.pane_sessions.<pane>`, default `<repo>-<pane>`). That receiving pane must accept
+   cross-session messages (`crossSessionInbound: accept` in its settings, with `isolatePeerMachines:
+   true`), or every pointer fails and is retried next pass; no other pane needs inbound. Escalation is
+   opt-in because report 17 asked for it only once Phase 1 showed blocks waiting too long — no such
+   baseline has been measured yet.
+
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the
 `runs[]` on each entry.
