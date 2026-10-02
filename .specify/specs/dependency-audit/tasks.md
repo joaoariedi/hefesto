@@ -14,4 +14,4 @@
 
 ## Phase 3: Polish
 - [x] T007 [FR-006] Docs, counts (46), CHANGELOG, board
-- [ ] T008 Gates
+- [x] T008 Gates: quality (FAIL → parsers rewritten), review (REQUEST_CHANGES → fixed)

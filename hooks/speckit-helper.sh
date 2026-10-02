@@ -74,25 +74,62 @@ pr_base() {
 # --- dependency parsers (feature dependency-audit FR-001): manifest text on stdin → name<TAB>spec ---
 # Manifests, not lockfiles: the review item is the DIRECT dependency a person or an agent chose
 # (llm-security.md — 5–22 % of LLM-suggested package names do not exist and are squattable).
-npm_deps() { jq -r '[.dependencies, .devDependencies, .optionalDependencies, .peerDependencies] | map(. // {}) | add | to_entries[] | "\(.key)\t\(.value)"' 2>/dev/null; }
-# requirements files: every non-option, non-comment line ("-r base.txt", "--hash" are options, not names)
-py_req_deps() { sed -E 's/[[:space:]]*#.*//; s/^[[:space:]]+//; s/[[:space:]]+$//' | awk 'NF && !/^-/' | sed -E 's/^([A-Za-z0-9_.-]+)(\[[^]]*\])?[[:space:]]*(.*)$/\1\t\3/'; }
-# pyproject.toml: ONLY the [project] table's dependencies array — every other table is not a dependency list
-# The array ends at a `]` OUTSIDE quotes (an extras bracket like "rich[jupyter]" is inside one), and
-# items are the quoted strings themselves (extras may contain commas: "rich[a,b]").
+# A package.json that does not parse dies — an empty list would read as "every dependency removed".
+npm_deps() {
+  local doc; doc=$(cat)
+  [ -n "$doc" ] || return 0
+  jq -e 'type == "object"' >/dev/null 2>&1 <<<"$doc" || { echo "deps-diff: a package.json is not a JSON object — fix it before diffing" >&2; return 1; }
+  jq -r '[.dependencies, .devDependencies, .optionalDependencies, .peerDependencies] | map(. // {}) | add | to_entries[] | "\(.key)\t\(.value)"' <<<"$doc"
+}
+# requirements files: every non-option, non-comment line ("-r base.txt", "--hash" are options, not names).
+# A URL or VCS requirement is named by its #egg= (else the URL itself); a local path by the path.
+py_req_deps() {
+  sed -E 's/[[:space:]]+#.*//; s/^#.*//; s/^[[:space:]]+//; s/[[:space:]]+$//' | awk 'NF && !/^-/' | awk '
+    /^[a-z][a-z0-9+.-]*:\/\// || /^(git|hg|svn|bzr)\+/ { n = $0; if (match($0, /#egg=[A-Za-z0-9_.-]+/)) n = substr($0, RSTART + 5, RLENGTH - 5); print n "\t" $0; next }
+    /^[.\/~]/ { print $0 "\t" $0; next }
+    { print }' | sed -E '/\t/!s/^([A-Za-z0-9_.-]+)(\[[^]]*\])?[[:space:]]*(.*)$/\1\t\3/'
+}
+# Strip a # comment that sits OUTSIDE quotes (awk; q = the single-quote character).
+TOML_UNCOMMENT='function uncomment(l,   s, inq, i, c) { s = ""; inq = ""; for (i = 1; i <= length(l); i++) { c = substr(l, i, 1); if (inq == "" && c == "#") break; if (inq == "" && (c == "\"" || c == q)) inq = c; else if (c == inq) inq = ""; s = s c }; return s }
+function header(l,   h) { h = uncomment(l); sub(/[[:space:]]+$/, "", h); return h }'
+# pyproject.toml: ONLY the [project] table's dependencies array — every other table is not a dependency
+# list. The array ends at a `]` OUTSIDE quotes and outside a comment (an extras bracket like
+# "rich[jupyter]" is inside quotes); items are the quoted strings themselves (extras may hold commas).
 py_toml_deps() {
-  awk -v q="'" '
-    /^\[/ { p = ($0 == "[project]"); a = 0; next }
+  awk -v q="'" "$TOML_UNCOMMENT"'
+    /^[[:space:]]*\[/ { p = (header($0) == "[project]"); a = 0; next }
     p && /^dependencies[[:space:]]*=/ { a = 1; sub(/^[^=]*=[[:space:]]*/, "") }
     a {
-      line = $0; bare = line; gsub("\"[^\"]*\"|" q "[^" q "]*" q, "", bare)
+      line = uncomment($0); bare = line; gsub("\"[^\"]*\"|" q "[^" q "]*" q, "", bare)
       while (match(line, "\"[^\"]*\"|" q "[^" q "]*" q)) { print substr(line, RSTART + 1, RLENGTH - 2); line = substr(line, RSTART + RLENGTH) }
       if (bare ~ /\]/) a = 0
     }' | sed -E 's/^[[:space:]]+//; s/^([A-Za-z0-9_.-]+)(\[[^]]*\])?[[:space:]]*(.*)$/\1\t\3/'
 }
-cargo_deps() { awk '/^\[/{s = ($0 ~ /^\[(dev-|build-)?dependencies\]$/); next} s && /=/{n = $1; sub(/^[^=]*=[[:space:]]*/, ""); print n "\t" $0}'; }
-# go.mod: require entries, block and single-line; `// indirect` lines are tidy's, not a person's choice
-go_deps() { awk '/^require[[:space:]]*\(/{b = 1; next} b && /^\)/{b = 0} b && NF >= 2 && !/\/\/ indirect/{print $1 "\t" $2} /^require[[:space:]]+[^(]/ && !/\/\/ indirect/{print $2 "\t" $3}'; }
+# Cargo.toml: [dependencies], [dev-dependencies], [build-dependencies], their [target.<cfg>.…] and
+# [workspace.dependencies] forms (a table of name = spec), and the [<section>.<name>] sub-table form (one
+# dependency, spec = its version). `name="1"` needs no spaces; a multi-line inline table is joined.
+cargo_deps() {
+  awk -v q="'" "$TOML_UNCOMMENT"'
+    function flush() { if (sub_name != "") { print sub_name "\t" (sub_ver != "" ? sub_ver : "{table}"); sub_name = ""; sub_ver = "" } }
+    function key(k) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", k); gsub(/^["\x27]|["\x27]$/, "", k); return k }
+    /^[[:space:]]*\[/ {
+      flush(); h = header($0); s = 0
+      if (h ~ /^\[(target\.[^]]+\.|workspace\.)?(dev-|build-)?dependencies\]$/) s = 1
+      else if (h ~ /^\[(target\.[^]]+\.)?(dev-|build-)?dependencies\.[^]]+\]$/) { n = h; sub(/^.*dependencies\./, "", n); sub(/\]$/, "", n); sub_name = key(n) }
+      next }
+    sub_name != "" { l = uncomment($0); if (l ~ /^[[:space:]]*version[[:space:]]*=/) { v = l; sub(/^[^=]*=[[:space:]]*/, "", v); gsub(/[[:space:]]+$/, "", v); sub_ver = v }; next }
+    s {
+      l = uncomment($0); if (l !~ /=/ && cont == "") next
+      if (cont != "") { cont = cont " " l; if (l ~ /}/) { print cname "\t" cont; cont = "" }; next }
+      eq = index(l, "="); n = key(substr(l, 1, eq - 1)); v = substr(l, eq + 1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+      if (n == "") next
+      if (v ~ /^\{/ && v !~ /}/) { cname = n; cont = v; next }
+      print n "\t" v }
+    END { flush() }'
+}
+# go.mod: require entries, block and single-line; `// indirect` lines are tidy's, not a person's choice;
+# a comment line inside a block is not a dependency.
+go_deps() { awk '/^require[[:space:]]*\(/{b = 1; next} b && /^\)/{b = 0} b && NF >= 2 && !/\/\/ indirect/ && !/^[[:space:]]*\/\//{print $1 "\t" $2} /^require[[:space:]]+[^(]/ && !/\/\/ indirect/{print $2 "\t" $3}'; }
 deps_parser() { # basename → "<ecosystem> <function>", or nothing
   case "$1" in
     package.json) echo "npm npm_deps" ;; requirements*.txt) echo "pypi py_req_deps" ;; pyproject.toml) echo "pypi py_toml_deps" ;;
@@ -107,8 +144,10 @@ run_auditor() { # $1 tool label, $2 valid exits ("0 1"), $3 jq count expr, $4 jq
   out="$DEPS_DIR/$tool.json"
   "$@" > "$out" 2>"$out.err"; rc=$?
   if [[ " $valid " == *" $rc "* ]]; then
-    if [ "$slurp" = 1 ]; then n=$(jq -es "$expr | numbers" "$out" 2>/dev/null) || n=unknown
-    else n=$(jq -e "$expr | numbers" "$out" 2>/dev/null) || n=unknown; fi
+    # an integer or nothing: a float, a string or null is not a count
+    if [ "$slurp" = 1 ]; then n=$(jq -es "$expr | numbers | select(. == floor and . >= 0)" "$out" 2>/dev/null) || n=unknown
+    else n=$(jq -e "$expr | numbers | select(. == floor and . >= 0)" "$out" 2>/dev/null) || n=unknown; fi
+    [[ "$n" =~ ^[0-9]+$ ]] || n=unknown
   fi
   echo "$tool exit $rc findings $n report $out"
   AUDIT_RAN=1
@@ -551,9 +590,12 @@ case "$1" in
     shift; staged=0; base=""
     for a in "$@"; do case "$a" in --staged) staged=1 ;; -*) die "deps-diff: unknown option '$a' (expected --staged or a base ref)" ;; *) base="$a" ;; esac; done
     git rev-parse --git-dir >/dev/null 2>&1 || die "deps-diff: not a git repository ($PWD)"
+    # git prints root-relative paths: read every manifest from the toplevel, or a subdirectory run reads
+    # the wrong file (code review 2026-10-02).
+    cd "$(git rev-parse --show-toplevel)" || die "deps-diff: cannot enter the repository toplevel"
     if [ "$staged" = 1 ]; then
       old="HEAD"; git rev-parse --verify -q HEAD >/dev/null 2>&1 || old=""
-      files=$(git diff --cached --name-only 2>/dev/null)
+      files=$(git diff --cached --name-only --no-renames 2>/dev/null)
     else
       if [ -z "$base" ]; then
         for b in main master; do git rev-parse --verify -q "$b" >/dev/null 2>&1 && { base=$(git merge-base HEAD "$b" 2>/dev/null); break; }; done
@@ -561,19 +603,28 @@ case "$1" in
       fi
       [ -n "$base" ] || die "deps-diff: no base to compare with (no main/master, no upstream, no parent) — pass one: deps-diff <ref>"
       git rev-parse --verify -q "$base^{commit}" >/dev/null 2>&1 || die "deps-diff: base '$base' does not resolve to a commit"
-      old="$base"; files=$(git diff --name-only "$base" 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null)
+      old="$base"; files=$(git diff --name-only --no-renames "$base" 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null)
     fi
-    grep -E "$DEPS_MANIFEST_RE" <<<"$files" | sort | uniq | while IFS= read -r f; do
+    # The loop is not a pipeline stage: a parser that fails (an invalid package.json) must fail the arm,
+    # never yield an empty side that reads as "every dependency removed".
+    DEPS_OUT=$(while IFS= read -r f; do
       read -r eco fn <<<"$(deps_parser "$(basename "$f")")"; [ -n "${fn:-}" ] || continue
-      o=$( [ -n "$old" ] && git show "$old:$f" 2>/dev/null | "$fn" | sort )
-      if [ "$staged" = 1 ]; then n=$(git show ":$f" 2>/dev/null | "$fn" | sort); else n=$( [ -f "$f" ] && "$fn" < "$f" | sort ); fi
+      o=""; n=""
+      if [ -n "$old" ] && git cat-file -e "$old:$f" 2>/dev/null; then o=$(git show "$old:$f" | tr -d '\r' | "$fn") || exit 1; fi
+      if [ "$staged" = 1 ]; then
+        if git cat-file -e ":$f" 2>/dev/null; then n=$(git show ":$f" | tr -d '\r' | "$fn") || exit 1; fi
+      elif [ -f "$f" ]; then n=$(tr -d '\r' < "$f" | "$fn") || exit 1; fi
       # NF on both sides: an absent side is an empty list, never one empty record (a phantom "removed").
       awk -F'\t' -v e="$eco" 'NR == FNR { if (NF) o[$1] = $2; next } NF { if (!($1 in o)) print "added " e " " $1 " " $2; else if (o[$1] != $2) print "changed " e " " $1 " " o[$1] " -> " $2; delete o[$1] } END { for (k in o) print "removed " e " " k " " o[k] }' \
         <(printf '%s\n' "$o") <(printf '%s\n' "$n")
-    done | sort
+    done < <(grep -E "$DEPS_MANIFEST_RE" <<<"$files" | sort | uniq)) || die "deps-diff: a manifest could not be parsed (see above) — nothing reported"
+    [ -z "$DEPS_OUT" ] || sort <<<"$DEPS_OUT"
     ;;
   deps-audit)
     git rev-parse --git-dir >/dev/null 2>&1 || die "deps-audit: not a git repository ($PWD)"
+    # The auditors read the ROOT's manifests (a nested package is listed by deps-diff and audited only by
+    # osv-scanner, which walks the tree) — run from the toplevel whatever the cwd.
+    cd "$(git rev-parse --show-toplevel)" || die "deps-audit: cannot enter the repository toplevel"
     DEPS_DIR="${HEFESTO_DEPS_DIR:-$(git rev-parse --path-format=absolute --git-common-dir)/hefesto/deps}"
     mkdir -p "$DEPS_DIR" || die "deps-audit: cannot create $DEPS_DIR"
     AUDIT_RAN=0; AUDIT_FOUND=0; MISSING=0
@@ -585,9 +636,13 @@ case "$1" in
     fi
     reqs=$(ls requirements*.txt 2>/dev/null)
     if [ -n "$reqs" ] || [ -f pyproject.toml ]; then
+      # pip-audit RESOLVES by pip-installing into a temporary venv — which runs the build code of exactly
+      # the package this audit exists to catch (a squatted `reqeusts`). So it runs only with --no-deps
+      # --disable-pip, which reads pinned requirements without installing anything; an unpinned file then
+      # exits outside {0,1} and reads `unknown`; a pyproject-only project is not audited (code review 2026-10-02).
       if have pip-audit; then
-        if [ -n "$reqs" ]; then for r in $reqs; do run_auditor "pip-audit-${r%.txt}" "0 1" '[.dependencies[].vulns | length] | add // 0' 0 pip-audit -f json -r "$r"; done
-        else run_auditor pip-audit "0 1" '[.dependencies[].vulns | length] | add // 0' 0 pip-audit -f json .; fi
+        if [ -n "$reqs" ]; then for r in $reqs; do run_auditor "pip-audit-${r%.txt}" "0 1" 'if any(.dependencies[]; has("skip_reason")) then null else ([.dependencies[].vulns | length] | add // 0) end' 0 pip-audit -f json --no-deps --disable-pip -r "$r"; done
+        else echo "skipped pypi: pip-audit would install pyproject.toml's dependencies to resolve them — audit a pinned requirements file instead (pip-audit -r <file> --no-deps --disable-pip)"; MISSING=1; fi
       else miss pypi pip-audit "pipx install pip-audit"; fi
     fi
     if [ -f Cargo.toml ]; then

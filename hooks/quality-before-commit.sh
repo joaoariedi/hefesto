@@ -69,8 +69,9 @@ STAGED=$(git -C "$CWD" diff --cached --name-only --diff-filter=ACM 2>/dev/null |
 # naming it: `$(dirname "$0")` is the hooks dir both under ${CLAUDE_PLUGIN_ROOT} and under the smoke
 # suite's `bash "$QBC"`. A failing deps-diff emits nothing.
 ADVISORY=""
+HOOK_DIR=$(cd "$(dirname "$0")" && pwd)   # absolute BEFORE the cd below: a relative $0 would resolve against $CWD
 if grep -qE '(^|/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Cargo\.toml|go\.mod)$' <<<"$STAGED"; then
-  DEPS_ADDED=$( (cd "$CWD" && bash "$(dirname "$0")/speckit-helper.sh" deps-diff --staged) 2>/dev/null | grep '^added ' || true)
+  DEPS_ADDED=$( (cd "$CWD" && bash "$HOOK_DIR/speckit-helper.sh" deps-diff --staged) 2>/dev/null | grep '^added ' || true)
   if [ -n "$DEPS_ADDED" ]; then
     DEPS_N=$(grep -c . <<<"$DEPS_ADDED")
     DEPS_LIST=$(awk '{print $2 " " $3}' <<<"$DEPS_ADDED" | paste -sd, - | sed 's/,/, /g')

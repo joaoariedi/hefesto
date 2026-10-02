@@ -165,13 +165,16 @@ Two helper arms make the supply-chain rule mechanical (board item HEF-9); `/hef.
 | Ecosystem | Auditor | Detected as | Install hint | Count read from |
 |---|---|---|---|---|
 | npm | `npm audit --json` | `npm` | Node.js | `.metadata.vulnerabilities.total` |
-| pypi | `pip-audit -f json -r <file>` / `pip-audit -f json .` | `pip-audit` | `pipx install pip-audit` | vulns across dependencies |
+| pypi | `pip-audit -f json --no-deps --disable-pip -r <file>` (pinned requirements; never the installing form) | `pip-audit` | `pipx install pip-audit` | vulns across dependencies |
 | crates | `cargo-audit audit --json` | `cargo-audit` (cargo alone is not enough) | `cargo install cargo-audit` | `.vulnerabilities.count` |
-| go | `govulncheck -json ./...` | `govulncheck` | `go install golang.org/x/vuln/cmd/govulncheck@latest` | distinct advisories among findings (a stream) |
+| go | `govulncheck -json ./...` | `govulncheck` | `go install golang.org/x/vuln/cmd/govulncheck@latest` | distinct advisories among findings (a stream; module-level, not reachability) |
 | any | `osv-scanner --format json -r .` | `osv-scanner` | osv.dev | vulnerabilities across results (reads lockfiles) |
 
 A count is a number only when the auditor's exit is in its valid set and the JSON yields a number; an
 error document (npm ENOLOCK), a missing lockfile or a build failure reads `unknown` — never clean.
+Scope: both arms run from the repository root; `deps-diff` lists nested manifests too, `deps-audit`
+audits the root's (osv-scanner walks the tree). pip-audit never runs in its installing form: resolving
+an unpinned requirement installs it, which executes the very package a squatting check exists to catch.
 
 ## Tiered Validation Strategy
 

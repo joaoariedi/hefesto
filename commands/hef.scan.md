@@ -10,7 +10,8 @@ Perform a quick security review of the current changes.
 > change on the branch, use the built-in `/security-review` skill instead. This command exists
 > because it is narrower and cheaper: staged/unstaged diff only, with the checklist below.
 > `--deps` is the one exception to "fast and offline": the auditors it runs need the network and can
-> take minutes (a pip-audit resolve, a govulncheck build).
+> take minutes (a govulncheck build). None of them installs what it audits — pip-audit runs only on
+> pinned requirements with `--no-deps --disable-pip`.
 
 ## Scope
 Focus on staged and unstaged changes:
