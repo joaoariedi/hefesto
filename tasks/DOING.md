@@ -25,3 +25,11 @@ the release queue (`run --role implement --exit 0 --usd 0`, `record --pr … --b
 those four, reading the branch from the current checkout, with the same guards and a smoke fixture.
 
 In progress 2026-10-02 on `feature/ledger-surfaces` (spec `.specify/specs/ledger-surfaces/`).
+## HEF-9 — dependency audit in /hef.scan
+
+Report 18 #5 (the deck's Builder role). Detect `osv-scanner`, `npm audit`, `pip-audit`,
+`cargo audit`, `govulncheck`; list dependencies new in the diff and known vulnerabilities as a
+`--deps` section; advisory line in `quality-before-commit.sh`. Detection lives in the
+`quality-tooling` skill; nothing is installed.
+
+In progress 2026-10-02 on `feature/dependency-audit` (spec `.specify/specs/dependency-audit/`).

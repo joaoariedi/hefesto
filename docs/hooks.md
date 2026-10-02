@@ -10,7 +10,7 @@ Hooks ship **inside the plugin** (`hooks/hooks.json`), so installing the plugin 
 | Hook | Trigger | What It Does |
 |------|---------|--------------|
 | ✅ `verify-before-task-complete.sh` | **TaskCompleted** | **Blocks** a task from being marked complete while the test suite fails. Exit 2 is a hard gate. |
-| 🔍 `quality-before-commit.sh` | PreToolUse on `Bash` | Intercepts `git commit` — gitleaks, shell + markdown checks on staged files, then language-specific linters. Blocks on errors. |
+| 🔍 `quality-before-commit.sh` | PreToolUse on `Bash` | Intercepts `git commit` — gitleaks, shell + markdown checks on staged files, then language-specific linters. Blocks on errors. When a staged manifest ADDS a direct dependency it also emits one advisory line through the PreToolUse `additionalContext` (never a block): the dependency names and "run /hef.scan --deps before the PR" |
 | 🔒 `block-sensitive-files.sh` | PreToolUse on `Edit\|Write` | Blocks writes to `.env*`, `*.key`, `*.pem`, `credentials*`, `.git/*`, `secrets/` |
 | ⛔ `block-destructive-commands.sh` | PreToolUse on `Bash` | Hard-denies `git push --force` (allows `--force-with-lease`), `reset --hard`, `branch -D`, `clean -f`, and recursive `rm` of catastrophic targets. Bypass: `CLAUDE_ALLOW_DESTRUCTIVE=1` prefix, visible in the transcript |
 | 📐 `plan-phase-write-block.sh` | PreToolUse on `Edit\|Write` | Blocks writes outside `.specify/` while `/hef.plan` is active |

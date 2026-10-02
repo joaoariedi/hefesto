@@ -2485,6 +2485,151 @@ lsmut 's/if (\\$msg | length) > 200 then/if false then/'; lsset HEF-11 ".blocked
 LSL_BIN="$LSL_MUT" lsl escalate 2>/dev/null | grep -qF '…(cut)' && { bad "mutation survived: the 200-char cap removed"; ls_mfail=1; }
 [ "$ls_mfail" -eq 0 ] && ok "ledger-surfaces mutations: handoff ×5, publish hash/off/unchanged, mark replace-not-stack, escalate threshold/human-only/record/path/cap — all caught (SC-001..SC-003)"
 rm -rf "$ls_t" "$ls_bin" "$ls_md" "$ls_cfg"
+# --- Tier 1: dependency audit (feature dependency-audit FR-001..FR-005) --------------------------
+head_ "Dependency audit"
+dp_t="$(mktemp -d)"; dp_bin="$(mktemp -d)"; dp_fail=0
+( cd "$dp_t" && git init -q -b main . \
+  && printf '{"dependencies":{"express":"^4.18.0","old":"1.0.0"}}\n' > package.json \
+  && printf 'requests==2.31\n-r base.txt\n# a comment\n' > requirements.txt \
+  && printf '[build-system]\nrequires = ["setuptools"]\n[project]\nname = "x"\ndependencies = [\n  "httpx>=0.27",\n]\n[project.optional-dependencies]\ndev = ["pytest"]\n[tool.ruff]\nline-length = 88\n' > pyproject.toml \
+  && printf '[package]\nname = "x"\n[dependencies]\nserde = "1.0"\n' > Cargo.toml \
+  && printf 'module x\n\nrequire (\n\tgithub.com/a/b v1.0.0\n\tgolang.org/x/text v0.3.0 // indirect\n)\n' > go.mod \
+  && git add -A && git -c user.email=t@t -c user.name=t commit -q -m i && git checkout -q -b feature/x \
+  && printf '{"dependencies":{"express":"^4.19.0","left-pad":"^1.3.0"}}\n' > package.json \
+  && printf 'requests==2.32\nreqeusts==2.0\n-r base.txt\n' > requirements.txt \
+  && sed -i 's/  "httpx>=0.27",/  "httpx>=0.27",\n  "rich[jupyter,a]>=13",/' pyproject.toml \
+  && printf 'tokio = "1"\n' >> Cargo.toml \
+  && printf 'require github.com/c/d v0.1.0\nrequire golang.org/x/net v0.1.0 // indirect\n' >> go.mod \
+  && mkdir -p web && printf '{"dependencies":{"vite":"^5"}}\n' > web/package.json ) >/dev/null 2>&1
+dp() { (cd "$dp_t" && PATH="$dp_bin:$PATH" bash "${DP_BIN:-$HELPER}" "$@"); }
+dp_out="$(dp deps-diff 2>&1)"; dp_rc=$?
+dp_want='added crates tokio "1"
+added go github.com/c/d v0.1.0
+added npm left-pad ^1.3.0
+added npm vite ^5
+added pypi reqeusts ==2.0
+added pypi rich >=13
+changed npm express ^4.18.0 -> ^4.19.0
+changed pypi requests ==2.31 -> ==2.32
+removed npm old 1.0.0'
+{ [ "$dp_rc" -eq 0 ] && [ "$dp_out" = "$dp_want" ]; } || { bad "deps-diff must list exactly the direct changes (no -r, no build-system/tool tables, no // indirect, new manifest all added) (rc=$dp_rc): $(tr '\n' '|' <<<"$dp_out")"; dp_fail=1; }
+( cd "$dp_t" && git add package.json ) ; dp_out="$(dp deps-diff --staged 2>&1)"
+[ "$dp_out" = "$(printf 'added npm left-pad ^1.3.0\nchanged npm express ^4.18.0 -> ^4.19.0\nremoved npm old 1.0.0')" ] || { bad "deps-diff --staged must compare HEAD with the index only: $(tr '\n' '|' <<<"$dp_out")"; dp_fail=1; }
+( cd "$dp_t" && git stash -q -u -m dp-fixture && git stash drop -q ) >/dev/null 2>&1
+dp_out="$(dp deps-diff 2>&1)"; dp_rc=$?; { [ "$dp_rc" -eq 0 ] && [ -z "$dp_out" ]; } || { bad "deps-diff with no manifest change must print nothing at exit 0 (rc=$dp_rc): $dp_out"; dp_fail=1; }
+dp_err="$(dp deps-diff not-a-ref 2>&1 >/dev/null)"; { [ $? -ne 0 ] && grep -qF "base 'not-a-ref'" <<<"$dp_err"; } || { bad "deps-diff with a bad base must die naming it: $dp_err"; dp_fail=1; }
+# the legal forms the quality gate found mishandled (2026-10-02): Cargo sub-tables, target and workspace tables,
+# a header comment, name="v" without spaces, a multi-line inline table, a comment line; URL and path
+# requirements; a [project] header comment, a ] and a quoted string inside comments, another table's
+# `dependencies =`; a go.mod block comment and a NEW // indirect line; CRLF; a subdirectory run; a rename;
+# an invalid package.json
+dp_x="$(mktemp -d)"; ( cd "$dp_x" && git init -q -b main . && printf 'flask==2\n' > requirements.txt && printf '{"dependencies":{}}\n' > package.json && printf 'module x\nrequire github.com/a/b v1.0.0\n' > go.mod \
+  && git add -A && git -c user.email=t@t -c user.name=t commit -q -m i \
+  && printf '[package]\nname="x"\n[dependencies] # c\nserde="1"\n# a = b\ntok = { version = "1",\n  features = ["x"] }\n[dependencies.foo]\nversion = "0.3"\n[target.'"'"'cfg(unix)'"'"'.dependencies]\nlibc = "0.2"\n[workspace.dependencies]\nanyhow = "1"\n[dev-dependencies]\nrand = "0.8"\n[build-dependencies]\ncc = "1"\n' > Cargo.toml \
+  && printf 'flask==2\r\ngit+https://x/y.git#egg=zed\r\n./local\r\n' > requirements.txt \
+  && printf '[project] # c\ndependencies = [\n  "rich[jupyter]>=13",  # see [docs]\n  # "ghost>=1",\n  "httpx",\n]\n[tool.x]\ndependencies = ["nope"]\n' > pyproject.toml \
+  && printf 'module x\r\nrequire github.com/a/b v1.0.0\r\nrequire (\r\n\t// pinned\r\n\tgithub.com/c/d v0.2.0\r\n\tgolang.org/x/sys v0.1.0 // indirect\r\n)\r\n' > go.mod && mkdir -p sub ) >/dev/null 2>&1
+dp_xwant='added crates anyhow "1"
+added crates cc "1"
+added crates foo "0.3"
+added crates libc "0.2"
+added crates rand "0.8"
+added crates serde "1"
+added crates tok { version = "1",   features = ["x"] }
+added go github.com/c/d v0.2.0
+added pypi ./local ./local
+added pypi httpx 
+added pypi rich >=13
+added pypi zed git+https://x/y.git#egg=zed'
+dp_xo="$(cd "$dp_x/sub" && bash "${DP_BIN:-$HELPER}" deps-diff 2>&1)"; dp_rc=$?
+{ [ "$dp_rc" -eq 0 ] && [ "$(LC_ALL=C sort <<<"$dp_xo")" = "$(LC_ALL=C sort <<<"$dp_xwant")" ]; } || { bad "deps-diff on the exotic forms, CRLF, from a subdirectory (rc=$dp_rc): $(tr '\n' '|' <<<"$dp_xo")"; dp_fail=1; }
+( cd "$dp_x" && git checkout -q -- requirements.txt package.json && git mv requirements.txt requirements-dev.txt ) >/dev/null 2>&1
+dp_xo="$(cd "$dp_x" && bash "$HELPER" deps-diff 2>&1)"; grep -qF 'removed pypi flask ==2' <<<"$dp_xo" && grep -qF 'added pypi flask ==2' <<<"$dp_xo" || { bad "a renamed manifest must read as removed + added, not all-added: $(tr '\n' '|' <<<"$dp_xo")"; dp_fail=1; }
+printf '{bad' > "$dp_x/package.json"; dp_err="$(cd "$dp_x" && bash "$HELPER" deps-diff 2>&1 >/dev/null)"; dp_rc=$?
+{ [ "$dp_rc" -ne 0 ] && grep -qF 'not a JSON object' <<<"$dp_err"; } || { bad "an invalid package.json must fail deps-diff loudly, never read as every dependency removed (rc=$dp_rc): $dp_err"; dp_fail=1; }
+( cd "$dp_x" && git checkout -q -- package.json )
+[ "$dp_fail" -eq 0 ] && ok "deps-diff: npm/pypi(lines+[project] only)/crates/go(no indirect), new manifest, --staged, no change, bad base (dependency-audit FR-001)"
+
+# FR-002 deps-audit on stub auditors: valid-exit + numeric count rule; unknown is never clean; missing lines; 0/1/3
+dp_afail=0; DPD="$(mktemp -d)"
+stub() { printf '#!/bin/bash\necho "$0 $*" >> %s/calls\n%s\n' "$dp_bin" "$2" > "$dp_bin/$1"; chmod +x "$dp_bin/$1"; }
+stub npm "echo '{\"metadata\":{\"vulnerabilities\":{\"total\":2}}}'; exit 1"
+stub pip-audit "echo '{\"dependencies\":[{\"name\":\"a\",\"vulns\":[{\"id\":\"X\"}]},{\"name\":\"b\",\"vulns\":[]}]}'; exit 1"
+stub cargo-audit "echo '{\"vulnerabilities\":{\"count\":0}}'; exit 0"
+stub govulncheck "printf '%s\n' '{\"config\":{}}' '{\"finding\":{\"osv\":\"GO-1\"}}' '{\"finding\":{\"osv\":\"GO-1\"}}' '{\"finding\":{\"osv\":\"GO-2\"}}'; exit 0"
+dp_out="$(cd "$dp_t" && HEFESTO_DEPS_DIR="$DPD" PATH="$dp_bin:$PATH" bash "$HELPER" deps-audit 2>&1)"; dp_rc=$?
+{ [ "$dp_rc" -eq 1 ] && grep -qE '^npm-audit exit 1 findings 2 report ' <<<"$dp_out" && grep -qE '^pip-audit-requirements exit 1 findings 1 ' <<<"$dp_out" \
+  && grep -qE '^cargo-audit exit 0 findings 0 ' <<<"$dp_out" && grep -qE '^govulncheck exit 0 findings 2 ' <<<"$dp_out" && [ -s "$DPD/npm-audit.json" ]; } \
+  || { bad "deps-audit must count each auditor from its JSON (npm 2, pip 1, cargo 0, govulncheck 2 distinct) and exit 1 (rc=$dp_rc): $(tr '\n' '|' <<<"$dp_out")"; dp_afail=1; }
+stub npm "echo '{\"error\":{\"code\":\"ENOLOCK\"}}'; exit 1"; stub osv-scanner "echo '{\"results\":[]}'; exit 128"
+stub pip-audit "echo '{\"dependencies\":[]}'; exit 0"; stub govulncheck "printf '%s\n' '{\"config\":{}}'; exit 0"
+dp_out="$(cd "$dp_t" && HEFESTO_DEPS_DIR="$DPD" PATH="$dp_bin:$PATH" bash "$HELPER" deps-audit 2>&1)"; dp_rc=$?
+{ [ "$dp_rc" -eq 1 ] && grep -qE '^npm-audit exit 1 findings unknown ' <<<"$dp_out" && grep -qE '^osv-scanner exit 128 findings unknown ' <<<"$dp_out"; } \
+  || { bad "an ENOLOCK document and an osv-scanner exit 128 must read unknown, never clean (rc=$dp_rc): $(tr '\n' '|' <<<"$dp_out")"; dp_afail=1; }
+rm -f "$dp_bin/osv-scanner"; stub npm "echo '{\"metadata\":{\"vulnerabilities\":{\"total\":0}}}'; exit 0"
+dp_out="$(cd "$dp_t" && HEFESTO_DEPS_DIR="$DPD" PATH="$dp_bin:$PATH" bash "$HELPER" deps-audit 2>&1)"; dp_rc=$?
+[ "$dp_rc" -eq 0 ] || { bad "deps-audit with every auditor clean must exit 0 (rc=$dp_rc): $(tr '\n' '|' <<<"$dp_out")"; dp_afail=1; }
+dp_lone="$(mktemp -d)"; ( cd "$dp_lone" && git init -q . && printf 'module y\n' > go.mod )
+dp_out="$(cd "$dp_lone" && HEFESTO_DEPS_DIR="$DPD" PATH="/usr/bin:/bin" bash "$HELPER" deps-audit 2>&1)"; dp_rc=$?
+{ [ "$dp_rc" -eq 3 ] && grep -qF 'missing go: govulncheck' <<<"$dp_out"; } || { bad "deps-audit with no auditor for the manifests present must exit 3 naming them (rc=$dp_rc): $dp_out"; dp_afail=1; }
+grep -qE 'pip-audit -f json --no-deps --disable-pip -r requirements.txt' "$dp_bin/calls" || { bad "pip-audit must run only in its non-installing form (--no-deps --disable-pip): $(grep pip-audit "$dp_bin/calls" | head -1)"; dp_afail=1; }
+stub pip-audit "echo '{\"dependencies\":[{\"name\":\"reqeusts\",\"skip_reason\":\"not on PyPI\"}]}'; exit 0"
+dp_out="$(cd "$dp_t" && HEFESTO_DEPS_DIR="$DPD" PATH="$dp_bin:$PATH" bash "$HELPER" deps-audit 2>&1)"; grep -qE '^pip-audit-requirements exit 0 findings unknown' <<<"$dp_out" || { bad "a skipped (not on PyPI) dependency must make the pip-audit count unknown — the squatting case: $(grep pip-audit <<<"$dp_out")"; dp_afail=1; }
+stub pip-audit "echo '{\"dependencies\":[]}'; exit 0"
+[ "$dp_afail" -eq 0 ] && ok "deps-audit: per-tool counts from JSON, unknown on an error document or an invalid exit, clean → 0, nothing runnable → 3 with missing lines (dependency-audit FR-002)"
+
+# FR-004 the pre-commit advisory: additionalContext JSON on stdout at exit 0 when a staged manifest ADDS a dependency
+dp_hfail=0
+( cd "$dp_t" && printf '{"dependencies":{"express":"^4.18.0","old":"1.0.0","left-pad":"^1.3.0"}}\n' > package.json && git add package.json )
+dp_hook() { jq -nc --arg d "$dp_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | bash "${DP_QBC:-$QBC}" 2>/dev/null; }
+dp_out="$(dp_hook)"; dp_rc=$?
+{ [ "$dp_rc" -eq 0 ] && jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and (.hookSpecificOutput.additionalContext | test("^1 new dependency staged \\(npm left-pad\\)"))' <<<"$dp_out" >/dev/null 2>&1; } \
+  || { bad "the pre-commit hook must emit the advisory additionalContext for a staged new dependency and exit 0 (rc=$dp_rc): $dp_out"; dp_hfail=1; }
+( cd "$dp_t" && printf '{"dependencies":{"express":"^4.20.0","old":"1.0.0"}}\n' > package.json && git add package.json )
+dp_out="$(dp_hook)"; [ -z "$dp_out" ] || { bad "a staged version change alone must emit no advisory: $dp_out"; dp_hfail=1; }
+( cd "$dp_t" && git checkout -q -- . 2>/dev/null; git reset -q; printf 'x\n' > notes.md && git add notes.md )
+dp_out="$(dp_hook)"; [ -z "$dp_out" ] || { bad "no staged manifest must emit nothing: $dp_out"; dp_hfail=1; }
+[ "$dp_hfail" -eq 0 ] && ok "pre-commit advisory: additionalContext on a staged new dependency, silent on a version change and on no manifest (dependency-audit FR-004)"
+
+# FR-003 FR-005 wiring
+dp_wfail=0; sc="$REPO/commands/hef.scan.md"
+for tok in 'argument-hint: "[--deps]"' 'deps-diff' 'deps-audit' '## Dependencies' 'review item' 'HIGH' 'MEDIUM' 'unaudited' 'squattable'; do grep -qF -- "$tok" "$sc" || { bad "/hef.scan lost '$tok' (FR-003)"; dp_wfail=1; }; done
+grep -qF '## Dependency Audit' "$REPO/skills/quality-tooling/SKILL.md" && grep -qF 'cargo-audit' "$REPO/skills/quality-tooling/SKILL.md" || { bad "quality-tooling must carry the Dependency Audit section (FR-005)"; dp_wfail=1; }
+[ "$dp_wfail" -eq 0 ] && ok "/hef.scan --deps wiring and the quality-tooling section (dependency-audit FR-003 FR-005)"
+
+# Mutations (constitution 3)
+dp_mut="$(mktemp)"; dp_mfail=0
+dpmut() { cp "$HELPER" "$dp_mut"; sed -i "$1" "$dp_mut"; cmp -s "$HELPER" "$dp_mut" && { bad "dependency-audit mutation did not apply: $1"; dp_mfail=1; }; }
+( cd "$dp_t" && git checkout -q -- . 2>/dev/null; git reset -q --hard 2>/dev/null; printf '{"dependencies":{"express":"^4.19.0","left-pad":"^1.3.0"}}\n' > package.json && printf 'requests==2.32\nreqeusts==2.0\n-r base.txt\n-c constraints.txt\n' > requirements.txt && printf 'require github.com/c/d v0.1.0\nrequire golang.org/x/net v0.1.0 // indirect\n' >> go.mod && mkdir -p web && printf '{"dependencies":{"vite":"^5"}}\n' > web/package.json )
+dpmut "s/awk 'NF \&\& !\/\^-\/'/awk 'NF'/"; DP_BIN="$dp_mut" dp deps-diff 2>/dev/null | grep -qF 'added pypi -c' || { bad "mutation survived: requirements option-line skip removed"; dp_mfail=1; }
+dp deps-diff 2>/dev/null | grep -qF 'pypi -c' && { bad "deps-diff listed an option line (-c) as a dependency"; dp_mfail=1; }
+dpmut 's/NR == FNR { if (NF) o\[\$1\] = \$2; next }/NR == FNR { o[$1] = $2; next }/'; DP_BIN="$dp_mut" dp deps-diff 2>/dev/null | grep -qE '^removed npm +$' || { bad "mutation survived: empty-record filter removed, no phantom removed line"; dp_mfail=1; }
+dpmut 's/b \&\& NF >= 2 \&\& !\/\\\/\\\/ indirect\/{print/b \&\& NF >= 2 {print/; s/\/\^require\[\[:space:\]\]+\[\^(\]\/ \&\& !\/\\\/\\\/ indirect\//\/^require[[:space:]]+[^(]\//'
+DP_BIN="$dp_mut" dp deps-diff 2>/dev/null | grep -qF 'golang.org/x/net' || { bad "mutation survived: // indirect skip removed"; dp_mfail=1; }
+dpmut 's/\.dependencies, \.devDependencies, \.optionalDependencies, \.peerDependencies/.devDependencies/'; DP_BIN="$dp_mut" dp deps-diff 2>/dev/null | grep -qF 'left-pad' && { bad "mutation survived: npm sections narrowed, left-pad still listed"; dp_mfail=1; }
+# the rc gate: osv-scanner's no-lockfile exit 128 with an empty result list must not read as 0 findings
+stub osv-scanner "echo '{\"results\":[]}'; exit 128"
+dpmut 's/if \[\[ " \$valid " == \*" \$rc "\* \]\]; then/if true; then/'
+dp_out="$(cd "$dp_t" && HEFESTO_DEPS_DIR="$DPD" PATH="$dp_bin:$PATH" bash "$dp_mut" deps-audit 2>&1)"; grep -qE '^osv-scanner exit 128 findings unknown' <<<"$dp_out" && { bad "mutation survived: the valid-exit gate removed, osv-scanner 128 still unknown"; dp_mfail=1; }
+# the numbers check: a count field that is not a number is unknown, never a value
+stub npm "echo '{\"metadata\":{\"vulnerabilities\":{\"total\":\"some\"}}}'; exit 0"; rm -f "$dp_bin/osv-scanner"
+dp_out="$(cd "$dp_t" && HEFESTO_DEPS_DIR="$DPD" PATH="$dp_bin:$PATH" bash "$HELPER" deps-audit 2>&1)"; grep -qE '^npm-audit exit 0 findings unknown' <<<"$dp_out" || { bad "a non-numeric count must read unknown: $(grep npm-audit <<<"$dp_out")"; dp_mfail=1; }
+dpmut 's/ | numbers | select(. == floor and . >= 0)"/"/g; s/\[\[ "\$n" =~ \^\[0-9\]+\$ \]\] || n=unknown/true/'
+dp_out="$(cd "$dp_t" && HEFESTO_DEPS_DIR="$DPD" PATH="$dp_bin:$PATH" bash "$dp_mut" deps-audit 2>&1)"; grep -qE '^npm-audit exit 0 findings unknown' <<<"$dp_out" && { bad "mutation survived: the numbers check removed, a string count still unknown"; dp_mfail=1; }
+dp_md="$(mktemp -d)"; ln -s "$HELPER" "$dp_md/speckit-helper.sh"; cp "$QBC" "$dp_md/qbc.sh"   # the hook runs the helper beside it
+sed -i "s/| grep '\^added ' || true)/|| true)/" "$dp_md/qbc.sh"; cmp -s "$QBC" "$dp_md/qbc.sh" && { bad "hook mutation did not apply"; dp_mfail=1; }
+( cd "$dp_t" && git reset -q && git checkout -q -- package.json 2>/dev/null; printf '{"dependencies":{"express":"^4.20.0","old":"1.0.0"}}\n' > package.json && git add package.json )
+dp_out="$(DP_QBC="$dp_md/qbc.sh" dp_hook)"; [ -n "$dp_out" ] || { bad "mutation survived: the hook's added-only filter removed, a version change still silent"; dp_mfail=1; }
+( cd "$dp_x" && git mv requirements-dev.txt requirements.txt >/dev/null 2>&1; printf 'flask==2\r\ngit+https://x/y.git#egg=zed\r\n./local\r\n' > requirements.txt )
+dpx() { (cd "$dp_x/sub" && bash "$dp_mut" deps-diff 2>/dev/null); }
+dpmut 's/p = (header(\$0) == "\[project\]")/p = 1/'; dpx | grep -qF 'pypi nope' || { bad "mutation survived: [project]-only table check removed, another table's dependencies still ignored"; dp_mfail=1; }
+dpmut 's/if (bare ~ \/\\\]\/) a = 0/if ($0 ~ \/\\]\/) a = 0/'; dpx | grep -qF 'pypi httpx' && { bad "mutation survived: the array end tested on the raw line, httpx still read after an extras bracket"; dp_mfail=1; }
+dpmut 's/(dev-|build-)?dependencies\\\]\$\//dependencies\\]$\//'; dpx | grep -qF 'crates rand' && { bad "mutation survived: dev/build sections dropped, rand still listed"; dp_mfail=1; }
+dpmut 's/b \&\& NF >= 2 \&\& !\/\\\/\\\/ indirect\/ \&\&/b \&\& NF >= 2 \&\&/'; dpx | grep -qF 'golang.org/x/sys' || { bad "mutation survived: block-form // indirect skip removed"; dp_mfail=1; }
+dpmut "s/tr -d '\\\\r' < \"\$f\"/cat \"\$f\"/"; dpx | grep -qF 'changed go github.com/a/b' || { bad "mutation survived: CRLF strip removed, the CRLF go.mod still unchanged"; dp_mfail=1; }
+dpmut 's/cd "\$(git rev-parse --show-toplevel)" || die "deps-diff/true || die "deps-diff/'; dpx | grep -qF 'crates serde' && { bad "mutation survived: the toplevel cd removed, a subdirectory run still reads the root manifests"; dp_mfail=1; }
+[ "$dp_mfail" -eq 0 ] && ok "dependency-audit mutations: option-line skip, empty-record filter, indirect skip, npm sections, valid-exit gate, numbers check, hook added-only filter — all caught (SC-001..SC-003)"
+rm -rf "$dp_t" "$dp_bin" "$DPD" "$dp_lone" "$dp_mut" "$dp_md" "$dp_x"
 
 # --- Tier 1: /hef.plan --arena (feature plan-arena FR-001..FR-010) -------------------------------
 head_ "Plan arena"
