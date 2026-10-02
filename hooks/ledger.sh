@@ -25,14 +25,14 @@ usage() {
   cat >&2 <<'EOF'
 usage: ledger.sh <subcommand> …
   dir                                                   print the ledger directory
-  init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>]
+  init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability]
   claim <id> --session <name> --role <role>             exclusive; attempts > 2 → stall
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
   unblock <id> [--reviewed-by-human]                    human:* kinds need artifact evidence
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
-  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f]   (--body-file re-hashes the item)
+  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k]   (--body-file re-hashes the item)
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
@@ -65,7 +65,7 @@ cfgp() { # jq over the project config; empty output when there is no config (cal
 ID_SORT='sort_by(.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])'
 PHASES=(queued intake spec plan plan-review tasks implement verify quality security pr merged released)
 KINDS="human:clarify human:plan-review human:merge human:intake ci conflict budget stall verdict"
-GATES="verify review quality scan mutate"
+GATES="verify review quality scan mutate incident vulnerability"   # the last two: item-kinds FR-002
 
 ledger_dir() {
   if [ -n "${HEFESTO_LEDGER_DIR:-}" ]; then mkdir -p "$HEFESTO_LEDGER_DIR" || die "ledger: cannot create $HEFESTO_LEDGER_DIR"; echo "$HEFESTO_LEDGER_DIR"; return; fi
@@ -163,19 +163,22 @@ case "$SUB" in
 
   init)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift
-    KIND=""; REF=""; URL=""; BODY=""
+    KIND=""; REF=""; URL=""; BODY=""; IKIND="feature"
     while [ $# -gt 0 ]; do case "$1" in
       --kind) KIND="${2:-}"; shift ;; --ref) REF="${2:-}"; shift ;; --url) URL="${2:-}"; shift ;; --body-file) BODY="${2:-}"; shift ;;
+      --item-kind) IKIND="${2:-}"; shift ;;
       *) usage ;; esac; shift; done
     valid_id "$ID" || exit 1
+    # An EMPTY --item-kind is the signature of a failed detection swallowed by $(…) — never "feature".
+    in_list "$IKIND" "feature incident vulnerability" || die "ledger init $ID: --item-kind must be feature, incident or vulnerability (got '${IKIND}')"
     if [ -f "$DIR/$ID.json" ]; then echo "$DIR/$ID.json"; exit 0; fi      # idempotent: unchanged, path printed
     in_list "$KIND" "tasks-repo github-project" || die "ledger init $ID: --kind must be tasks-repo or github-project (got '${KIND:-<none>}')"
     [ -n "$REF" ] || die "ledger init $ID: --ref is required (e.g. tasks/TODO.md#$ID)"
     SHA=null
     if [ -n "$BODY" ]; then [ -f "$BODY" ] || die "ledger init $ID: body file not found: $BODY"; SHA="\"$(sha256sum "$BODY" | cut -c1-64)\""; fi
-    jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" '{
+    jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" --arg ik "$IKIND" '{
       id: $id, source: {kind: $kind, ref: $ref, url: (if $url == "" then null else $url end), body_sha256: $sha},
-      route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
+      item_kind: $ik, route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
       verdicts: [], blocked_on: null, budget: {usd_cap: null, usd_spent: 0}, runs: [], attempts: 0,
       created: (now | todate), updated: (now | todate) }' | write_entry "$ID" || exit 1
     echo "$DIR/$ID.json" ;;
@@ -278,6 +281,7 @@ case "$SUB" in
       --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; setf '.route = $v' "$2"; shift ;;
       --pr)       setf '.pr = {url: $v, number: (($v | capture("/(?<n>[0-9]+)$").n | tonumber)? // null)}' "${2:-}"; shift ;;
       --spec-dir) setf '.spec_dir = $v' "${2:-}"; shift ;;
+      --item-kind) in_list "${2:-}" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '${2:-}')"; setf '.item_kind = $v' "$2"; shift ;;
       *) usage ;; esac; shift; done
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 

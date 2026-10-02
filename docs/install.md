@@ -299,6 +299,13 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    true`), or every pointer fails and is retried next pass; no other pane needs inbound. Escalation is
    opt-in because report 17 asked for it only once Phase 1 showed blocks waiting too long — no such
    baseline has been measured yet.
+10. **Incidents and vulnerabilities on the board**: put 🐞 before an item's id for an incident fix, 🛡 for
+    a vulnerability (`## 🐞 HEF-21 — login fails after refresh`; `kinds` in the config maps your own
+    glyphs). The orchestrator records the kind; the worker is told to write a regression test that
+    cites the id first (incident) or to re-scan before the PR (vulnerability); the verifier must
+    report that gate, and a missing or SKIPPED one blocks the entry on `verdict`. `/hef.status` reads
+    a heading's first token as its sub-state, so add the kind glyphs to `states` if you want them
+    labelled.
 
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the

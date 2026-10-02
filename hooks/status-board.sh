@@ -30,13 +30,14 @@ while [ $# -gt 0 ]; do
     --item-raw) shift; MODE="item-raw"; ITEM_ID="${1:-}" ;;
     --mark) shift; MODE="mark"; ITEM_ID="${1:-}"; [ $# -gt 0 ] && shift; MARK="${1:-}" ;;
     --was) shift; WAS="${1:-}" ;;
+    --item-kind) shift; MODE="item-kind"; ITEM_ID="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
-    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --mark <id> <marker|->] [--config <path>]"; exit 0 ;;
+    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
     *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --config <path>, or --help)" >&2; exit 2 ;;
   esac
   shift
 done
-case "$MODE" in item|item-raw|mark)
+case "$MODE" in item|item-raw|mark|item-kind)
   [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
   [ "$MODE" != mark ] || [ -n "$MARK" ] || { echo "status-board: --mark needs <id> <marker> (or - for no marker)" >&2; exit 2; }
   # A marker is ONE token with no backslash: a space would stack under the next mark, a backslash or a
@@ -164,6 +165,29 @@ item_body() { # $1 id, $2 raw|clean
 # stacked; every other token (a kind marker such as 🐞) is kept; an item already in DONE is left alone. Same id-boundary match as item_body,
 # so HEF-1 never rewrites HEF-10. One heading changes, written through a temp file in the same dir.
 PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build":"🔨","pr":"🔀","done":"✅"}'
+
+# An item's KIND (item-kinds FR-001; report 18 #6): a kind glyph anywhere before the id on its heading —
+# not only first, because publish puts a STATE marker in front (`## ⏸ 🐞 HEF-21`). Config `kinds` over
+# the default; the two glyph sets never overlap (asserted by the smoke suite), or --mark would strip a
+# kind. The first token is still what /hef.status reads as the sub-state: label kind glyphs via `states`.
+KINDS_DEFAULT='{"🐞":"incident","🛡":"vulnerability","🛡️":"vulnerability"}'
+item_kind() { # $1 id → feature|incident|vulnerability
+  local map col f line pre t k
+  map=$(jq -ce --argjson d "$KINDS_DEFAULT" '(.kinds // {}) as $k | if ($k | type) == "object" then $d + $k else error("kinds must be an object") end' "$CONFIG" 2>/dev/null) \
+    || die "status-board --item-kind: .kinds in $CONFIG must be an object of glyph → incident|vulnerability|feature"
+  for col in todo doing backlog; do
+    f="$TROOT/${COL[$col]}"
+    line=$(awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") { print; exit }' "$f" 2>/dev/null)
+    [ -n "$line" ] || continue
+    pre="${line%%"$1"*}"
+    set -f; for t in $pre; do
+      k=$(jq -r --arg t "$t" '.[$t] // empty' <<<"$map")
+      [ -n "$k" ] && { set +f; echo "$k"; return 0; }
+    done; set +f
+    echo feature; return 0
+  done
+  die "status-board --item-kind $1: no such item in ${COL[todo]}, ${COL[doing]} or ${COL[backlog]} under $TROOT"
+}
 mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (stripped too: a superseded map's glyph)
   local set col f tmp
   set=$(jq -r --argjson d "$PUBLISH_MARKERS_DEFAULT" '$d + ((.orchestrate.publish_markers // {}) | if type == "object" then . else {} end) | [.[]] + [$d[]] | map(select(type == "string" and test("^[^\\s\\\\]+$"))) | unique | join(" ")' "$CONFIG" 2>/dev/null) \
@@ -391,9 +415,9 @@ source_github() {
 case "$SOURCE" in
   tasks-repo)
     tasks_config
-    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; esac
+    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
-    case "$MODE" in item|item-raw) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
+    case "$MODE" in item|item-raw|item-kind) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
     source_github ;;
 esac

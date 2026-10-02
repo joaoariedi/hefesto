@@ -56,6 +56,13 @@ it is what caught the hand-bumped era:
   the stops that just set a block — and sends each pointer as one cross-session message, recording it
   only when the send succeeded.
 
+- **Board item kinds** (HEF-10; report 18 #6): a 🐞 (incident) or 🛡 (vulnerability) before an item's id,
+  read by `status-board.sh --item-kind` even behind a publish state marker, is recorded as `item_kind` at
+  registration (`ledger.sh init --item-kind`, `record --item-kind`; an empty kind — a failed detection —
+  is refused, never `feature`). The worker gets one extra sentence (regression test first; re-scan
+  before the PR) and the verifier one REQUIRED gate: a missing or SKIPPED `incident`/`vulnerability`
+  verdict is recorded as FAIL and blocks on `verdict`. A feature's prompt is unchanged.
+
 ### Changed
 - `status-board.sh --item`/`--item-raw` also search the DONE column.
 

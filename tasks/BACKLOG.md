@@ -9,13 +9,6 @@ Report 18 #5 (the deck's Builder role). Detect `osv-scanner`, `npm audit`, `pip-
 `--deps` section; advisory line in `quality-before-commit.sh`. Detection lives in the
 `quality-tooling` skill; nothing is installed.
 
-## HEF-10 — board item kinds with kind-specific verifier gates
-
-Report 18 #6 (deck slides 32–33). A heading marker the board already parses (🐞 incident,
-🛡 vulnerability) becomes `kind` on the ledger entry; the verify prompt adds the kind's gate — a
-regression test citing the incident id must exist and pass; a re-scan must be clean — as verdict
-gates `incident` / `vulnerability`. Phase 2 of orchestrate.
-
 ## HEF-13 — providers registry and arena runners
 
 Report 18 addendum A4, phase 2 of the arena; gated on HEF-8's number. A `providers` block in

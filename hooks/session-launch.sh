@@ -100,6 +100,17 @@ TODAY_SPENT="$("$LEDGER" list --today | jq '[.[].budget.usd_spent] | add // 0')"
 awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' \
   && die "session-launch $ROLE $ID: daily cap $DAILY_CAP USD would be exceeded (spent today $TODAY_SPENT + session cap $USD_CAP) — raise orchestrate.daily_usd_cap or wait for tomorrow"
 PHASE="$(jq -r .phase <<<"$E")"; SPEC_DIR="$(jq -r '.spec_dir // empty' <<<"$E")"
+# The item's kind (item-kinds FR-004, FR-005; report 18 #6): an incident or vulnerability fix carries one
+# extra sentence for the worker and one REQUIRED gate for the verifier. Empty for a feature, so a feature
+# prompt is byte-identical to before.
+ITEM_KIND="$(jq -r '.item_kind // "feature"' <<<"$E")"
+case "$ITEM_KIND" in
+  incident)      KIND_RULE="This is an INCIDENT fix: first write a regression test that cites $ID and fails on the current code, then make the fix; that test must pass. "
+                 KIND_GATE="the incident gate: a test in the diff cites $ID and passes — name the test and show the runner output" ;;
+  vulnerability) KIND_RULE="This is a VULNERABILITY fix: name the finding the item describes, fix it, and re-run /hef.scan (and /hef.scan --deps if a manifest changed) before the PR. "
+                 KIND_GATE="the vulnerability gate: /hef.scan (and /hef.scan --deps if a manifest changed) is clean of the finding the item names — show the output" ;;
+  *)             KIND_RULE=""; KIND_GATE="" ;;
+esac
 WORKTREE="$(jq -r '.worktree // empty' <<<"$E")"; BRANCH="$(jq -r '.branch // empty' <<<"$E")"
 
 # --- settings (validated: -p ignores an invalid file silently) --------------------------------
@@ -128,12 +139,12 @@ case "$ROLE" in
       # artifact, not the phase: a retry after a failed run sits in `implement` and must not go back to
       # /hef.agent and re-spec (code review + quality gate 2026-09-30).
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. Do not re-spec or re-plan. Run /hef.implement (hefesto:workflow for a large task list), then /hef.verify, /hef.quality, /hef.review (code mode) and /hef.pr; stop at the first human gate. Never merge, approve, or push to main; the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
+Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. Do not re-spec or re-plan. Run /hef.implement (hefesto:workflow for a large task list), then /hef.verify, /hef.quality, /hef.review (code mode) and /hef.pr; stop at the first human gate. ${KIND_RULE}Never merge, approve, or push to main; the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
 EOF
     else
       ITEM="$(item_as_data)" || exit 1
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository. Run /hef.agent on it: size the work, follow the route it picks (fix → /hef.fix → /hef.pr; light or full → /hef.spec and onward through /hef.pr), and stop at the first human gate (clarify, plan review). $INJECTION_RULE Never merge, approve, or push to main; the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
+Board item $ID for this repository. Run /hef.agent on it: size the work, follow the route it picks (fix → /hef.fix → /hef.pr; light or full → /hef.spec and onward through /hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}$INJECTION_RULE Never merge, approve, or push to main; the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
 
 $ITEM
 EOF
@@ -161,10 +172,12 @@ EOF
     [ -d "$WORKTREE" ] || die "session-launch verify $ID: recorded worktree missing: $WORKTREE"
     CHAIN="/hef.review (code mode), then /hef.quality, then /hef.scan"
     [ "$ROUTE" != fix ] && [ -n "$SPEC_DIR" ] && CHAIN="/hef.verify (spec at $SPEC_DIR), then $CHAIN"
+    [ -n "$KIND_GATE" ] && CHAIN="$CHAIN, then $KIND_GATE (report it as gate \"$ITEM_KIND\")"
     read -r -d '' PROMPT <<EOF || true
 Verify the change for board item $ID on branch ${BRANCH:-<unknown>} in this worktree (diff base: main). You are a separate reviewer: you have not seen how the change was made and must not look for its transcript. Read-only — do not edit, approve, merge, or push. Run in order: $CHAIN. Report one verdict per gate (PASS, FAIL, or SKIPPED with the reason) with the command output as evidence, and a summary ≤2000 chars.
 EOF
-    SCHEMA='{"type":"object","required":["summary","verdicts"],"properties":{"summary":{"type":"string","maxLength":2000},"verdicts":{"type":"array","items":{"type":"object","required":["gate","verdict"],"properties":{"gate":{"enum":["verify","review","quality","scan","mutate"]},"verdict":{"enum":["PASS","FAIL","SKIPPED"]},"evidence":{"type":"string","maxLength":500}}}}}}' ;;
+    GATE_ENUM='"verify","review","quality","scan","mutate"'; [ -n "$KIND_GATE" ] && GATE_ENUM="$GATE_ENUM,\"$ITEM_KIND\""   # only the entry's OWN kind gate
+    SCHEMA='{"type":"object","required":["summary","verdicts"],"properties":{"summary":{"type":"string","maxLength":2000},"verdicts":{"type":"array","items":{"type":"object","required":["gate","verdict"],"properties":{"gate":{"enum":['"$GATE_ENUM"']},"verdict":{"enum":["PASS","FAIL","SKIPPED"]},"evidence":{"type":"string","maxLength":500}}}}}}' ;;
   deploy)
     # stage-roles FR-007: one babysitter pass per launch; the ledger is written HERE from its result — a
     # worker's sandbox root is the worktree, so /hef.babysit's own ledger calls fail inside it (it tolerates that).
@@ -250,6 +263,13 @@ case "$ROLE" in
       "$LEDGER" verdict "$ID" --gate "$G" --verdict "$VD" --by "$NAME" --evidence "$EV" >/dev/null || exit 1
       [ "$VD" = FAIL ] && FAIL=1
     done < <(jq -c '.verdicts[]' <<<"$SO")
+    # The kind's gate is REQUIRED (item-kinds FR-005): no PASS/FAIL verdict for it — absent, or SKIPPED —
+    # is a FAIL, decided here and not left to the verifier's prose.
+    if [ -n "$KIND_GATE" ] && ! jq -e --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g and (.verdict == "PASS" or .verdict == "FAIL"))] | length > 0' <<<"$SO" >/dev/null; then
+      WHY=$(jq -r --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g)][0].evidence // "gate missing from the verifier'"'"'s report"' <<<"$SO")
+      "$LEDGER" verdict "$ID" --gate "$ITEM_KIND" --verdict FAIL --by "$NAME" --evidence "required $ITEM_KIND gate not passed: $WHY" >/dev/null || exit 1
+      FAIL=1
+    fi
     if [ "$FAIL" = 1 ]; then "$LEDGER" block "$ID" --kind verdict >/dev/null || exit 1
     else "$LEDGER" advance "$ID" pr >/dev/null && "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
   deploy)
