@@ -38,6 +38,26 @@ it is what caught the hand-bumped era:
 ## [Unreleased]
 
 ### Added
+- **`ledger.sh handoff <id> --pr <url>`** (HEF-6): a hand-run item into the release queue in one call
+  from its branch — run (session `hand`), PR, branch, worktree, phase `pr`, `human:merge` — through the
+  existing arms, so their guards apply; refuses an owned or blocked entry, `main`, or a non-PR URL.
+- **`ledger.sh publish <id>`** (HEF-4; opt-in `orchestrate.publish`): the entry's state on the board —
+  a marker first on the item's heading (⏸ ⛔ 📐 🔨 🔀 ✅, `orchestrate.publish_markers`) through the
+  board's one new write path `status-board.sh --mark`, which replaces only its own markers and keeps a
+  kind marker; the item's hash is verified before the write and re-taken after it, so a person's edit is
+  still refused as "changed since claim"; a github-project entry gets one issue comment; nothing is
+  written when the state did not change.
+- **`ledger.sh escalate [--record <id>]`** (HEF-5; opt-in `orchestrate.escalate_after_hours`): `human:*`
+  blocks older than the threshold, once per block, as `<session>` TAB `ledger <id> blocked_on <kind>
+  <path>` (the PR for a merge, the spec for a clarification, the item for an intake; ≤200 characters),
+  addressed to the pane that owns the kind. Escalation is opt-in: report 17 asked for it once Phase 1
+  showed blocks waiting too long, and no such baseline has been measured yet.
+- `/hef.orchestrate` step 7 runs publish and escalate on EVERY exit path after pre-flight — including
+  the stops that just set a block — and sends each pointer as one cross-session message, recording it
+  only when the send succeeded.
+
+### Changed
+- `status-board.sh --item`/`--item-raw` also search the DONE column.
 - **`/hef.scan --deps`** (HEF-9; report 18 #5, the deck's Builder role): a `## Dependencies` section from
   two new helper arms. `speckit-helper.sh deps-diff [--staged] [<base>]` lists the DIRECT dependencies a
   change adds, re-versions or removes, lexically from the manifests (`package.json`, `requirements*.txt`,
