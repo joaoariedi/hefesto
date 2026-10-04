@@ -109,7 +109,8 @@ case "$ITEM_KIND" in
                  KIND_GATE="the incident gate: a test in the diff cites $ID and passes — name the test and show the runner output" ;;
   vulnerability) KIND_RULE="This is a VULNERABILITY fix: name the finding the item describes, fix it, and re-run /hef.scan (and /hef.scan --deps if a manifest changed) before the PR. "
                  KIND_GATE="the vulnerability gate: /hef.scan (and /hef.scan --deps if a manifest changed) is clean of the finding the item names — show the output" ;;
-  *)             KIND_RULE=""; KIND_GATE="" ;;
+  feature)       KIND_RULE=""; KIND_GATE="" ;;
+  *)             die "session-launch $ROLE $ID: item_kind '$ITEM_KIND' on the entry is not feature, incident or vulnerability — fix it with ledger.sh record $ID --item-kind <k>" ;;
 esac
 WORKTREE="$(jq -r '.worktree // empty' <<<"$E")"; BRANCH="$(jq -r '.branch // empty' <<<"$E")"
 
@@ -266,7 +267,7 @@ case "$ROLE" in
     # The kind's gate is REQUIRED (item-kinds FR-005): no PASS/FAIL verdict for it — absent, or SKIPPED —
     # is a FAIL, decided here and not left to the verifier's prose.
     if [ -n "$KIND_GATE" ] && ! jq -e --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g and (.verdict == "PASS" or .verdict == "FAIL"))] | length > 0' <<<"$SO" >/dev/null; then
-      WHY=$(jq -r --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g)][0].evidence // "gate missing from the verifier'"'"'s report"' <<<"$SO")
+      WHY=$(jq -r --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g)][0] | if . == null then "gate missing from the verifier'"'"'s report" else (.evidence // "skipped without a reason") end' <<<"$SO")
       "$LEDGER" verdict "$ID" --gate "$ITEM_KIND" --verdict FAIL --by "$NAME" --evidence "required $ITEM_KIND gate not passed: $WHY" >/dev/null || exit 1
       FAIL=1
     fi

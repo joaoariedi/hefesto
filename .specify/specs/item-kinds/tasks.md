@@ -9,4 +9,4 @@
 - [x] T005 [FR-005] Verify chain + own-gate enum + required-gate synthesis (absent or SKIPPED) `hooks/session-launch.sh`
 - [x] T006 [SC-001] [SC-002] Smoke block "Item kinds" with four mutations `tests/smoke.sh`
 - [x] T007 [FR-006] Docs, CHANGELOG, board
-- [ ] T008 Gates
+- [x] T008 Gates

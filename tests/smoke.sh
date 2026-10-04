@@ -2514,6 +2514,26 @@ printf '{"source":"tasks-repo","root":"tasks","kinds":"oops"}\n' > "$ik_t/.claud
 ikb --item-kind HEF-21 >/dev/null 2>&1 && { bad "a malformed kinds map must fail loudly, not default"; ik_fail=1; }
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":100}}\n' > "$ik_t/.claude/project-status.json"
 ikb --item-kind HEF-99 >/dev/null 2>&1 && { bad "--item-kind on a missing item must fail"; ik_fail=1; }
+# variation selectors: 🐞+VS16 and 🛡+VS15 are the plain glyphs; a glyph AFTER the id is title text
+printf '\n## 🐞\xef\xb8\x8f HEF-28 — vs16 bug\nbody\n\n## 🛡\xef\xb8\x8e HEF-29 — vs15 cve\nbody\n\n## HEF-34 — 🐞 after the id\nbody\n' >> "$ik_t/tasks/TODO.md"
+for c in 'HEF-28:incident' 'HEF-29:vulnerability' 'HEF-34:feature'; do
+  [ "$(ikb --item-kind "${c%%:*}" 2>&1)" = "${c##*:}" ] || { bad "--item-kind ${c%%:*} must be ${c##*:} (variation selectors stripped, glyph before the id), got '$(ikb --item-kind "${c%%:*}" 2>&1)'"; ik_fail=1; }
+done
+# the map: a config entry overrides a default glyph; a bad value or a publish-marker key (either VS form) fails loudly
+ik_cfgf="$ik_t/.claude/project-status.json"; ik_base='"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":100}'
+printf '{%s,"kinds":{"🐞":"feature"}}\n' "$ik_base" > "$ik_cfgf"; [ "$(ikb --item-kind HEF-21 2>&1)" = feature ] || { bad "a config kinds entry must override a default glyph (🐞 → feature)"; ik_fail=1; }
+for m in '{"🔥":"bug"}' '{"⏸":"incident"}' '{"⏸\ufe0f":"incident"}'; do
+  printf '{%s,"kinds":%s}\n' "$ik_base" "$m" > "$ik_cfgf"
+  ik_o="$(ikb --item-kind HEF-24 2>&1)" && { bad "kinds map $m must be refused, got '$ik_o'"; ik_fail=1; }
+  grep -qF 'never a publish marker' <<<"$ik_o" || { bad "kinds map $m: the refusal must name the rule, got '$ik_o'"; ik_fail=1; }
+done
+printf '{"source":"github-project","owner":"o","project":1}\n' > "$ik_cfgf"
+ik_o="$(ikb --item-kind HEF-21 2>&1)" && { bad "--item-kind on a github-project board must be refused"; ik_fail=1; }
+grep -qF 'unsupported for github-project' <<<"$ik_o" || { bad "the github-project refusal must say so, got '$ik_o'"; ik_fail=1; }
+printf '{%s}\n' "$ik_base" > "$ik_cfgf"
+# --was strips the marker publish last wrote, never a kind glyph (either VS form)
+ikb --mark HEF-28 📐 --was 🐞 >/dev/null 2>&1; ikb --mark HEF-28 🔨 --was 🐞️ >/dev/null 2>&1
+{ grep -qF 'HEF-28 — vs16 bug' "$ik_t/tasks/TODO.md" && [ "$(ikb --item-kind HEF-28 2>&1)" = incident ] && grep -q '^## 🔨 🐞' "$ik_t/tasks/TODO.md"; } || { bad "--mark --was <kind glyph> must keep the kind glyph: $(grep -F 'HEF-28' "$ik_t/tasks/TODO.md")"; ik_fail=1; }
 # the kind glyphs and the publish markers never overlap (--mark would strip a kind)
 ik_ov="$(jq -rn --argjson k "$(grep -oE "KINDS_DEFAULT='[^']*'" "$SB" | cut -d"'" -f2)" --argjson m "$(grep -oE "PUBLISH_MARKERS_DEFAULT='[^']*'" "$SB" | cut -d"'" -f2)" '[$k | keys[]] - ([$m[]] - ([$m[]] - [$k | keys[]])) | length == ($k | keys | length)')"
 [ "$ik_ov" = true ] || { bad "a kind glyph is also a publish marker"; ik_fail=1; }
@@ -2523,13 +2543,22 @@ ikl init HEF-24 --kind tasks-repo --ref t >/dev/null 2>&1 && ikj HEF-24 '.item_k
 ikl init HEF-30 --kind tasks-repo --ref t --item-kind "" >/dev/null 2>&1 && { bad "init --item-kind '' must die (a swallowed detection failure is never feature)"; ik_fail=1; }
 ikl init HEF-30 --kind tasks-repo --ref t --item-kind bug >/dev/null 2>&1 && { bad "init --item-kind bug must die"; ik_fail=1; }
 ikl init HEF-22 --kind tasks-repo --ref t >/dev/null 2>&1; ikl record HEF-22 --item-kind vulnerability >/dev/null 2>&1 && ikj HEF-22 '.item_kind == "vulnerability"' || { bad "record --item-kind must set the kind"; ik_fail=1; }
+ikl record HEF-22 --item-kind bug >/dev/null 2>&1 && { bad "record --item-kind bug must die"; ik_fail=1; }
+ikl record HEF-22 --item-kind "" >/dev/null 2>&1 && { bad "record --item-kind '' must die (a swallowed detection failure is never a kind)"; ik_fail=1; }
+ikj HEF-22 '.item_kind == "vulnerability"' || { bad "a refused record --item-kind must leave the recorded kind alone"; ik_fail=1; }
 # FR-004 the implement prompt: the feature prompt has neither sentence; the incident prompt minus its sentence equals it
 ik_feat="$(iks implement HEF-24 --dry-run 2>&1)"; ik_inc="$(iks implement HEF-21 --dry-run 2>&1)"
 { ! grep -qF 'INCIDENT fix' <<<"$ik_feat" && ! grep -qF 'VULNERABILITY fix' <<<"$ik_feat" && grep -qF 'regression test that cites HEF-21' <<<"$ik_inc"; } || { bad "the implement prompt must carry the kind sentence for an incident and none for a feature"; ik_fail=1; }
 ik_strip="$(sed 's/This is an INCIDENT fix: first write a regression test that cites HEF-21 and fails on the current code, then make the fix; that test must pass. //' <<<"$ik_inc" | sed 's/HEF-21/HEF-24/g; s/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f]*//g')"
 ik_featn="$(sed 's/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f]*//g' <<<"$ik_feat")"
 [ "$(grep -vE 'login fails|plain|^body' <<<"$ik_strip")" = "$(grep -vE 'login fails|plain|^body' <<<"$ik_featn")" ] || { bad "the incident prompt minus its kind sentence must equal the feature prompt (only the insertion differs)"; ik_fail=1; }
-[ "$ik_fail" -eq 0 ] && ok "item kinds: --item-kind (first, behind a state marker, both 🛡 forms, config, malformed, missing), init/record, empty refused, prompt per kind (item-kinds FR-001 FR-002 FR-004)"
+# the planned (resume) branch carries the kind sentence too: a plan stage ran, tasks.md is on the branch
+mkdir -p "$ik_t/.specify/specs/hef32" && printf -- '- [ ] T001 x\n' > "$ik_t/.specify/specs/hef32/tasks.md"
+printf '\n## 🐞 HEF-32 — planned incident\nbody\n' >> "$ik_t/tasks/TODO.md"
+ikl init HEF-32 --kind tasks-repo --ref t --item-kind incident >/dev/null 2>&1; ikl record HEF-32 --spec-dir "$ik_t/.specify/specs/hef32" >/dev/null 2>&1
+ik_pl="$(iks implement HEF-32 --dry-run 2>&1)"
+{ grep -qF 'planned by a separate session' <<<"$ik_pl" && grep -qF 'This is an INCIDENT fix: first write a regression test that cites HEF-32' <<<"$ik_pl"; } || { bad "the planned-item implement prompt must carry the INCIDENT sentence: $(head -c 300 <<<"$ik_pl")"; ik_fail=1; }
+[ "$ik_fail" -eq 0 ] && ok "item kinds: --item-kind (first, behind a state marker, both 🛡 forms, VS15/VS16, after-the-id, config override, bad map, github-project, missing), --was keeps kinds, init/record + refusals, prompt per kind on both implement branches (item-kinds FR-001 FR-002 FR-004)"
 
 # FR-005 the verify gate is required: absent → FAIL, SKIPPED → FAIL, PASS → human:merge; only the entry's own gate enters the schema
 ik_vfail=0
@@ -2550,7 +2579,7 @@ ikj HEF-21 '.phase == "pr" and .blocked_on.kind == "human:merge"' || { bad "an i
 : > "$ik_log"; printf '{"session_id":"i2","total_cost_usd":0.5,"structured_output":{"summary":"done","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/24"}}\n' > "$ik_res"
 iks implement HEF-24 >/dev/null 2>&1; printf '{"session_id":"v4","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"}]}}\n' > "$ik_res"
 iks verify HEF-24 >/dev/null 2>&1
-{ ikj HEF-24 '.blocked_on.kind == "human:merge"' && ! grep -qE '"incident"|"vulnerability"' "$ik_log"; } || { bad "a feature needs no kind gate and its schema names none"; ik_vfail=1; }
+{ ikj HEF-24 '.blocked_on.kind == "human:merge"' && ! grep -qE '"incident"|"vulnerability"|"feature"' "$ik_log"; } || { bad "a feature needs no kind gate and its schema names none"; ik_vfail=1; }
 [ "$ik_vfail" -eq 0 ] && ok "item kinds: the kind gate is required — absent → FAIL, SKIPPED → FAIL with the reason, PASS → human:merge; feature unaffected; own gate only (item-kinds FR-005)"
 
 # Mutations (constitution 3)
@@ -2571,7 +2600,17 @@ cmp -s "$SB" "$ik_md/sb.sh" && { bad "item-kinds mutation (first token only) did
 [ "$(IK_SB="$ik_md/sb.sh" ikb --item-kind HEF-22 2>/dev/null)" = vulnerability ] && { bad "mutation survived: the scan limited to the first token still finds 🛡 behind ⏸"; ik_mfail=1; }
 cp "$LG" "$ik_md/lg.sh"; sed -i 's/in_list "\$IKIND" "feature incident vulnerability" || die/true || die/' "$ik_md/lg.sh"
 (cd "$ik_t" && bash "$ik_md/lg.sh" init HEF-31 --kind tasks-repo --ref t --item-kind "" >/dev/null 2>&1) || { bad "mutation survived: init kind validation removed, empty still refused"; ik_mfail=1; }
-[ "$ik_mfail" -eq 0 ] && ok "item-kinds mutations: SKIPPED-counts, synthesis, first-token-only, empty-kind validation — all caught (SC-001 SC-002)"
+cp "$SL" "$ik_md/session-launch.sh"; sed -i '/planned by a separate session/s/\${KIND_RULE}//' "$ik_md/session-launch.sh"
+cmp -s "$SL" "$ik_md/session-launch.sh" && { bad "item-kinds mutation (resume prompt kind rule) did not apply"; ik_mfail=1; }
+IK_SL="$ik_md/session-launch.sh" iks implement HEF-32 --dry-run 2>&1 | grep -qF 'INCIDENT fix' && { bad "mutation survived: KIND_RULE dropped from the planned-item prompt"; ik_mfail=1; }
+cp "$SB" "$ik_md/sb.sh"; sed -i "/U+FE0E, U+FE0F/d" "$ik_md/sb.sh"
+cmp -s "$SB" "$ik_md/sb.sh" && { bad "item-kinds mutation (VS strip) did not apply"; ik_mfail=1; }
+[ "$(IK_SB="$ik_md/sb.sh" ikb --item-kind HEF-28 2>/dev/null)" = incident ] && { bad "mutation survived: token VS16 strip removed, 🐞️ still incident"; ik_mfail=1; }
+cp "$SB" "$ik_md/sb.sh"; sed -i 's/^    jq -e --arg w "\$3"/    false \&\& jq -e --arg w "$3"/' "$ik_md/sb.sh"
+cmp -s "$SB" "$ik_md/sb.sh" && { bad "item-kinds mutation (--was guard) did not apply"; ik_mfail=1; }
+ikb --mark HEF-23 📐 --was 🛡️ >/dev/null 2>&1; grep -qF '🛡️' <(grep -F 'HEF-23' "$ik_t/tasks/TODO.md") || { bad "--mark --was 🛡️ must keep HEF-23's kind glyph"; ik_mfail=1; }
+IK_SB="$ik_md/sb.sh" ikb --mark HEF-23 🔨 --was 🛡️ >/dev/null 2>&1; grep -qF '🛡️' <(grep -F 'HEF-23' "$ik_t/tasks/TODO.md") && { bad "mutation survived: --was guard removed, the kind glyph still kept"; ik_mfail=1; }
+[ "$ik_mfail" -eq 0 ] && ok "item-kinds mutations: SKIPPED-counts, synthesis, first-token-only, empty-kind validation, resume-prompt kind rule, VS strip, --was guard — all caught (SC-001 SC-002)"
 rm -rf "$ik_t" "$ik_bin" "$ik_cfg" "$ik_md"
 
 # --- Tier 1: /hef.plan --arena (feature plan-arena FR-001..FR-010) -------------------------------

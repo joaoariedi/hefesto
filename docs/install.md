@@ -301,7 +301,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    baseline has been measured yet.
 10. **Incidents and vulnerabilities on the board**: put 🐞 before an item's id for an incident fix, 🛡 for
     a vulnerability (`## 🐞 HEF-21 — login fails after refresh`; `kinds` in the config maps your own
-    glyphs). The orchestrator records the kind; the worker is told to write a regression test that
+    glyphs to `feature`, `incident` or `vulnerability`, never to a publish marker). The glyph must come
+    before the id — one after it is title text — and 🛡 and 🛡️ (with or without the emoji variation
+    selector) are the same glyph. The orchestrator records the kind; the worker is told to write a regression test that
     cites the id first (incident) or to re-scan before the PR (vulnerability); the verifier must
     report that gate, and a missing or SKIPPED one blocks the entry on `verdict`. `/hef.status` reads
     a heading's first token as its sub-state, so add the kind glyphs to `states` if you want them

@@ -29,7 +29,7 @@ In progress 2026-10-02 on `feature/ledger-surfaces` (spec `.specify/specs/ledger
 ## HEF-10 — board item kinds with kind-specific verifier gates
 
 Report 18 #6 (deck slides 32–33). A heading marker the board already parses (🐞 incident,
-🛡 vulnerability) becomes `kind` on the ledger entry; the verify prompt adds the kind's gate — a
+🛡 vulnerability) becomes `item_kind` on the ledger entry; the verify prompt adds the kind's gate — a
 regression test citing the incident id must exist and pass; a re-scan must be clean — as verdict
 gates `incident` / `vulnerability`. Phase 2 of orchestrate.
 

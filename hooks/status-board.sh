@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     --item-kind) shift; MODE="item-kind"; ITEM_ID="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
     --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
-    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --config <path>, or --help)" >&2; exit 2 ;;
+    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2 ;;
   esac
   shift
 done
@@ -170,17 +170,29 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 # not only first, because publish puts a STATE marker in front (`## ⏸ 🐞 HEF-21`). Config `kinds` over
 # the default; the two glyph sets never overlap (asserted by the smoke suite), or --mark would strip a
 # kind. The first token is still what /hef.status reads as the sub-state: label kind glyphs via `states`.
+# The glyph goes BEFORE the id (`## 🐞 HEF-21 — …`); one after it is title text. Variation selectors
+# (U+FE0E text, U+FE0F emoji) are stripped from both the map's keys and the heading's tokens before the
+# lookup — editors add or drop VS16 at will, and 🛡 / 🛡️ must be one glyph (quality gate 2026-10-02).
 KINDS_DEFAULT='{"🐞":"incident","🛡":"vulnerability","🛡️":"vulnerability"}'
 item_kind() { # $1 id → feature|incident|vulnerability
   local map col f line pre t k
-  map=$(jq -ce --argjson d "$KINDS_DEFAULT" '(.kinds // {}) as $k | if ($k | type) == "object" then $d + $k else error("kinds must be an object") end' "$CONFIG" 2>/dev/null) \
-    || die "status-board --item-kind: .kinds in $CONFIG must be an object of glyph → incident|vulnerability|feature"
+  # Values must be one of the three kinds and keys must not be publish markers (--mark would strip them):
+  # a bad override is named here, not later by `ledger init` (code review 2026-10-02).
+  map=$(jq -ce --argjson d "$KINDS_DEFAULT" --argjson pm "$PUBLISH_MARKERS_DEFAULT" '
+      def novs: gsub("[\ufe0e\ufe0f]"; "");
+      (.kinds // {}) as $k | ((.orchestrate.publish_markers // {}) | if type == "object" then [.[]] else [] end) + [$pm[]] | map(strings | novs) as $marks
+      | if ($k | type) != "object" then error("kinds must be an object")
+        elif ($k | to_entries | any(.value as $v | ["feature","incident","vulnerability"] | index($v) | not)) then error("a kinds value is not feature, incident or vulnerability")
+        elif ($k | keys | any(novs as $g | $marks | index($g))) then error("a kinds glyph is also a publish marker")
+        else $d + $k | with_entries(.key |= novs) end' "$CONFIG" 2>/dev/null) \
+    || die "status-board --item-kind: .kinds in $CONFIG must map glyphs (never a publish marker) to feature, incident or vulnerability"
   for col in todo doing backlog; do
     f="$TROOT/${COL[$col]}"
     line=$(awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") { print; exit }' "$f" 2>/dev/null)
     [ -n "$line" ] || continue
     pre="${line%%"$1"*}"
     set -f; for t in $pre; do
+      t="${t//$'\xef\xb8\x8e'/}"; t="${t//$'\xef\xb8\x8f'/}"   # U+FE0E, U+FE0F
       k=$(jq -r --arg t "$t" '.[$t] // empty' <<<"$map")
       [ -n "$k" ] && { set +f; echo "$k"; return 0; }
     done; set +f
@@ -192,7 +204,11 @@ mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (strip
   local set col f tmp
   set=$(jq -r --argjson d "$PUBLISH_MARKERS_DEFAULT" '$d + ((.orchestrate.publish_markers // {}) | if type == "object" then . else {} end) | [.[]] + [$d[]] | map(select(type == "string" and test("^[^\\s\\\\]+$"))) | unique | join(" ")' "$CONFIG" 2>/dev/null) \
     || set=$(jq -r '[.[]] | join(" ")' <<<"$PUBLISH_MARKERS_DEFAULT")
-  [ -n "${3:-}" ] && [ "$3" != - ] && set="$set $3"
+  # --was strips the marker publish last wrote — never a kind glyph, whatever a misconfigured map says
+  if [ -n "${3:-}" ] && [ "$3" != - ]; then
+    jq -e --arg w "$3" --argjson d "$KINDS_DEFAULT" 'def novs: gsub("[\ufe0e\ufe0f]"; ""); ($d + ((.kinds // {}) | if type == "object" then . else {} end)) | with_entries(.key |= novs) | has($w | novs)' "$CONFIG" >/dev/null 2>&1 \
+      || set="$set $3"
+  fi
   for col in todo doing backlog 'done'; do
     f="$TROOT/${COL[$col]}"; [ -f "$f" ] || continue
     awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") {found=1; exit} END {exit !found}' "$f" || continue
