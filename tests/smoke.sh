@@ -2661,12 +2661,14 @@ printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_
 ikb --item-kind HEF-99 >/dev/null 2>&1 && { bad "--item-kind on a missing item must fail"; ik_fail=1; }
 # variation selectors: 🐞+VS16 and 🛡+VS15 are the plain glyphs; a glyph AFTER the id is title text
 printf '\n## 🐞\xef\xb8\x8f HEF-28 — vs16 bug\nbody\n\n## 🛡\xef\xb8\x8e HEF-29 — vs15 cve\nbody\n\n## HEF-34 — 🐞 after the id\nbody\n' >> "$ik_t/tasks/TODO.md"
-for c in 'HEF-28:incident' 'HEF-29:vulnerability' 'HEF-34:feature'; do
+printf '\n## 🐞 HEF-36 — doing bug\nbody\n' >> "$ik_t/tasks/DOING.md"; printf '\n## 🛡 HEF-37 — backlog cve\nbody\n' >> "$ik_t/tasks/BACKLOG.md"
+for c in 'HEF-28:incident' 'HEF-29:vulnerability' 'HEF-34:feature' 'HEF-36:incident' 'HEF-37:vulnerability'; do
   [ "$(ikb --item-kind "${c%%:*}" 2>&1)" = "${c##*:}" ] || { bad "--item-kind ${c%%:*} must be ${c##*:} (variation selectors stripped, glyph before the id), got '$(ikb --item-kind "${c%%:*}" 2>&1)'"; ik_fail=1; }
 done
 # the map: a config entry overrides a default glyph; a bad value or a publish-marker key (either VS form) fails loudly
 ik_cfgf="$ik_t/.claude/project-status.json"; ik_base='"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":100}'
 printf '{%s,"kinds":{"🐞":"feature"}}\n' "$ik_base" > "$ik_cfgf"; [ "$(ikb --item-kind HEF-21 2>&1)" = feature ] || { bad "a config kinds entry must override a default glyph (🐞 → feature)"; ik_fail=1; }
+printf '{%s,"kinds":{"🔥\ufe0f":"incident"}}\n' "$ik_base" > "$ik_cfgf"; [ "$(ikb --item-kind HEF-25 2>&1)" = incident ] || { bad "a config kinds key written with VS16 must match the plain glyph"; ik_fail=1; }
 for m in '{"🔥":"bug"}' '{"⏸":"incident"}' '{"⏸\ufe0f":"incident"}'; do
   printf '{%s,"kinds":%s}\n' "$ik_base" "$m" > "$ik_cfgf"
   ik_o="$(ikb --item-kind HEF-24 2>&1)" && { bad "kinds map $m must be refused, got '$ik_o'"; ik_fail=1; }
@@ -2697,6 +2699,13 @@ ik_feat="$(iks implement HEF-24 --dry-run 2>&1)"; ik_inc="$(iks implement HEF-21
 ik_strip="$(sed 's/This is an INCIDENT fix: first write a regression test that cites HEF-21 and fails on the current code, then make the fix; that test must pass. //' <<<"$ik_inc" | sed 's/HEF-21/HEF-24/g; s/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f]*//g')"
 ik_featn="$(sed 's/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f]*//g' <<<"$ik_feat")"
 [ "$(grep -vE 'login fails|plain|^body' <<<"$ik_strip")" = "$(grep -vE 'login fails|plain|^body' <<<"$ik_featn")" ] || { bad "the incident prompt minus its kind sentence must equal the feature prompt (only the insertion differs)"; ik_fail=1; }
+grep -qF 'This is a VULNERABILITY fix: name the finding' <<<"$(iks implement HEF-22 --dry-run 2>&1)" || { bad "the implement prompt must carry the VULNERABILITY sentence for a 🛡 item"; ik_fail=1; }
+ikl init HEF-35 --kind tasks-repo --ref t >/dev/null 2>&1; printf '\n## HEF-35 — legacy\nbody\n' >> "$ik_t/tasks/TODO.md"
+ik_e="$ik_t/.git/hefesto/ledger/HEF-35.json"; jq 'del(.item_kind)' "$ik_e" > "$ik_e.n" && mv "$ik_e.n" "$ik_e"
+ik_o="$(iks implement HEF-35 --dry-run 2>&1)"; { grep -qF 'Run /hef.agent' <<<"$ik_o" && ! grep -qE 'INCIDENT fix|VULNERABILITY fix' <<<"$ik_o"; } || { bad "a legacy entry without item_kind must run as a feature: $(head -c 200 <<<"$ik_o")"; ik_fail=1; }
+jq '.item_kind = "bug"' "$ik_e" > "$ik_e.n" && mv "$ik_e.n" "$ik_e"
+ik_o="$(iks implement HEF-35 --dry-run 2>&1)" && { bad "an entry with item_kind 'bug' must make the launcher die"; ik_fail=1; }
+grep -qF "item_kind 'bug' on the entry is not feature, incident or vulnerability" <<<"$ik_o" || { bad "the corrupt-kind refusal must name the value, got '$ik_o'"; ik_fail=1; }
 # the planned (resume) branch carries the kind sentence too: a plan stage ran, tasks.md is on the branch
 mkdir -p "$ik_t/.specify/specs/hef32" && printf -- '- [ ] T001 x\n' > "$ik_t/.specify/specs/hef32/tasks.md"
 printf '\n## 🐞 HEF-32 — planned incident\nbody\n' >> "$ik_t/tasks/TODO.md"
@@ -2725,7 +2734,17 @@ ikj HEF-21 '.phase == "pr" and .blocked_on.kind == "human:merge"' || { bad "an i
 iks implement HEF-24 >/dev/null 2>&1; printf '{"session_id":"v4","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"}]}}\n' > "$ik_res"
 iks verify HEF-24 >/dev/null 2>&1
 { ikj HEF-24 '.blocked_on.kind == "human:merge"' && ! grep -qE '"incident"|"vulnerability"|"feature"' "$ik_log"; } || { bad "a feature needs no kind gate and its schema names none"; ik_vfail=1; }
-[ "$ik_vfail" -eq 0 ] && ok "item kinds: the kind gate is required — absent → FAIL, SKIPPED → FAIL with the reason, PASS → human:merge; feature unaffected; own gate only (item-kinds FR-005)"
+printf '{"session_id":"i3","total_cost_usd":0.5,"structured_output":{"summary":"done","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/22"}}\n' > "$ik_res"
+iks implement HEF-22 >/dev/null 2>&1 || { bad "implement HEF-22 (fake claude) failed"; ik_vfail=1; }
+: > "$ik_log"; printf '{"session_id":"v5","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"}]}}\n' > "$ik_res"
+iks verify HEF-22 >/dev/null 2>&1
+ikj HEF-22 '.blocked_on.kind == "verdict" and any(.verdicts[]; .gate == "vulnerability" and .verdict == "FAIL")' || { bad "a missing vulnerability gate must be synthesized as FAIL — got $(jq -c '{b:.blocked_on,v:[.verdicts[]?|.gate+":"+.verdict]}' "$ik_t/.git/hefesto/ledger/HEF-22.json")"; ik_vfail=1; }
+{ grep -qF '"vulnerability"' "$ik_log" && ! grep -qF '"incident"' "$ik_log"; } || { bad "the verify schema for a vulnerability must name its own gate only"; ik_vfail=1; }
+ikl unblock HEF-22 >/dev/null 2>&1
+printf '{"session_id":"v6","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"},{"gate":"vulnerability","verdict":"PASS","evidence":"scan clean"}]}}\n' > "$ik_res"
+iks verify HEF-22 >/dev/null 2>&1
+ikj HEF-22 '.blocked_on.kind == "human:merge"' || { bad "a vulnerability PASS must take the normal path to human:merge"; ik_vfail=1; }
+[ "$ik_vfail" -eq 0 ] && ok "item kinds: the kind gate is required — absent → FAIL, SKIPPED → FAIL with the reason, PASS → human:merge, for incident and vulnerability; feature unaffected; own gate only (item-kinds FR-005)"
 
 # Mutations (constitution 3)
 ik_md="$(mktemp -d)"; ln -s "$LG" "$ik_md/ledger.sh"; ln -s "$SB" "$ik_md/status-board.sh"; ik_mfail=0
@@ -2747,7 +2766,8 @@ cp "$LG" "$ik_md/lg.sh"; sed -i 's/in_list "\$IKIND" "feature incident vulnerabi
 (cd "$ik_t" && bash "$ik_md/lg.sh" init HEF-31 --kind tasks-repo --ref t --item-kind "" >/dev/null 2>&1) || { bad "mutation survived: init kind validation removed, empty still refused"; ik_mfail=1; }
 cp "$SL" "$ik_md/session-launch.sh"; sed -i '/planned by a separate session/s/\${KIND_RULE}//' "$ik_md/session-launch.sh"
 cmp -s "$SL" "$ik_md/session-launch.sh" && { bad "item-kinds mutation (resume prompt kind rule) did not apply"; ik_mfail=1; }
-IK_SL="$ik_md/session-launch.sh" iks implement HEF-32 --dry-run 2>&1 | grep -qF 'INCIDENT fix' && { bad "mutation survived: KIND_RULE dropped from the planned-item prompt"; ik_mfail=1; }
+ik_o="$(IK_SL="$ik_md/session-launch.sh" iks implement HEF-32 --dry-run 2>&1)"; grep -qF 'planned by a separate session' <<<"$ik_o" || { bad "resume-prompt mutation: the mutant did not reach the planned branch"; ik_mfail=1; }
+grep -qF 'INCIDENT fix' <<<"$ik_o" && { bad "mutation survived: KIND_RULE dropped from the planned-item prompt"; ik_mfail=1; }
 cp "$SB" "$ik_md/sb.sh"; sed -i "/U+FE0E, U+FE0F/d" "$ik_md/sb.sh"
 cmp -s "$SB" "$ik_md/sb.sh" && { bad "item-kinds mutation (VS strip) did not apply"; ik_mfail=1; }
 [ "$(IK_SB="$ik_md/sb.sh" ikb --item-kind HEF-28 2>/dev/null)" = incident ] && { bad "mutation survived: token VS16 strip removed, 🐞️ still incident"; ik_mfail=1; }
