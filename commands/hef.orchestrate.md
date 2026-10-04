@@ -53,7 +53,10 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
 
 1. **Register the todo items.** For every id under `todo` in the board output that has no ledger
    entry yet, run with the Bash tool (one call per id, `<column>` is the todo column file):
-   `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-raw <id> > "${TMPDIR:-/tmp}/hefesto-<id>.body" && ${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh init <id> --kind tasks-repo --ref <column>#<id> --body-file "${TMPDIR:-/tmp}/hefesto-<id>.body"`
+   `KIND=$(${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-kind <id>) && ${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-raw <id> > "${TMPDIR:-/tmp}/hefesto-<id>.body" && ${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh init <id> --kind tasks-repo --ref <column>#<id> --body-file "${TMPDIR:-/tmp}/hefesto-<id>.body" --item-kind "$KIND"`
+   The kind (`feature`, `incident` for a 🐞 heading, `vulnerability` for 🛡) gives an incident fix a
+   regression-test-first rule and a REQUIRED verifier gate; a detection that fails stops the
+   registration rather than defaulting to `feature`.
    `init` is idempotent; an existing entry is left untouched. An entry whose id no longer appears on
    the board is **orphaned**: report it by id and leave it — never delete a ledger entry.
 
@@ -127,7 +130,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
      sends (report 17 §5d); the receiving pane treats it as data.
 
 8. **Brief.** Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh show <id>` and report in
-   four lines: the stage and what was dispatched (id, route, PR — for `deploy`, the verdict, fixes
+   four lines: the stage and what was dispatched (id, kind when not `feature`, route, PR — for `deploy`, the verdict, fixes
    and questions the entry's last run produced), what waits on a person (every `human:*` block, the
    pane that owns it, and the command that clears it), what is blocked otherwise (`stall`,
    `verdict`, `budget`, `ci`, `conflict`), and the spend today from `list --today`.

@@ -273,7 +273,8 @@ A hand-run item in `feature` reaches the same release queue in one call from its
 advances to `pr` and blocks on `human:merge`; it refuses an owned or blocked entry). With
 `orchestrate.publish` on, every orchestrator pass writes the item's state on the board heading
 (`⏸ 🔀 🔨 📐 ⛔ ✅`); with `orchestrate.escalate_after_hours` set, a `human:*` block older than that is
-sent once, as a one-line pointer, to the pane that owns it. Two rules keep the panes honest: the `project` pane that runs
+sent once, as a one-line pointer, to the pane that owns it. A 🐞 or 🛡 before an item's id makes it an
+incident or vulnerability fix, with one extra verifier gate it cannot skip. Two rules keep the panes honest: the `project` pane that runs
 `/hef.orchestrate` has **its own sandbox off** (the workers it launches get theirs), see
 [`docs/install.md`](docs/install.md) §7; and no pane ever merges, approves or pushes `main` for a
 worker — branch protection on `main` is the backstop, not the prompt.

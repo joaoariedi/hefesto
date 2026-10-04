@@ -25,6 +25,16 @@ the release queue (`run --role implement --exit 0 --usd 0`, `record --pr … --b
 those four, reading the branch from the current checkout, with the same guards and a smoke fixture.
 
 In progress 2026-10-02 on `feature/ledger-surfaces` (spec `.specify/specs/ledger-surfaces/`).
+
+## HEF-10 — board item kinds with kind-specific verifier gates
+
+Report 18 #6 (deck slides 32–33). A heading marker the board already parses (🐞 incident,
+🛡 vulnerability) becomes `item_kind` on the ledger entry; the verify prompt adds the kind's gate — a
+regression test citing the incident id must exist and pass; a re-scan must be clean — as verdict
+gates `incident` / `vulnerability`. Phase 2 of orchestrate.
+
+In progress 2026-10-02 on `feature/item-kinds` (spec `.specify/specs/item-kinds/`).
+
 ## HEF-9 — dependency audit in /hef.scan
 
 Report 18 #5 (the deck's Builder role). Detect `osv-scanner`, `npm audit`, `pip-audit`,
