@@ -97,7 +97,7 @@ says what each release changed.
 |---|---|
 | 🛠️ `commands/` | The 25 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Seven specialist subagents — testing, quality, review, security, PR coordination, two one-shot readers (another repo; this one, for the arena). |
-| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (44 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
+| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (46 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |

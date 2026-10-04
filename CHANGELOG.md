@@ -65,6 +65,17 @@ it is what caught the hand-bumped era:
 
 ### Changed
 - `status-board.sh --item`/`--item-raw` also search the DONE column.
+- **`/hef.scan --deps`** (HEF-9; report 18 #5, the deck's Builder role): a `## Dependencies` section from
+  two new helper arms. `speckit-helper.sh deps-diff [--staged] [<base>]` lists the DIRECT dependencies a
+  change adds, re-versions or removes, lexically from the manifests (`package.json`, `requirements*.txt`,
+  `pyproject.toml` `[project] dependencies`, `Cargo.toml`, `go.mod` without `// indirect`) — each new one
+  a review item under the supply-chain rule. `speckit-helper.sh deps-audit` runs whichever auditors are
+  installed (npm audit, pip-audit, cargo-audit, govulncheck, osv-scanner), saves each report, and reads a
+  finding count only when the auditor's exit is valid and its JSON yields a number — an ENOLOCK error
+  document or a no-lockfile exit reads `unknown`, never clean. Nothing is installed.
+- The pre-commit hook adds one **advisory** line (PreToolUse `additionalContext`, never a block) when a
+  staged manifest adds a dependency — the first hook that runs the helper.
+- `quality-tooling` gains a Dependency Audit section (auditors, detection, install hints, tiers).
 
 ## [7.7.0] - 2026-10-01
 

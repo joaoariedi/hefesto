@@ -2,12 +2,6 @@
 
 Not yet dispatchable. Phase 2 of report 17 lives here until Phase 1 has numbers.
 
-## HEF-9 — dependency audit in /hef.scan
-
-Report 18 #5 (the deck's Builder role). Detect `osv-scanner`, `npm audit`, `pip-audit`,
-`cargo audit`, `govulncheck`; list dependencies new in the diff and known vulnerabilities as a
-`--deps` section; advisory line in `quality-before-commit.sh`. Detection lives in the
-`quality-tooling` skill; nothing is installed.
 
 ## HEF-13 — providers registry and arena runners
 
