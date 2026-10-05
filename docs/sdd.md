@@ -25,22 +25,26 @@ The full spec-driven development pipeline from idea to implementation:
 /hef.context              → 🧭 orient (detect stack, tools, structure)
 /hef.init         → 🏗️ bootstrap (once per project)
 /hef.constitution → 📜 define principles (once per project)
-/hef.brainstorm   → 💡 Socratic design exploration (refine the idea) ← NEW
+/hef.brainstorm   → 💡 Socratic design exploration (refine the idea)
 /hef.spec      → ✍️ write spec (scenarios, requirements, criteria)
 /hef.clarify      → 🔍 resolve ambiguities (optional)
-/hef.plan         → 📐 design (affected files, data model, API contracts)
-/hef.review       → 🔎 plan mode: challenge the plan (scope, architecture, tests)
+/hef.plan         → 📐 design (affected files, data model, API contracts); --arena [K] [--via …] fans the truth map out to several readers
+/hef.review       → 🔎 plan mode (human gate): a fresh-context code-reviewer challenges the plan; APPROVE writes ## Reviewed
 /hef.tasks        → 📋 generate task list (phased, with dependencies)
 /hef.checklist    → ✅ pre-implementation gate (optional)
 /hef.analyze      → 🔬 consistency check (optional)
 /hef.implement    → 🧪 TDD execution (red-green cycle; the test guard is armed)
 hefesto:workflow
                       → ⚡ same, as a Workflow: parallel + adversarially verified
-/hef.verify       → 🔗 traceability gate: FR → tests (mechanical) + spec-compliance review ← NEW
+/hef.verify       → 🔗 traceability gate: FR → tests (mechanical) + spec-compliance review
 /hef.quality          → 🛡️ quality gate
 /hef.review       → 🔍 code mode: two-stage code review
-/hef.pr               → 📝 the pull request, evidence attached ← NEW
+/hef.pr               → 📝 the pull request, evidence attached
+/hef.babysit          → 👀 watch CI and review comments up to the human merge gate (never merges)
 ```
+
+To run this pipeline per board item in fresh headless sessions (plan / build / deploy stages), see
+`/hef.orchestrate` — [install §7](install.md).
 
 **Why `/hef.verify` exists.** `/hef.analyze` maps requirements to *tasks* before code exists.
 Nothing checked requirements against *tests* after it did — the implement report's "coverage
@@ -57,7 +61,7 @@ Specifications live in `.specify/specs/<branch>/` and are committed to version c
 For projects with existing code that lack formal specifications:
 
 ```
-/hef.baseline     → 📊 reverse-engineer spec from code ← NEW
+/hef.baseline     → 📊 reverse-engineer spec from code
 /hef.review plan  → 🔎 review the inferred spec/plan
 /hef.tasks        → 📋 generate tasks for enhancements
 /hef.implement    → 🧪 execute with quality gates
@@ -82,7 +86,7 @@ name: traceability
 on: [pull_request]
 jobs:
   req-coverage:
-    uses: joaoariedi/hefesto/.github/workflows/req-coverage.yml@v7.1.0
+    uses: joaoariedi/hefesto/.github/workflows/req-coverage.yml@v7.8.0
 ```
 
 It runs `speckit-helper.sh req-coverage --all`: each spec whose `tasks.md` has no open task is
@@ -146,7 +150,7 @@ Each feature generates artifacts in `.specify/specs/<branch>/`:
 | `spec.md` | `/hef.spec` or `/hef.baseline` | User scenarios, functional requirements, success criteria |
 | `plan.md` | `/hef.plan` | Design, affected files, constitution compliance |
 | `tasks.md` | `/hef.tasks` | Phased task list with IDs and dependencies; `[P]` tasks declare `owns:` — the files they claim exclusively, which is what the workflow batches by |
-| `research.md` | `/hef.plan` | Resolved clarifications |
+| `research.md` | `/hef.plan` | Truth Map — cited `file:line` claims about the code, resolved clarifications; with `--arena`, per-reader attribution and disagreements |
 | `checklists/*.md` | `/hef.checklist` | Requirement quality checklists |
 | `data-model.md` | `/hef.plan` | Schema changes (if applicable) |
 | `contracts/` | `/hef.plan` | API contracts (if applicable) |
@@ -163,7 +167,7 @@ Each feature generates artifacts in `.specify/specs/<branch>/`:
 │   ├── tasks.md                # task list template
 │   └── checklist.md            # checklist template
 └── specs/
-    └── feature-name/           # one directory per feature (kebab-case)
+    └── <branch>/               # named after the branch, minus any feature/ prefix
         ├── spec.md
         ├── plan.md
         ├── tasks.md

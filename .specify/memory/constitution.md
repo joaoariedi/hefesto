@@ -44,12 +44,13 @@ They govern *this repo* (the plugin itself); they complement, and do not duplica
    answer.
 
 ## Tech Stack
-- Language: Bash (hooks, `speckit-helper.sh`, `tests/smoke.sh`), JavaScript (`workflows/`), Markdown
+- Language: Bash (hooks; helpers `speckit-helper.sh`, `status-board.sh`, `ledger.sh`, `session-launch.sh`, `pr-watch.sh`, `arena-run.sh`, `release.sh`; `tests/smoke.sh`), JavaScript (`workflows/`), Markdown
   (commands, agents, skills, rules, docs)
 - Framework: Claude Code plugin — `.claude-plugin/plugin.json` + `marketplace.json`
 - Database: N/A
-- Testing: `tests/smoke.sh` (3 tiers: structural, live, end-to-end) — there is no package manager; CI
-  runs tier 1 on `ubuntu-latest`
+- Testing: `tests/smoke.sh` (3 tiers: structural, live, end-to-end) + `node --test` (workflow) — there
+  is no package manager; CI runs tier 1 and `node --test` on `ubuntu-latest`, the live tier weekly;
+  behavioural evals in `evals/` via `claude plugin eval`
 
 ## Architecture Constraints
 

@@ -59,6 +59,13 @@ while read -r agent; do
   if [ -f "$REPO/${agent#./}" ]; then ok "agent $(basename "$agent") exists"
   else bad "agent $agent DOES NOT EXIST"; fi
 done < <(jq -r '.agents[]?' "$REPO/.claude-plugin/plugin.json")
+# The reverse: every agents/*.md is in the manifest. The `agents` array is an explicit list, so an
+# unlisted file ships in the cache but never loads — truth-scout was missing from 7.7.0 to 7.8.0 and
+# /hef.plan --arena could not spawn it (docs audit 2026-10-05).
+for f in "$REPO"/agents/*.md; do
+  jq -e --arg a "./agents/$(basename "$f")" '.agents | index($a)' "$REPO/.claude-plugin/plugin.json" >/dev/null \
+    && ok "agent $(basename "$f") is in the manifest" || bad "agents/$(basename "$f") is not in plugin.json .agents — it ships but never loads"
+done
 
 # --- Tier 1: version consistency ------------------------------------------------------
 head_ "Version"

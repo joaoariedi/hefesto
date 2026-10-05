@@ -1,10 +1,10 @@
-# SETUP — install or update the Hefesto on this machine
+# SETUP — install or update Hefesto on this machine
 
 **This file is a runbook for a Claude Code agent.** Hand it to an agent ("follow SETUP.md") and it will install the framework as a plugin, or update an existing install, and report what it did.
 
 It is idempotent: safe to run on a clean machine, and safe to re-run on a machine that already has it.
 
-**Prerequisites:** `git`, and the `claude` CLI on `PATH`. Check both before starting; if either is missing, stop and say so rather than attempting a workaround.
+**Prerequisites:** `git`, `jq`, and the `claude` CLI on `PATH`. Check all three before starting; if either is missing, stop and say so rather than attempting a workaround.
 
 ---
 
@@ -150,16 +150,20 @@ Verification is not optional here — this framework's recurring failure mode is
    ```
    A bare `workflow` does not resolve.
 
-**Known quirk — do not chase it:** `claude plugin details hefesto` reports `Agents (0)`. All six agents load correctly regardless; this is a defect in the inventory display, confirmed by dispatching the agents in a live session. Trust the `/` menu and a live dispatch over the inventory.
+**Known quirk — do not chase it:** `claude plugin details hefesto` reports `Agents (0)`. All seven agents load correctly regardless; this is a defect in the inventory display, confirmed by dispatching the agents in a live session. Trust the `/` menu and a live dispatch over the inventory.
 
 ## Step 6 — How to update, later
 
 ```bash
-git -C "$FRAMEWORK_DIR" pull
+git -C "$FRAMEWORK_DIR" pull --ff-only
 claude plugin marketplace update hefesto
+claude plugin update hefesto@hefesto        # once per profile: CLAUDE_CONFIG_DIR=~/.claude-<profile> claude plugin update hefesto@hefesto
 ```
 
-Then restart Claude Code. Read `CHANGELOG.md` in the clone to see what changed. Re-running this whole runbook achieves the same thing.
+Each profile runs its own cached copy of the plugin, so the pull alone changes nothing a session
+sees — `plugin update` re-copies the clone into that profile's cache. Then restart Claude Code and
+run `/hef.doctor`; it must report `RUNNING_MATCHES_CLONE`. Read `CHANGELOG.md` in the clone to see
+what changed.
 
 ---
 

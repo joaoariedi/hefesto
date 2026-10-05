@@ -35,6 +35,27 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.8.1] - 2026-10-05
+
+### Fixed
+- **`truth-scout` was never registered** (since 7.7.0): `.claude-plugin/plugin.json` lists agents
+  explicitly and lacked `./agents/truth-scout.md`, so the agent shipped in each profile's cache but
+  never loaded, and `/hef.plan --arena` could not spawn its readers in a real install. Registered; the
+  smoke suite now checks the reverse direction too — every `agents/*.md` must be in the manifest
+  (mutation-checked).
+- `agents/review-coordinator.md` still described executing the merge and deleting branches, contrary
+  to its own rules and to `/hef.pr` ("never merges"); its lifecycle now stops at the merge gate.
+
+### Changed
+- Documentation audited claim by claim against the code (three read-only auditors): the command
+  count (26); updating is `git pull` **plus** `plugin update` per profile (the cache is what runs, not
+  the clone); every helper and its flags in `docs/hooks.md` (all 46 `speckit-helper.sh` subcommands,
+  `MultiEdit` matchers, the spec-cite probe); the tier table in `docs/performance.md` (`fable` /
+  `opus` / `sonnet`, cheap generation, expensive judgment); the plan-review gate and `/hef.babysit` in
+  the pipeline; the GitHub MCP server ships with the plugin; all twelve eval cases; a multi-session
+  orchestration section in `docs/architecture.md`; `hef.orchestrate` in the tier policy; DONE.md back
+  to one dated section per item; `tasks/TEST.md`, the user-run test checklist for 7.3–7.8.
+
 ## [7.8.0] - 2026-10-05
 
 ### Added

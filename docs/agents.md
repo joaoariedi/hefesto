@@ -38,7 +38,7 @@ Produces a structured review report with `APPROVE` / `REQUEST_CHANGES` / `NEEDS_
 
 ### 📝 review-coordinator
 
-Manages the PR lifecycle — creation, review coordination, feedback integration, and merge. Generates comprehensive PR descriptions with quality metrics. Supports GitHub and GitLab.
+Manages the PR lifecycle up to the merge gate — creation, review coordination, feedback integration. Generates comprehensive PR descriptions with quality metrics. Supports GitHub and GitLab.
 
 **When to use**: When creating PRs or managing review workflows. Spawned by `/hef.pr`. It never merges — PRs are merged one at a time, by the user, each re-tested on the updated base.
 
@@ -122,7 +122,7 @@ Reach for a **subagent** by default — you want an answer, not a colleague. Rea
 **`workflow`** (`workflows/workflow.js`) is the framework's workflow — invoked as `hefesto:workflow` under a plugin install, since plugin components are namespaced. It is named distinctly from the `/hef.implement` **command** on purpose: they are two ways to execute `tasks.md`, and a shared name invited picking the wrong one. It executes `tasks.md` with the orchestration moved into code:
 
 - **Phase order is enforced, not trusted.** Spec-kit declares Phase N+1 blocked by Phase N. A script guarantees that barrier; a model can talk itself into skipping ahead.
-- **The implementer never grades its own homework.** Every task is checked by three agents that did not write it, through *different* lenses — one reads the test diff hunting for a weakened assertion, one checks the requirement rather than the test, one runs the full suite itself. Any single refutation blocks the task. This is the Verification Iron Law made structural.
+- **The implementer never grades its own homework.** Every task is checked by three agents that did not write it, through *different* lenses — one reads the test diff hunting for a weakened assertion, one checks the requirement rather than the test, and one runs that task's own test file itself (the full suite runs once per phase, at the phase gate). Any single refutation blocks the task. This is the Verification Iron Law made structural.
 - **`[P]` is not trusted either.** The marker is model-written and nothing enforces it, so two `[P]` tasks in one phase can name the same file. The script batches them by *actual file disjointness*; a task declaring no files is serialized, because it cannot be proven safe.
 - **`tasks.md` is written once, at the end**, by a single agent — parallel implementers ticking their own checkboxes would race on one file.
 
@@ -143,7 +143,7 @@ spawn teammates → TaskCreate → TaskUpdate (assign or self-claim) → SendMes
 | **Full pipeline** | End-to-end: impl + tests + quality + review + PR |
 | **Research + build** | Deep codebase research while implementing |
 
-Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` — it is opt-in, and shown in step 2️⃣ above. A plugin cannot ship an env var.
+Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` — it is opt-in (see [Install](install.md)). A plugin cannot ship an env var.
 
 ---
 

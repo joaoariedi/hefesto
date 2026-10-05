@@ -19,11 +19,15 @@ The effort boost reverts after the response — no persistent mode change needed
 
 | Mode | How | Best For |
 |------|-----|----------|
-| 🔴 **Opus** (default) | Standard mode | Complex architecture, security reviews |
-| ⚡ **Fast Mode** | Toggle with `/fast` | Quick iterations, bug fixes, exploration |
-| 🧠 **Ultrathink** | Add `ultrathink` to prompt | Deep reasoning on single turn |
-| 🟢 **Haiku** | Agent frontmatter `model: haiku` | Lightweight search, simple edits |
-| 🟡 **Sonnet** | Agent frontmatter `model: sonnet` | Standard agent work |
+| 🟣 **`fable`** | Frontmatter `model: fable` | Judgment gates — short output that gates everything downstream: `hef.brainstorm\|spec\|clarify\|review\|constitution`, `code-reviewer`, `forensic-specialist` |
+| 🔴 **`opus`** | Frontmatter `model: opus` | Drafts that read a lot and get reviewed: `hef.plan\|tasks\|implement\|verify\|fix\|babysit\|quality\|scan\|mutate…`, `quality-guardian`, `test-specialist`, `review-coordinator`, all workflow spawns |
+| 🟡 **`sonnet`** | Frontmatter `model: sonnet` | Mechanical: `hef.init\|pr\|release\|doctor\|adr\|context\|status\|orchestrate`, `repo-scout`, `truth-scout` (the arena overrides its tier per spawn) |
+| ⚡ **Fast Mode** | Toggle with `/fast` | Faster output on quick iterations; priced at Fable's rate |
+| 🧠 **Ultrathink** | Add `ultrathink` to prompt | Deep reasoning on a single turn |
+
+The rule is **cheap generation, expensive judgment** (`.claude/CLAUDE.md`). Aliases name tiers, never
+model ids; each environment binds them (`claude-bedrock()` remaps them to Bedrock models). `haiku` is
+available but no framework component pins it.
 
 Effort levels: `max` (via `/model` only) > `high` (ultrathink) > `medium` (default) > `low`
 
@@ -35,7 +39,7 @@ For long-running sessions, the framework uses the **Document & Clear** pattern:
 2. 🧹 **Clear** — run `/clear` to reset the context window
 3. ▶️ **Resume** — read the progress file and continue from "Next steps"
 
-See `context-management.md` rule for detailed guidance and project scaling strategies (small/medium/large).
+See `.claude/rules/context-management.md` (the 40 % "Dumb Zone" checkpoint threshold) for detailed guidance and project scaling strategies (small/medium/large).
 
 ### 🌐 Multi-Environment Workflows
 

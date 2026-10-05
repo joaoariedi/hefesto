@@ -52,8 +52,7 @@ copy-paste generation prompt.
 
 Read **section 9, "Tested and rejected"**, before regenerating. It records what
 rendering disproved rather than what reasoning predicted — most importantly
-that three concentric arcs radiating from one origin read as the Wi-Fi glyph,
-An earlier draft of the brief recommended them and the first generated cuts
+that three concentric arcs radiating from one origin read as the Wi-Fi glyph. An earlier draft of the brief recommended them and the first generated cuts
 carried them at radii 36/68/100; they were removed from all five files on
 2026-08-19. Do not reintroduce them in any variant.
 

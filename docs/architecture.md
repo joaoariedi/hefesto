@@ -19,7 +19,8 @@ hefesto/
 ├── hooks/                      # 15 hooks + hooks.json; helpers: release.sh, speckit-helper.sh (46 subcommands), status-board.sh, ledger.sh, session-launch.sh, pr-watch.sh, arena-run.sh
 ├── skills/                     # 7 skills, each a <name>/SKILL.md directory
 ├── workflows/                  # workflow.js — the deterministic task-list executor
-├── tests/                      # smoke.sh — the plugin's own test suite
+├── tests/                      # smoke.sh (structural/regression + opt-in live tiers) and workflow.test.js (node --test)
+├── evals/                      # 12 `claude plugin eval` cases (opt-in; /hef.doctor --eval)
 ├── docs/                       # this documentation
 ├── .claude/                    # THIS repo's own config — not plugin payload
 │   ├── CLAUDE.md
@@ -84,18 +85,19 @@ sequenceDiagram
 - **L1 (methodology) shapes thinking, not state.** the SDD pipeline (`/hef.brainstorm`…) defines structure but holds no conversation context.
 - **Sub-agents isolate context.** Dispatched in fresh contexts and discarded — only the digest returns. Primary defence against the >40% "Dumb Zone".
 - **rtk compresses CLI output (60–90%) before it reaches the main context** — the highest-leverage token optimisation in the framework.
-- **MCP / Hooks enforce safety boundaries** the model cannot bypass (gitleaks, sensitive-file block, format-after-edit).
+- **Hooks enforce the gates deterministically** (gitleaks on commit, the sensitive-file and destructive-command blocks, the TaskCompleted test gate); the security boundary itself is OS sandboxing (`/sandbox`), which a string-matching hook cannot be.
 - **Models are stateless** — every layer above exists to give them the right context and route their output safely.
 
 ### Currently In Use vs Available
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| SDD pipeline | ✅ active | Full pipeline incl. `/hef.brainstorm` → `specify` → `plan` → `tasks` → `implement` |
+| SDD pipeline | ✅ active | Full pipeline incl. `/hef.brainstorm` → `spec` → `plan` → `review` → `tasks` → `implement` → `verify` |
 | OpenSpec | ⚪ not adopted | Alternative spec workflow |
 | Superpowers | ⚪ pattern reference | Skill-pack architecture is the influence |
 | Claude Code | ✅ primary runtime | Session model per profile; each command pins a tier |
-| Codex · Opencode · Cursor · Aider | ⚪ alternatives | Same methodology layer would still apply |
+| Codex · Opencode · Cursor · Aider | ⚪ alternatives | Alternative runtimes — the methodology layer would still apply; the Codex and Gemini CLIs are also usable as arena providers |
+| Foreign providers (`codex`, `gemini`, `claude`, `aws`) | ⚙️ opt-in | Declared under `providers` in `.claude/project-status.json`; run read-only by `hooks/arena-run.sh` as `/hef.plan --arena --via` readers and the `/hef.review --second-opinion` source; never the gate; `aws` refused for the arena |
 | MCP: github | ⚙️ project-scoped | Root `.mcp.json`; needs `GITHUB_TOKEN` exported |
 | MCP: Semgrep, Snyk, SonarQube | ⚪ optional | Add only when CLI scans aren't enough |
 | **rtk** | ✅ available (auto-detected per machine) | 60–90% token reduction on common dev commands |
@@ -107,6 +109,22 @@ sequenceDiagram
 ---
 
 
+
+## 🧵 Multi-session orchestration
+
+`/hef.orchestrate` reads the board (a `tasks/` kanban or a GitHub Project, declared in
+`.claude/project-status.json`), registers the item in the **ledger** — one JSON file per item at
+`<git-common-dir>/hefesto/ledger/<id>.json`, shared by every worktree, never committed — and
+`hooks/session-launch.sh` starts a fresh headless worker (`env HEFESTO_WORKER=1 claude -p …`) in
+`.claude/worktrees/<id>` with a tier, a budget cap and a tool allowlist per role (`plan` /
+`implement` / `verify` / `deploy`). A **separate verifier** that never sees the author's transcript
+judges the result; its tier must rank at least the author's. Only the launcher writes the ledger.
+Blocks (`human:*`, `verdict`, `stall`, `budget`, `conflict`, `ci`) are announced at session start to
+the pane that owns them (`orchestrate.panes`); opt-in `orchestrate.publish` writes each item's state
+onto the board and `escalate_after_hours` sends one pointer for a stale human block. `/hef.babysit`
+(`hooks/pr-watch.sh`) keeps a PR moving to the merge gate; `/hef.status` reports AI-delivery metrics
+from the ledger. **No pane and no worker ever merges** — the merge is the human gate. See README §5,
+[install §7](install.md) and `reports/17`.
 
 ## 🖥️ Reference Deployment
 
@@ -135,7 +153,7 @@ The blast-radius asymmetry is deliberate:
 Claude Code's session-portability features pair naturally with this setup:
 
 - ▶️ Start a long-running task on the **always-on workstation** before stepping away
-- 🔄 Resume from the **laptop** later via `/teleport` (see [Multi-Environment Workflows](#-multi-environment-workflows))
+- 🔄 Resume from the **laptop** later via `/teleport` (see [Multi-Environment Workflows](performance.md#-multi-environment-workflows))
 - 📱 Or — start on **mobile** (claude.ai/code), pull into the laptop terminal when home
 
 Critically, the always-on workstation can **autonomously work on GitHub repos** (review PR feedback, run CI, commit fixes) without ever holding production credentials. The laptop holds the keys; the always-on host holds the time.
