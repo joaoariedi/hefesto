@@ -1,4 +1,4 @@
-# Hefesto v7.7
+# Hefesto v7.8
 
 ## Custom Agents
 

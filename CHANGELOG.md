@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased]
+## [7.8.0] - 2026-10-05
 
 ### Added
 - **Providers and arena runners** (HEF-13; report 18 addendum A4, phase 2 of the arena): a `providers`
