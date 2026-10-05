@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased]
+## [7.9.0] - 2026-10-05
 
 ### Added
 - **Branch model** (HEF-15; requested for fxcube, which integrates on `dev` and promotes
