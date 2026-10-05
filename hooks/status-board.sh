@@ -246,20 +246,30 @@ mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (strip
 }
 
 # Routing (external-board FR-002, spec US2): the item's `repo: <name>` body line → "<name>\t<abs path>". It
-# parses the COMMENT-STRIPPED body, the same text --item shows, so a `<!-- repo: … -->` never routes.
+# parses the COMMENT-STRIPPED body, the same text --item shows, so a `<!-- repo: … -->` never routes. The line
+# may be indented and bulleted (`  - repo: ops`, fxcube's format) and end in CR; `**repo:**` is not a repo line.
+repo_lines() { tr -d '\r' | grep -iE '^[[:space:]]*([-*][[:space:]]+)?repo:' | sed -E 's/^[[:space:]]*([-*][[:space:]]+)?[Rr][Ee][Pp][Oo]:[[:space:]]*//'; }
+# A refusal echoes board text OUTSIDE the untrusted delimiters, so a name is shown only as [a-z0-9_-] (anything
+# else → ?), at most 32 characters, and a list beyond 5 names as a count (code review 2026-10-05).
+safe_name() { local n="${1//[^a-z0-9_-]/?}"; printf '%s' "${n:0:32}"; }
+safe_list() { # newline-separated names → "a, b, c" (first 5, then "+N more")
+  local n out="" i=0
+  while IFS= read -r n; do i=$((i + 1)); [ "$i" -le 5 ] && out+="${out:+, }$(safe_name "$n")"; done
+  [ "$i" -gt 5 ] && out+=", +$((i - 5)) more"; printf '%s' "$out"
+}
 item_repo() { # $1 id
   local repos all names n body
   [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ] \
     || die "status-board --item-repo $1: the board is in-repo (no repos map) — routing applies only to an external board (docs/install.md §7 step 13)"
   repos="$(jq -c .repos <<<"$BCTX")"; all="$(jq -r 'keys_unsorted | join(", ")' <<<"$repos")"
   body="$(item_body "$1" raw)" || exit 1
-  names="$(strip_comments <<<"$body" | grep -iE '^repo:' | sed -E 's/^[Rr][Ee][Pp][Oo]:[[:space:]]*//' | tr ',`' '  ' | tr -s ' \t' '\n\n' | sed '/^$/d' | sort -u)" || true
+  names="$(strip_comments <<<"$body" | repo_lines | tr ',`' '  ' | tr -s ' \t' '\n\n' | sed '/^$/d' | sort -u)" || true
   n="$(grep -c . <<<"$names")"
   if [ "$n" -eq 0 ]; then
     [ "$(jq 'length' <<<"$repos")" -eq 1 ] || die "status-board --item-repo $1: names no repo (add \`repo: <name>\` above any ### sub-heading; the board feeds: $all)"
     names="$(jq -r 'keys_unsorted[0]' <<<"$repos")"
-  elif [ "$n" -gt 1 ]; then die "status-board --item-repo $1: targets $n repos ($(paste -sd, <<<"$names" | sed 's/,/, /g')) — split it into one item per repo"; fi
-  jq -e --arg r "$names" 'has($r)' <<<"$repos" >/dev/null || die "status-board --item-repo $1: names repo '$names' the board does not feed ($all)"
+  elif [ "$n" -gt 1 ]; then die "status-board --item-repo $1: targets $n repos ($(safe_list <<<"$names")) — split it into one item per repo"; fi
+  jq -e --arg r "$names" 'has($r)' <<<"$repos" >/dev/null || die "status-board --item-repo $1: names repo '$(safe_name "$names")' the board does not feed ($all)"
   printf '%s\t%s\n' "$names" "$(jq -r --arg r "$names" '.[$r]' <<<"$repos")"
 }
 

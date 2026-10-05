@@ -128,9 +128,10 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    With `--dry-run` every role prints the exact `claude -p` line and claims nothing — use it to review
    the flags (tier, allowlist, permission mode) before the first real run.
 
-6. **After a person merges the PR** (never you): in the main checkout (on an external board, the
-   entry's repo — `ledger.sh` checks the merge there by itself), run with the Bash tool
-   `git fetch origin`, then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` — the helper
+6. **After a person merges the PR** (never you): in the main checkout, run with the Bash tool
+   `git fetch origin` — on an external board, fetch in the ENTRY's repo instead:
+   `git -C <path> fetch origin`, where `<path>` is `repos[<the entry's repo>]` from `ledger.sh board`
+   (`ledger.sh` checks the merge there by itself) — then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` — the helper
    accepts a `human:merge` block only when the branch is an ancestor of the integration branch
    (local or `origin/`; `ledger.sh branches` names it — `main` unless `.branches.integration` says
    otherwise) — then

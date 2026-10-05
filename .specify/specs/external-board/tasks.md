@@ -15,4 +15,4 @@
 - [x] T006 [FR-005] `/hef.orchestrate` pre-flight board, `--repo` registration, routing refusals `commands/hef.orchestrate.md`
 - [x] T007 [SC-001..SC-003] smoke block "External board" — 13 checks, 10 mutations, real common dirs `tests/smoke.sh`
 - [x] T008 [FR-007] install §7 step 13, README §5, hooks.md, architecture, CHANGELOG `docs/`
-- [ ] T009 Gates
+- [x] T009 Gates

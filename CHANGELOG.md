@@ -64,7 +64,10 @@ it is what caught the hand-bumped era:
   - one central ledger in the board repo's git common dir; `init --repo <name>` (required on an
     external board) records each entry's repo, and `next` keeps one worker per repo;
   - `status-board.sh` reads the board from any code repo it feeds; `--item-repo <id>` routes an item
-    by its `repo:` line (comment-stripped), refusing none-with-several, two repos, or an undeclared one;
+    by its `repo:` line (comment-stripped; indented and bulleted lines and CRLF accepted), refusing
+    none-with-several, two repos, or an undeclared one, and echoing names as `[a-z0-9_-]` only;
+  - the resolution lives in `hooks/board-lib.sh`, sourced by `ledger.sh` (which stays under the
+    500-code-line limit);
   - `session-launch.sh` runs each session in the entry's repo with that repo's own `branches`, and the
     board's tiers, caps and allowlists; its dry run starts with `# cwd: <repo>` (external only);
   - `handoff` records the repo it runs in; `unblock human:merge`, `where` and `released` check git in

@@ -406,15 +406,21 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       board config holds the board fields, `orchestrate` (tiers, caps, allowlists, publish, escalate,
       panes) and `kinds`. Each code repo keeps its own `branches`, so ops can integrate on `dev`
       while ui stays on trunk. A config with both `board` and `repos`, a pointer to a board that
-      itself has a `board`, or a config that does not parse is refused, naming the value.
+      itself has a `board`, or a config that does not parse when it names `board` or `repos` is
+      refused, naming the value (an unparseable config that names neither stays in-repo, where the
+      branch model and `/hef.status` report it as before). Every `repos` path must exist on this
+      machine, or every call refuses naming it. Only a `source: tasks-repo` board can be external:
+      routing (`--item-repo`) reads item bodies, which a `github-project` board does not have here.
     - **The pointer is read through the main worktree.** If `.claude/` is ignored (globally, as in
       fxcube), the pointer file is untracked and a linked worktree has none; `ledger.sh` reads it
       from `$(dirname "$(git rev-parse --git-common-dir)")`. Submodules and `--separate-git-dir`
       checkouts are out of scope. External mode needs git; the launcher exports
       `HEFESTO_BOARD_TOP` so every child call, the worker included, resolves the same board.
-    - **Routing.** An item names its repo on a body line `repo: <name>`. The line must sit **above
-      any `###` sub-heading** on a `^#{2,3}` board, because a sub-heading ends the item's body. A
-      `repo:` inside an HTML comment does not count. With no `repo:` line, the item goes to the
+    - **Routing.** An item names its repo on a body line `repo: <name>`, which may be indented and
+      bulleted (`  - repo: ops`, `* repo: ops`) and may end in CRLF; a bold `**repo:**` is **not** a
+      repo line. The line must sit **above any `###` sub-heading** on a `^#{2,3}` board, because a
+      sub-heading ends the item's body. A `repo:` inside an HTML comment does not count. A refusal
+      shows names only as `[a-z0-9_-]` (anything else as `?`, at most 32 characters, five names). With no `repo:` line, the item goes to the
       board's only repo; with several repos it is refused ("names no repo"), as is an item naming
       two repos ("split it into one item per repo") or an undeclared one.
       `status-board.sh --item-repo <id>` prints `<name>` TAB `<path>`; `/hef.orchestrate` reports a

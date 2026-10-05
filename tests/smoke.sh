@@ -1705,7 +1705,7 @@ chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; 
 if sl bogus HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an unknown role"; sl_fail=1; fi
 if sl implement HEF-NOPE --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an id without a ledger entry"; sl_fail=1; fi
 # provider-runners FR-003 — every launched session carries HEFESTO_WORKER=1. Mutation: the env pair removed → red.
-sl_md="$(mktemp -d)"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
+sl_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$sl_md/board-lib.sh"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
 sed -i 's/^CMD=(env HEFESTO_WORKER=1 claude -p/CMD=(claude -p/' "$sl_md/session-launch.sh"; cmp -s "$SL" "$sl_md/session-launch.sh" && { bad "launcher env-pair mutation did not apply"; sl_fail=1; }
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
 sl_mo="$(cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1)"
@@ -1895,7 +1895,7 @@ grep -qE 'gh pr merge|gh pr review|gh api' <<<"$st_defaults" && { bad "a default
 [ "$st_fail" -eq 0 ] && ok "stage roles: next --stage (plan/build/deploy, ordering), plan run (tasks, blocked→unblock→next, failed→resume, mode default), implement on a planned entry, deploy verdicts + refusal, tiers, hooks rule after a config list, no merge verbs (stage-roles FR-001..FR-008, FR-011)"
 
 # Mutations on copies (SC-001). The launcher copy sits beside symlinks to the helpers it calls.
-st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
+st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$st_mutdir/board-lib.sh"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
 SL_MUT="$st_mutdir/session-launch.sh"; LG_MUT="$st_mutdir/ledger-mut.sh"; st_mfail=0
 st_mut() { cp "$SL" "$SL_MUT"; sed -i "$1" "$SL_MUT"; cmp -s "$SL" "$SL_MUT" && { bad "stage-roles mutation did not apply: $1"; st_mfail=1; }; }
 st_lmut() { cp "$LG" "$LG_MUT"; sed -i "$1" "$LG_MUT"; cmp -s "$LG" "$LG_MUT" && { bad "stage-roles ledger mutation did not apply: $1"; st_mfail=1; }; }
@@ -2288,7 +2288,7 @@ pw_out="$(pw in-diff 7 .github/workflows/ci.yml 2>&1)"; pw_rc=$?; { [ "$pw_rc" -
 [ "$pw_fail" -eq 0 ] && ok "pr-watch: --check, resolve refusals, checks buckets/--wait/--after, failed-log, threads stripped+delimited+idempotent, fixes, reply/comment guarded, state verdicts, ledger-id codes, in-diff (FR-001..008, FR-017, FR-018, SC-005)"
 
 # Mutations (constitution 3): each guard reintroduced on a copy must turn a case red.
-pw_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/ledger.sh" "$pw_mutdir/ledger.sh"; PW_MUT="$pw_mutdir/pr-watch.sh"; pw_mfail=0
+pw_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$pw_mutdir/board-lib.sh"; ln -s "$REPO/hooks/ledger.sh" "$pw_mutdir/ledger.sh"; PW_MUT="$pw_mutdir/pr-watch.sh"; pw_mfail=0
 pw_mut() { cp "$PW" "$PW_MUT"; sed -i "$1" "$PW_MUT"; cmp -s "$PW" "$PW_MUT" && { bad "pr-watch mutation did not apply: $1"; pw_mfail=1; }; }
 pw_mut '/untrusted-begin %s %s/c\  printf '"'"'<<<untrusted-begin %s %s\\n%s\\nuntrusted-end %s>>>\\n'"'"' "$1" "$nonce" "$body" "$nonce"'
 pw_out="$(PW_BIN="$PW_MUT" pw threads 7 2>&1)"; grep -qF 'hidden' <<<"$pw_out" || { bad "mutation survived: HTML-comment strip removed, hidden text still absent"; pw_mfail=1; }
@@ -2371,7 +2371,7 @@ ls_out="$(lsl handoff HEF-1 --pr https://github.com/o/r/pull/9 2>&1)"; ls_rc=$?
 lsset HEF-1 '.phase = "merged" | .blocked_on = null'; ls_b="$(ls_snap)"
 lsl handoff HEF-1 --pr https://github.com/o/r/pull/9 >/dev/null 2>&1 && { bad "handoff must refuse an entry past pr"; ls_fail=1; }; [ "$(ls_snap)" = "$ls_b" ] || { bad "a refused handoff wrote the entry"; ls_fail=1; }
 # a failure after the owner write releases the entry instead of stranding it under "hand" (code review 2026-10-02)
-ls_hd="$(mktemp -d)"; cp "$LG" "$ls_hd/ledger.sh"; sed -i 's/^  run)$/  run) [ -n "${LS_FAIL_RUN:-}" ] \&\& exit 1/' "$ls_hd/ledger.sh"; lsl init HF-1 --kind tasks-repo --ref t >/dev/null 2>&1
+ls_hd="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ls_hd/board-lib.sh"; cp "$LG" "$ls_hd/ledger.sh"; sed -i 's/^  run)$/  run) [ -n "${LS_FAIL_RUN:-}" ] \&\& exit 1/' "$ls_hd/ledger.sh"; lsl init HF-1 --kind tasks-repo --ref t >/dev/null 2>&1
 (cd "$ls_t" && LS_FAIL_RUN=1 bash "$ls_hd/ledger.sh" handoff HF-1 --pr https://x/pull/1 >/dev/null 2>&1) && { bad "handoff must fail when its run step fails"; ls_fail=1; }
 lsj HF-1 '.owner == null' || { bad "a failed handoff must release the entry, not strand it owned by hand"; ls_fail=1; }; rm -rf "$ls_hd"
 [ "$ls_fail" -eq 0 ] && ok "ledger handoff: run/pr/branch/worktree/pr/human:merge in one call; refuses bad URL, main, owned, blocked, past-pr without writing (ledger-surfaces FR-001)"
@@ -2463,7 +2463,7 @@ ls_ma="$(grep -oE "PUBLISH_MARKERS_DEFAULT='[^']*'" "$LG")"; ls_mb="$(grep -oE "
   || bad "PANES_DEFAULT (ledger.sh vs session-start) or PUBLISH_MARKERS_DEFAULT (ledger.sh vs status-board.sh) drifted"
 
 # Mutations on copies (constitution 3) — one per guard
-ls_md="$(mktemp -d)"; cp "$SB" "$ls_md/status-board.sh"; LSL_MUT="$ls_md/ledger.sh"; ls_mfail=0
+ls_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ls_md/board-lib.sh"; cp "$SB" "$ls_md/status-board.sh"; LSL_MUT="$ls_md/ledger.sh"; ls_mfail=0
 lsmut() { cp "$LG" "$LSL_MUT"; sed -i "$1" "$LSL_MUT"; cmp -s "$LG" "$LSL_MUT" && { bad "ledger-surfaces mutation did not apply: $1"; ls_mfail=1; }; }
 lsfresh() { lsl init "$1" --kind tasks-repo --ref t >/dev/null 2>&1; }
 lsmut 's/\[ -z "\$K" \] || die "ledger handoff/true || die "ledger handoff/'; lsfresh HM-1; lsl block HM-1 --kind human:intake >/dev/null 2>&1
@@ -2764,7 +2764,7 @@ ikj HEF-22 '.blocked_on.kind == "human:merge"' || { bad "a vulnerability PASS mu
 [ "$ik_vfail" -eq 0 ] && ok "item kinds: the kind gate is required — absent → FAIL, SKIPPED → FAIL with the reason, PASS → human:merge, for incident and vulnerability; feature unaffected; own gate only (item-kinds FR-005)"
 
 # Mutations (constitution 3)
-ik_md="$(mktemp -d)"; ln -s "$LG" "$ik_md/ledger.sh"; ln -s "$SB" "$ik_md/status-board.sh"; ik_mfail=0
+ik_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ik_md/board-lib.sh"; ln -s "$LG" "$ik_md/ledger.sh"; ln -s "$SB" "$ik_md/status-board.sh"; ik_mfail=0
 cp "$SL" "$ik_md/session-launch.sh"; sed -i 's/(.verdict == "PASS" or .verdict == "FAIL")/true/' "$ik_md/session-launch.sh"
 cmp -s "$SL" "$ik_md/session-launch.sh" && { bad "item-kinds mutation (SKIPPED counts) did not apply"; ik_mfail=1; }
 ikl init HEF-26 --kind tasks-repo --ref t --item-kind incident >/dev/null 2>&1; printf '\n## HEF-26 — m\nb\n' >> "$ik_t/tasks/TODO.md"
@@ -3287,7 +3287,7 @@ EB_KCFG="{\"source\":\"tasks-repo\",\"root\":\"tasks\",\"orchestrate\":{\"tiers\
     && printf '.claude/\n' >> "$eb_t/$r/.git/info/exclude" && mkdir -p "$eb_t/$r/.claude" && printf '%s\n' "$r" > "$eb_t/$r/README" \
     && ebg "$eb_t/$r" add README && ebg "$eb_t/$r" commit -q -m init && ebg "$eb_t/$r" push -q origin main; done \
   && mkdir -p "$eb_k/tasks" "$eb_ops/sub" \
-  && printf '# TODO\n\n## OPS-1 — ops one\nrepo: ops\n\n## OPS-2 — ops two\nrepo: ops\n\n## UI-1 — ui one\nrepo: ui\n\n## TWO-1 — both\nrepo: ops, ui\n\n## WEB-1 — undeclared\nrepo: web\n\n## NONE-1 — routed only in a comment\nbody\n<!--\nrepo: ops\n-->\n' > "$eb_k/tasks/TODO.md" \
+  && printf '# TODO\n\n## OPS-1 — ops one\nrepo: ops\n\n## OPS-2 — ops two\nrepo: ops\n\n## UI-1 — ui one\nrepo: ui\n\n## TWO-1 — both\nrepo: ops, ui\n\n## WEB-1 — undeclared\nrepo: web\n\n## NONE-1 — routed only in a comment\nbody\n<!--\nrepo: ops\n-->\n\n## BUL-1 — fxcube bullet\n  - repo: ui\r\n\n## STAR-1 — star bullet\n* repo: ops\n\n## MANY-1 — seven repos\nrepo: a, b, c, d, e, f, g\n\n## BOLD-1 — bold is unsupported\n**repo:** ops\n\n## EVIL-1 — hostile name\nrepo: Z;rm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > "$eb_k/tasks/TODO.md" \
   && for c in DOING DONE BACKLOG; do printf '# %s\n' "$c" > "$eb_k/tasks/$c.md"; done && ebg "$eb_k" add tasks && ebg "$eb_k" commit -q -m board \
   && printf '%s\n' "$EB_KCFG" > "$eb_k/.claude/project-status.json" \
   && printf '{"board":"../kanban","branches":{"integration":"dev","environments":["dev","main"]}}\n' > "$eb_ops/.claude/project-status.json" \
@@ -3322,7 +3322,7 @@ done
 # FR-002 status-board reads the external board from ops and its linked worktree; the item commands too; the
 # board repo itself prints the same board (US1 edge)
 eb_sfail=0; eb_o="$(ebs "$eb_ops" --detailed 2>&1)"
-{ grep -qF 'kanban — Status Board (tasks-repo: tasks/)' <<<"$eb_o" && grep -qE 'todo +6 items' <<<"$eb_o"; } || { bad "status-board from ops must print the kanban board: $(head -c 300 <<<"$eb_o")"; eb_sfail=1; }
+{ grep -qF 'kanban — Status Board (tasks-repo: tasks/)' <<<"$eb_o" && grep -qE 'todo +11 items' <<<"$eb_o"; } || { bad "status-board from ops must print the kanban board: $(head -c 300 <<<"$eb_o")"; eb_sfail=1; }
 [ "$eb_o" = "$(ebs "$eb_k" --detailed 2>&1)" ] || { bad "status-board from the board repo must print the same board as from ops"; eb_sfail=1; }
 eb_o="$(ebs "$eb_wt" --item OPS-1 2>&1)"; grep -qE '^<<<untrusted-begin OPS-1 ' <<<"$eb_o" || { bad "status-board --item from the ops linked worktree must read the board: $eb_o"; eb_sfail=1; }
 [ "$(ebs "$eb_wt" --item-kind UI-1 2>&1)" = feature ] && grep -qxF 'repo: ui' <<<"$(ebs "$eb_ops" --item-raw UI-1 2>&1)" || { bad "status-board --item-kind / --item-raw from a code repo must read the board"; eb_sfail=1; }
@@ -3337,6 +3337,17 @@ for c in 'TWO-1:targets 2 repos (ops, ui) — split it into one item per repo' "
   eb_o="$(ebs "$eb_ops" --item-repo "${c%%:*}" 2>&1)" && { bad "--item-repo ${c%%:*} must be refused, got '$eb_o'"; eb_rfail=1; }
   grep -qF -- "${c#*:}" <<<"$eb_o" || { bad "--item-repo ${c%%:*}: the refusal must say '${c#*:}', got '$eb_o'"; eb_rfail=1; }
 done
+# fxcube's format: an indented bullet with a CRLF ending, a `* ` bullet; `**repo:**` is not a repo line; a hostile
+# name is echoed as [a-z0-9_-] only (refusals print outside the untrusted delimiters)
+[ "$(ebs "$eb_ops" --item-repo BUL-1 2>&1)" = "ui${EB_TAB}$eb_ui" ] && [ "$(ebs "$eb_ops" --item-repo STAR-1 2>&1)" = "ops${EB_TAB}$eb_ops" ] \
+  || { bad "--item-repo must accept '  - repo: ui' (CRLF) and '* repo: ops': $(ebs "$eb_ops" --item-repo BUL-1 2>&1 | tr '\r' '^') / $(ebs "$eb_ops" --item-repo STAR-1 2>&1)"; eb_rfail=1; }
+grep -qF 'names no repo' <<<"$(ebs "$eb_ops" --item-repo BOLD-1 2>&1)" || { bad "**repo:** must not route (documented as unsupported)"; eb_rfail=1; }
+eb_o="$(ebs "$eb_ops" --item-repo EVIL-1 2>&1)"; [ "$eb_o" = "status-board --item-repo EVIL-1: names repo '??rm-aaaaaaaaaaaaaaaaaaaaaaaaaaa' the board does not feed (ops, ui)" ] \
+  || { bad "a refused name must be echoed as [a-z0-9_-] only, got '$eb_o'"; eb_rfail=1; }
+grep -qF 'targets 7 repos (a, b, c, d, e, +2 more)' <<<"$(ebs "$eb_ops" --item-repo MANY-1 2>&1)" || { bad "a long repo list must be cut to 5 names and a count: $(ebs "$eb_ops" --item-repo MANY-1 2>&1)"; eb_rfail=1; }
+# M16 --config still wins over the board config (the root still comes from the board)
+printf '{"source":"tasks-repo","root":"tasks","name":"altboard"}\n' > "$eb_t/alt.json"
+grep -qF 'altboard — Status Board' <<<"$(ebs "$eb_ops" --config "$eb_t/alt.json" 2>&1)" || { bad "status-board --config must win over the external board's config: $(ebs "$eb_ops" --config "$eb_t/alt.json" 2>&1 | head -3)"; eb_rfail=1; }
 [ "$eb_rfail" -eq 0 ] && ok "status-board --item-repo: routes ops and the absolute ui entry; refuses two repos, an undeclared repo, and no repo: line with several repos — a repo: in an HTML comment does not route (external-board US2)"
 
 # FR-003 init --repo writes the CENTRAL ledger (the board's common dir, not the code repo's); required, non-empty,
@@ -3401,10 +3412,15 @@ grep -qF '(diff base: main)' <<<"$(ebx "$eb_ops" verify UI-1 --dry-run)" || { ba
 eb_hfail=0
 ebl "$eb_wt" handoff OPS-1 --pr https://github.com/o/ops/pull/1 >/dev/null 2>&1 || { bad "handoff OPS-1 from the ops worktree failed: $(ebl "$eb_wt" handoff OPS-1 --pr https://github.com/o/ops/pull/1 2>&1)"; eb_hfail=1; }
 ebj OPS-1 ".repo == \"ops\" and .branch == \"OPS-1\" and .worktree == \"$eb_wt\" and .blocked_on.kind == \"human:merge\" and .phase == \"pr\"" || { bad "handoff must record ops, the branch, the worktree and human:merge: $(jq -c '{r:.repo,b:.branch,w:.worktree,k:.blocked_on.kind}' "$eb_k/.git/hefesto/ledger/OPS-1.json")"; eb_hfail=1; }
-ebl "$eb_ops" init HO-1 --kind tasks-repo --ref t --repo ui >/dev/null 2>&1; ebl "$eb_ops" init HO-2 --kind tasks-repo --ref t --repo ops >/dev/null 2>&1
+{ ebl "$eb_ops" init HO-1 --kind tasks-repo --ref t --repo ui && ebl "$eb_ops" init HO-2 --kind tasks-repo --ref t --repo ops; } >/dev/null 2>&1 || { bad "fixture: init HO-1/HO-2 failed"; eb_hfail=1; }
 grep -qF "the entry records repo 'ui', this is 'ops'" <<<"$(ebl "$eb_wt" handoff HO-1 --pr https://github.com/o/ops/pull/2 2>&1)" || { bad "handoff of a ui entry from ops must be refused"; eb_hfail=1; }
 grep -qF 'is not one the board feeds' <<<"$(ebl "$eb_k" handoff HO-2 --pr https://github.com/o/ops/pull/3 --branch feature/x 2>&1)" || { bad "handoff from the board repo (not fed) must be refused"; eb_hfail=1; }
 ebj HO-1 '.owner == null and .blocked_on == null' && ebj HO-2 '.owner == null and .blocked_on == null' || { bad "a refused handoff must leave the entry untouched"; eb_hfail=1; }
+# M18 an OLDER entry with no .repo (registered before external mode, or written by hand): handoff records the caller's repo
+jq 'del(.repo) | .id = "HO-3" | .owner = null | .blocked_on = null | .phase = "queued" | .runs = [] | .pr = null' "$eb_k/.git/hefesto/ledger/OPS-2.json" > "$eb_k/.git/hefesto/ledger/HO-3.json"
+ebj HO-3 'has("repo") | not' || { bad "fixture: HO-3 must start with no repo"; eb_hfail=1; }
+ebl "$eb_wt" handoff HO-3 --pr https://github.com/o/ops/pull/4 --branch feature/ho3 >/dev/null 2>&1 || { bad "handoff of a repo-less entry failed: $(ebl "$eb_wt" handoff HO-3 --pr https://github.com/o/ops/pull/4 --branch feature/ho3 2>&1)"; eb_hfail=1; }
+ebj HO-3 '.repo == "ops" and .blocked_on.kind == "human:merge"' || { bad "handoff of an entry with no .repo must record the caller's repo (ops): $(jq -c '{r:.repo,k:.blocked_on.kind}' "$eb_k/.git/hefesto/ledger/HO-3.json")"; eb_hfail=1; }
 [ "$eb_hfail" -eq 0 ] && ok "ledger handoff from the ops linked worktree records ops; another repo's entry and a repo the board does not feed are refused (external-board FR-006 US5)"
 
 # FR-006 publish marks the board file in the board repo (never the code repo); escalate names sessions after the
@@ -3415,6 +3431,15 @@ ebl "$eb_ops" publish OPS-1 >/dev/null 2>&1 || { bad "publish OPS-1 from ops fai
   || { bad "publish must mark the kanban TODO.md heading and touch no code repo: $(grep OPS-1 "$eb_k/tasks/TODO.md" | head -1)"; eb_pfail=1; }
 grep -qxF "kanban-deploy${EB_TAB}ledger OPS-1 blocked_on human:merge https://github.com/o/ops/pull/1" <<<"$(ebl "$eb_ops" escalate 2>&1)" || { bad "escalate must name the session after the board top (kanban-deploy): $(ebl "$eb_ops" escalate 2>&1)"; eb_pfail=1; }
 grep -qF 'ledger: OPS-1 blocked_on human:merge' <<<"$(printf '{"cwd":"%s","source":"startup"}' "$eb_wt" | bash "$REPO/hooks/session-start-context.sh" 2>&1)" || { bad "session-start in the ops worktree must show the central ledger's blocked line"; eb_pfail=1; }
+# M17 the pane names come from the BOARD config's orchestrate.panes (a custom pane), for escalate and session start
+jq '.orchestrate.panes = {"merge-gate": ["human:merge"]}' <<<"$EB_KCFG" > "$eb_k/.claude/project-status.json"
+grep -qxF "kanban-merge-gate${EB_TAB}ledger OPS-1 blocked_on human:merge https://github.com/o/ops/pull/1" <<<"$(ebl "$eb_ops" escalate 2>&1)" || { bad "escalate must take the pane from the board config's orchestrate.panes: $(ebl "$eb_ops" escalate 2>&1)"; eb_pfail=1; }
+grep -qF 'OPS-1 blocked_on human:merge since' <<<"$(printf '{"cwd":"%s","source":"startup"}' "$eb_wt" | bash "$REPO/hooks/session-start-context.sh" 2>&1 | grep 'merge-gate pane')" || { bad "session-start must name the board config's custom pane (merge-gate)"; eb_pfail=1; }
+printf '%s\n' "$EB_KCFG" > "$eb_k/.claude/project-status.json"
+# M13 a pointer to a board that is gone: session start fails OPEN — exit 0, the in-repo context still printed
+eb_lost="$eb_t/lost"; ( git init -q -b main "$eb_lost" && mkdir -p "$eb_lost/.claude" && printf '{"board":"../nowhere"}\n' > "$eb_lost/.claude/project-status.json" ) >/dev/null 2>&1
+eb_o="$(printf '{"cwd":"%s","source":"startup"}' "$eb_lost" | bash "$REPO/hooks/session-start-context.sh" 2>&1)"; eb_rc=$?
+{ [ "$eb_rc" -eq 0 ] && grep -qF 'hefesto session context (startup): branch main' <<<"$eb_o" && grep -qF 'hefesto routing:' <<<"$eb_o"; } || { bad "session start with a missing board must exit 0 and still print the context (rc=$eb_rc): $(head -c 200 <<<"$eb_o")"; eb_pfail=1; }
 printf '#!/bin/bash\nexit 0\n' > "$eb_bin/gh"; chmod +x "$eb_bin/gh"
 [ "$( cd "$eb_wt" && HEFESTO_GH_BIN="$eb_bin/gh" bash "$REPO/hooks/pr-watch.sh" ledger-id https://github.com/o/ops/pull/1 2>&1)" = OPS-1 ] || { bad "pr-watch ledger-id from the ops worktree must find OPS-1 in the central ledger"; eb_pfail=1; }
 [ "$eb_pfail" -eq 0 ] && ok "publish marks the board file in the board repo; escalate names kanban-*; session-start and pr-watch ledger-id from the ops worktree read the central ledger (external-board FR-006)"
@@ -3440,7 +3465,9 @@ eb_cfail=0; eb_ir="$eb_t/inrepo"
 { [ "$(ebl "$eb_t/inrepo-wt" branches | jq -r .integration)" = dev ] && ebl "$eb_t/inrepo-wt" branches --configured && [ "$(ebl "$eb_ir" branches | jq -r .integration)" = main ] && ! ebl "$eb_ir" branches --configured; } \
   || { bad "an in-repo linked worktree must read its OWN tracked .branches (dev), main its own (main)"; eb_cfail=1; }
 jq -e '.mode == "in-repo" and .repos == null and .repo == null' <<<"$(ebl "$eb_ir" board)" >/dev/null 2>&1 || { bad "an unconfigured-board repo must resolve in-repo: $(ebl "$eb_ir" board 2>&1)"; eb_cfail=1; }
-ebl "$eb_ir" init SOLO-1 --kind tasks-repo --ref t >/dev/null 2>&1; jq -e 'has("repo") | not' "$eb_ir/.git/hefesto/ledger/SOLO-1.json" >/dev/null 2>&1 || { bad "an in-repo init must not add a repo key"; eb_cfail=1; }
+jq -e ".mode == \"external\" and .board_top == \"$eb_k\" and .repo == null" <<<"$(HEFESTO_BOARD_TOP="$eb_k" ebl "$eb_ir" board 2>&1)" >/dev/null 2>&1 || { bad "HEFESTO_BOARD_TOP must make a repo with no pointer resolve external: $(HEFESTO_BOARD_TOP="$eb_k" ebl "$eb_ir" board 2>&1)"; eb_cfail=1; }
+[ "$(ebs "$eb_ir" --item-repo SOLO-1 2>&1)" = "status-board --item-repo SOLO-1: the board is in-repo (no repos map) — routing applies only to an external board (docs/install.md §7 step 13)" ] || { bad "in-repo --item-repo must be refused with its exact message: $(ebs "$eb_ir" --item-repo SOLO-1 2>&1)"; eb_cfail=1; }
+ebl "$eb_ir" init SOLO-1 --kind tasks-repo --ref t >/dev/null 2>&1 || { bad "fixture: in-repo init SOLO-1 failed"; eb_cfail=1; }; jq -e 'has("repo") | not' "$eb_ir/.git/hefesto/ledger/SOLO-1.json" >/dev/null 2>&1 || { bad "an in-repo init must not add a repo key"; eb_cfail=1; }
 grep -qF "board is in-repo" <<<"$(ebl "$eb_ir" init SOLO-2 --kind tasks-repo --ref t --repo ops 2>&1)" || { bad "init --repo on an in-repo board must be refused"; eb_cfail=1; }
 eb_o="$(ebx "$eb_ir" implement SOLO-1 --dry-run)"; grep -qE '^env HEFESTO_WORKER=1 claude -p ' <<<"$(head -1 <<<"$eb_o")" || { bad "an in-repo dry run must have no # cwd line: $(head -1 <<<"$eb_o")"; eb_cfail=1; }
 cp "$SB" "$eb_alone/status-board.sh"   # status-board alone = today's code path, the yardstick for "unchanged"
@@ -3472,9 +3499,10 @@ ebcr '{"board":"../b2"}' '{"source":"tasks-repo","root":"tasks","repos":{"ui":".
 [ "$eb_xfail" -eq 0 ] && ok "ledger board refuses, naming the value: a missing path, no board config, a chained pointer, board+repos, a repos shape, name and path; a one-repo board routes an unlabelled item (external-board FR-001 US2)"
 
 # 1 the pointer ignored → ops resolves in-repo, status-board from ops loses the board
-ebm ledger.sh 's/elif .board != null then "pointer"/elif false then "pointer"/'
-[ "$(EB_LG="$EB_ML" ebl "$eb_ops" board 2>/dev/null | jq -r .mode)" = in-repo ] || { bad "pointer mutant did not resolve in-repo"; eb_mfail=1; }
-grep -qF 'kanban — Status Board' <<<"$(EB_SB="$EB_MS" ebs "$eb_ops" 2>&1)" && { bad "mutation survived: the pointer ignored, ops still prints the kanban board"; eb_mfail=1; }
+ebm board-lib.sh 's/elif .board != null then "pointer"/elif false then "pointer"/'
+[ "$(EB_LG="$EB_ML" ebl "$eb_ops" board 2>/dev/null | jq -r .mode)" = in-repo ] || { bad "pointer mutant did not resolve in-repo: $(EB_LG="$EB_ML" ebl "$eb_ops" board 2>&1)"; eb_mfail=1; }
+eb_o="$(EB_SB="$EB_MS" ebs "$eb_ops" 2>&1)"; grep -qF "\"source\" must be \"github-project\" or \"tasks-repo\" (got '<none>') in $eb_ops/.claude/project-status.json" <<<"$eb_o" || { bad "pointer mutant: status-board must read ops's own pointer config as the board: $eb_o"; eb_mfail=1; }
+grep -qF 'kanban — Status Board' <<<"$eb_o" && { bad "mutation survived: the pointer ignored, ops still prints the kanban board"; eb_mfail=1; }
 # 2 the central ledger dir → init from ops lands in ops's own git dir
 ebm ledger.sh 's/^  if is_external; then$/  if false; then/'
 EB_LG="$EB_ML" ebl "$eb_ops" init MUT-2 --kind tasks-repo --ref t --repo ops >/dev/null 2>&1 && [ -f "$eb_ops/.git/hefesto/ledger/MUT-2.json" ] || { bad "central-ledger mutant did not write ops's own ledger"; eb_mfail=1; }
@@ -3486,24 +3514,25 @@ grep -qF 'targets 2 repos' <<<"$eb_o" && { bad "mutation survived: the two-repo 
 # 5 cd "$TOP" before a new-worktree launch → the worker would start in ops
 ebm session-launch.sh 's/else cd "\$TOP" || die "session-launch: cannot enter \$TOP"; CMD+=(-w/else CMD+=(-w/'
 eb_o="$(EB_SL="$eb_md/session-launch.sh" ebx "$eb_ops" implement OPS-2 --dry-run)"; grep -qF -- '-w OPS-2' <<<"$eb_o" || { bad "cd mutant produced no launch line: $(head -c 200 <<<"$eb_o")"; eb_mfail=1; }
-ebl "$eb_ops" init UI-9 --kind tasks-repo --ref t --repo ui >/dev/null 2>&1; printf '\n## UI-9 — nine\nrepo: ui\n' >> "$eb_k/tasks/TODO.md"
-[ "$(EB_SL="$eb_md/session-launch.sh" ebx "$eb_ops" implement UI-9 --dry-run | head -1)" = "# cwd: $eb_ui" ] && { bad "mutation survived: cd \$TOP removed, the ui launch still starts in ui"; eb_mfail=1; }
+ebl "$eb_ops" init UI-9 --kind tasks-repo --ref t --repo ui >/dev/null 2>&1 || { bad "fixture: init UI-9 failed"; eb_mfail=1; }; printf '\n## UI-9 — nine\nrepo: ui\n' >> "$eb_k/tasks/TODO.md"
+eb_o="$(EB_SL="$eb_md/session-launch.sh" ebx "$eb_ops" implement UI-9 --dry-run)"
+[ "$(head -1 <<<"$eb_o")" = "# cwd: $eb_ops" ] && grep -qF -- '-w UI-9' <<<"$eb_o" || { bad "cd mutant must launch the ui item from ops (# cwd: $eb_ops) — the mutation survived or crashed: $(head -c 200 <<<"$eb_o")"; eb_mfail=1; }
 # 6 the main-worktree resolution → the ops linked worktree (no pointer file) falls back to in-repo
-ebm ledger.sh 's/then main=\$(main_top) || main="\$top"; else/then main="$top"; else/'
+ebm board-lib.sh 's/then main=\$(main_top) || main="\$top"; else/then main="$top"; else/'
 [ "$(EB_LG="$EB_ML" ebl "$eb_ops" board 2>/dev/null | jq -r .mode)" = external ] || { bad "main-worktree mutant must still resolve from the main checkout"; eb_mfail=1; }
-[ "$(EB_LG="$EB_ML" ebl "$eb_wt" board 2>/dev/null | jq -r .mode)" = external ] && { bad "mutation survived: main-worktree resolution removed, the linked worktree still external"; eb_mfail=1; }
+[ "$(EB_LG="$EB_ML" ebl "$eb_wt" board 2>/dev/null | jq -r .mode)" = in-repo ] || { bad "mutation survived (or crashed): main-worktree resolution removed, the linked worktree must fall back to in-repo: $(EB_LG="$EB_ML" ebl "$eb_wt" board 2>&1)"; eb_mfail=1; }
 # 7 --configured reading repo_config → from the ops worktree (no file of its own) it reads nothing
 ebm ledger.sh 's/c=\$(repo_config) || exit 1   # the same file/c=$(project_config) || exit 1   # the same file/'
-EB_LG="$EB_ML" ebl "$eb_wt" branches --configured 2>/dev/null; [ $? -eq 2 ] && { bad "--configured mutant crashed instead of answering"; eb_mfail=1; }
-EB_LG="$EB_ML" ebl "$eb_wt" branches --configured 2>/dev/null && { bad "mutation survived: --configured off repo_config, the ops worktree still declared"; eb_mfail=1; }
+EB_LG="$EB_ML" ebl "$eb_wt" branches --configured 2>/dev/null; eb_rc=$?
+[ "$eb_rc" -eq 1 ] || { bad "mutation survived (or crashed): --configured off repo_config must answer 1 (not declared) from the ops worktree, got rc=$eb_rc"; eb_mfail=1; }
 ebl "$eb_wt" branches --configured || { bad "branches --configured from the ops worktree must exit 0 (main worktree's .branches)"; eb_mfail=1; }
 # 8 the unblock cd → git runs in the board repo, where the branch resolves nowhere
-ebl "$eb_ops" init MUT-8 --kind tasks-repo --ref t --repo ops >/dev/null 2>&1; ebl "$eb_ops" record MUT-8 --branch OPS-1 >/dev/null 2>&1; ebl "$eb_ops" block MUT-8 --kind human:merge >/dev/null 2>&1
+{ ebl "$eb_ops" init MUT-8 --kind tasks-repo --ref t --repo ops && ebl "$eb_ops" record MUT-8 --branch OPS-1 && ebl "$eb_ops" block MUT-8 --kind human:merge; } >/dev/null 2>&1 || { bad "fixture: MUT-8 setup failed"; eb_mfail=1; }
 ebm ledger.sh 's/^        cd_entry_repo "\$E" || exit 1   # external-board: run from the board repo/        true   # external-board: run from the board repo/'
 grep -qF 'resolves to no commit' <<<"$(EB_LG="$EB_ML" ebl "$eb_k" unblock MUT-8 2>&1)" || { bad "mutation survived: the unblock cd removed, the board repo still resolved OPS-1"; eb_mfail=1; }
 ebl "$eb_k" unblock MUT-8 >/dev/null 2>&1 || { bad "unblock MUT-8 from the board must pass (OPS-1 is in ops's dev)"; eb_mfail=1; }
 # 9 comment-stripped routing → the <!-- repo: ops --> in NONE-1 routes
-ebm status-board.sh 's/names="\$(strip_comments <<<"\$body" | grep/names="$(cat <<<"$body" | grep/'
+ebm status-board.sh 's/names="\$(strip_comments <<<"\$body" | repo_lines/names="$(cat <<<"$body" | repo_lines/'
 [ "$(EB_SB="$EB_MS" ebs "$eb_ops" --item-repo NONE-1 2>&1)" = "ops${EB_TAB}$eb_ops" ] || { bad "mutation survived: routing on the raw body, the commented repo: line still ignored ($(EB_SB="$EB_MS" ebs "$eb_ops" --item-repo NONE-1 2>&1))"; eb_mfail=1; }
 # 10 the empty --repo refusal → an empty value reaches the membership check instead of being named
 ebm ledger.sh 's/\[ -n "\$RNAME" \] || die "ledger init \$ID: --repo is empty/true || die "ledger init $ID: --repo is empty/'
