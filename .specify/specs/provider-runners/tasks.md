@@ -16,4 +16,4 @@
 
 ## Phase 4: Polish
 - [x] T007 [FR-006] [FR-007] docs: install.md step 11 Providers, hooks.md, commands.md, architecture.md, CHANGELOG, board `docs/`
-- [ ] T008 Gates
+- [x] T008 Gates

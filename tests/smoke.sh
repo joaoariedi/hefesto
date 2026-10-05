@@ -1699,7 +1699,9 @@ if sl implement HEF-NOPE --dry-run >/dev/null 2>&1; then bad "session-launch mus
 sl_md="$(mktemp -d)"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
 sed -i 's/^CMD=(env HEFESTO_WORKER=1 claude -p/CMD=(claude -p/' "$sl_md/session-launch.sh"; cmp -s "$SL" "$sl_md/session-launch.sh" && { bad "launcher env-pair mutation did not apply"; sl_fail=1; }
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
-(cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1) | grep -qE '^env HEFESTO_WORKER=1 claude -p ' && { bad "mutation survived: env pair removed, dry run still shows it"; sl_fail=1; }
+sl_mo="$(cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1)"
+grep -qE '^claude -p ' <<<"$sl_mo" || { bad "launcher env-pair mutant did not produce a claude line: $(head -c 200 <<<"$sl_mo")"; sl_fail=1; }
+grep -qE '^env HEFESTO_WORKER=1 claude -p ' <<<"$sl_mo" && { bad "mutation survived: env pair removed, dry run still shows it"; sl_fail=1; }
 rm -rf "$sl_t" "$sl_cfg" "$sl_md"
 [ "$sl_fail" -eq 0 ] && ok "session-launch --dry-run: flags per role, sanitised prompt, no claim, no transcript flags, tier rank, model-id refusal, defaults, sandboxed-host refusal (FR-009 FR-010 FR-012 FR-020)"
 
@@ -2922,7 +2924,9 @@ if [ -x "$ARN" ]; then ok "hook arena-run.sh exists and is executable"; else bad
 # fakes plus a few system tools, so a real claude/codex/gemini/aws on this machine never answers a test.
 pr_t="$(mktemp -d)"; pr_bin="$(mktemp -d)"; pr_bin2="$(mktemp -d)"; pr_none="$(mktemp -d)"; pr_sys="$(mktemp -d)"; pr_home="$(mktemp -d)"; pr_md="$(mktemp -d)"
 pr_log="$pr_bin/calls"; pr_fail=0
-for b in bash jq git timeout mktemp rm cp tail grep cat wc basename sleep dirname tr sed head env; do p="$(command -v "$b")" && ln -s "$p" "$pr_sys/$b"; done
+for b in bash jq git mktemp rm cp tail grep cat wc basename sleep dirname tr sed head env cut; do p="$(command -v "$b")" && ln -s "$p" "$pr_sys/$b"; done
+# a logging shim over the real timeout (FakeTimeout): pins `-k 10` and the default seconds
+printf '#!/bin/bash\necho "timeout $*" | cut -d" " -f1-4 >> "$PR_LOG.timeout"\nexec %s "$@"\n' "$(command -v timeout)" > "$pr_sys/timeout"; chmod +x "$pr_sys/timeout"
 cat > "$pr_bin/fake-vendor-cli" <<'STEOF'
 #!/bin/bash
 n=$(basename "$0")
@@ -2930,7 +2934,8 @@ n=$(basename "$0")
 if [ "$n" = aws ]; then len=0; for a in "$@"; do case "$a" in file://*) len=$(jq -j '.[0].content[0].text' "${a#file://}" | wc -c) ;; esac; done
 else len=$(wc -c); fi
 echo "$n stdin=$len" >> "$PR_LOG"
-case "${PR_MODE:-}" in empty) exit 0 ;; fail) echo "boom from $n" >&2; exit 3 ;; sleep) sleep 5; exit 0 ;; esac
+case "${PR_MODE:-}" in empty) exit 0 ;; fail) echo "boom from $n" >&2; exit 3 ;; sleep) echo "still thinking from $n" >&2; sleep 5; exit 0 ;; esac
+[ "${PR_MODE:-}" = reasoning ] && [ "$n" = aws ] && { jq -nc '{output: {message: {content: [{reasoningContent: {reasoningText: {text: "hmm"}}}, {text: "aws answer"}]}}}'; exit 0; }
 case "$n" in
   codex) echo "src/a.py:9 progress noise"; prev=""; for a in "$@"; do [ "$prev" = --output-last-message ] && echo "codex final answer" > "$a"; prev="$a"; done ;;
   aws) jq -nc '{output: {message: {content: [{text: "aws answer"}]}}}' ;;
@@ -2978,6 +2983,12 @@ pr_o="$(prr cl p.md 2>&1)"; { [ "$pr_o" = "claude answer" ] && grep -qxF 'claude
   || { bad "aws runner: converse argv with file:// messages, json output, no read timeout, no pager, region; text extracted — got '$pr_o' / $(tr '\n' '|' < "$pr_log")"; pr_rfail=1; }
 : > "$pr_log"; pr_o="$(prr cl big.md 2>&1)" && pr_o2="$(prr bedrock_x big.md 2>&1)"
 { grep -qxF 'claude stdin=200000' "$pr_log" && grep -qxF 'aws stdin=200000' "$pr_log"; } || { bad "a 200,000-byte prompt (> the 128 KiB per-argument limit) must round-trip on stdin / file:// — got $(tr '\n' '|' < "$pr_log" | cut -c1-400)"; pr_rfail=1; }
+grep -qxF 'timeout -k 10 540' "$pr_log.timeout" || { bad "the default run must be timeout -k 10 540 — got $(sort -u "$pr_log.timeout" | tr '\n' '|')"; pr_rfail=1; }
+: > "$pr_log"; pr_o="$(PR_MODE=reasoning prr bedrock_x p.md 2>&1)"; [ "$pr_o" = "aws answer" ] || { bad "a reasoning model's answer (content[1].text after reasoningContent) must be relayed, got '$pr_o'"; pr_rfail=1; }
+pr_o="$(prr bedrock_x p.md 2>&1)"; [ "$pr_o" = "aws answer" ] || { bad "the default --purpose is review, where aws is allowed — got '$pr_o'"; pr_rfail=1; }
+prc ',"providers":{"bnoreg":{"via":"aws","model":"some.model"}}'; : > "$pr_log"; prr bnoreg p.md >/dev/null 2>&1
+{ grep -q '^aws argv:' "$pr_log" && ! grep -qF '[--region]' "$pr_log"; } || { bad "aws without a region must not pass --region: $(tr '\n' '|' < "$pr_log")"; pr_rfail=1; }
+printf '%s\n' "$pr_cfg" > "$pr_t/.claude/project-status.json"
 [ "$pr_rfail" -eq 0 ] && ok "arena-run runners: claude/codex/gemini/aws argv exact, prompt on stdin or file:// (200 KB round-trips), codex progress not relayed, aws text extracted (provider-runners FR-002)"
 
 # FR-002 refusals and failures — each names its reason; nothing reaches a vendor CLI when refused
@@ -2985,14 +2996,30 @@ pr_ffail=0
 pr_o="$(PR_MODE=empty prr gemini p.md 2>&1)" && { bad "an empty answer must fail"; pr_ffail=1; }; grep -qF 'returned nothing' <<<"$pr_o" || { bad "empty: '$pr_o'"; pr_ffail=1; }
 pr_o="$(PR_MODE=empty prr codex p.md 2>&1)" && { bad "codex with no last message must fail"; pr_ffail=1; }
 pr_o="$(PR_MODE=fail prr cl p.md 2>&1)" && { bad "a failing CLI must fail"; pr_ffail=1; }; { grep -qF 'exited 3' <<<"$pr_o" && grep -qF 'boom from claude' <<<"$pr_o"; } || { bad "failure must carry the exit code and the CLI's stderr: '$pr_o'"; pr_ffail=1; }
-pr_o="$(PR_MODE=sleep prr cl p.md --timeout 1 2>&1)" && { bad "a timed-out CLI must fail"; pr_ffail=1; }; grep -qF 'timed out after 1s' <<<"$pr_o" || { bad "timeout: '$pr_o'"; pr_ffail=1; }
+pr_o="$(PR_MODE=sleep prr cl p.md --timeout 1 2>&1)" && { bad "a timed-out CLI must fail"; pr_ffail=1; }; grep -qF 'timed out after 1s: still thinking from claude' <<<"$pr_o" || { bad "timeout must name the seconds and the CLI's last stderr line: '$pr_o'"; pr_ffail=1; }
+grep -qxF 'timeout -k 10 1' "$pr_log.timeout" || { bad "--timeout 1 must reach timeout as -k 10 1"; pr_ffail=1; }
+pr_o="$(prr cl p.md --timeout 0 2>&1)" && { bad "--timeout 0 (no timeout at all) must be refused"; pr_ffail=1; }; grep -qF 'positive number of seconds' <<<"$pr_o" || { bad "--timeout 0: '$pr_o'"; pr_ffail=1; }
 : > "$pr_log"
 pr_o="$(cd "$pr_t" && HEFESTO_WORKER=1 PATH="$pr_bin:$pr_sys" PR_LOG="$pr_log" HOME="$pr_home" bash "$ARN" cl p.md 2>&1)" && { bad "arena-run inside a launched worker must refuse"; pr_ffail=1; }
 grep -qF 'never from a launched worker' <<<"$pr_o" || { bad "worker refusal must say why: '$pr_o'"; pr_ffail=1; }
 chmod 555 "$pr_home"; pr_o="$(prr cl p.md 2>&1)"; pr_rc=$?; chmod 755 "$pr_home"
 { [ "$pr_rc" -ne 0 ] && grep -qF 'is not writable' <<<"$pr_o"; } || { bad "a run from a sandboxed shell must refuse (rc=$pr_rc): $pr_o"; pr_ffail=1; }
 pr_o="$(prr bedrock_x p.md --purpose arena 2>&1)" && { bad "aws for --purpose arena must refuse"; pr_ffail=1; }; grep -qF 'message API' <<<"$pr_o" || { bad "aws-arena refusal: '$pr_o'"; pr_ffail=1; }
-[ -s "$pr_log" ] && { bad "a refused run must never reach a vendor CLI: $(tr '\n' '|' < "$pr_log")"; pr_ffail=1; }
+pr_o="$(cd "$pr_t" && HEFESTO_WORKER=true PATH="$pr_bin:$pr_sys" PR_LOG="$pr_log" HOME="$pr_home" bash "$ARN" cl p.md 2>&1)" && { bad "any non-empty HEFESTO_WORKER (not only 1) must refuse"; pr_ffail=1; }
+# config values are data: a file:// model (the AWS CLI would read the file), a leading '-', an injected inference key,
+# a non-object entry, a tier name, an aws provider without a model, a bad name on the run path
+for c in 'fm:{"via":"aws","model":"file:///etc/hostname"}:must look like an id' 'fr:{"via":"aws","model":"m","region":"fileb://x"}:must look like an id' \
+         'dash:{"via":"claude","model":"--dangerous"}:must look like an id' 'mt:{"via":"aws","model":"m","max_tokens":"10,temperature=1"}:max_tokens' \
+         'nomodel:{"via":"aws"}:needs a model' 'str:"codex":must be objects' 'opus:{"via":"codex"}:is a Claude tier' 'Bad:{"via":"codex"}:must match [a-z0-9_]+'; do
+  pn="${c%%:*}"; rest="${c#*:}"; pv="${rest%:*}"; pm="${rest##*:}"
+  prc ",\"providers\":{\"$pn\":$pv}"; pr_o="$(prr "$pn" p.md 2>&1)" && { bad "provider $pn=$pv must be refused"; pr_ffail=1; }
+  grep -qF -- "$pm" <<<"$pr_o" || { bad "provider $pn=$pv: the refusal must say '$pm', got '$pr_o'"; pr_ffail=1; }
+done
+prc ',"providers":{"ok1":{"via":"aws","model":"arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.vendor.model-v1:0","region":"us-east-1","max_tokens":2048}}'
+[ "$(prr ok1 p.md 2>&1)" = "aws answer" ] || { bad "an ARN-shaped model id with a region and an integer max_tokens must run"; pr_ffail=1; }
+grep -qF '[maxTokens=2048]' "$pr_log" || { bad "a configured max_tokens must reach --inference-config"; pr_ffail=1; }
+printf '%s\n' "$pr_cfg" > "$pr_t/.claude/project-status.json"; : > "$pr_log"
+grep -q argv "$pr_log" && { bad "a refused run must never reach a vendor CLI: $(tr '\n' '|' < "$pr_log")"; pr_ffail=1; }
 pr_o="$(prr nosuch p.md 2>&1)" && { bad "an undeclared provider must fail"; pr_ffail=1; }; grep -qF "no provider 'nosuch'" <<<"$pr_o" || { bad "undeclared provider: '$pr_o'"; pr_ffail=1; }
 prr cl p.md --purpose deploy >/dev/null 2>&1 && { bad "--purpose outside arena|review must fail"; pr_ffail=1; }
 prr cl missing.md >/dev/null 2>&1 && { bad "a missing prompt file must fail"; pr_ffail=1; }
@@ -3001,7 +3028,7 @@ prr cl missing.md >/dev/null 2>&1 && { bad "a missing prompt file must fail"; pr
 # Mutations (constitution 3) — each guard removed in a copy; the case that pins it must turn red
 pr_mfail=0
 prm() { cp "$ARN" "$pr_md/ar.sh"; sed -i "$1" "$pr_md/ar.sh"; cmp -s "$ARN" "$pr_md/ar.sh" && { bad "provider-runners mutation did not apply: $1"; pr_mfail=1; }; }
-prm '/HEFESTO_WORKER:-}" = 1 \] \&\& die/d'
+prm '/^\[ -n "\${HEFESTO_WORKER:-}" \] \&\& /d'
 (cd "$pr_t" && HEFESTO_WORKER=1 PATH="$pr_bin:$pr_sys" PR_LOG="$pr_log" HOME="$pr_home" bash "$pr_md/ar.sh" cl p.md >/dev/null 2>&1) && pr_k=1 || pr_k=0; [ "$pr_k" = 1 ] || { bad "mutation survived: worker refusal removed, a worker run still refused"; pr_mfail=1; }
 prm 's/^host_ok() { .*/host_ok() { true; }/'
 chmod 555 "$pr_home"; PR_AR="$pr_md/ar.sh" prr cl p.md >/dev/null 2>&1 && pr_k=1 || pr_k=0; chmod 755 "$pr_home"; [ "$pr_k" = 1 ] || { bad "mutation survived: host check removed, a sandboxed run still refused"; pr_mfail=1; }
@@ -3012,9 +3039,12 @@ prm '/\[ "\$VIA" = aws \] \&\& \[ "\$PURPOSE" = arena \] \&\& die/d'
 [ "$(PR_AR="$pr_md/ar.sh" prr bedrock_x p.md --purpose arena 2>&1)" = "aws answer" ] || { bad "mutation survived: aws-arena refusal removed, still refused"; pr_mfail=1; }
 prm 's|> "\$TMP/progress"|> "$OUT"|; s|\[ -f "\$TMP/last" \] \&\& cp "\$TMP/last" "\$OUT"|:|'
 PR_AR="$pr_md/ar.sh" prr codex p.md 2>&1 | grep -qF 'progress noise' || { bad "mutation survived: codex stdout relayed, yet no progress noise seen"; pr_mfail=1; }
+prm 's/ \&\& "\$2" != \*:\/\/\*//'
+prc ',"providers":{"fm":{"via":"aws","model":"file:///etc/hostname"}}'; PR_AR="$pr_md/ar.sh" prr fm p.md >/dev/null 2>&1 && pr_k=1 || pr_k=0; printf '%s\n' "$pr_cfg" > "$pr_t/.claude/project-status.json"
+[ "$pr_k" = 1 ] || { bad "mutation survived: the '://' refusal removed, a file:// model still refused"; pr_mfail=1; }
 prm '/returned nothing/d'
 PR_MODE=empty PR_AR="$pr_md/ar.sh" prr gemini p.md >/dev/null 2>&1 || { bad "mutation survived: the empty-answer check removed, empty still refused"; pr_mfail=1; }
-[ "$pr_mfail" -eq 0 ] && ok "provider-runners mutations: worker refusal, host check, codex read-only, aws-arena refusal, codex progress relay, empty answer — all caught (SC-002)"
+[ "$pr_mfail" -eq 0 ] && ok "provider-runners mutations: worker refusal, host check, codex read-only, aws-arena refusal, codex progress relay, empty answer, '://' refusal — all caught (SC-002)"
 rm -rf "$pr_t" "$pr_bin" "$pr_bin2" "$pr_none" "$pr_sys" "$pr_home" "$pr_md"
 # FR-004 FR-005 SC-003 — the command wiring
 pw_fail=0

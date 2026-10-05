@@ -16,8 +16,14 @@
 # What is fixed here and why:
 #   * Authentication is the CLI's own. This script reads no key, stores no key, passes no key.
 #   * Detected with `command -v`, never installed, never in the plugin manifest (the optional lane).
-#   * Refused inside a launched worker (HEFESTO_WORKER=1, exported by session-launch.sh): a call to a
+#   * Refused inside a launched worker (HEFESTO_WORKER set, session-launch.sh exports =1): a call to a
 #     second vendor from inside a sandboxed worker is exactly the egress the sandbox exists to stop.
+#     This and the $HOME test below are TRIPWIRES for the careless path, not a boundary — an agent can
+#     unset a variable. The boundary is the worker's OS sandbox.
+#   * Config values are data: model/region must look like an id (no leading '-', no '://' — the AWS CLI
+#     reads `file://<path>` into the request, measured on aws-cli 2.32 by the code review 2026-10-05),
+#     max_tokens a positive integer (a comma would inject more inference keys). Names may not be a
+#     Claude tier (sonnet/opus/fable/haiku): arena/<name>.md would overwrite that scout's digest.
 #   * Refused from a sandboxed shell ($HOME not writable — session-launch.sh FR-020's test): a vendor CLI
 #     there can neither reach its API nor save its state. Run it from an unsandboxed pane.
 #   * The prompt goes on STDIN (or a file:// document for aws), never as an argument: a capped diff plus
@@ -36,7 +42,7 @@ set -uo pipefail
 die() { echo "arena-run: $*" >&2; exit 1; }
 usage() { echo "usage: arena-run.sh --check | <provider> <prompt-file> [--purpose arena|review] [--timeout seconds]" >&2; exit 2; }
 
-[ "${HEFESTO_WORKER:-}" = 1 ] && die "runs from the pane, never from a launched worker — a second vendor called from inside a sandboxed worker is the egress the sandbox exists to stop"
+[ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ] && die "runs from the pane, never from a launched worker — a second vendor called from inside a sandboxed worker is the egress the sandbox exists to stop"
 command -v jq >/dev/null 2>&1 || die "jq not found — install jq: https://jqlang.org"
 TOP="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CONFIG="$TOP/.claude/project-status.json"
@@ -50,9 +56,17 @@ bin_of() { case "$1" in claude) echo claude ;; codex) echo codex ;; gemini) echo
 providers() { # the providers object, or die
   [ -f "$CONFIG" ] || die "no $CONFIG — declare providers there (see docs/install.md, Providers)"
   local p; p=$(jq -ce '.providers | select(type == "object" and length > 0)' "$CONFIG" 2>/dev/null) || die "no providers declared in $CONFIG (.providers is missing, empty or not an object)"
+  local bad; bad=$(jq -r 'to_entries | map(select(.value | type != "object") | .key) | join(", ")' <<<"$p")
+  [ -z "$bad" ] || die "providers $bad in $CONFIG must be objects like {\"via\": \"codex\"}"
   echo "$p"
 }
-check_name() { [[ "$1" =~ ^[a-z0-9_]+$ ]] || die "provider name '$1' must match [a-z0-9_]+ (it becomes an Arena column and a tiers= token)"; }
+check_name() {
+  [[ "$1" =~ ^[a-z0-9_]+$ ]] || die "provider name '$1' must match [a-z0-9_]+ (it becomes an Arena column and a tiers= token)"
+  case "$1" in sonnet|opus|fable|haiku) die "provider name '$1' is a Claude tier — the arena already has a column and a digest by that name; rename it" ;; esac
+}
+check_value() { # $1 field, $2 value, $3 provider — an id-shaped token, never an option or a URL the CLI would fetch
+  [ -z "$2" ] || [[ "$2" =~ ^[A-Za-z0-9][A-Za-z0-9._:/@-]*$ && "$2" != *://* ]] || die "provider $3: $1 '$2' must look like an id (letters, digits, . _ : / @ -; no leading '-', no '://')"
+}
 
 if [ "${1:-}" = --check ]; then
   [ $# -eq 1 ] || usage
@@ -75,13 +89,15 @@ NAME="$1"; F="$2"; shift 2; PURPOSE=review; TO=540
 while [ $# -gt 0 ]; do case "$1" in
   --purpose) PURPOSE="${2:-}"; shift ;; --timeout) TO="${2:-}"; shift ;; *) usage ;; esac; shift; done
 case "$PURPOSE" in arena|review) ;; *) die "--purpose must be arena or review (got '$PURPOSE')" ;; esac
-[[ "$TO" =~ ^[0-9]+$ ]] || die "--timeout takes seconds (got '$TO')"
+[[ "$TO" =~ ^[1-9][0-9]*$ ]] || die "--timeout takes a positive number of seconds (got '$TO'; 0 would mean no timeout)"
 [ -f "$F" ] || die "prompt file not found: '$F'"
 check_name "$NAME"
 host_ok || die "$HOST_MSG"
 P=$(providers) || exit 1
 PV=$(jq -ce --arg n "$NAME" '.[$n] | select(type == "object")' <<<"$P") || die "no provider '$NAME' in $CONFIG (.providers has: $(jq -r 'keys | join(", ")' <<<"$P"))"
-VIA=$(jq -r '.via // ""' <<<"$PV"); MODEL=$(jq -r '.model // ""' <<<"$PV")
+VIA=$(jq -r '.via // ""' <<<"$PV"); MODEL=$(jq -r '.model // ""' <<<"$PV"); REGION=$(jq -r '.region // ""' <<<"$PV"); MAXT=$(jq -r '.max_tokens // 4096' <<<"$PV")
+check_value model "$MODEL" "$NAME"; check_value region "$REGION" "$NAME"
+[[ "$MAXT" =~ ^[1-9][0-9]*$ ]] || die "provider $NAME: max_tokens '$MAXT' must be a positive integer"
 B=$(bin_of "$VIA") || die "provider $NAME has via '$VIA' (expected claude, codex, gemini or aws)"
 [ "$VIA" = aws ] && [ "$PURPOSE" = arena ] && die "$NAME (aws) is a message API — it cannot read the repository; use it for --second-opinion"
 command -v "$B" >/dev/null 2>&1 || die "$B not found for provider $NAME — $(hint "$VIA")"
@@ -104,12 +120,13 @@ case "$VIA" in
     [ -n "$MODEL" ] || die "provider $NAME via aws needs a model (the Bedrock model id, in your config)"
     jq -nc --rawfile t "$F" '[{role: "user", content: [{text: $t}]}]' > "$TMP/messages.json" || die "cannot build the messages document"
     CMD=(aws bedrock-runtime converse --model-id "$MODEL" --messages "file://$TMP/messages.json"
-         --inference-config "maxTokens=$(jq -r '.max_tokens // 4096' <<<"$PV")" --output json --cli-read-timeout 0 --no-cli-pager)
-    R=$(jq -r '.region // ""' <<<"$PV"); [ -n "$R" ] && CMD+=(--region "$R")
-    "$TIMEOUT" -k 10 "$TO" "${CMD[@]}" > "$TMP/raw" 2>"$ERR"; RC=$?
-    [ "$RC" -eq 0 ] && { jq -er '.output.message.content[0].text' "$TMP/raw" > "$OUT" 2>/dev/null || die "$NAME: no .output.message.content[0].text in the converse response"; } ;;
+         --inference-config "maxTokens=$MAXT" --output json --cli-read-timeout 0 --no-cli-pager)
+    [ -n "$REGION" ] && CMD+=(--region "$REGION")
+    "$TIMEOUT" -k 10 "$TO" "${CMD[@]}" < /dev/null > "$TMP/raw" 2>"$ERR"; RC=$?
+    # every text block, in order: a reasoning model puts reasoningContent first and the answer after it
+    [ "$RC" -eq 0 ] && { jq -er '[.output.message.content[]? | .text // empty] | select(length > 0) | join("\n")' "$TMP/raw" > "$OUT" 2>/dev/null || die "$NAME: no text block in .output.message.content of the converse response"; } ;;
 esac
-[ "$RC" -ne 124 ] || die "$NAME timed out after ${TO}s"
+[ "$RC" -ne 124 ] || die "$NAME timed out after ${TO}s: $(tail -1 "$ERR" 2>/dev/null)"
 [ "$RC" -eq 0 ] || die "$NAME ($B) exited $RC: $(tail -1 "$ERR" 2>/dev/null)"
-[ -s "$OUT" ] && grep -q '[^[:space:]]' "$OUT" || die "$NAME ($B) returned nothing — an empty answer is not an answer"
+{ [ -s "$OUT" ] && grep -q '[^[:space:]]' "$OUT"; } || die "$NAME ($B) returned nothing — an empty answer is not an answer"
 cat "$OUT"

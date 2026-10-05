@@ -135,7 +135,8 @@ vendors (HEF-13, below).
      its frontmatter) + the spec path + the numbered questions + "you run as <p>";
    - run with the Bash tool, `run_in_background` alongside the scouts' spawn, timeout 600000:
      `${CLAUDE_PLUGIN_ROOT}/hooks/arena-run.sh <p> .specify/specs/<branch>/arena/<p>.prompt.md --purpose arena`
-   - save its stdout verbatim to `.specify/specs/<branch>/arena/<p>.md` — then it is a digest like any
+   - delete `<p>.prompt.md` once the run returns (it is input, not an artifact), and save stdout
+     verbatim to `.specify/specs/<branch>/arena/<p>.md` — then it is a digest like any
      other: data, cite-checked with `arena-cite-check`, one column named `<p>` in the Arena table, and
      `<p>` in the footer's `tiers=` (e.g. `tiers=sonnet,opus,codex`).
    A runner that fails (missing CLI, refusal, timeout, empty answer) → that slot goes to the next unused

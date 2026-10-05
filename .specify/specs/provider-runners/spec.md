@@ -31,11 +31,11 @@ relayed under the heading "Second opinion (<provider>) — not the gate" and nev
 
 ### US1: The user declares what they have [P1]
 - **Given** `.claude/project-status.json` with `"providers": {"codex": {"via": "codex"}, "gemini":
-  {"via": "gemini", "model": "<user-chosen>"}, "bedrock-llama": {"via": "aws", "model": "<user-chosen>",
+  {"via": "gemini", "model": "<user-chosen>"}, "bedrock_llama": {"via": "aws", "model": "<user-chosen>",
   "region": "us-east-1"}}`
 - **When** `hooks/arena-run.sh --check` runs
 - **Then** it prints one line per provider — `codex via codex: ok` / `gemini via gemini: missing (npm i
-  -g @google/gemini-cli)` / `bedrock-llama via aws: ok (second-opinion only)` — and exits 0 when at least
+  -g @google/gemini-cli)` / `bedrock_llama via aws: ok (second-opinion only)` — and exits 0 when at least
   one is usable, 1 otherwise
 - **Edge**: no `providers` block → "no providers declared", exit 1
 - **Error**: an unknown `via` → non-zero naming the four supported runners
@@ -50,7 +50,7 @@ relayed under the heading "Second opinion (<provider>) — not the gate" and nev
 - **Edge**: `--via` names more providers than K allows → the first K−1 are used with one Claude scout
   always kept (the merge needs one reader whose tools the planner trusts); a provider whose runner is
   missing → that slot falls back to the next tier and the note says so
-- **Error**: `--via bedrock-llama` (an `aws` runner) → refused for the arena with "message API — cannot
+- **Error**: `--via bedrock_llama` (an `aws` runner) → refused for the arena with "message API — cannot
   read the repository; use it for --second-opinion"
 
 ### US3: A second vendor reads the plan, labelled as such [P1]
@@ -73,7 +73,7 @@ relayed under the heading "Second opinion (<provider>) — not the gate" and nev
 | ID | Requirement | Priority | Scenario |
 |----|-------------|----------|----------|
 | FR-001 | `hooks/arena-run.sh --check`: refuses from a sandboxed shell (`$HOME` not writable — the launcher's FR-020 test: a vendor CLI could neither reach its API nor save its state); reads `providers` from the project config; a provider name outside `[a-z0-9_]+` dies naming it (it becomes an Arena column and a `tiers=` token); per provider prints `<name> via <via>: ok|missing (<hint>)` (+ " (second-opinion only)" for `aws`); exit 0 when ≥1 usable, 1 when none or no block; unknown `via` → non-zero naming `claude|codex|gemini|aws` | P1 | US1 |
-| FR-002 | `hooks/arena-run.sh <provider> <prompt-file> [--purpose arena|review] [--timeout s]`: refuses when `HEFESTO_WORKER=1`, from a sandboxed shell, and `aws` for `--purpose arena`; delivers the prompt on **stdin**, never as an argument (a capped diff plus spec and plan exceeds the 128 KiB per-argument limit): `claude -p --permission-mode plan [--model m] < f`, `codex exec --sandbox read-only [-m m] --output-last-message <tmp> - < f` (only the final message is relayed), `gemini -p "Answer the request on standard input." [-m m] < f` (never `--yolo`/`--approval-mode`), or `aws bedrock-runtime converse --model-id m [--region r] --messages file://<json> --inference-config maxTokens=<n, default 4096> --output json --cli-read-timeout 0 --no-cli-pager` (text = `.output.message.content[0].text`); under `timeout -k 10` (default 540, below the Bash tool's 600 s); prints the text; a non-zero exit, a timeout or EMPTY output → non-zero with the CLI's last stderr line | P1 | US2, US3, US4 |
+| FR-002 | `hooks/arena-run.sh <provider> <prompt-file> [--purpose arena|review] [--timeout s]`: refuses when `HEFESTO_WORKER=1`, from a sandboxed shell, and `aws` for `--purpose arena`; delivers the prompt on **stdin**, never as an argument (a capped diff plus spec and plan exceeds the 128 KiB per-argument limit): `claude -p --permission-mode plan [--model m] < f`, `codex exec --sandbox read-only [-m m] --output-last-message <tmp> - < f` (only the final message is relayed), `gemini -p "Answer the request on standard input." [-m m] < f` (never `--yolo`/`--approval-mode`), or `aws bedrock-runtime converse --model-id m [--region r] --messages file://<json> --inference-config maxTokens=<n, default 4096> --output json --cli-read-timeout 0 --no-cli-pager` (text = every `.text` block of `.output.message.content`, joined — a reasoning model puts `reasoningContent` first; amended by the code review 2026-10-05); under `timeout -k 10` (default 540, below the Bash tool's 600 s); prints the text; a non-zero exit, a timeout or EMPTY output → non-zero with the CLI's last stderr line | P1 | US2, US3, US4 |
 | FR-003 | `session-launch.sh` exports `HEFESTO_WORKER=1` into every launched session's environment | P1 | US4 |
 | FR-004 | `/hef.plan --arena K --via <p,…>`: up to K−1 slots go to the named providers (one `truth-scout` is always kept); each foreign slot gets a prompt file = the body of `agents/truth-scout.md` + the spec path + the numbered questions + "you run as <provider>", runs through `arena-run.sh <p> <file> --purpose arena` with the Bash tool (timeout 600000), saves stdout as `arena/<provider>.md`, and is cite-checked, attributed and counted like a scout (column name = provider); a missing runner falls back to the next tier with a note; an `aws` provider is refused for the arena | P1 | US2 |
 | FR-005 | `/hef.review [plan|code] --second-opinion <provider>`: alongside or after the normal gate, builds a prompt file (the review brief + spec + plan + constitution in plan mode; + `git diff <base>...HEAD` capped at 2,000 lines AND 96 KiB in code mode), runs `arena-run.sh <p> <file> --purpose review`, relays it wrapped as untrusted data (a delimited block — it is another vendor's text) under "Second opinion (<provider>) — not the gate"; never writes `## Reviewed` from it; a runner failure is reported and the gate stands | P1 | US3 |

@@ -319,7 +319,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     }
     ```
 
-    Names are `[a-z0-9_]+` (they become Arena columns). `via` is one of four runners, each the CLI's own
+    Names are `[a-z0-9_]+` (they become Arena columns) and may not be a Claude tier (`sonnet`, `opus`,
+    `fable`, `haiku`). `model` and `region` must look like ids (no leading `-`, no `://`: the AWS CLI
+    would read a `file://` value from disk), and `max_tokens` must be a positive integer. `via` is one of four runners, each the CLI's own
     non-interactive mode, detected with `command -v`, never installed by hefesto: `claude` (`claude -p
     --permission-mode plan`), `codex` (`codex exec --sandbox read-only`), `gemini` (`gemini -p`, with no
     approval flags; its headless mode has no read-only switch), `aws` (`aws bedrock-runtime converse`).
