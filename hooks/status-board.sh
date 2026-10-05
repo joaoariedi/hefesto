@@ -31,13 +31,14 @@ while [ $# -gt 0 ]; do
     --mark) shift; MODE="mark"; ITEM_ID="${1:-}"; [ $# -gt 0 ] && shift; MARK="${1:-}" ;;
     --was) shift; WAS="${1:-}" ;;
     --item-kind) shift; MODE="item-kind"; ITEM_ID="${1:-}" ;;
+    --item-repo) shift; MODE="item-repo"; ITEM_ID="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
-    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
-    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2 ;;
+    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --item-repo <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
+    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2 ;;
   esac
   shift
 done
-case "$MODE" in item|item-raw|mark|item-kind)
+case "$MODE" in item|item-raw|mark|item-kind|item-repo)
   [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
   [ "$MODE" != mark ] || [ -n "$MARK" ] || { echo "status-board: --mark needs <id> <marker> (or - for no marker)" >&2; exit 2; }
   # A marker is ONE token with no backslash: a space would stack under the next mark, a backslash or a
@@ -50,6 +51,14 @@ case "$MODE" in item|item-raw|mark|item-kind)
 esac
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# external-board FR-002: which board this repo reads is ledger.sh's answer (`board`), never re-derived here.
+# External, the config and `root` come from the board repo; --config still wins. In-repo, ROOT and CONFIG
+# stay exactly as before. A copy of this script with no ledger.sh beside it is in-repo.
+HERE="$(cd "$(dirname "$0")" && pwd)"; BCTX=""
+if [ -f "$HERE/ledger.sh" ]; then BCTX="$(bash "$HERE/ledger.sh" board)" || exit 1; fi
+if [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; then
+  ROOT="$(jq -r .board_top <<<"$BCTX")"; [ -n "$CONFIG" ] || CONFIG="$(jq -r .config <<<"$BCTX")"
+fi
 [ -n "$CONFIG" ] || CONFIG="$ROOT/.claude/project-status.json"
 
 # --- config (FR-001, FR-002) -----------------------------------------------------------------
@@ -140,6 +149,7 @@ column_items() {
 # the untrusted delimiters BEFORE any model reads it — the strip is mechanical and upstream of the
 # judgement, so a hidden instruction never reaches the orchestrator (report 17 §1f). `--item-raw`
 # prints the text as written; that is what the ledger hashes to detect an item edited after claim.
+strip_comments() { sed -E 's/<!--[^>]*-->//g' | sed '/<!--/,/-->/d'; }   # what --item shows and --item-repo routes on
 item_body() { # $1 id, $2 raw|clean
   local col f body
   for col in todo doing backlog 'done'; do
@@ -153,7 +163,7 @@ item_body() { # $1 id, $2 raw|clean
     # A per-call nonce on both markers: a body that contains the literal closing marker cannot end
     # the block early and smuggle text out of it (quality gate 2026-09-27, advisory A1).
     local nonce; nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
-    printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(sed -E 's/<!--[^>]*-->//g' <<<"$body" | sed '/<!--/,/-->/d')" "$nonce"
+    printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(strip_comments <<<"$body")" "$nonce"
     return 0
   done
   die "status-board --item $1: no such item in ${COL[todo]}, ${COL[doing]}, ${COL[backlog]} or ${COL[done]} under $TROOT"
@@ -233,6 +243,34 @@ mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (strip
     echo "marked $1 $2 in ${COL[$col]}"; return 0
   done
   die "status-board --mark $1: no such item in ${COL[todo]}, ${COL[doing]}, ${COL[backlog]} or ${COL[done]} under $TROOT"
+}
+
+# Routing (external-board FR-002, spec US2): the item's `repo: <name>` body line → "<name>\t<abs path>". It
+# parses the COMMENT-STRIPPED body, the same text --item shows, so a `<!-- repo: … -->` never routes. The line
+# may be indented and bulleted (`  - repo: ops`, fxcube's format) and end in CR; `**repo:**` is not a repo line.
+repo_lines() { tr -d '\r' | grep -iE '^[[:space:]]*([-*][[:space:]]+)?repo:' | sed -E 's/^[[:space:]]*([-*][[:space:]]+)?[Rr][Ee][Pp][Oo]:[[:space:]]*//'; }
+# A refusal echoes board text OUTSIDE the untrusted delimiters, so a name is shown only as [a-z0-9_-] (anything
+# else → ?), at most 32 characters, and a list beyond 5 names as a count (code review 2026-10-05).
+safe_name() { local n="${1//[^a-z0-9_-]/?}"; printf '%s' "${n:0:32}"; }
+safe_list() { # newline-separated names → "a, b, c" (first 5, then "+N more")
+  local n out="" i=0
+  while IFS= read -r n; do i=$((i + 1)); [ "$i" -le 5 ] && out+="${out:+, }$(safe_name "$n")"; done
+  [ "$i" -gt 5 ] && out+=", +$((i - 5)) more"; printf '%s' "$out"
+}
+item_repo() { # $1 id
+  local repos all names n body
+  [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ] \
+    || die "status-board --item-repo $1: the board is in-repo (no repos map) — routing applies only to an external board (docs/install.md §7 step 13)"
+  repos="$(jq -c .repos <<<"$BCTX")"; all="$(jq -r 'keys_unsorted | join(", ")' <<<"$repos")"
+  body="$(item_body "$1" raw)" || exit 1
+  names="$(strip_comments <<<"$body" | repo_lines | tr ',`' '  ' | tr -s ' \t' '\n\n' | sed '/^$/d' | sort -u)" || true
+  n="$(grep -c . <<<"$names")"
+  if [ "$n" -eq 0 ]; then
+    [ "$(jq 'length' <<<"$repos")" -eq 1 ] || die "status-board --item-repo $1: names no repo (add \`repo: <name>\` above any ### sub-heading; the board feeds: $all)"
+    names="$(jq -r 'keys_unsorted[0]' <<<"$repos")"
+  elif [ "$n" -gt 1 ]; then die "status-board --item-repo $1: targets $n repos ($(safe_list <<<"$names")) — split it into one item per repo"; fi
+  jq -e --arg r "$names" 'has($r)' <<<"$repos" >/dev/null || die "status-board --item-repo $1: names repo '$(safe_name "$names")' the board does not feed ($all)"
+  printf '%s\t%s\n' "$names" "$(jq -r --arg r "$names" '.[$r]' <<<"$repos")"
 }
 
 marker_summary() { # items → "label n · label n"
@@ -431,9 +469,9 @@ source_github() {
 case "$SOURCE" in
   tasks-repo)
     tasks_config
-    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; esac
+    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
-    case "$MODE" in item|item-raw|item-kind) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
+    case "$MODE" in item|item-raw|item-kind|item-repo) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
     source_github ;;
 esac

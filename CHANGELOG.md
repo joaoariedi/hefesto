@@ -56,7 +56,34 @@ it is what caught the hand-bumped era:
   Three fresh-context plan-review rounds (9 + 8 + 3 changes). The last round reproduced a stale-local-
   `dev` merge-base that would have pulled the train into the item's diff.
 
+- **External board** (HEF-14; requested for fxcube, whose board is its own `tasks/` repo feeding
+  three code repos). A code repo's `.claude/project-status.json` points at the board with `board`;
+  the board config lists the repos it feeds in `repos`. `ledger.sh board` is the one place that
+  resolves it, reading the pointer through the MAIN worktree (an ignored `.claude/` is absent in
+  linked worktrees); `HEFESTO_BOARD_TOP` overrides, and the launcher exports it to every child.
+  - one central ledger in the board repo's git common dir; `init --repo <name>` (required on an
+    external board) records each entry's repo, and `next` keeps one worker per repo;
+  - `status-board.sh` reads the board from any code repo it feeds; `--item-repo <id>` routes an item
+    by its `repo:` line (comment-stripped; indented and bulleted lines and CRLF accepted), refusing
+    none-with-several, two repos, or an undeclared one, and echoing names as `[a-z0-9_-]` only;
+  - the resolution lives in `hooks/board-lib.sh`, sourced by `ledger.sh` (which stays under the
+    500-code-line limit);
+  - `session-launch.sh` runs each session in the entry's repo with that repo's own `branches`, and the
+    board's tiers, caps and allowlists; its dry run starts with `# cwd: <repo>` (external only);
+  - `handoff` records the repo it runs in; `unblock human:merge`, `where` and `released` check git in
+    the entry's repo; `escalate` names sessions after the board; session start and
+    `pr-watch.sh ledger-id` read the central ledger from any worktree;
+  - `/hef.orchestrate` checks `ledger.sh board` first, registers with `--repo`, and skips an item
+    whose routing is refused. `publish` marks the board repo's file; committing it stays the
+    person's (auto-commit is HEF-16).
+
+  In-repo boards are unchanged: `next` keeps today's selection there (step 2's stop on any owned
+  entry still applies), and an unparseable config that names neither `board` nor `repos` keeps its
+  old messages. Two fresh-context plan-review rounds (10 + 3 changes).
+
 ### Changed
+- The branch model (`branches`, `branches --configured`) is read from the current repo's own config:
+  this worktree's file, else the main worktree's (an untracked file is found from a linked worktree).
 - `/hef.orchestrate` step 6 runs `git fetch origin` before `unblock` (not `git pull --ff-only`).
 - The smoke suite's dogfood-board check counts TODO.md's headings instead of pinning a number.
 

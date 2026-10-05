@@ -54,8 +54,21 @@ case "$ROLE" in plan|implement|verify|deploy) ;; *) echo "session-launch: unknow
 [[ "$ID" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || die "session-launch: invalid id '$ID' (expected [A-Za-z][A-Za-z0-9_-]*) — it becomes a worktree name and a session name"
 command -v jq >/dev/null 2>&1 || die "session-launch: jq not found"
 
-TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || die "session-launch: not inside a git repository (cwd: $PWD)"
-CONFIG="$TOP/.claude/project-status.json"
+# external-board FR-004: on an external board TOP is the ENTRY's repo (worktrees, cwd, branches) and CONFIG is
+# the board config (tiers, caps, allowlists); HEFESTO_BOARD_TOP reaches every child call, the worker included,
+# so its own ledger.sh and /hef.pr calls resolve the same board. In-repo, nothing changes.
+BCTX="$("$LEDGER" board)" || exit 1; EXT=0
+if [ "$(jq -r .mode <<<"$BCTX")" = external ]; then
+  EXT=1; HEFESTO_BOARD_TOP="$(jq -r .board_top <<<"$BCTX")"; export HEFESTO_BOARD_TOP
+  CONFIG="$(jq -r .config <<<"$BCTX")"
+  EREPO="$("$LEDGER" show "$ID" | jq -r '.repo // empty')" || exit 1
+  [ -n "$EREPO" ] || die "session-launch $ROLE $ID: the board is external and the entry records no repo — re-register it with ledger.sh init $ID … --repo <name> (status-board.sh --item-repo $ID names it)"
+  TOP="$(jq -r --arg r "$EREPO" '.repos[$r] // empty' <<<"$BCTX")"
+  [ -n "$TOP" ] || die "session-launch $ROLE $ID: the entry's repo '$EREPO' is not one the board feeds ($(jq -r '.repos | keys_unsorted | join(", ")' <<<"$BCTX"))"
+else
+  TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || die "session-launch: not inside a git repository (cwd: $PWD)"
+  CONFIG="$TOP/.claude/project-status.json"
+fi
 [ -f "$CONFIG" ] || die "session-launch: no $CONFIG — the board config also carries the orchestrate block (see /hef.status)"
 jq -e . "$CONFIG" >/dev/null 2>&1 || die "session-launch: $CONFIG is not valid JSON"
 cfg() { jq -r "$1" "$CONFIG"; }
@@ -114,11 +127,14 @@ case "$ITEM_KIND" in
 esac
 # The branch model (branch-model FR-004): the PR base, the verifier's diff base and the never-push list
 # come from `ledger.sh branches` — unconfigured, integration is main exactly as before.
+# Both asked INSIDE TOP: on an external board the model is the entry repo's own (ops on dev, ui on trunk).
+CALLER_PWD="$PWD"; cd "$TOP" || die "session-launch: cannot enter $TOP"
 BM="$("$LEDGER" branches)" || exit 1
 INTEG="$(jq -r .integration <<<"$BM")"; PROT="$(jq -r '.protected | join(", ")' <<<"$BM")"
 # The explicit PR base only when a branches block is declared: unconfigured, `gh pr create` keeps the
 # repository's default branch (a `master` trunk has no `main`) — code review B2.
 PR_BASE_RULE=""; "$LEDGER" branches --configured 2>/dev/null && PR_BASE_RULE="Open the PR against $INTEG (gh pr create --base $INTEG). "
+cd "$CALLER_PWD" || die "session-launch: cannot return to $CALLER_PWD"
 WORKTREE="$(jq -r '.worktree // empty' <<<"$E")"; BRANCH="$(jq -r '.branch // empty' <<<"$E")"
 
 # --- settings (validated: -p ignores an invalid file silently) --------------------------------
@@ -206,7 +222,8 @@ CMD=(env HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --s
 WT="$TOP/.claude/worktrees/$ID"
 case "$ROLE" in
   implement|plan)
-    if [ -d "$WT" ]; then cd "$WT" || die "session-launch: cannot enter existing worktree $WT"; else CMD+=(-w "$ID"); fi   # a retry reuses the worktree
+    # a retry reuses the worktree; a new one is made by `claude -w` in its cwd — so the entry's repo, explicitly
+    if [ -d "$WT" ]; then cd "$WT" || die "session-launch: cannot enter existing worktree $WT"; else cd "$TOP" || die "session-launch: cannot enter $TOP"; CMD+=(-w "$ID"); fi
     if [ "$ROLE" = plan ]; then CMD+=(--permission-mode default); else CMD+=(--permission-mode acceptEdits); fi ;;
   verify)
     CMD+=(--disallowedTools "Edit,Write"); cd "$WORKTREE" || die "session-launch verify $ID: cannot enter $WORKTREE" ;;
@@ -216,7 +233,9 @@ esac
 # --dry-run prints a copy-pasteable line: bare tokens as-is, anything else single-quoted (printf %q
 # would escape commas and parentheses, which is correct for bash but unreadable and unassertable).
 q() { if [[ "$1" =~ ^[A-Za-z0-9_./:=,@+-]+$ ]]; then printf '%s ' "$1"; else printf "'%s' " "${1//\'/\'\\\'\'}"; fi; }
-if [ "$DRY" = 1 ]; then for a in "${CMD[@]}"; do q "$a"; done; echo; exit 0; fi
+# External only, a first line `# cwd: <dir>` (a shell comment: the output stays copy-pasteable); in-repo output
+# is byte-identical to before.
+if [ "$DRY" = 1 ]; then [ "$EXT" = 1 ] && echo "# cwd: $PWD"; for a in "${CMD[@]}"; do q "$a"; done; echo; exit 0; fi
 
 # --- run and transcribe (FR-011) -------------------------------------------------------------------
 "$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" >/dev/null || exit 1

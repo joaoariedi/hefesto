@@ -25,7 +25,8 @@ usage() {
   cat >&2 <<'EOF'
 usage: ledger.sh <subcommand> …
   dir                                                   print the ledger directory
-  init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability]
+  board                                                 the resolved board as JSON: mode (in-repo|external), board_top, config, ledger_dir, repos, repo
+  init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability] [--repo <name>]   (--repo: required on an external board)
   claim <id> --session <name> --role <role>             exclusive; attempts > 2 → stall
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
@@ -54,10 +55,11 @@ PANES_DEFAULT='{"orchestrator":["human:intake"],"plan":["human:clarify","human:p
 # `--mark` uses to know which leading heading tokens are ITS markers (replace, never stack).
 PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build":"🔨","pr":"🔀","done":"✅"}'
 
-project_config() { # the board config the launcher and the board read: <toplevel>/.claude/project-status.json
-  local top; top=$(git rev-parse --show-toplevel 2>/dev/null) || top="$PWD"
-  [ -f "$top/.claude/project-status.json" ] && echo "$top/.claude/project-status.json"
-}
+# The board resolution (external-board FR-001) lives in board-lib.sh: project_config, repo_config, board_ctx
+# and the helpers the arms below use (is_external, repo_names, cd_entry_repo). Sourced, never run.
+[ -f "$HERE/board-lib.sh" ] || die "ledger: $HERE/board-lib.sh not found — the plugin install is incomplete (reinstall it, or copy board-lib.sh beside ledger.sh)"
+# shellcheck source=hooks/board-lib.sh
+. "$HERE/board-lib.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -68,7 +70,7 @@ cfgp() { # jq over the project config; empty output when there is no config (cal
 # `jq -n … input?`: an absent config must still run the program — jq never runs one over EMPTY input
 # (plan review 2026-10-05: `jq -ce … /dev/null` printed nothing and exited 4).
 branches_model() {
-  local c out; c=$(project_config) || c=""
+  local c out; c=$(repo_config) || c=""   # the CURRENT repo's model: ops integrates on dev, ui on trunk (external-board)
   # A config that does not PARSE is malformed, never "unconfigured": `input?` alone would swallow the
   # parse error and hand back the trunk defaults — dropping every protected branch on a typo (code review B1).
   [ -z "$c" ] || jq empty "$c" 2>/dev/null || die "ledger branches: $c is not valid JSON"
@@ -116,6 +118,12 @@ GATES="verify review quality scan mutate incident vulnerability"   # the last tw
 
 ledger_dir() {
   if [ -n "${HEFESTO_LEDGER_DIR:-}" ]; then mkdir -p "$HEFESTO_LEDGER_DIR" || die "ledger: cannot create $HEFESTO_LEDGER_DIR"; echo "$HEFESTO_LEDGER_DIR"; return; fi
+  # external-board: ONE central ledger in the board repo's git common dir, so ownership, list, metrics and
+  # escalation see every repo the board feeds.
+  if is_external; then
+    local central; central=$(jq -r .ledger_dir <<<"$BCTX")
+    mkdir -p "$central" || die "ledger: cannot create $central"; echo "$central"; return
+  fi
   local common
   # The plugin-eval sandbox denies the git binary while the workspace is still a git repository
   # (evals/README.md): fall back to the checkout's own .git so the evals can read the ledger.
@@ -201,6 +209,24 @@ metrics_render() { # stdin = the JSON object; $1 since (or "")
   printf '  blocked   %s — %s\n' "$(jq -r '[.blocked[].count] | add // 0' <<<"$M")" "$(jq -r '.blocked | to_entries | map("\(.key) \(.value.count) (oldest \(.value.oldest_since[0:10]))") | join(" · ") | if . == "" then "none" else . end' <<<"$M")"
 }
 
+# external-board FR-003: one worker per REPOSITORY. An entry is skipped while another entry of its repo is
+# owned, so ops and ui run side by side. In-repo mode keeps today's `next` (no filter; /hef.orchestrate
+# step 2 still stops on any owned entry) — the existing suite pins that. Uses SEL, ORDER, STAGE, FILES.
+next_external() {
+  local bad n busy
+  bad=$(jq -rs "map(select($SEL) | select((.repo // \"\") == \"\") | .id) | join(\", \")" "${FILES[@]}") \
+    || die "ledger next: an entry in $DIR is not valid JSON — repair or remove it"
+  [ -z "$bad" ] || die "ledger next: the board is external and these entries record no repo: $bad — re-register each with ledger.sh init <id> … --repo <name> (the board feeds: $(repo_names))"
+  n=$(jq -rs "[.[] | select(.owner != null) | (.repo // \"\")] as \$busy | map(select($SEL) | select((.repo // \"\") as \$r | \$busy | any(. == \$r) | not)) | $ORDER | .[0].id // empty" "${FILES[@]}") \
+    || die "ledger next: an entry in $DIR is not valid JSON — repair or remove it"
+  if [ -z "$n" ] && [ -n "$(jq -rs "map(select($SEL)) | .[0].id // empty" "${FILES[@]}")" ]; then
+    busy=$(jq -rs '[.[] | select(.owner != null) | "\(.repo // "<none>") (owned by \(.owner.session_name) on \(.id))"] | join(", ")' "${FILES[@]}")
+    die "ledger next: no dispatchable entry for stage $STAGE — every candidate's repo is busy (one worker per repository): $busy"
+  fi
+  [ -n "$n" ] || die "ledger next: no dispatchable entry for stage $STAGE in $DIR (plan: queued|intake; build: queued|tasks|implement, unowned, unblocked; deploy: pr with a PR)"
+  echo "$n"
+}
+
 [ $# -ge 1 ] || usage
 SUB="$1"; shift
 # Read-only and ledger-free: answered before ledger_dir, which would create the directory (and needs a repo).
@@ -208,12 +234,16 @@ SUB="$1"; shift
 # consumers that keep the historical order for unconfigured repos ask here instead of re-reading.
 if [ "$SUB" = branches ]; then
   if [ "${1:-}" = --configured ]; then   # 0 = declared, 1 = not, 2 = the config is not valid JSON (loud)
-    c=$(project_config) || exit 1
+    c=$(repo_config) || exit 1   # the same file branches_model reads — never the board config (external-board)
     jq empty "$c" 2>/dev/null || { echo "ledger branches: $c is not valid JSON" >&2; exit 2; }
     jq -e '.branches != null' "$c" >/dev/null 2>&1; [ $? -eq 0 ] && exit 0; exit 1
   fi
   branches_model; exit $?
 fi
+# The board (external-board FR-001), resolved once per call. `board` is answered here, before ledger_dir:
+# side-effect free, and in-repo it never dies where status-board does not (outside git, no config).
+BCTX=$(board_ctx) || exit 1
+if [ "$SUB" = board ]; then [ $# -eq 0 ] || usage; echo "$BCTX"; exit 0; fi
 DIR=$(ledger_dir) || exit 1
 
 case "$SUB" in
@@ -221,12 +251,21 @@ case "$SUB" in
 
   init)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift
-    KIND=""; REF=""; URL=""; BODY=""; IKIND="feature"
+    KIND=""; REF=""; URL=""; BODY=""; IKIND="feature"; RNAME=""; HAVE_REPO=0
     while [ $# -gt 0 ]; do case "$1" in
       --kind) KIND="${2:-}"; shift ;; --ref) REF="${2:-}"; shift ;; --url) URL="${2:-}"; shift ;; --body-file) BODY="${2:-}"; shift ;;
-      --item-kind) IKIND="${2:-}"; shift ;;
+      --item-kind) IKIND="${2:-}"; shift ;; --repo) RNAME="${2:-}"; HAVE_REPO=1; shift ;;
       *) usage ;; esac; shift; done
     valid_id "$ID" || exit 1
+    # external-board FR-003: the entry's repo, checked against the board's repos map. An EMPTY --repo is the
+    # signature of a failed status-board.sh --item-repo swallowed by $(…) — never "no repo".
+    if is_external; then
+      [ "$HAVE_REPO" = 1 ] || die "ledger init $ID: the board is external — --repo <name> is required (the board feeds: $(repo_names))"
+      [ -n "$RNAME" ] || die "ledger init $ID: --repo is empty — expected one of: $(repo_names) (status-board.sh --item-repo $ID names it)"
+      jq -e --arg r "$RNAME" '.repos | has($r)' <<<"$BCTX" >/dev/null || die "ledger init $ID: --repo '$RNAME' is not a repo the board feeds ($(repo_names))"
+    else
+      [ "$HAVE_REPO" = 0 ] || die "ledger init $ID: --repo '$RNAME' given, but the board is in-repo (no repos map in $(project_config || echo .claude/project-status.json)) — drop --repo"
+    fi
     # An EMPTY --item-kind is the signature of a failed detection swallowed by $(…) — never "feature".
     in_list "$IKIND" "feature incident vulnerability" || die "ledger init $ID: --item-kind must be feature, incident or vulnerability (got '${IKIND}')"
     if [ -f "$DIR/$ID.json" ]; then echo "$DIR/$ID.json"; exit 0; fi      # idempotent: unchanged, path printed
@@ -234,11 +273,11 @@ case "$SUB" in
     [ -n "$REF" ] || die "ledger init $ID: --ref is required (e.g. tasks/TODO.md#$ID)"
     SHA=null
     if [ -n "$BODY" ]; then [ -f "$BODY" ] || die "ledger init $ID: body file not found: $BODY"; SHA="\"$(sha256sum "$BODY" | cut -c1-64)\""; fi
-    jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" --arg ik "$IKIND" '{
+    jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" --arg ik "$IKIND" --arg repo "$RNAME" '{
       id: $id, source: {kind: $kind, ref: $ref, url: (if $url == "" then null else $url end), body_sha256: $sha},
       item_kind: $ik, route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
       verdicts: [], blocked_on: null, budget: {usd_cap: null, usd_spent: 0}, runs: [], attempts: 0,
-      created: (now | todate), updated: (now | todate) }' | write_entry "$ID" || exit 1
+      created: (now | todate), updated: (now | todate) } + (if $repo == "" then {} else {repo: $repo} end)' | write_entry "$ID" || exit 1
     echo "$DIR/$ID.json" ;;
 
   claim)
@@ -266,6 +305,7 @@ case "$SUB" in
     CUR=$(jq -r .phase <<<"$E"); CI=$(phase_index "$CUR") || exit 1; TI=$(phase_index "$TO") || exit 1
     [ "$TI" -gt "$CI" ] || die "ledger advance $ID: '$TO' is not after '$CUR' (phases move forward only: ${PHASES[*]})"
     if [ "$TO" = released ]; then   # branch-model FR-006 — the model is loaded only on this path
+      cd_entry_repo "$E" || exit 1   # external-board: the entry's repo, its own model and its own branches
       BM=$(branches_model) || exit 1
       if [ "$(jq '.environments | length' <<<"$BM")" -gt 1 ]; then
         FIN=$(jq -r .final <<<"$BM"); BR=$(jq -r '.branch // empty' <<<"$E")
@@ -321,6 +361,7 @@ case "$SUB" in
         ! grep -q 'NEEDS CLARIFICATION' "$SPEC_DIR/spec.md" || die "ledger unblock $ID: $KIND — [NEEDS CLARIFICATION] markers remain in $SPEC_DIR/spec.md (run /hef.clarify)" ;;
       human:merge)
         [ -n "$BRANCH" ] || die "ledger unblock $ID: $KIND needs branch recorded"
+        cd_entry_repo "$E" || exit 1   # external-board: run from the board repo, the merge is checked in the entry's repo
         BM=$(branches_model) || exit 1; INT=$(jq -r .integration <<<"$BM")
         in_branch "$BRANCH" "$INT" >/dev/null; rc=$?
         [ "$rc" -ne 3 ] || die "ledger unblock $ID: $KIND — branch '$BRANCH' resolves to no commit (local or origin/) — git fetch origin first"
@@ -363,6 +404,7 @@ case "$SUB" in
     ID="${1:-}"; [ -n "$ID" ] || usage
     E=$(entry "$ID") || exit 1; BR=$(jq -r '.branch // empty' <<<"$E")
     [ -n "$BR" ] || die "ledger where $ID: no branch recorded (ledger.sh record $ID --branch <b>)"
+    cd_entry_repo "$E" || exit 1
     BM=$(branches_model) || exit 1
     UNK=0
     while IFS= read -r ENV; do
@@ -388,11 +430,19 @@ case "$SUB" in
     [ -z "$K" ] || die "ledger handoff $ID: blocked on $K — clear it with the command it names first (a handoff never clears a block)"
     CI=$(phase_index "$(jq -r .phase <<<"$E")") || exit 1; PI=$(phase_index pr) || exit 1
     [ "$CI" -le "$PI" ] || die "ledger handoff $ID: phase $(jq -r .phase <<<"$E") is already past pr"
+    # external-board FR-006: the entry records the repo the handoff runs in, matched by its main worktree path
+    HREPO=""
+    if is_external; then
+      HREPO=$(jq -r '.repo // empty' <<<"$BCTX")
+      [ -n "$HREPO" ] || die "ledger handoff $ID: this repository ($(main_top || pwd)) is not one the board feeds ($(jq -r '.repos | to_entries | map("\(.key) = \(.value)") | join(", ")' <<<"$BCTX")) — hand off from the item's repo"
+      ER=$(jq -r '.repo // empty' <<<"$E")
+      [ -z "$ER" ] || [ "$ER" = "$HREPO" ] || die "ledger handoff $ID: the entry records repo '$ER', this is '$HREPO' — hand off from $ER's checkout"
+    fi
     [ -n "$BR" ] || BR=$(git branch --show-current 2>/dev/null)
     [ -n "$BR" ] || die "ledger handoff $ID: no branch (detached HEAD) — hand off from the feature branch (or pass --branch)"
     BM=$(branches_model) || exit 1
     ! is_protected "$BR" "$BM" || die "ledger handoff $ID: '$BR' is a protected branch ($(jq -r '.protected | join(", ")' <<<"$BM")) — hand off from the feature branch (or pass --branch)"
-    jq '.owner = {session_name: "hand", role: "implement", pid: null, started: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
+    jq --arg r "$HREPO" '.owner = {session_name: "hand", role: "implement", pid: null, started: (now | todate)} | if $r == "" then . else .repo = $r end' <<<"$E" | write_entry "$ID" || exit 1
     # A failure after the owner write must not strand the entry under a session that does not exist.
     unhand() { local e; e=$(entry "$ID") && jq 'if .owner.session_name == "hand" then .owner = null else . end' <<<"$e" | write_entry "$ID"; die "ledger handoff $ID: $1 failed — the entry is released; fix the cause and run handoff again"; }
     bash "$0" run "$ID" --role implement --exit 0 --usd 0 >/dev/null || unhand run
@@ -461,7 +511,9 @@ case "$SUB" in
     K2P=$(jq -nc --argjson d "$PANES_DEFAULT" --argjson c "$CFG_PANES" '[$d, $c] | map(to_entries[]) | map(.key as $p | .value[] | select(type == "string") | {key: ., value: $p}) | from_entries' 2>/dev/null)
     [ -n "$K2P" ] || K2P=$(jq -nc --argjson d "$PANES_DEFAULT" '$d | to_entries | map(.key as $p | .value[] | {key: ., value: $p}) | from_entries')
     PS=$(cfgp -c '(.orchestrate.pane_sessions // {}) | if type == "object" then . else {} end'); [ -n "$PS" ] || PS='{}'
-    REPO=$(cfgp '.name // empty'); [ -n "$REPO" ] || REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+    REPO=$(cfgp '.name // empty')
+    if [ -z "$REPO" ] && is_external; then REPO=$(basename "$(jq -r .board_top <<<"$BCTX")"); fi   # one board, one set of sessions
+    [ -n "$REPO" ] || REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
     jq -rs --argjson k "$K2P" --argjson ps "$PS" --arg repo "$REPO" --argjson h "$H" "
       map(select(.blocked_on != null and (.blocked_on.kind | startswith(\"human:\"))
                  and ((((.blocked_on.since // \"\") | try fromdate catch null) as \$t | \$t != null and ((now - \$t) / 3600) >= \$h))
@@ -503,6 +555,7 @@ case "$SUB" in
     esac
     shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
     [ "${#FILES[@]}" -gt 0 ] || die "ledger next: no entries in $DIR (run: ledger.sh init <id> …)"
+    if is_external; then next_external; exit $?; fi
     N=$(jq -rs "map(select($SEL)) | $ORDER | .[0].id // empty" "${FILES[@]}") \
       || die "ledger next: an entry in $DIR is not valid JSON — repair or remove it"
     [ -n "$N" ] || die "ledger next: no dispatchable entry for stage $STAGE in $DIR (plan: queued|intake; build: queued|tasks|implement, unowned, unblocked; deploy: pr with a PR)"
