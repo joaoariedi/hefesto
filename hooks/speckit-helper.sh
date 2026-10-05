@@ -62,7 +62,37 @@ missing_artifact() {  # $1 = artifact filename, e.g. spec.md
 # commit is also its only commit — a fresh project, or a test fixture — exited 128. A
 # helper that exits non-zero inside a command produces no data, and the command silently
 # degrades. Every arm below is guarded; the caller handles the empty case.
+# integration_base — branch-model FR-004: ONLY when the project config declares a `branches` block,
+# the merge-base of HEAD with its integration branch (local, then origin/). Otherwise nothing, and the
+# callers keep their historical order exactly (semver). Placed BEFORE @{u}: for a pushed feature
+# branch @{u} is the branch's own remote copy, and on a dev-integrating repo `main` is the far end of
+# the release train (plan review 2026-10-05).
+# Failure semantics: unconfigured → nothing (today's chain); a MALFORMED block → exit 1 with the reason,
+# which the callers propagate (diffing the whole train silently is the failure this exists to stop);
+# an integration ref that resolves nowhere → nothing (fall through to today's chain).
+integration_base() {
+  local led i r
+  led="$(dirname "${BASH_SOURCE[0]}")/ledger.sh"
+  [ -f "$led" ] || return 0             # a lone copy (a mutation-test fixture) has no model: today's chain
+  local rc mb best=""
+  bash "$led" branches --configured 2>/dev/null; rc=$?
+  [ "$rc" -eq 1 ] && return 0          # no branches block: today's chain
+  [ "$rc" -eq 0 ] || return 1          # invalid config JSON: malformed, never "unconfigured"
+  i=$(bash "$led" branches | jq -r '.integration // empty') || return 1
+  [ -n "$i" ] || return 1
+  # The NEWER of the two merge-bases: a stale local `dev` behind origin/dev would otherwise pull dev's
+  # own commits into the item's diff (plan review round 3, reproduced) — a merge-base is not an
+  # ancestry check, where either ref would do.
+  for r in "origin/$i" "$i"; do
+    git rev-parse --verify -q "$r^{commit}" >/dev/null 2>&1 || continue
+    mb=$(git merge-base HEAD "$r" 2>/dev/null) || continue
+    if [ -z "$best" ] || git merge-base --is-ancestor "$best" "$mb" 2>/dev/null; then best="$mb"; fi
+  done
+  [ -n "$best" ] && echo "$best"
+  return 0
+}
 pr_base() {
+  local ib; ib=$(integration_base) || return 1; [ -n "$ib" ] && { echo "$ib"; return; }
   git rev-parse --verify -q '@{u}' >/dev/null 2>&1 && { git rev-parse --abbrev-ref '@{u}'; return; }
   for b in main master; do
     git rev-parse --verify -q "$b" >/dev/null 2>&1 && { echo "$b"; return; }
@@ -266,7 +296,7 @@ case "$1" in
     find . -maxdepth 2 -type f \( -name "package.json" -o -name "pyproject.toml" -o -name "Cargo.toml" -o -name "go.mod" -o -name "Makefile" -o -name "*.config.*" -o -name "tsconfig*" -o -name ".eslintrc*" -o -name "Dockerfile" \) 2>/dev/null | head -20
     ;;
   pr-commits)
-    base=$(pr_base)
+    base=$(pr_base) || die "speckit-helper: .branches in .claude/project-status.json is malformed — run ledger.sh branches for the reason"
     if [ -n "$base" ]; then
       git log --oneline "$base..HEAD" 2>/dev/null || echo "Not a git repository"
     else
@@ -274,7 +304,7 @@ case "$1" in
     fi
     ;;
   pr-files)
-    base=$(pr_base)
+    base=$(pr_base) || die "speckit-helper: .branches in .claude/project-status.json is malformed — run ledger.sh branches for the reason"
     if [ -n "$base" ]; then
       git diff --name-status "$base...HEAD" 2>/dev/null || echo "Not a git repository"
     else
@@ -283,7 +313,7 @@ case "$1" in
     fi
     ;;
   pr-stats)
-    base=$(pr_base)
+    base=$(pr_base) || die "speckit-helper: .branches in .claude/project-status.json is malformed — run ledger.sh branches for the reason"
     if [ -n "$base" ]; then
       git diff --stat "$base...HEAD" 2>/dev/null || echo "Not a git repository"
     else
@@ -597,6 +627,7 @@ case "$1" in
       old="HEAD"; git rev-parse --verify -q HEAD >/dev/null 2>&1 || old=""
       files=$(git diff --cached --name-only --no-renames 2>/dev/null)
     else
+      [ -n "$base" ] || base=$(integration_base) || die "deps-diff: .branches in .claude/project-status.json is malformed (ledger.sh branches says why)"
       if [ -z "$base" ]; then
         for b in main master; do git rev-parse --verify -q "$b" >/dev/null 2>&1 && { base=$(git merge-base HEAD "$b" 2>/dev/null); break; }; done
         [ -n "$base" ] || base=$(pr_base)

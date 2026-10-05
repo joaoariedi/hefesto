@@ -13,7 +13,7 @@ command watches **one** PR for one pass and stops. Every state comes from `hooks
 command holds three judgements: the root cause of a red check, the pertinent/doubtful split of a
 comment, and the closing line.
 
-What it never does: merge, approve, enable auto-merge, force-push, push `main`, resolve a review
+What it never does: merge, approve, enable auto-merge, force-push, push a protected branch (`ledger.sh branches`), resolve a review
 thread, clear a `human:*` block, or edit CI configuration. The helper has no code path for any of
 those; the merge is a person's step and the ledger records that it happened.
 
@@ -69,7 +69,12 @@ to the person (or, headless, into the report), never into a fix.
 
 Define once and apply before **every** fix, on both paths below.
 
-**bound()** — re-run `pr-watch.sh fixes <number>`. If `fixes ≥ --max-fixes`: with `--max-fixes 0`
+**bound()** — first, if `resolve` returned `"push": false` (the head is a protected branch — a
+promotion PR such as `stg → main`; see `ledger.sh branches`): **never fix, never push**. Report the
+failing check (with its log path) or the pertinent comment for the person, run
+`${CLAUDE_PLUGIN_ROOT}/hooks/pr-watch.sh ledger-id <url>` and, if it exits 0,
+`${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh block <id> --kind ci` for a red check; **stop**. Otherwise
+re-run `pr-watch.sh fixes <number>`. If `fixes ≥ --max-fixes`: with `--max-fixes 0`
 this is observe-only — report what you would have fixed, apply nothing, and **go to step 3**; otherwise run
 `${CLAUDE_PLUGIN_ROOT}/hooks/pr-watch.sh ledger-id <url>` and, if it exits 0, run
 `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh block <id> --kind ci`; report the last failing check and
@@ -146,5 +151,5 @@ means the ledger is unreadable — report it).
 
 Close with one short brief: the checks state, each fix (check or thread → sha), each doubtful item
 and what the person decided (or that it waits for one), the verdict, and — for `mergeable` — the
-PR URL and the after-merge steps (`git pull --ff-only`, `ledger.sh unblock <id>`,
+PR URL and the after-merge steps (`git fetch origin`, `ledger.sh unblock <id>`,
 `ledger.sh advance <id> merged`, `git worktree remove` if any).

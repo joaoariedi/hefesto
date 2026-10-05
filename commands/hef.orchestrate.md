@@ -20,7 +20,7 @@ the implement worker and then the separate verifier; `deploy` runs one `/hef.bab
 an item whose PR exists. `--dry-run` is the only flag forwarded to the launcher — never
 **$ARGUMENTS** as a whole, which now carries `--stage`.
 
-What it never does: merge a PR, approve a PR, push to `main`, clear a `human:*` block, edit source,
+What it never does: merge a PR, approve a PR, push to a protected branch (`ledger.sh branches`), clear a `human:*` block, edit source,
 or edit a board item. Those are a person's steps; the ledger records that they happened.
 
 ## Host
@@ -107,10 +107,15 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    the flags (tier, allowlist, permission mode) before the first real run.
 
 6. **After a person merges the PR** (never you): in the main checkout, run with the Bash tool
-   `git pull --ff-only`, then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` — the helper
-   accepts a `human:merge` block only when the branch is an ancestor of `main` — then
+   `git fetch origin`, then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` — the helper
+   accepts a `human:merge` block only when the branch is an ancestor of the integration branch
+   (local or `origin/`; `ledger.sh branches` names it — `main` unless `.branches.integration` says
+   otherwise) — then
    `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh advance <id> merged`. Print the cleanup for the person:
-   `git worktree remove .claude/worktrees/<id>`.
+   `git worktree remove .claude/worktrees/<id>`. When `.branches.environments` declares a promotion
+   chain (e.g. `dev → stg → main`), `ledger.sh where <id>` shows how far the merged branch has
+   travelled; each promotion is a person's merge, and `advance <id> released` is accepted only once
+   the branch is in the final branch.
 
 7. **Publish and escalate — on every exit path after pre-flight** (the stops above come here, and so
    does a normal pass), then the brief (step 8). Both are opt-in; with neither configured, skip this

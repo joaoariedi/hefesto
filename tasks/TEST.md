@@ -93,3 +93,20 @@ Each CLI uses its own login; hefesto never handles a key.
       `code-reviewer` verdict.
 - [ ] Refusal check: inside the sandbox, `hooks/arena-run.sh --check` refuses with "$HOME … is not
       writable".
+
+## 7. Branch model — HEF-15 (unreleased)
+
+In a repository that integrates on `dev` (fxcube's `operations_api`), add
+`"branches": {"integration": "dev", "protected": ["release/*"], "environments": ["dev", "stg", "main"]}`
+to its `.claude/project-status.json`.
+
+- [ ] `hooks/ledger.sh branches` prints the model, with `final: "main"`.
+- [ ] `hooks/session-launch.sh verify <id> --dry-run` shows `(diff base: dev)`. The implement dry run
+      shows `gh pr create --base dev` and the protected list.
+- [ ] After a PR merges into `dev` on GitHub: `git fetch origin`, then `hooks/ledger.sh unblock <id>`
+      clears `human:merge`, even with no local `dev`.
+- [ ] `hooks/ledger.sh where <id>` shows `dev: yes (origin/dev)` and `stg`/`main: no` until promoted.
+- [ ] `/hef.babysit` on a `stg → main` PR reports red checks and never pushes (`resolve` says
+      `"push": false`).
+- [ ] Re-run the two babysitter evals above: `pr-watch resolve` now asks `ledger.sh branches`
+      inside the eval sandbox.

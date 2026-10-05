@@ -40,4 +40,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh recent-co
    is the check that all declarations moved.
 
 5. Stop. Tell the user the entry is ready to review, and that the remaining steps are theirs:
-   `git commit`, `git tag -a vX.Y.Z`, `git push origin vX.Y.Z`, and the GitHub Release.
+   `git commit`, `git tag -a vX.Y.Z`, `git push origin vX.Y.Z`, and the GitHub Release. The tag goes
+   on the **final branch's** commit — the last of `.branches.environments`, `main` by default; run
+   `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh branches` and name it (`"final"`) — never on an integration
+   branch commit that has not been promoted there.

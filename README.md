@@ -212,6 +212,9 @@ anybody. The evidence for that shape — and against a mesh of sessions that tal
 That is the layout **by object** — the documents, one feature, `main`. The same spine also runs
 **by stage**, the layout of Galbiati's deck (`reports/18-…`, addendum A2): one pane per stage,
 each launching headless sessions for its stage's work and holding that stage's human gates.
+A repository that integrates on a branch other than `main` (say `dev → stg → main`) declares it
+under `branches` in `.claude/project-status.json` — PR base, verifier diff base, merge check,
+protected heads and the promotion chain all follow ([install §7, step 12](docs/install.md)).
 
 | Pane | Owns (ledger phases) | Human gates | Launches / runs |
 |---|---|---|---|
