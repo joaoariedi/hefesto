@@ -38,6 +38,15 @@ it is what caught the hand-bumped era:
 ## [Unreleased]
 
 ### Added
+- **Providers and arena runners** (HEF-13; report 18 addendum A4, phase 2 of the arena): a `providers`
+  block in `.claude/project-status.json` declares the model access you have (`claude`, `codex`,
+  `gemini`, `aws` for Bedrock). `hooks/arena-run.sh <provider> <prompt-file>` runs each CLI's
+  non-interactive mode, read-only where the CLI offers it, with the prompt on stdin. `--check` lists
+  ok/missing. CLIs are detected, never installed; hefesto handles no keys. `/hef.plan --arena K --via
+  <p,…>` gives up to K−1 slots to providers (one `truth-scout` always kept; same cite check, one column
+  each). `/hef.review --second-opinion <p>` relays another vendor's reading labelled "not the gate";
+  it never writes `## Reviewed`. The runner refuses inside a launched worker and from a sandboxed shell,
+  and `aws` is refused for the arena.
 - **`ledger.sh handoff <id> --pr <url>`** (HEF-6): a hand-run item into the release queue in one call
   from its branch — run (session `hand`), PR, branch, worktree, phase `pr`, `human:merge` — through the
   existing arms, so their guards apply; refuses an owned or blocked entry, `main`, or a non-PR URL.
@@ -64,6 +73,8 @@ it is what caught the hand-bumped era:
   verdict is recorded as FAIL and blocks on `verdict`. A feature's prompt is unchanged.
 
 ### Changed
+- `session-launch.sh` starts every worker as `env HEFESTO_WORKER=1 claude -p …`, so helpers can tell
+  they run inside a launched session (`arena-run.sh` refuses there).
 - `status-board.sh --item`/`--item-raw` also search the DONE column.
 - **`/hef.scan --deps`** (HEF-9; report 18 #5, the deck's Builder role): a `## Dependencies` section from
   two new helper arms. `speckit-helper.sh deps-diff [--staged] [<base>]` lists the DIRECT dependencies a

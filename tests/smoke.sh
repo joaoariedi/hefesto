@@ -1660,7 +1660,7 @@ sl() { (cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$SL" "$@"); }
 # settings JSON with sandbox on and inbound refused, budget cap from config, worktree via -w <id>
 sl_out="$(sl implement HEF-1 --dry-run 2>&1)"; sl_rc=$?
 [ "$sl_rc" -eq 0 ] || { bad "session-launch implement --dry-run exited $sl_rc: $(head -c 300 <<<"$sl_out")"; sl_fail=1; }
-for tok in '^claude -p ' '--name impl-HEF-1' '--model opus' '--max-budget-usd 5' '--output-format json' '--json-schema' "--allowedTools '?Read,Edit,Bash" '--permission-prompts none' '--permission-mode acceptEdits' '-w HEF-1'; do
+for tok in '^env HEFESTO_WORKER=1 claude -p ' '--name impl-HEF-1' '--model opus' '--max-budget-usd 5' '--output-format json' '--json-schema' "--allowedTools '?Read,Edit,Bash" '--permission-prompts none' '--permission-mode acceptEdits' '-w HEF-1'; do
   grep -qE -- "$tok" <<<"$sl_out" || { bad "session-launch implement --dry-run lacks '$tok': $(head -c 400 <<<"$sl_out")"; sl_fail=1; }
 done
 # The --settings token is parsed as JSON, not pattern-matched: `sandbox.*enabled.*true` also matched
@@ -1695,7 +1695,12 @@ chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; 
 { [ "$sl_src" -ne 0 ] && grep -qi 'sandbox' <<<"$sl_serr"; } || { bad "session-launch must refuse when the config dir is not writable, naming the sandbox (rc=$sl_src: $sl_serr)"; sl_fail=1; }
 if sl bogus HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an unknown role"; sl_fail=1; fi
 if sl implement HEF-NOPE --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an id without a ledger entry"; sl_fail=1; fi
-rm -rf "$sl_t" "$sl_cfg"
+# provider-runners FR-003 — every launched session carries HEFESTO_WORKER=1. Mutation: the env pair removed → red.
+sl_md="$(mktemp -d)"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
+sed -i 's/^CMD=(env HEFESTO_WORKER=1 claude -p/CMD=(claude -p/' "$sl_md/session-launch.sh"; cmp -s "$SL" "$sl_md/session-launch.sh" && { bad "launcher env-pair mutation did not apply"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
+(cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1) | grep -qE '^env HEFESTO_WORKER=1 claude -p ' && { bad "mutation survived: env pair removed, dry run still shows it"; sl_fail=1; }
+rm -rf "$sl_t" "$sl_cfg" "$sl_md"
 [ "$sl_fail" -eq 0 ] && ok "session-launch --dry-run: flags per role, sanitised prompt, no claim, no transcript flags, tier rank, model-id refusal, defaults, sandboxed-host refusal (FR-009 FR-010 FR-012 FR-020)"
 
 # FR-011 FR-013 SC-007 — the run path, with a FAKE claude on PATH (a named fake, like the fake gh above):
@@ -1705,7 +1710,7 @@ rm -rf "$sl_t" "$sl_cfg"
 sr_t="$(mktemp -d)"; sr_cfg="$(mktemp -d)"; sr_bin="$(mktemp -d)"; sr_log="$sr_bin/calls"; sr_res="$sr_bin/result.json"; sr_fail=0
 cat > "$sr_bin/claude" <<CLEOF
 #!/bin/bash
-printf '%s\n' "\$*" >> "$sr_log"
+printf '%s\n' "\$*" >> "$sr_log"; printf 'HEFESTO_WORKER=%s\n' "\${HEFESTO_WORKER:-}" >> "$sr_bin/worker"
 prev=""; for a in "\$@"; do if [ "\$prev" = "-w" ]; then git worktree add -q "\$PWD/.claude/worktrees/\$a" -b "\$a" >/dev/null 2>&1; fi; prev="\$a"; done
 cat "$sr_res"
 CLEOF
@@ -1723,6 +1728,7 @@ sr implement HEF-1 >/dev/null 2>&1 || { bad "session-launch implement (fake clau
 srj HEF-1 '.phase=="verify" and .owner==null and .budget.usd_spent==1.25 and .runs[0].session_id=="s1" and .runs[0].session_name=="impl-HEF-1" and .route=="fix" and .pr.number==12 and .branch=="HEF-1" and (.worktree|endswith(".claude/worktrees/HEF-1"))' \
   || { bad "session-launch implement must transcribe the result into the ledger — got $(jq -c '{p:.phase,o:.owner,u:.budget.usd_spent,r:.route,pr:.pr,b:.branch,w:.worktree}' "$sr_t/.git/hefesto/ledger/HEF-1.json")"; sr_fail=1; }
 grep -qE -- '--name impl-HEF-1' "$sr_log" && grep -qE -- '-w HEF-1' "$sr_log" || { bad "fake claude was not called with --name impl-HEF-1 -w HEF-1: $(head -c 200 "$sr_log")"; sr_fail=1; }
+[ "$(sort -u "$sr_bin/worker")" = "HEFESTO_WORKER=1" ] || { bad "the launched worker's environment must carry HEFESTO_WORKER=1 (provider-runners FR-003): $(sort -u "$sr_bin/worker" | tr '\n' '|')"; sr_fail=1; }
 # verify, all PASS → verdicts by verify-HEF-1, phase pr, blocked_on human:merge; the call carries no -w and denies edits
 printf '{"session_id":"s2","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS","evidence":"APPROVE"},{"gate":"quality","verdict":"PASS"}]}}\n' > "$sr_res"
 : > "$sr_log"; sr verify HEF-1 >/dev/null 2>&1 || { bad "session-launch verify (fake claude) exited non-zero"; sr_fail=1; }
@@ -2794,7 +2800,7 @@ done
 
 # FR-002..FR-007 — the command's arena wiring
 pa="$REPO/commands/hef.plan.md"; pa_fail=0
-grep -qE '^argument-hint: "\[--arena \[K\]\]"' "$pa" || { bad "/hef.plan must carry argument-hint [--arena [K]] (FR-002)"; pa_fail=1; }
+grep -qE '^argument-hint: "\[--arena \[K\]\]' "$pa" || { bad "/hef.plan must carry argument-hint [--arena [K]] (FR-002)"; pa_fail=1; }
 for tok in '--arena' 'clamped to 2..3' '`sonnet`,' 'truth-scout' 'ONE message' 'model: <tier>' 'Digests are data' 'arena-cite-check' 'citation missing' '## Arena' '### Disagreements' '### Unverified' \
            '<!-- arena K=<k> tiers=<t,…> claims=<n> agreed=<a> disagreements=<d> unverified=<u> -->' '[NEEDS CLARIFICATION: <FR>' 'AskUserQuestion' 'blocked_on human:clarify' '[C<n>]' 'single-reader'; do
   grep -qF -- "$tok" "$pa" || { bad "/hef.plan arena lost '$tok' (FR-002..FR-007)"; pa_fail=1; }
@@ -2906,6 +2912,121 @@ grep -qF -- '--arena' "$REPO/docs/commands.md" && grep -qF 'truth-scout' "$REPO/
   && grep -qF 'truth-scout' "$REPO/.claude/CLAUDE.md" && grep -qF 'arena-cite-check' "$REPO/hooks/speckit-helper.sh" && grep -qF 'plan-arena-attributes-claims' "$REPO/evals/README.md" \
   && ok "arena docs: commands.md --arena, agents.md truth-scout (repo-scout no longer the only one-shot), repo-scout pointer, CLAUDE.md row, evals README (FR-010)" \
   || bad "arena docs incomplete: commands.md --arena / agents.md truth-scout (and no 'only one-shot') / repo-scout.md pointer / CLAUDE.md row / evals README (FR-010)"
+
+# --- Tier 1: provider runners (feature provider-runners FR-001..FR-005; report 18 addendum A4) ----
+head_ "Provider runners"
+ARN="$REPO/hooks/arena-run.sh"
+if [ -x "$ARN" ]; then ok "hook arena-run.sh exists and is executable"; else bad "hooks/arena-run.sh missing or not executable"; fi
+# A named fake per CLI (FakeVendorCli): records argv and the prompt length it received on stdin (aws: the
+# text inside the file:// messages document), then answers per PR_MODE. The PATH is restricted to the
+# fakes plus a few system tools, so a real claude/codex/gemini/aws on this machine never answers a test.
+pr_t="$(mktemp -d)"; pr_bin="$(mktemp -d)"; pr_bin2="$(mktemp -d)"; pr_none="$(mktemp -d)"; pr_sys="$(mktemp -d)"; pr_home="$(mktemp -d)"; pr_md="$(mktemp -d)"
+pr_log="$pr_bin/calls"; pr_fail=0
+for b in bash jq git timeout mktemp rm cp tail grep cat wc basename sleep dirname tr sed head env; do p="$(command -v "$b")" && ln -s "$p" "$pr_sys/$b"; done
+cat > "$pr_bin/fake-vendor-cli" <<'STEOF'
+#!/bin/bash
+n=$(basename "$0")
+{ printf '%s argv:' "$n"; printf ' [%s]' "$@"; echo; } >> "$PR_LOG"
+if [ "$n" = aws ]; then len=0; for a in "$@"; do case "$a" in file://*) len=$(jq -j '.[0].content[0].text' "${a#file://}" | wc -c) ;; esac; done
+else len=$(wc -c); fi
+echo "$n stdin=$len" >> "$PR_LOG"
+case "${PR_MODE:-}" in empty) exit 0 ;; fail) echo "boom from $n" >&2; exit 3 ;; sleep) sleep 5; exit 0 ;; esac
+case "$n" in
+  codex) echo "src/a.py:9 progress noise"; prev=""; for a in "$@"; do [ "$prev" = --output-last-message ] && echo "codex final answer" > "$a"; prev="$a"; done ;;
+  aws) jq -nc '{output: {message: {content: [{text: "aws answer"}]}}}' ;;
+  *) echo "$n answer" ;;
+esac
+STEOF
+chmod +x "$pr_bin/fake-vendor-cli"
+for c in claude codex gemini aws; do ln -s "$pr_bin/fake-vendor-cli" "$pr_bin/$c"; done; ln -s "$pr_bin/fake-vendor-cli" "$pr_bin2/codex"
+( cd "$pr_t" && git init -q -b main . && mkdir -p .claude \
+  && printf '{"source":"tasks-repo","root":"tasks","providers":{"cl":{"via":"claude","model":"opus"},"codex":{"via":"codex","model":"m1"},"gemini":{"via":"gemini"},"bedrock_x":{"via":"aws","model":"some.model","region":"us-east-1"}}}\n' > .claude/project-status.json ) >/dev/null 2>&1
+printf 'Review this.\n' > "$pr_t/p.md"; head -c 200000 /dev/zero | tr '\0' 'x' > "$pr_t/big.md"
+prr() { (cd "$pr_t" && env -u HEFESTO_WORKER PATH="${PR_BIN:-$pr_bin}:$pr_sys" PR_LOG="$pr_log" HOME="${PR_HOME:-$pr_home}" bash "${PR_AR:-$ARN}" "$@"); }
+prc() { printf '{"source":"tasks-repo","root":"tasks"%s}\n' "$1" > "$pr_t/.claude/project-status.json"; }
+pr_cfg="$(cat "$pr_t/.claude/project-status.json")"
+# FR-001 --check: one line per provider, the aws note, missing with the install hint, exit 0/1
+pr_o="$(prr --check 2>&1)"; pr_rc=$?
+{ [ "$pr_rc" -eq 0 ] && grep -qxF 'cl via claude: ok' <<<"$pr_o" && grep -qxF 'codex via codex: ok' <<<"$pr_o" && grep -qxF 'gemini via gemini: ok' <<<"$pr_o" \
+  && grep -qxF 'bedrock_x via aws: ok (second-opinion only)' <<<"$pr_o" && [ "$(grep -c . <<<"$pr_o")" -eq 4 ]; } || { bad "arena-run --check with every CLI present (rc=$pr_rc): $(tr '\n' '|' <<<"$pr_o")"; pr_fail=1; }
+pr_o="$(PR_BIN="$pr_bin2" prr --check 2>&1)"; pr_rc=$?
+{ [ "$pr_rc" -eq 0 ] && grep -qxF 'codex via codex: ok' <<<"$pr_o" && grep -qxF 'gemini via gemini: missing (npm i -g @google/gemini-cli)' <<<"$pr_o"; } || { bad "arena-run --check must name a missing CLI with its hint and still exit 0 when one is usable (rc=$pr_rc): $(tr '\n' '|' <<<"$pr_o")"; pr_fail=1; }
+PR_BIN="$pr_none" prr --check >/dev/null 2>&1 && { bad "arena-run --check with no usable CLI must exit 1"; pr_fail=1; }
+prc ''; pr_o="$(prr --check 2>&1)" && { bad "arena-run --check with no providers block must fail"; pr_fail=1; }
+grep -qF 'no providers declared' <<<"$pr_o" || { bad "the missing-block refusal must say 'no providers declared', got '$pr_o'"; pr_fail=1; }
+prc ',"providers":{"x":{"via":"ollama"}}'; pr_o="$(prr --check 2>&1)" && { bad "an unknown via must fail"; pr_fail=1; }
+grep -qF "via 'ollama' (expected claude, codex, gemini or aws)" <<<"$pr_o" || { bad "the unknown-via refusal must name the four runners, got '$pr_o'"; pr_fail=1; }
+prc ',"providers":{"Bad-Name":{"via":"codex"}}'; pr_o="$(prr --check 2>&1)" && { bad "a provider name outside [a-z0-9_]+ must fail"; pr_fail=1; }
+grep -qF "provider name 'Bad-Name' must match [a-z0-9_]+" <<<"$pr_o" || { bad "the bad-name refusal must name it, got '$pr_o'"; pr_fail=1; }
+printf '%s\n' "$pr_cfg" > "$pr_t/.claude/project-status.json"
+chmod 555 "$pr_home"; pr_o="$(prr --check 2>&1)"; pr_rc=$?; chmod 755 "$pr_home"
+{ [ "$pr_rc" -ne 0 ] && grep -qF 'is not writable' <<<"$pr_o"; } || { bad "arena-run --check from a sandboxed shell (\$HOME unwritable) must refuse (rc=$pr_rc): $pr_o"; pr_fail=1; }
+[ "$pr_fail" -eq 0 ] && ok "arena-run --check: ok/missing+hint/aws note, exit 0/1, no block, unknown via, bad name, sandboxed \$HOME (provider-runners FR-001)"
+
+# FR-002 the run path: exact argv per runner, prompt on stdin (never argv), only codex's final message
+pr_rfail=0; : > "$pr_log"
+pr_o="$(prr cl p.md 2>&1)"; { [ "$pr_o" = "claude answer" ] && grep -qxF 'claude argv: [-p] [--permission-mode] [plan] [--model] [opus]' "$pr_log" && grep -qxF 'claude stdin=13' "$pr_log"; } \
+  || { bad "claude runner: answer + argv -p --permission-mode plan --model + prompt on stdin — got '$pr_o' / $(tr '\n' '|' < "$pr_log")"; pr_rfail=1; }
+: > "$pr_log"; pr_o="$(prr codex p.md --purpose arena 2>&1)"
+{ [ "$pr_o" = "codex final answer" ] && grep -qE '^codex argv: \[exec\] \[--sandbox\] \[read-only\] \[--output-last-message\] \[[^]]+\] \[-m\] \[m1\] \[-\]$' "$pr_log" && grep -qxF 'codex stdin=13' "$pr_log"; } \
+  || { bad "codex runner: only the last message relayed (no progress noise), read-only sandbox, stdin — got '$pr_o' / $(tr '\n' '|' < "$pr_log")"; pr_rfail=1; }
+: > "$pr_log"; pr_o="$(prr gemini p.md 2>&1)"
+{ [ "$pr_o" = "gemini answer" ] && grep -qxF 'gemini argv: [-p] [Answer the request on standard input.]' "$pr_log" && grep -qxF 'gemini stdin=13' "$pr_log"; } \
+  || { bad "gemini runner: -p with the stdin pointer, no --yolo/--approval-mode, stdin — got '$pr_o' / $(tr '\n' '|' < "$pr_log")"; pr_rfail=1; }
+: > "$pr_log"; pr_o="$(prr bedrock_x p.md --purpose review 2>&1)"
+{ [ "$pr_o" = "aws answer" ] && grep -qE '^aws argv: \[bedrock-runtime\] \[converse\] \[--model-id\] \[some.model\] \[--messages\] \[file://[^]]+\] \[--inference-config\] \[maxTokens=4096\] \[--output\] \[json\] \[--cli-read-timeout\] \[0\] \[--no-cli-pager\] \[--region\] \[us-east-1\]$' "$pr_log" && grep -qxF 'aws stdin=13' "$pr_log"; } \
+  || { bad "aws runner: converse argv with file:// messages, json output, no read timeout, no pager, region; text extracted — got '$pr_o' / $(tr '\n' '|' < "$pr_log")"; pr_rfail=1; }
+: > "$pr_log"; pr_o="$(prr cl big.md 2>&1)" && pr_o2="$(prr bedrock_x big.md 2>&1)"
+{ grep -qxF 'claude stdin=200000' "$pr_log" && grep -qxF 'aws stdin=200000' "$pr_log"; } || { bad "a 200,000-byte prompt (> the 128 KiB per-argument limit) must round-trip on stdin / file:// — got $(tr '\n' '|' < "$pr_log" | cut -c1-400)"; pr_rfail=1; }
+[ "$pr_rfail" -eq 0 ] && ok "arena-run runners: claude/codex/gemini/aws argv exact, prompt on stdin or file:// (200 KB round-trips), codex progress not relayed, aws text extracted (provider-runners FR-002)"
+
+# FR-002 refusals and failures — each names its reason; nothing reaches a vendor CLI when refused
+pr_ffail=0
+pr_o="$(PR_MODE=empty prr gemini p.md 2>&1)" && { bad "an empty answer must fail"; pr_ffail=1; }; grep -qF 'returned nothing' <<<"$pr_o" || { bad "empty: '$pr_o'"; pr_ffail=1; }
+pr_o="$(PR_MODE=empty prr codex p.md 2>&1)" && { bad "codex with no last message must fail"; pr_ffail=1; }
+pr_o="$(PR_MODE=fail prr cl p.md 2>&1)" && { bad "a failing CLI must fail"; pr_ffail=1; }; { grep -qF 'exited 3' <<<"$pr_o" && grep -qF 'boom from claude' <<<"$pr_o"; } || { bad "failure must carry the exit code and the CLI's stderr: '$pr_o'"; pr_ffail=1; }
+pr_o="$(PR_MODE=sleep prr cl p.md --timeout 1 2>&1)" && { bad "a timed-out CLI must fail"; pr_ffail=1; }; grep -qF 'timed out after 1s' <<<"$pr_o" || { bad "timeout: '$pr_o'"; pr_ffail=1; }
+: > "$pr_log"
+pr_o="$(cd "$pr_t" && HEFESTO_WORKER=1 PATH="$pr_bin:$pr_sys" PR_LOG="$pr_log" HOME="$pr_home" bash "$ARN" cl p.md 2>&1)" && { bad "arena-run inside a launched worker must refuse"; pr_ffail=1; }
+grep -qF 'never from a launched worker' <<<"$pr_o" || { bad "worker refusal must say why: '$pr_o'"; pr_ffail=1; }
+chmod 555 "$pr_home"; pr_o="$(prr cl p.md 2>&1)"; pr_rc=$?; chmod 755 "$pr_home"
+{ [ "$pr_rc" -ne 0 ] && grep -qF 'is not writable' <<<"$pr_o"; } || { bad "a run from a sandboxed shell must refuse (rc=$pr_rc): $pr_o"; pr_ffail=1; }
+pr_o="$(prr bedrock_x p.md --purpose arena 2>&1)" && { bad "aws for --purpose arena must refuse"; pr_ffail=1; }; grep -qF 'message API' <<<"$pr_o" || { bad "aws-arena refusal: '$pr_o'"; pr_ffail=1; }
+[ -s "$pr_log" ] && { bad "a refused run must never reach a vendor CLI: $(tr '\n' '|' < "$pr_log")"; pr_ffail=1; }
+pr_o="$(prr nosuch p.md 2>&1)" && { bad "an undeclared provider must fail"; pr_ffail=1; }; grep -qF "no provider 'nosuch'" <<<"$pr_o" || { bad "undeclared provider: '$pr_o'"; pr_ffail=1; }
+prr cl p.md --purpose deploy >/dev/null 2>&1 && { bad "--purpose outside arena|review must fail"; pr_ffail=1; }
+prr cl missing.md >/dev/null 2>&1 && { bad "a missing prompt file must fail"; pr_ffail=1; }
+[ "$pr_ffail" -eq 0 ] && ok "arena-run refusals: empty answer, CLI failure with stderr, timeout, worker, sandboxed \$HOME, aws for arena, undeclared provider, bad purpose, missing file — none reaches a CLI (provider-runners FR-002)"
+
+# Mutations (constitution 3) — each guard removed in a copy; the case that pins it must turn red
+pr_mfail=0
+prm() { cp "$ARN" "$pr_md/ar.sh"; sed -i "$1" "$pr_md/ar.sh"; cmp -s "$ARN" "$pr_md/ar.sh" && { bad "provider-runners mutation did not apply: $1"; pr_mfail=1; }; }
+prm '/HEFESTO_WORKER:-}" = 1 \] \&\& die/d'
+(cd "$pr_t" && HEFESTO_WORKER=1 PATH="$pr_bin:$pr_sys" PR_LOG="$pr_log" HOME="$pr_home" bash "$pr_md/ar.sh" cl p.md >/dev/null 2>&1) && pr_k=1 || pr_k=0; [ "$pr_k" = 1 ] || { bad "mutation survived: worker refusal removed, a worker run still refused"; pr_mfail=1; }
+prm 's/^host_ok() { .*/host_ok() { true; }/'
+chmod 555 "$pr_home"; PR_AR="$pr_md/ar.sh" prr cl p.md >/dev/null 2>&1 && pr_k=1 || pr_k=0; chmod 755 "$pr_home"; [ "$pr_k" = 1 ] || { bad "mutation survived: host check removed, a sandboxed run still refused"; pr_mfail=1; }
+prm 's/ --sandbox read-only//'
+: > "$pr_log"; [ "$(PR_AR="$pr_md/ar.sh" prr codex p.md 2>&1)" = "codex final answer" ] || { bad "codex mutant did not run"; pr_mfail=1; }
+grep -qF '[--sandbox] [read-only]' "$pr_log" && { bad "mutation survived: codex read-only flag removed, argv still has it"; pr_mfail=1; }
+prm '/\[ "\$VIA" = aws \] \&\& \[ "\$PURPOSE" = arena \] \&\& die/d'
+[ "$(PR_AR="$pr_md/ar.sh" prr bedrock_x p.md --purpose arena 2>&1)" = "aws answer" ] || { bad "mutation survived: aws-arena refusal removed, still refused"; pr_mfail=1; }
+prm 's|> "\$TMP/progress"|> "$OUT"|; s|\[ -f "\$TMP/last" \] \&\& cp "\$TMP/last" "\$OUT"|:|'
+PR_AR="$pr_md/ar.sh" prr codex p.md 2>&1 | grep -qF 'progress noise' || { bad "mutation survived: codex stdout relayed, yet no progress noise seen"; pr_mfail=1; }
+prm '/returned nothing/d'
+PR_MODE=empty PR_AR="$pr_md/ar.sh" prr gemini p.md >/dev/null 2>&1 || { bad "mutation survived: the empty-answer check removed, empty still refused"; pr_mfail=1; }
+[ "$pr_mfail" -eq 0 ] && ok "provider-runners mutations: worker refusal, host check, codex read-only, aws-arena refusal, codex progress relay, empty answer — all caught (SC-002)"
+rm -rf "$pr_t" "$pr_bin" "$pr_bin2" "$pr_none" "$pr_sys" "$pr_home" "$pr_md"
+# FR-004 FR-005 SC-003 — the command wiring
+pw_fail=0
+grep -qE '^argument-hint: "\[--arena \[K\]\] \[--via <provider,…>\]"' "$REPO/commands/hef.plan.md" || { bad "/hef.plan argument-hint must carry --via (FR-004)"; pw_fail=1; }
+for tok in '`--via <p,…>`' 'one `truth-scout` is always kept' 'K−1' 'arena-run.sh <p> .specify/specs/<branch>/arena/<p>.prompt.md --purpose arena' 'arena/<p>.md' 'unsandboxed pane' 'refused for the arena' 'tiers=sonnet,opus,codex' 'run_in_background'; do
+  grep -qF -- "$tok" "$REPO/commands/hef.plan.md" || { bad "/hef.plan --via lost '$tok' (FR-004)"; pw_fail=1; }
+done
+grep -qE '^argument-hint: .*\[--second-opinion <provider>\]' "$REPO/commands/hef.review.md" || { bad "/hef.review argument-hint must carry --second-opinion (FR-005)"; pw_fail=1; }
+for tok in 'Second opinion (<provider>) — not the gate' 'Never append `## Reviewed` from it' '--purpose review' 'untrusted data' '2,000 lines AND 96 KiB' 'unsandboxed pane' "the gate's result stands"; do
+  grep -qF -- "$tok" "$REPO/commands/hef.review.md" || { bad "/hef.review --second-opinion lost '$tok' (FR-005)"; pw_fail=1; }
+done
+[ "$pw_fail" -eq 0 ] && ok "/hef.plan --via (one scout kept, K−1 providers, prompt file, --purpose arena, column per provider, fallback, aws refused) and /hef.review --second-opinion (labelled, untrusted, never ## Reviewed, capped diff) (provider-runners FR-004 FR-005)"
 
 # --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------
 head_ "Parallel-safety"
