@@ -97,7 +97,7 @@ says what each release changed.
 |---|---|
 | 🛠️ `commands/` | The 25 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Seven specialist subagents — testing, quality, review, security, PR coordination, two one-shot readers (another repo; this one, for the arena). |
-| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (44 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
+| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (46 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |
@@ -268,9 +268,13 @@ holds everything the line points at.
 6. After you merge: `git pull --ff-only`, `hooks/ledger.sh unblock <id>`,
    `hooks/ledger.sh advance <id> merged`, `git worktree remove .claude/worktrees/<id>`.
 
-A hand-run item in `feature` goes through the same ledger steps a worker does (`run --role implement
---exit 0 --usd 0`, `record --pr … --branch …`, `advance pr`, `block --kind human:merge`); a one-call
-shortcut for that is backlog item HEF-6. Two rules keep the panes honest: the `project` pane that runs
+A hand-run item in `feature` reaches the same release queue in one call from its branch:
+`hooks/ledger.sh handoff <id> --pr <url>` (it records the run, the PR, the branch and the worktree,
+advances to `pr` and blocks on `human:merge`; it refuses an owned or blocked entry). With
+`orchestrate.publish` on, every orchestrator pass writes the item's state on the board heading
+(`⏸ 🔀 🔨 📐 ⛔ ✅`); with `orchestrate.escalate_after_hours` set, a `human:*` block older than that is
+sent once, as a one-line pointer, to the pane that owns it. A 🐞 or 🛡 before an item's id makes it an
+incident or vulnerability fix, with one extra verifier gate it cannot skip. Two rules keep the panes honest: the `project` pane that runs
 `/hef.orchestrate` has **its own sandbox off** (the workers it launches get theirs), see
 [`docs/install.md`](docs/install.md) §7; and no pane ever merges, approves or pushes `main` for a
 worker — branch protection on `main` is the backstop, not the prompt.

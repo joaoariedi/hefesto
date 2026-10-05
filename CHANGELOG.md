@@ -35,6 +35,48 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Added
+- **`ledger.sh handoff <id> --pr <url>`** (HEF-6): a hand-run item into the release queue in one call
+  from its branch — run (session `hand`), PR, branch, worktree, phase `pr`, `human:merge` — through the
+  existing arms, so their guards apply; refuses an owned or blocked entry, `main`, or a non-PR URL.
+- **`ledger.sh publish <id>`** (HEF-4; opt-in `orchestrate.publish`): the entry's state on the board —
+  a marker first on the item's heading (⏸ ⛔ 📐 🔨 🔀 ✅, `orchestrate.publish_markers`) through the
+  board's one new write path `status-board.sh --mark`, which replaces only its own markers and keeps a
+  kind marker; the item's hash is verified before the write and re-taken after it, so a person's edit is
+  still refused as "changed since claim"; a github-project entry gets one issue comment; nothing is
+  written when the state did not change.
+- **`ledger.sh escalate [--record <id>]`** (HEF-5; opt-in `orchestrate.escalate_after_hours`): `human:*`
+  blocks older than the threshold, once per block, as `<session>` TAB `ledger <id> blocked_on <kind>
+  <path>` (the PR for a merge, the spec for a clarification, the item for an intake; ≤200 characters),
+  addressed to the pane that owns the kind. Escalation is opt-in: report 17 asked for it once Phase 1
+  showed blocks waiting too long, and no such baseline has been measured yet.
+- `/hef.orchestrate` step 7 runs publish and escalate on EVERY exit path after pre-flight — including
+  the stops that just set a block — and sends each pointer as one cross-session message, recording it
+  only when the send succeeded.
+
+- **Board item kinds** (HEF-10; report 18 #6): a 🐞 (incident) or 🛡 (vulnerability) before an item's id,
+  read by `status-board.sh --item-kind` even behind a publish state marker, is recorded as `item_kind` at
+  registration (`ledger.sh init --item-kind`, `record --item-kind`; an empty kind — a failed detection —
+  is refused, never `feature`). The worker gets one extra sentence (regression test first; re-scan
+  before the PR) and the verifier one REQUIRED gate: a missing or SKIPPED `incident`/`vulnerability`
+  verdict is recorded as FAIL and blocks on `verdict`. A feature's prompt is unchanged.
+
+### Changed
+- `status-board.sh --item`/`--item-raw` also search the DONE column.
+- **`/hef.scan --deps`** (HEF-9; report 18 #5, the deck's Builder role): a `## Dependencies` section from
+  two new helper arms. `speckit-helper.sh deps-diff [--staged] [<base>]` lists the DIRECT dependencies a
+  change adds, re-versions or removes, lexically from the manifests (`package.json`, `requirements*.txt`,
+  `pyproject.toml` `[project] dependencies`, `Cargo.toml`, `go.mod` without `// indirect`) — each new one
+  a review item under the supply-chain rule. `speckit-helper.sh deps-audit` runs whichever auditors are
+  installed (npm audit, pip-audit, cargo-audit, govulncheck, osv-scanner), saves each report, and reads a
+  finding count only when the auditor's exit is valid and its JSON yields a number — an ENOLOCK error
+  document or a no-lockfile exit reads `unknown`, never clean. Nothing is installed.
+- The pre-commit hook adds one **advisory** line (PreToolUse `additionalContext`, never a block) when a
+  staged manifest adds a dependency — the first hook that runs the helper.
+- `quality-tooling` gains a Dependency Audit section (auditors, detection, install hints, tiers).
+
 ## [7.7.0] - 2026-10-01
 
 ### Added

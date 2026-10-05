@@ -21,21 +21,30 @@ set -uo pipefail
 
 die() { echo "$*" >&2; exit 1; }
 
-MODE="run"; CONFIG=""; ITEM_ID=""
+MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --check|-c) MODE="check" ;;
     --detailed|-d) MODE="detailed" ;;
     --item) shift; MODE="item"; ITEM_ID="${1:-}" ;;
     --item-raw) shift; MODE="item-raw"; ITEM_ID="${1:-}" ;;
+    --mark) shift; MODE="mark"; ITEM_ID="${1:-}"; [ $# -gt 0 ] && shift; MARK="${1:-}" ;;
+    --was) shift; WAS="${1:-}" ;;
+    --item-kind) shift; MODE="item-kind"; ITEM_ID="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
-    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id>] [--config <path>]"; exit 0 ;;
-    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --config <path>, or --help)" >&2; exit 2 ;;
+    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
+    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2 ;;
   esac
   shift
 done
-case "$MODE" in item|item-raw)
+case "$MODE" in item|item-raw|mark|item-kind)
   [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
+  [ "$MODE" != mark ] || [ -n "$MARK" ] || { echo "status-board: --mark needs <id> <marker> (or - for no marker)" >&2; exit 2; }
+  # A marker is ONE token with no backslash: a space would stack under the next mark, a backslash or a
+  # newline would split the heading and forge another item (code review 2026-10-02).
+  for m in "$MARK" "$WAS"; do
+    [ -z "$m" ] || [ "$m" = - ] || [[ "$m" =~ ^[^[:space:]\\]+$ ]] || { echo "status-board: invalid marker '$m' (expected one token without spaces or backslashes, or -)" >&2; exit 2; }
+  done
   # the id becomes an awk regex atom and a file-name stem downstream: one shape only
   [[ "$ITEM_ID" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || { echo "status-board: invalid item id '$ITEM_ID' (expected [A-Za-z][A-Za-z0-9_-]*, e.g. HEF-12)" >&2; exit 2; } ;;
 esac
@@ -133,7 +142,7 @@ column_items() {
 # prints the text as written; that is what the ledger hashes to detect an item edited after claim.
 item_body() { # $1 id, $2 raw|clean
   local col f body
-  for col in todo doing backlog; do
+  for col in todo doing backlog 'done'; do
     f="$TROOT/${COL[$col]}"
     body=$(awk -v h="$ITEM_HEADING" -v id="$1" '
       BEGIN { p = 0 }
@@ -147,7 +156,83 @@ item_body() { # $1 id, $2 raw|clean
     printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(sed -E 's/<!--[^>]*-->//g' <<<"$body" | sed '/<!--/,/-->/d')" "$nonce"
     return 0
   done
-  die "status-board --item $1: no such item in ${COL[todo]}, ${COL[doing]} or ${COL[backlog]} under $TROOT"
+  die "status-board --item $1: no such item in ${COL[todo]}, ${COL[doing]}, ${COL[backlog]} or ${COL[done]} under $TROOT"
+}
+
+# The board's ONE write path (ledger-surfaces FR-002): put a publish state marker first on an item's
+# heading. Leading tokens that are publish markers (the default below — byte-identical to ledger.sh's
+# copy, asserted by the smoke suite — merged with orchestrate.publish_markers) are replaced, never
+# stacked; every other token (a kind marker such as 🐞) is kept; an item already in DONE is left alone. Same id-boundary match as item_body,
+# so HEF-1 never rewrites HEF-10. One heading changes, written through a temp file in the same dir.
+PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build":"🔨","pr":"🔀","done":"✅"}'
+
+# An item's KIND (item-kinds FR-001; report 18 #6): a kind glyph anywhere before the id on its heading —
+# not only first, because publish puts a STATE marker in front (`## ⏸ 🐞 HEF-21`). Config `kinds` over
+# the default; the two glyph sets never overlap (asserted by the smoke suite), or --mark would strip a
+# kind. The first token is still what /hef.status reads as the sub-state: label kind glyphs via `states`.
+# The glyph goes BEFORE the id (`## 🐞 HEF-21 — …`); one after it is title text. Variation selectors
+# (U+FE0E text, U+FE0F emoji) are stripped from both the map's keys and the heading's tokens before the
+# lookup — editors add or drop VS16 at will, and 🛡 / 🛡️ must be one glyph (quality gate 2026-10-02).
+KINDS_DEFAULT='{"🐞":"incident","🛡":"vulnerability","🛡️":"vulnerability"}'
+item_kind() { # $1 id → feature|incident|vulnerability
+  local map col f line pre t k
+  # Values must be one of the three kinds and keys must not be publish markers (--mark would strip them):
+  # a bad override is named here, not later by `ledger init` (code review 2026-10-02).
+  map=$(jq -ce --argjson d "$KINDS_DEFAULT" --argjson pm "$PUBLISH_MARKERS_DEFAULT" '
+      def novs: gsub("[\ufe0e\ufe0f]"; "");
+      (.kinds // {}) as $k | ((.orchestrate.publish_markers // {}) | if type == "object" then [.[]] else [] end) + [$pm[]] | map(strings | novs) as $marks
+      | if ($k | type) != "object" then error("kinds must be an object")
+        elif ($k | to_entries | any(.value as $v | ["feature","incident","vulnerability"] | index($v) | not)) then error("a kinds value is not feature, incident or vulnerability")
+        elif ($k | keys | any(novs as $g | $marks | index($g))) then error("a kinds glyph is also a publish marker")
+        else $d + $k | with_entries(.key |= novs) end' "$CONFIG" 2>/dev/null) \
+    || die "status-board --item-kind: .kinds in $CONFIG must map glyphs (never a publish marker) to feature, incident or vulnerability"
+  for col in todo doing backlog; do
+    f="$TROOT/${COL[$col]}"
+    line=$(awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") { print; exit }' "$f" 2>/dev/null)
+    [ -n "$line" ] || continue
+    pre="${line%%"$1"*}"
+    set -f; for t in $pre; do
+      t="${t//$'\xef\xb8\x8e'/}"; t="${t//$'\xef\xb8\x8f'/}"   # U+FE0E, U+FE0F
+      k=$(jq -r --arg t "$t" '.[$t] // empty' <<<"$map")
+      [ -n "$k" ] && { set +f; echo "$k"; return 0; }
+    done; set +f
+    echo feature; return 0
+  done
+  die "status-board --item-kind $1: no such item in ${COL[todo]}, ${COL[doing]} or ${COL[backlog]} under $TROOT"
+}
+mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (stripped too: a superseded map's glyph)
+  local set col f tmp
+  set=$(jq -r --argjson d "$PUBLISH_MARKERS_DEFAULT" '$d + ((.orchestrate.publish_markers // {}) | if type == "object" then . else {} end) | [.[]] + [$d[]] | map(select(type == "string" and test("^[^\\s\\\\]+$"))) | unique | join(" ")' "$CONFIG" 2>/dev/null) \
+    || set=$(jq -r '[.[]] | join(" ")' <<<"$PUBLISH_MARKERS_DEFAULT")
+  # --was strips the marker publish last wrote — never a kind glyph, whatever a misconfigured map says
+  if [ -n "${3:-}" ] && [ "$3" != - ]; then
+    jq -e --arg w "$3" --argjson d "$KINDS_DEFAULT" 'def novs: gsub("[\ufe0e\ufe0f]"; ""); ($d + ((.kinds // {}) | if type == "object" then . else {} end)) | with_entries(.key |= novs) | has($w | novs)' "$CONFIG" >/dev/null 2>&1 \
+      || set="$set $3"
+  fi
+  for col in todo doing backlog 'done'; do
+    f="$TROOT/${COL[$col]}"; [ -f "$f" ] || continue
+    awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") {found=1; exit} END {exit !found}' "$f" || continue
+    # A DONE heading is a dated section the quarter count parses (^## YYYY-MM-DD); a marker in front would
+    # break it — and the column already says the item is done.
+    if [ "$col" = 'done' ]; then echo "$1 is in ${COL[done]} — the column says it; not marked"; return 0; fi
+    # Write through a symlink to its target and keep the file's mode: a symlinked column (a specs-in-repo
+    # layout) must not be replaced by a private regular file (quality gate 2026-10-02).
+    f=$(readlink -f "$f") || die "status-board --mark: cannot resolve $f"
+    tmp=$(mktemp "$(dirname "$f")/.mark.XXXXXX") || die "status-board --mark: cannot write next to $f"
+    chmod --reference="$f" "$tmp" 2>/dev/null || chmod "$(stat -c %a "$f" 2>/dev/null || echo 644)" "$tmp"
+    # The marker and the set reach awk through ENVIRON, not -v: -v processes backslash escapes.
+    if ! HB_MARK="$2" HB_SET="$set" awk -v h="$ITEM_HEADING" -v id="$1" '
+        BEGIN { m = ENVIRON["HB_MARK"]; n = split(ENVIRON["HB_SET"], S, " "); for (i = 1; i <= n; i++) mine[S[i]] = 1 }
+        !done && $0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") {
+          match($0, /^#+ */); pre = substr($0, 1, RLENGTH); rest = substr($0, RLENGTH + 1)
+          while ((sp = index(rest, " ")) > 0 && (substr(rest, 1, sp - 1) in mine)) { rest = substr(rest, sp + 1); sub(/^ +/, "", rest) }
+          if (m != "-") rest = m " " rest
+          print pre rest; done = 1; next }
+        { print }' "$f" > "$tmp"; then rm -f "$tmp"; die "status-board --mark $1: rewriting $f failed"; fi
+    mv "$tmp" "$f" || { rm -f "$tmp"; die "status-board --mark $1: cannot replace $f"; }
+    echo "marked $1 $2 in ${COL[$col]}"; return 0
+  done
+  die "status-board --mark $1: no such item in ${COL[todo]}, ${COL[doing]}, ${COL[backlog]} or ${COL[done]} under $TROOT"
 }
 
 marker_summary() { # items → "label n · label n"
@@ -346,9 +431,9 @@ source_github() {
 case "$SOURCE" in
   tasks-repo)
     tasks_config
-    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; esac
+    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
-    case "$MODE" in item|item-raw) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; esac
+    case "$MODE" in item|item-raw|item-kind) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
     source_github ;;
 esac
