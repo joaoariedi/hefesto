@@ -95,9 +95,9 @@ says what each release changed.
 
 | Directory | What lives there |
 |---|---|
-| 🛠️ `commands/` | The 25 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
+| 🛠️ `commands/` | The 26 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Seven specialist subagents — testing, quality, review, security, PR coordination, two one-shot readers (another repo; this one, for the arena). |
-| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (46 subcommands) for live git data, requirement traceability and the mutation ratchet; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `release.sh`. |
+| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (46 subcommands) for live git data, requirement traceability, the mutation ratchet and dependency diffs; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `pr-watch.sh` for `/hef.babysit`; `arena-run.sh` for foreign-provider readers; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |
@@ -283,12 +283,13 @@ worker — branch protection on `main` is the backstop, not the prompt.
 
 | | |
 |---|---|
-| 🔒 `/hef.scan` | Secrets, SQLi, XSS in the staged changes. |
+| 🔒 `/hef.scan` | Secrets, SQLi, XSS in the staged and unstaged changes. `--deps` adds every direct dependency the branch adds, re-versions or removes, plus the findings of whichever auditors are installed (an unreadable count is `unknown`, never clean). |
 | 🤝 `/hef.agent <task>` | Sizes the task, picks the path (fix / light / full), then runs it with planning and tracking. |
 | 🛡️ `/hef.quality` | The quality gate. Spawns `quality-guardian`. |
 | 🧬 `/hef.mutate` | Mutation-tests the changed code against a raise-only score ratchet. Coverage says a line ran; this says a test would notice. |
 | 🚀 `/hef.release <X.Y.Z>` | Moves every version declaration together and scaffolds the changelog entry for you to edit. |
-| 🔍 `/hef.review` | Plan mode before tasks exist; code mode after. Both spawn `code-reviewer` in a fresh context — the session that wrote it never grades it. `--inline` for a self-review second opinion. |
+| 🔍 `/hef.review` | Plan mode before tasks exist; code mode after. Both spawn `code-reviewer` in a fresh context — the session that wrote it never grades it. `--inline` for a self-review second opinion; `--second-opinion <provider>` relays a declared foreign provider's reading, labelled *not the gate*. |
+| 🏟️ `/hef.plan --arena [K]` | Fans the plan's truth-map questions out to K (2..3) read-only `truth-scout` readers at different tiers, verifies every citation, and attributes each claim; `--via <p,…>` gives slots to providers declared in `.claude/project-status.json` (run by `hooks/arena-run.sh`). |
 | 📝 `/hef.pr` | Open or update the PR. Spawns `review-coordinator`; never merges. `--summary-only` writes just the description. |
 | 🩺 `/hef.doctor` | The framework's own check-up: the running copy against the clone and upstream, rules against upstream, hooks linted, manifest valid; `--eval` scores its prompts. |
 | 📊 `/hef.status` | Management status brief from the source `.claude/project-status.json` declares — a GitHub Project or a tasks repository of kanban files. `--detailed` unfolds, `--check` diagnoses. Adds an AI-delivery section (merge rate, spend per merged PR, blocked by kind) when the repository has a ledger. |
@@ -304,8 +305,10 @@ Full reference: [`docs/commands.md`](docs/commands.md).
 
 The hooks ship with the plugin — you do not register them:
 
+- 🛑 **Before any Bash call** — `push --force`, `reset --hard`, `branch -D`, `git clean -f` and catastrophic `rm -r` are denied unless you prefix `CLAUDE_ALLOW_DESTRUCTIVE=1`.
+- 🔏 **Before any edit** — writes to `.env`, keys, `.pem`, credentials and secrets directories are blocked.
 - ✏️ **On every edit** — formatters run; tests fire for the touched code.
-- 🔐 **On every `git commit`** — secrets detection and linting must pass, the subject must be a conventional commit, and (where `lizard` is installed) no changed file may gain over-limit functions — or the commit is blocked.
+- 🔐 **On every `git commit`** — secrets detection and linting must pass, the subject must be a conventional commit, and (where `lizard` is installed) no changed file may gain over-limit functions — or the commit is blocked. A staged manifest that adds a dependency gets one advisory line (never a block).
 - 🔀 **After edits, once a minute** — you are told if the branch's committed state would conflict with its base, or has drifted far behind it.
 - 🔗 **After a test edit, outside an implement phase** — if that test cites a requirement, you are told which spec declares it, so the spec follows the test instead of rotting.
 - ✅ **On task completion** — the task cannot be marked done while the test suite fails.
@@ -313,6 +316,7 @@ The hooks ship with the plugin — you do not register them:
 - 🧷 **During `/hef.implement`** — tests may grow, never shrink; snapshot regeneration is always blocked.
 - 🧭 **On session start / before compaction** — context is injected, a checkpoint is written.
 - 👁️ **On a settings change mid-session** — it is announced.
+- 🔔 **When Claude needs you** — a desktop notification; **when a turn ends after code edits** — a quality check runs.
 
 [`docs/hooks.md`](docs/hooks.md) explains each, and how to opt out deliberately when you must.
 
@@ -323,7 +327,7 @@ The hooks ship with the plugin — you do not register them:
 | | |
 |---|---|
 | 📦 [Installing & Configuring](docs/install.md) | Install, the permission rule, verification, updating, what the plugin cannot ship. |
-| 🛠️ [Commands](docs/commands.md) | All 25, with arguments. |
+| 🛠️ [Commands](docs/commands.md) | All 26, with arguments. |
 | 🕵️ [Agents & Parallelism](docs/agents.md) | The seven agents; when to use a subagent vs. a team vs. a workflow. |
 | ⚙️ [Hooks & Quality Gates](docs/hooks.md) | Every hook, the Iron Laws, and the security posture. |
 | 🧬 [Spec-Driven Development](docs/sdd.md) | The lifecycle in depth, `.specify/` artifacts, task management. |

@@ -4,7 +4,7 @@
 
 ## 🔌 MCP Integration
 
-The repo ships a **project-scoped** `.mcp.json` at its root, which Claude Code loads automatically for anyone working in this repository:
+The plugin ships `.mcp.json` at its root, so the GitHub server is registered in every project once the plugin is installed (and for anyone working in this repository):
 
 ```json
 {
@@ -24,10 +24,10 @@ Export `GITHUB_TOKEN` before starting Claude Code, or the server loads with a
 `Missing environment variables` warning. No token is committed — the value is expanded from
 your environment at load time.
 
-**For your own projects**, register the server once at user scope instead:
+You do not need to register it yourself — a user-scope `claude mcp add … github` would register it
+twice. Export `GITHUB_TOKEN` before starting Claude Code, then check it:
 
 ```bash
-claude mcp add --scope user --transport http github https://api.githubcopilot.com/mcp
 claude mcp list          # verify: should report "✔ Connected"
 ```
 

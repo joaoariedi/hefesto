@@ -1,3 +1,3 @@
 # BACKLOG
 
-Not yet dispatchable. Phase 2 of report 17 lives here until Phase 1 has numbers.
+Not yet dispatchable. Empty: report 17 Phase 2 (HEF-4, HEF-5) shipped in 7.8.0.

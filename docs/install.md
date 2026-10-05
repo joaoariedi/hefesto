@@ -21,7 +21,7 @@ That is a **persistent, user-scoped** install: it writes `enabledPlugins` to `~/
 claude plugin list          # → hefesto@hefesto  ✔ enabled
 ```
 
-Because the marketplace source is a **directory**, the plugin is read from your clone in place — nothing is copied. **Updating is therefore just `git pull`** (see *Updating* below), and the install path is stable and predictable, which the permission rule in step 2 depends on.
+Because the marketplace source is a **directory**, `plugin install` copies your clone into this profile's plugin cache (`$CLAUDE_CONFIG_DIR/plugins/cache/hefesto/hefesto/<version>/`), and that copy is what sessions load. **Updating is a `git pull` in the clone plus `claude plugin update hefesto@hefesto` in each profile** (see *Updating* below).
 
 <details>
 <summary><b>Alternative: try it for a single session, without installing</b></summary>
@@ -82,7 +82,7 @@ Two things the plugin cannot ship, because they are machine-local by design:
 }
 ```
 
-> ⚠️ The `speckit-helper.sh` permission avoids a prompt on every hef commands. The commands run the helper with the Bash tool; they cannot pre-execute it in a `` !`…` `` block, because a `!` block is permission-checked *before* `${CLAUDE_PLUGIN_ROOT}` is substituted and is rejected outright as `Contains expansion`.
+> ⚠️ The `speckit-helper.sh` permission avoids a prompt on every hef command. The commands run the helper with the Bash tool; they cannot pre-execute it in a `` !`…` `` block, because a `!` block is permission-checked *before* `${CLAUDE_PLUGIN_ROOT}` is substituted and is rejected outright as `Contains expansion`.
 >
 > **The rule must mirror the command byte for byte. The matcher does no expansion and no normalisation.** Tested against the live matcher:
 >
@@ -96,7 +96,9 @@ Two things the plugin cannot ship, because they are machine-local by design:
 >
 > **Write your home directory out literally** (`echo $HOME`). The doubled slash is not a typo and is the entry that works: `${CLAUDE_PLUGIN_ROOT}` expands *with* a trailing slash, so the helper reaches the matcher as `…/.claude-framework//hooks/…`. The single-slash entry is a hedge against a future release dropping that slash; it matches nothing today. Keep both.
 >
-> **This is the single most common failure.** A pre-flight command that is denied aborts the whole slash command **silently** — no error, no output, exit 0. If a hef commands appears to do nothing at all, this rule is the first thing to check.
+> **This is the single most common failure.** A pre-flight command that is denied aborts the whole slash command **silently** — no error, no output, exit 0. If a hef command appears to do nothing at all, this rule is the first thing to check.
+>
+> The same applies to the other helpers the commands call — `status-board.sh` (`/hef.status`), `ledger.sh` and `session-launch.sh` (`/hef.orchestrate`), `pr-watch.sh` (`/hef.babysit`), `arena-run.sh` (`--arena --via`, `--second-opinion`), `release.sh` (`/hef.release`): they prompt on first use; allow them in the same form if you use those commands.
 
 Export `GITHUB_TOKEN` if you want the bundled GitHub MCP server to connect.
 
@@ -149,7 +151,7 @@ Three checks, in increasing strength:
 2. **The `/` menu** — every command should be listed. **A component that does not appear is not loaded**, and its absence is silent. This is the only reliable test.
 3. **Run one** — `/hef.context` should print a tech-stack summary. If it prints *nothing*, the pre-flight permission rule in step 2 is missing (see the warning above).
 
-> ⚠️ `claude plugin details hefesto` prints a component inventory, but it reports **`Agents (0)`** for this plugin even though all six agents load correctly. That is a quirk of the inventory display, not a fault in your install — confirmed by dispatching the agents in a live session. Do not chase it.
+> ⚠️ `claude plugin details hefesto` prints a component inventory, but it reports **`Agents (0)`** for this plugin even though all seven agents load correctly. That is a quirk of the inventory display, not a fault in your install — confirmed by dispatching the agents in a live session. Do not chase it.
 
 ### 4️⃣ Your First Feature (the 60-second tour)
 
@@ -159,6 +161,7 @@ The framework's core loop is **spec first, then code, then a gate you cannot tal
 /hef.init                    # once per project — bootstraps .specify/
 /hef.spec  add user login # → a spec: scenarios, requirements, success criteria
 /hef.plan                    # → an implementation plan (writes are blocked outside .specify/)
+/hef.review                  # → plan mode: a fresh code-reviewer gates the plan; APPROVE writes "## Reviewed"
 /hef.tasks                   # → a phased, dependency-ordered task list
 /hef.implement               # → TDD execution, red-green, one task at a time (tests may grow, not shrink)
 /hef.verify                  # → every FR mapped to the tests that cite it, then spec-compliance review
@@ -179,7 +182,7 @@ Not every change deserves a spec. For a typo or a config tweak, `/hef.fix` skips
 
 ### 5️⃣ Updating
 
-The plugin is read from your clone in place, so updating is a `git pull`:
+Updating is two steps: refresh the clone, then re-copy it into each profile's cache:
 
 ```bash
 git -C ~/.claude-framework pull
@@ -263,7 +266,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
 5. **Watch for blocks**: every session opened in the checkout prints `ledger: <id> blocked_on <kind>`
    at start; `herdr agent wait --until blocked` and `claude agents --json` show the pane. A `human:*`
    block is cleared only by the artifact the human command leaves behind (`/hef.clarify`,
-   `/hef.review`, the merge itself), never by a flag.
+   `/hef.review`, the merge itself), or — for `human:intake` only — by a person running
+   `hooks/ledger.sh unblock <id> --reviewed-by-human` at an interactive terminal; a non-interactive
+   caller is refused.
 6. **After you merge**: `git pull --ff-only`, then `hooks/ledger.sh unblock <id>` and
    `hooks/ledger.sh advance <id> merged`; remove the worktree with
    `git worktree remove .claude/worktrees/<id>`.
@@ -282,7 +287,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    `--stage deploy` runs one babysitter pass on the next PR. Two settings matter: every role's
    allowlist gets the plugin's own hooks directory appended automatically, so put the **project's
    test command** in `orchestrate.allowed_tools.<role>` (this repository: `Bash(bash tests/smoke.sh*)`
-   for `implement` and `deploy`) without fear of losing the helpers; and every launch is one Bash
+   and `Bash(node --test*)` for `implement` and `verify`) without fear of losing the helpers — but the
+   configured list *replaces* the role's default list (only the hooks rule is appended), so copy the
+   defaults from `session-launch.sh` and add the test command to them; and every launch is one Bash
    call that can block for many minutes (a deploy pass waits on CI inside the babysitter), so the
    command makes it with the tool timeout raised to 600 000 ms. `orchestrate.panes` maps block
    kinds to your pane names; the session-start line then says whose block it is.
@@ -312,12 +319,16 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     the model access you already have in `.claude/project-status.json`:
 
     ```json
-    "providers": {
-      "codex":  {"via": "codex"},
-      "gemini": {"via": "gemini", "model": "<your gemini model>"},
-      "bedrock_llama": {"via": "aws", "model": "<your Bedrock model id>", "region": "us-east-1", "max_tokens": 4096}
+    {
+      "providers": {
+        "codex":  {"via": "codex"},
+        "gemini": {"via": "gemini", "model": "<your gemini model>"},
+        "bedrock_llama": {"via": "aws", "model": "<your Bedrock model id>", "region": "us-east-1", "max_tokens": 4096}
+      }
     }
     ```
+
+    (`providers` is a top-level key in `.claude/project-status.json`, beside `orchestrate`.)
 
     Names are `[a-z0-9_]+` (they become Arena columns) and may not be a Claude tier (`sonnet`, `opus`,
     `fable`, `haiku`). `model` and `region` must look like ids (no leading `-`, no `://`: the AWS CLI
@@ -347,5 +358,5 @@ the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR co
 trust boundary in `docs/architecture.md` — CI, the PR and the babysitter on the always-on
 workstation that holds GitHub access only; environment transitions and the production release on
 the laptop that holds the credentials. The ledger is per checkout, so the laptop reads the release
-queue with `git pull --ff-only` and `hooks/ledger.sh list --phase merged`; board write-back (HEF-4)
-is what makes that queue visible across both machines without a message.
+queue with `git pull --ff-only` and `hooks/ledger.sh list --phase merged`; board write-back (HEF-4, opt-in
+`orchestrate.publish: true`) is what makes that queue visible across both machines without a message.

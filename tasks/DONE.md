@@ -18,12 +18,6 @@ merge odds; reviewer abandonment 38 % of rejections (report 17 §1f).
 
 Shipped in 7.6.0 (PR #83): `session-launch.sh plan|deploy`, `ledger.sh next --stage`, `/hef.orchestrate --stage`. Spec `.specify/specs/stage-roles/`.
 
-## 2026-09-30 — **HEF-12** — pane-aware block routing
-
-Shipped in 7.6.0 (PR #83): `orchestrate.panes` and the owner pane on every session-start blocked line.
-
-## HEF-11 — stage roles in the launcher and `/hef.orchestrate --stage`
-
 Report 18 addendum A5 (the deck as the macro layer). `session-launch.sh plan <id>`: a fresh
 process that runs brainstorm → spec → plan → tasks, writes only under `.specify/`, and exits on the
 first `[NEEDS CLARIFICATION]` with `block --kind human:clarify` or at `ledger advance tasks`.
@@ -31,7 +25,9 @@ first `[NEEDS CLARIFICATION]` with `block --kind human:clarify` or at `ledger ad
 at mergeable with `block --kind human:merge`. `/hef.orchestrate --stage plan|build|deploy`, default
 `build` so today's call is unchanged; per-stage tiers under `orchestrate.tiers`. Depends on HEF-7.
 
-## HEF-12 — pane-aware block routing
+## 2026-09-30 — **HEF-12** — pane-aware block routing
+
+Shipped in 7.6.0 (PR #83): `orchestrate.panes` and the owner pane on every session-start blocked line.
 
 Report 18 addendum A3. `orchestrate.panes` in `.claude/project-status.json` maps block kinds to
 pane names (`human:clarify` → `plan`, `human:merge` → `deploy`, …); `session-start-context.sh`
@@ -42,8 +38,6 @@ cannot see. HEF-5's escalation message then targets the kind's pane instead of o
 ## 2026-10-01 — **HEF-8** — arena: bounded read-only fan-out in /hef.plan Phase 0
 
 Shipped in 7.7.0 (PR #85): `/hef.plan --arena [K]`, `agents/truth-scout.md`, `speckit-helper.sh arena-cite-check|arena-metrics`. Spec `.specify/specs/plan-arena/`. The number HEF-13 waits on is `arena-metrics` `cited_from_disagreements` over real runs.
-
-## HEF-8 — arena: bounded read-only fan-out in /hef.plan Phase 0
 
 Report 18 #4 (deck slide 23). `/hef.plan --arena K` sends the truth-map questions to K `truth-scout`
 agents (a new read-only one-shot for the current project — `repo-scout`'s contract forbids it) at different tiers, read-only, each returning a ≤2k-token digest; the planner merges them
