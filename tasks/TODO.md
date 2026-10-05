@@ -31,13 +31,13 @@ for example by accepting `FR-004` only from tests under a path the spec names or
 `<spec>/FR-004` form. Decide the form, document it in `docs/sdd.md`, update the smoke fixture that
 covers `req-coverage --all` and `ELSEWHERE`, and keep the existing specs' coverage green.
 
-## HEF-14 — external board: one tasks repo feeding several code repos
+## HEF-16 — publish_commit: commit board writes in an external board repo
 
-Requested by fxcube-project (2026-10-05; fxcube `tasks/initiatives/lane-setup-v2.md` §4 G1). Two
-board modes: `in-repo` (today, default) and `external` — the board is its own git repo, a code repo
-points at it, and the board config maps repo names to paths. Each item names its target repo; the
-planner, worker, verifier and babysitter run in that repo's worktree; an item that targets two repos
-is refused with a clear message (split it). One central ledger in the board repo's git common dir,
-so ownership and the one-worker-per-repo check see every repo the board feeds. `/hef.status`,
-`--item`/`--item-raw`/`--item-kind`, `ledger handoff` and `publish` work against the external board,
-board writes landing in the board repo. Unconfigured = today's behaviour.
+Deferred from HEF-14 (plan review 2026-10-05). `ledger.sh publish` on an external board marks the
+heading in the board repo's file; committing it is still the person's. An opt-in
+`orchestrate.publish_commit` needs five guards first:
+- refuse when the column file is dirty before `--mark` (a commit would sweep a person's edits);
+- refuse during a merge or rebase in the board repo;
+- take the absolute path from `--mark`, and refuse a column outside the board repo;
+- commit before recording `published`, so a failed commit is retried;
+- state the branch expectation (fxcube pushes its board to main).
