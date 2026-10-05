@@ -123,7 +123,9 @@ Blocks (`human:*`, `verdict`, `stall`, `budget`, `conflict`, `ci`) are announced
 the pane that owns them (`orchestrate.panes`); opt-in `orchestrate.publish` writes each item's state
 onto the board and `escalate_after_hours` sends one pointer for a stale human block. `/hef.babysit`
 (`hooks/pr-watch.sh`) keeps a PR moving to the merge gate; `/hef.status` reports AI-delivery metrics
-from the ledger. **No pane and no worker ever merges** — the merge is the human gate. See README §5,
+from the ledger. A `branches` block names the integration branch (PR base, verifier diff base,
+`human:merge` check), the protected heads, and the promotion chain whose last branch is `released`.
+**No pane and no worker ever merges** — the merge is the human gate. See README §5,
 [install §7](install.md) and `reports/17`.
 
 ## 🖥️ Reference Deployment

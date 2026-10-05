@@ -1439,12 +1439,14 @@ else bad "status-board.sh missing, contains an install step, or calls a runtime 
 head_ "Session orchestration"
 
 # FR-016 — the dogfood board: this repository's own tasks/ kanban and config parse through the
-# status helper: 3 todo items (HEF-1..3), zero doing; the config carries the orchestrate block.
-# Mutation: one `## HEF-` heading removed → count 2 → red.
+# status helper: as many todo items as TODO.md has `## HEF-` headings (counted here, not pinned — the
+# board moves as work ships); the config carries the orchestrate block.
+# Mutation: one `## HEF-` heading removed from the parse → the counts disagree → red.
+so_n="$(grep -c '^## HEF-' "$REPO/tasks/TODO.md")"
 so_out="$(cd "$REPO" && bash "$SB" --detailed 2>&1)"; so_rc=$?
-if [ "$so_rc" -eq 0 ] && grep -qE 'todo[^0-9]*3 item' <<<"$so_out" && grep -qF 'HEF-1' <<<"$so_out" && grep -qF 'HEF-3' <<<"$so_out" \
+if [ "$so_rc" -eq 0 ] && grep -qE "todo[^0-9]*$so_n item" <<<"$so_out" && grep -qF 'HEF-1' <<<"$so_out" && grep -qF 'HEF-3' <<<"$so_out" \
    && jq -e '.source=="tasks-repo" and .root=="tasks" and .orchestrate.usd_cap==5 and .orchestrate.daily_usd_cap==25' "$REPO/.claude/project-status.json" >/dev/null 2>&1; then
-  ok "dogfood board: tasks/ kanban parses to 3 todo items and the config carries the orchestrate caps (FR-016)"
+  ok "dogfood board: tasks/ kanban parses to its $so_n todo items and the config carries the orchestrate caps (FR-016)"
 else bad "dogfood board: rc=$so_rc, config or counts wrong — $(grep -iE 'todo|error' <<<"$so_out" | head -2 | tr '\n' '|')"; fi
 
 # The ledger (FR-001..FR-008): one JSON file per board item in the git COMMON dir, written only by
@@ -2470,7 +2472,7 @@ lsmut 's/\[ -z "\$OWNER" \] || die/true || die/'; lsfresh HM-2; lsl claim HM-2 -
 LSL_BIN="$LSL_MUT" lsl handoff HM-2 --pr https://x/pull/2 >/dev/null 2>&1 && { lsj HM-2 '.owner == null' && : ; } || { bad "mutation survived: handoff owned refusal removed"; ls_mfail=1; }
 lsmut 's/\[\[ "\$PR" =~ \/pull\/\[0-9\]+\$ \]\] || die/true || die/'; lsfresh HM-3
 LSL_BIN="$LSL_MUT" lsl handoff HM-3 --pr https://x/issues/3 >/dev/null 2>&1 && : || { bad "mutation survived: handoff URL check removed"; ls_mfail=1; }
-lsmut 's/case "\$BR" in ""|main|master) die/case "$BR" in "NEVER") die/'; lsfresh HM-4; ( cd "$ls_t" && git checkout -q main )
+lsmut 's/! is_protected "\$BR" "\$BM" || die/true || die/'; lsfresh HM-4; ( cd "$ls_t" && git checkout -q main )
 LSL_BIN="$LSL_MUT" lsl handoff HM-4 --pr https://x/pull/4 >/dev/null 2>&1 && : || { bad "mutation survived: handoff main refusal removed"; ls_mfail=1; }; ( cd "$ls_t" && git checkout -q feature/x )
 lsmut 's/\[ "\$CI" -le "\$PI" \] || die/true || die/'; lsfresh HM-5; lsset HM-5 '.phase = "merged"'
 LSL_BIN="$LSL_MUT" lsl handoff HM-5 --pr https://x/pull/5 >/dev/null 2>&1 && : || { bad "mutation survived: handoff past-pr refusal removed"; ls_mfail=1; }
@@ -3064,6 +3066,182 @@ for tok in 'Second opinion (<provider>) — not the gate' 'Never append `## Revi
   grep -qF -- "$tok" "$REPO/commands/hef.review.md" || { bad "/hef.review --second-opinion lost '$tok' (FR-005)"; pw_fail=1; }
 done
 [ "$pw_fail" -eq 0 ] && ok "/hef.plan --via (one scout kept, K−1 providers, prompt file, --purpose arena, column per provider, fallback, aws refused) and /hef.review --second-opinion (labelled, untrusted, never ## Reviewed, capped diff) (provider-runners FR-004 FR-005)"
+
+# --- Tier 1: branch model (feature branch-model FR-001..FR-009; fxcube lane-setup-v2 §4 G2) --------
+head_ "Branch model"
+# A repo with a bare origin: main ← stg; dev = main + dev-lead.txt; HEF-1 off dev. The integration
+# branch is dev — the shape fxcube runs (dev → stg → main, release/* carriers).
+bm_t="$(mktemp -d)"; bm_o="$bm_t/o.git"; bm_r="$bm_t/r"; bm_cfg="$(mktemp -d)"; bm_md="$(mktemp -d)"; bm_bin="$(mktemp -d)"; bm_fail=0
+bmg() { git -C "$bm_r" -c user.email=t@t -c user.name=t "$@"; }
+bmc() { printf '{"source":"tasks-repo","root":"tasks"%s}\n' "$1" > "$bm_r/.claude/project-status.json"; }
+BM_FULL=',"branches":{"integration":"dev","protected":["release/*"],"environments":["dev","stg","main"]}'
+( git init -q --bare -b main "$bm_o" && git init -q -b main "$bm_r" && git -C "$bm_r" remote add origin "$bm_o" \
+  && mkdir -p "$bm_r/tasks" "$bm_r/.claude" \
+  && printf '# TODO\n\n## HEF-1 — one\nb\n\n## HEF-6 — six\nb\n' > "$bm_r/tasks/TODO.md" \
+  && for c in DOING DONE BACKLOG; do printf '# %s\n' "$c" > "$bm_r/tasks/$c.md"; done \
+  && bmg add tasks && bmg commit -q -m init && bmg push -q origin main \
+  && bmg branch stg && bmg push -q origin stg \
+  && bmg checkout -q -b dev && printf 'd\n' > "$bm_r/dev-lead.txt" && bmg add dev-lead.txt && bmg commit -q -m 'dev lead' && bmg push -q origin dev \
+  && bmg checkout -q -b HEF-1 && printf '1\n' > "$bm_r/f1.txt" && bmg add f1.txt && bmg commit -q -m one && bmg push -q -u origin HEF-1 ) >/dev/null 2>&1
+bml() { (cd "$bm_r" && bash "${BM_LG:-$LG}" "$@"); }
+bmj() { jq -e "$2" "$bm_r/.git/hefesto/ledger/$1.json" >/dev/null 2>&1; }
+
+# FR-001 the model: exact defaults unconfigured, the full shape, each malformed field named, --configured
+bmc ''
+[ "$(bml branches)" = '{"integration":"main","protected":["main","master"],"environments":["main"],"final":"main"}' ] || { bad "ledger branches unconfigured must print the trunk defaults, got '$(bml branches 2>&1)'"; bm_fail=1; }
+bml branches --configured && { bad "branches --configured must exit 1 without a branches block"; bm_fail=1; }
+[ -d "$bm_r/.git/hefesto" ] && { bad "ledger branches must not create the ledger directory (read-only)"; bm_fail=1; }
+bmc "$BM_FULL"
+jq -e '. == {"integration":"dev","protected":["dev","main","master","release/*","stg"],"environments":["dev","stg","main"],"final":"main"}' <<<"$(bml branches)" >/dev/null 2>&1 || { bad "ledger branches with the full block: got '$(bml branches 2>&1)'"; bm_fail=1; }
+bml branches --configured || { bad "branches --configured must exit 0 with a branches block"; bm_fail=1; }
+for c in '"dev":branches must be an object' '{"integration":""}:branches.integration' '{"integration":"-dev"}:branches.integration' '{"protected":"x"}:branches.protected' '{"integration":"dev","environments":["stg"]}:branches.environments'; do
+  bmc ",\"branches\":${c%:*}"; bm_o2="$(bml branches 2>&1)" && { bad "branches ${c%:*} must be refused"; bm_fail=1; }
+  grep -qF "${c##*:}" <<<"$bm_o2" || { bad "branches ${c%:*}: the refusal must name ${c##*:}, got '$bm_o2'"; bm_fail=1; }
+done
+[ "$bm_fail" -eq 0 ] && ok "ledger branches: trunk defaults unconfigured, the full model, five malformed shapes named, --configured, no side effect (branch-model FR-001)"
+
+# FR-009 the tools diff against the integration branch — only when configured. HEF-1 tracks origin/HEF-1.
+bm_tfail=0
+bmc "$BM_FULL"; bm_o2="$(cd "$bm_r" && bash "${BM_HELPER:-$HELPER}" pr-files 2>&1)"
+{ grep -q 'f1.txt' <<<"$bm_o2" && ! grep -q 'dev-lead.txt' <<<"$bm_o2"; } || { bad "pr-files on a dev-integrating repo must list only the item's change (f1.txt, not dev's lead over main): $(tr '\n' '|' <<<"$bm_o2")"; bm_tfail=1; }
+bmc ''; bm_o2="$(cd "$bm_r" && bash "${BM_HELPER:-$HELPER}" pr-files 2>&1)"
+grep -q 'f1.txt' <<<"$bm_o2" && { bad "unconfigured, pr_base must keep @{u} first (today's order): $(tr '\n' '|' <<<"$bm_o2")"; bm_tfail=1; }
+bmc ',"branches":"dev"'; (cd "$bm_r" && bash "$HELPER" pr-files >/dev/null 2>&1) && { bad "pr-files must die on a malformed branches block, never diff the whole train"; bm_tfail=1; }
+printf 'not json\n' > "$bm_r/.claude/project-status.json"; (cd "$bm_r" && bash "$HELPER" pr-files >/dev/null 2>&1) && { bad "pr-files must die on a config that is not JSON, never read it as unconfigured"; bm_tfail=1; }
+# the probe: HEF-P off main writes dev-lead.txt differently — a conflict with dev, none with main
+bmg checkout -q -b HEF-P main >/dev/null 2>&1; printf 'p\n' > "$bm_r/dev-lead.txt"; bmg add dev-lead.txt >/dev/null 2>&1; bmg commit -q -m p >/dev/null 2>&1
+bmp() { mkdir -p "$bm_t/s$1"; printf '{"cwd":"%s"}' "$bm_r" | TMPDIR="$bm_t/s$1" bash "${BM_MTP:-$REPO/hooks/merge-tree-probe.sh}" 2>&1; }
+bmc "$BM_FULL"; grep -qF 'would CONFLICT with origin/dev' <<<"$(bmp 1)" || { bad "merge-tree-probe on a dev-integrating repo must probe origin/dev: $(bmp 2)"; bm_tfail=1; }
+bmc ''; grep -qF CONFLICT <<<"$(bmp 3)" && { bad "merge-tree-probe unconfigured must keep origin/main (no conflict there)"; bm_tfail=1; }
+bmc "$BM_FULL"; bmg checkout -q stg >/dev/null 2>&1; printf 'q\n' > "$bm_r/dev-lead.txt"; bmg add dev-lead.txt >/dev/null 2>&1; bmg commit -q -m q >/dev/null 2>&1
+[ -z "$(bmp 4)" ] || { bad "merge-tree-probe must stay silent on a protected head (stg): $(bmp 5)"; bm_tfail=1; }
+bmg checkout -q HEF-1 >/dev/null 2>&1
+[ "$bm_tfail" -eq 0 ] && ok "tools follow the integration branch when configured: pr-files lists only the item, unconfigured keeps @{u} first, malformed dies, probe bases on origin/dev and skips protected heads (branch-model FR-009)"
+
+# FR-002 FR-003 FR-006 ledger guards
+bm_lfail=0; bmc "$BM_FULL"
+bml init HEF-1 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-1 --branch HEF-1 >/dev/null 2>&1; bml block HEF-1 --kind human:merge >/dev/null 2>&1
+bm_o2="$(bml unblock HEF-1 2>&1)" && { bad "unblock human:merge must refuse an unmerged branch"; bm_lfail=1; }
+grep -qF "in neither dev nor origin/dev" <<<"$bm_o2" || { bad "the refusal must name dev and origin/dev, got '$bm_o2'"; bm_lfail=1; }
+# merged on the remote only, and no local dev at all (fxcube's checkouts)
+( bmg checkout -q dev && bmg merge -q --no-ff HEF-1 -m m && bmg push -q origin dev && bmg checkout -q HEF-1 && bmg update-ref -d refs/heads/dev ) >/dev/null 2>&1
+bml unblock HEF-1 >/dev/null 2>&1 && bmj HEF-1 '.blocked_on == null' || { bad "unblock must clear via origin/dev with no local dev: $(bml unblock HEF-1 2>&1)"; bm_lfail=1; }
+# merged locally only
+( bmg checkout -q -b dev origin/dev && bmg checkout -q -b HEF-2 && printf '2\n' > "$bm_r/f2.txt" && bmg add f2.txt && bmg commit -q -m two && bmg checkout -q dev && bmg merge -q --no-ff HEF-2 -m m2 && bmg checkout -q HEF-1 ) >/dev/null 2>&1
+bml init HEF-2 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-2 --branch HEF-2 >/dev/null 2>&1; bml block HEF-2 --kind human:merge >/dev/null 2>&1
+bml unblock HEF-2 >/dev/null 2>&1 || { bad "unblock must clear via a local dev merge: $(bml unblock HEF-2 2>&1)"; bm_lfail=1; }
+# the branch resolves nowhere (rc 3); the integration branch resolves nowhere (rc 4) — neither is "not merged"
+bml init HEF-3 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-3 --branch ghost >/dev/null 2>&1; bml block HEF-3 --kind human:merge >/dev/null 2>&1
+grep -qF 'resolves to no commit' <<<"$(bml unblock HEF-3 2>&1)" || { bad "unblock on a branch that resolves nowhere must say so"; bm_lfail=1; }
+bmc ',"branches":{"integration":"qa"}'; bml record HEF-3 --branch HEF-1 >/dev/null 2>&1
+bm_o2="$(bml unblock HEF-3 2>&1)"; grep -qF "'qa' resolves nowhere" <<<"$bm_o2" || { bad "unblock with an integration branch that resolves nowhere must say so, got '$bm_o2'"; bm_lfail=1; }
+bmc "$BM_FULL"
+# where: dev yes via origin/dev, stg no, main no; an environment that resolves nowhere → unknown + exit 1
+bm_o2="$(bml where HEF-1 2>&1)"; bm_rc=$?
+{ [ "$bm_rc" -eq 0 ] && grep -qxF 'dev: yes (dev)' <<<"$bm_o2" && grep -qxF 'stg: no' <<<"$bm_o2" && grep -qxF 'main: no' <<<"$bm_o2"; } || { bad "where HEF-1 (rc=$bm_rc): $(tr '\n' '|' <<<"$bm_o2")"; bm_lfail=1; }
+bmc ',"branches":{"integration":"dev","environments":["dev","uat","main"]}'; bm_o2="$(bml where HEF-1 2>&1)"; bm_rc=$?
+{ [ "$bm_rc" -ne 0 ] && grep -qxF 'uat: unknown (no uat, no origin/uat)' <<<"$bm_o2"; } || { bad "where must print unknown and exit 1 for an environment that resolves nowhere (rc=$bm_rc): $(tr '\n' '|' <<<"$bm_o2")"; bm_lfail=1; }
+# released: refused before the final branch, accepted after; free with a single environment
+bmc "$BM_FULL"
+bml advance HEF-1 released >/dev/null 2>&1 && { bad "advance released must wait for the final branch (main)"; bm_lfail=1; }
+( bmg checkout -q main && bmg merge -q --no-ff HEF-1 -m rel && bmg checkout -q HEF-1 ) >/dev/null 2>&1
+bml advance HEF-1 released >/dev/null 2>&1 || { bad "advance released must pass once the branch is in main: $(bml advance HEF-1 released 2>&1)"; bm_lfail=1; }
+bmc ',"branches":{"integration":"dev"}'; bml advance HEF-2 released >/dev/null 2>&1 || { bad "advance released with a single environment must stay free"; bm_lfail=1; }
+# handoff: every protected head refused (literal and glob), a feature branch accepted
+bmc "$BM_FULL"; bm_i=10
+for b in stg release/v1 dev main; do
+  bm_i=$((bm_i + 1)); bml init "HEF-$bm_i" --kind tasks-repo --ref t >/dev/null 2>&1
+  bm_o2="$(bml handoff "HEF-$bm_i" --pr "https://github.com/o/r/pull/$bm_i" --branch "$b" 2>&1)" && { bad "handoff from protected '$b' must be refused"; bm_lfail=1; }
+  grep -qF 'is a protected branch' <<<"$bm_o2" || { bad "handoff '$b': the refusal must say protected, got '$bm_o2'"; bm_lfail=1; }
+done
+bml init HEF-20 --kind tasks-repo --ref t >/dev/null 2>&1
+bml handoff HEF-20 --pr https://github.com/o/r/pull/20 --branch feature/x >/dev/null 2>&1 || { bad "handoff from feature/x must be accepted: $(bml handoff HEF-20 --pr https://github.com/o/r/pull/20 --branch feature/x 2>&1)"; bm_lfail=1; }
+[ "$bm_lfail" -eq 0 ] && ok "ledger on a dev-integrating repo: unblock via origin/dev (no local dev) and via local dev, refuses unmerged naming both, rc3/rc4 named; where yes/no/unknown; released waits for main, free with one environment; handoff refuses stg/release/*/dev/main (branch-model FR-002 FR-003 FR-006)"
+
+# FR-004 the launcher prompts; unconfigured keeps "diff base: main"
+bm_pfail=0
+bml init HEF-6 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-6 --worktree "$bm_r" --branch HEF-1 --route fix >/dev/null 2>&1
+bms() { (cd "$bm_r" && CLAUDE_CONFIG_DIR="$bm_cfg" bash "${BM_SL:-$SL}" "$@" 2>&1); }
+bm_o2="$(bms verify HEF-6 --dry-run)"; grep -qF '(diff base: dev)' <<<"$bm_o2" || { bad "the verifier's diff base must be dev: $(head -c 300 <<<"$bm_o2")"; bm_pfail=1; }
+bm_o2="$(bms implement HEF-6 --dry-run)"
+{ grep -qF 'gh pr create --base dev' <<<"$bm_o2" && grep -qF 'push to a protected branch (dev, main, master, release/*, stg)' <<<"$bm_o2"; } || { bad "the implement prompt must target dev and name the protected list: $(head -c 400 <<<"$bm_o2")"; bm_pfail=1; }
+bmc ''; grep -qF '(diff base: main)' <<<"$(bms verify HEF-6 --dry-run)" || { bad "unconfigured, the verifier's diff base stays main"; bm_pfail=1; }
+[ "$bm_pfail" -eq 0 ] && ok "session-launch: verifier diff base dev, PR --base dev and the protected list in the worker prompt; unconfigured keeps diff base main (branch-model FR-004)"
+
+# FR-005 pr-watch resolve: protected head → push:false (no checkout needed), main refused, feature → push:true
+bm_rfail=0
+cat > "$bm_bin/gh" <<'GHEOF'
+#!/bin/bash
+printf '{"number":7,"url":"https://github.com/o/r/pull/7","headRefName":"%s","baseRefName":"main","headRefOid":"0000000000000000000000000000000000000000","state":"OPEN","isDraft":false}\n' "$BM_HEAD"
+GHEOF
+chmod +x "$bm_bin/gh"; bmc "$BM_FULL"
+bmw() { (cd "$bm_r" && BM_HEAD="$1" HEFESTO_GH_BIN="$bm_bin/gh" bash "${BM_PW:-$REPO/hooks/pr-watch.sh}" resolve 7 ${2:+"$2"} 2>&1); }
+jq -e '.push == false' <<<"$(bmw stg --local)" >/dev/null 2>&1 || { bad "resolve on a stg head must be push:false and need no checkout: $(bmw stg --local)"; bm_rfail=1; }
+jq -e '.push == false' <<<"$(bmw release/v2)" >/dev/null 2>&1 || { bad "resolve on release/v2 (glob) must be push:false"; bm_rfail=1; }
+jq -e '.push == true' <<<"$(bmw feature/x)" >/dev/null 2>&1 || { bad "resolve on feature/x must be push:true: $(bmw feature/x)"; bm_rfail=1; }
+grep -qF 'never works on main' <<<"$(bmw main)" || { bad "resolve on head main must still be refused"; bm_rfail=1; }
+grep -qF 'if `resolve` returned `"push": false`' "$REPO/commands/hef.babysit.md" || { bad "/hef.babysit bound() must carry the push:false stop"; bm_rfail=1; }
+[ "$bm_rfail" -eq 0 ] && ok "pr-watch resolve: protected heads (stg, release/*) watched with push:false and no checkout, feature push:true, main refused; /hef.babysit bound() stops on push:false (branch-model FR-005)"
+
+# FR-009 a STALE local dev (fxcube's normal case: people fetch, rarely update dev): origin/dev gains
+# d2-other, HEF-S is cut from origin/dev, local dev stays behind — the diff must not pull d2-other in
+bm_sfail=0; bmc "$BM_FULL"
+( bmg checkout -q -b tmpd origin/dev && printf 'x\n' > "$bm_r/d2.txt" && bmg add d2.txt && bmg commit -q -m d2-other && bmg push -q origin tmpd:dev \
+  && bmg fetch -q origin && bmg checkout -q -b HEF-S origin/dev && printf 's\n' > "$bm_r/fs.txt" && bmg add fs.txt && bmg commit -q -m item \
+  && { bmg rev-parse -q --verify refs/heads/dev || bmg branch dev HEF-1~1; } \
+  && bmg checkout -q --no-track -b HEF-N origin/dev && printf 'n\n' > "$bm_r/fn.txt" && bmg add fn.txt && bmg commit -q -m n \
+  && bmg checkout -q HEF-S ) >/dev/null 2>&1
+bm_o2="$(cd "$bm_r" && bash "$HELPER" pr-files 2>&1)"
+{ grep -q 'fs.txt' <<<"$bm_o2" && ! grep -q 'd2.txt' <<<"$bm_o2"; } || { bad "pr-files with a stale local dev must list only the item (fs.txt, not d2.txt): $(tr '\n' '|' <<<"$bm_o2")"; bm_sfail=1; }
+bmg checkout -q HEF-N >/dev/null 2>&1; bm_o2="$(cd "$bm_r" && bash "$HELPER" pr-files 2>&1)"
+{ grep -q 'fn.txt' <<<"$bm_o2" && ! grep -q 'd2.txt' <<<"$bm_o2"; } || { bad "pr-files on a branch with no upstream must still base on origin/dev: $(tr '\n' '|' <<<"$bm_o2")"; bm_sfail=1; }
+bmg checkout -q HEF-S >/dev/null 2>&1
+[ "$bm_sfail" -eq 0 ] && ok "pr-files with a stale local dev takes the newer merge-base (origin/dev) — dev's own commits stay out of the item's diff (branch-model FR-009)"
+
+# Mutations (constitution 3): each guard removed in a copy beside symlinked siblings; the case that pins it must go red
+bm_mfail=0
+bmm() { # $1 file under hooks/, $2 sed — a mutant dir with every sibling symlinked and $1 mutated
+  rm -rf "$bm_md"; mkdir -p "$bm_md"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$bm_md/$(basename "$f")"; done
+  rm "$bm_md/$1"; cp "$REPO/hooks/$1" "$bm_md/$1"; sed -i "$2" "$bm_md/$1"
+  cmp -s "$REPO/hooks/$1" "$bm_md/$1" && { bad "branch-model mutation did not apply: $1 $2"; bm_mfail=1; }
+}
+bm_merged() { # a fresh entry on a branch merged into origin/dev only (no local dev)
+  bml init "$1" --kind tasks-repo --ref t >/dev/null 2>&1; bml record "$1" --branch HEF-1 >/dev/null 2>&1; bml block "$1" --kind human:merge >/dev/null 2>&1
+  bmg update-ref -d refs/heads/dev >/dev/null 2>&1
+}
+bmc "$BM_FULL"
+bmm ledger.sh 's/for t in "\$2" "origin\/\$2"; do/for t in "$2"; do/'; bm_merged HEF-30
+BM_LG="$bm_md/ledger.sh" bml unblock HEF-30 >/dev/null 2>&1 && { bad "mutation survived: origin/ target dropped, still cleared with no local dev"; bm_mfail=1; }
+bmm ledger.sh 's/\[ "\$found" = 1 \] \&\& return 1/return 1/'; bmc ',"branches":{"integration":"qa"}'; bml init HEF-31 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-31 --branch HEF-1 >/dev/null 2>&1; bml block HEF-31 --kind human:merge >/dev/null 2>&1
+grep -qF 'resolves nowhere' <<<"$(BM_LG="$bm_md/ledger.sh" bml unblock HEF-31 2>&1)" && { bad "mutation survived: rc 4 folded into 'not merged', still named"; bm_mfail=1; }
+bmc "$BM_FULL"
+bmm ledger.sh 's/ or \$e\[0\] != \$i then/ then/'; bmc ',"branches":{"integration":"dev","environments":["stg"]}'
+BM_LG="$bm_md/ledger.sh" bml branches >/dev/null 2>&1 || { bad "mutation survived: environments[0] check removed, still refused"; bm_mfail=1; }
+bmc "$BM_FULL"
+bmm ledger.sh 's/case "\$1" in \$p) return 0/case "$1" in "$p") return 0/'; bml init HEF-32 --kind tasks-repo --ref t >/dev/null 2>&1
+BM_LG="$bm_md/ledger.sh" bml handoff HEF-32 --pr https://github.com/o/r/pull/32 --branch release/v9 >/dev/null 2>&1 || { bad "mutation survived: glob match removed, release/v9 still refused"; bm_mfail=1; }
+bmm ledger.sh 's/-gt 1 \]; then/-gt 99 ]; then/'; bml init HEF-33 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-33 --branch HEF-2 >/dev/null 2>&1
+BM_LG="$bm_md/ledger.sh" bml advance HEF-33 released >/dev/null 2>&1 || { bad "mutation survived: the final-branch guard removed, released still refused"; bm_mfail=1; }
+bmm session-launch.sh 's/(diff base: \$INTEG)/(diff base: main)/'
+grep -qF '(diff base: dev)' <<<"$(BM_SL="$bm_md/session-launch.sh" bms verify HEF-6 --dry-run)" && { bad "mutation survived: verifier base hard-coded to main"; bm_mfail=1; }
+bmm pr-watch.sh 's/case "\$head" in \$p) push=false ;;/case "$head" in $p) push=true ;;/'
+jq -e '.push == false' <<<"$(BM_PW="$bm_md/pr-watch.sh" bmw stg)" >/dev/null 2>&1 && { bad "mutation survived: push:false branch removed"; bm_mfail=1; }
+bmh() { (cd "$bm_r" && bash "$bm_md/speckit-helper.sh" pr-files 2>&1); }
+bmm speckit-helper.sh 's/ib=$(integration_base) || return 1; \[ -n "\$ib" \]/ib=$(integration_base) || return 1; [ -n "" ]/'
+bmg checkout -q HEF-N >/dev/null 2>&1; grep -q 'd2.txt' <<<"$(bmh)" || { bad "mutation survived: pr_base's integration base removed, no-upstream branch still excludes dev's commits"; bm_mfail=1; }
+bmm speckit-helper.sh 's/if \[ -z "\$best" \] || git merge-base --is-ancestor "\$best" "\$mb" 2>\/dev\/null; then/if [ -z "$best" ]; then/; s/for r in "origin\/\$i" "\$i"; do/for r in "$i" "origin\/$i"; do/'
+bmg checkout -q HEF-S >/dev/null 2>&1; bmg branch -f dev HEF-1 >/dev/null 2>&1
+grep -q 'd2.txt' <<<"$(bmh)" || { bad "mutation survived: newest merge-base replaced by local-first, stale dev still excluded"; bm_mfail=1; }
+bmm speckit-helper.sh 's/bash "\$led" branches --configured 2>\/dev\/null; rc=\$?/rc=0/'; bmc ''
+grep -q 'd2.txt' <<<"$(cd "$bm_r" && bash "$HELPER" pr-files 2>&1)" && { bad "unconfigured, HEF-S must keep @{u} (origin/dev) as its base"; bm_mfail=1; }
+grep -q 'd2.txt' <<<"$(bmh)" || { bad "mutation survived: the --configured gate removed, unconfigured order unchanged"; bm_mfail=1; }
+bmg checkout -q HEF-1 >/dev/null 2>&1
+bmc "$BM_FULL"
+bmm merge-tree-probe.sh 's/\[ -n "\$INT" \] \&\& CANDS="origin\/\$INT \$INT \$CANDS"/true/'
+bmg checkout -q HEF-P >/dev/null 2>&1; grep -qF 'would CONFLICT with origin/dev' <<<"$(BM_MTP="$bm_md/merge-tree-probe.sh" bmp 9)" && { bad "mutation survived: the probe's integration base removed"; bm_mfail=1; }
+bmg checkout -q HEF-1 >/dev/null 2>&1
+[ "$bm_mfail" -eq 0 ] && ok "branch-model mutations: origin/ target, rc 4, environments[0] check, protected glob, released guard, verifier base, push:false, pr_base integration base, --configured gate, probe base — newest merge-base, --configured gate, probe base — all caught (SC-004 SC-006)"
+rm -rf "$bm_t" "$bm_cfg" "$bm_md" "$bm_bin"
 
 # --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------
 head_ "Parallel-safety"

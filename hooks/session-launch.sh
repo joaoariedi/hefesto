@@ -112,6 +112,10 @@ case "$ITEM_KIND" in
   feature)       KIND_RULE=""; KIND_GATE="" ;;
   *)             die "session-launch $ROLE $ID: item_kind '$ITEM_KIND' on the entry is not feature, incident or vulnerability — fix it with ledger.sh record $ID --item-kind <k>" ;;
 esac
+# The branch model (branch-model FR-004): the PR base, the verifier's diff base and the never-push list
+# come from `ledger.sh branches` — unconfigured, integration is main exactly as before.
+BM="$("$LEDGER" branches)" || exit 1
+INTEG="$(jq -r .integration <<<"$BM")"; PROT="$(jq -r '.protected | join(", ")' <<<"$BM")"
 WORKTREE="$(jq -r '.worktree // empty' <<<"$E")"; BRANCH="$(jq -r '.branch // empty' <<<"$E")"
 
 # --- settings (validated: -p ignores an invalid file silently) --------------------------------
@@ -140,12 +144,12 @@ case "$ROLE" in
       # artifact, not the phase: a retry after a failed run sits in `implement` and must not go back to
       # /hef.agent and re-spec (code review + quality gate 2026-09-30).
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. Do not re-spec or re-plan. Run /hef.implement (hefesto:workflow for a large task list), then /hef.verify, /hef.quality, /hef.review (code mode) and /hef.pr; stop at the first human gate. ${KIND_RULE}Never merge, approve, or push to main; the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
+Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. Do not re-spec or re-plan. Run /hef.implement (hefesto:workflow for a large task list), then /hef.verify, /hef.quality, /hef.review (code mode) and /hef.pr; stop at the first human gate. ${KIND_RULE}Open the PR against $INTEG (gh pr create --base $INTEG). Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
 EOF
     else
       ITEM="$(item_as_data)" || exit 1
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository. Run /hef.agent on it: size the work, follow the route it picks (fix → /hef.fix → /hef.pr; light or full → /hef.spec and onward through /hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}$INJECTION_RULE Never merge, approve, or push to main; the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
+Board item $ID for this repository. Run /hef.agent on it: size the work, follow the route it picks (fix → /hef.fix → /hef.pr; light or full → /hef.spec and onward through /hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}$INJECTION_RULE Open the PR against $INTEG (gh pr create --base $INTEG). Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
 
 $ITEM
 EOF
@@ -175,7 +179,7 @@ EOF
     [ "$ROUTE" != fix ] && [ -n "$SPEC_DIR" ] && CHAIN="/hef.verify (spec at $SPEC_DIR), then $CHAIN"
     [ -n "$KIND_GATE" ] && CHAIN="$CHAIN, then $KIND_GATE (report it as gate \"$ITEM_KIND\")"
     read -r -d '' PROMPT <<EOF || true
-Verify the change for board item $ID on branch ${BRANCH:-<unknown>} in this worktree (diff base: main). You are a separate reviewer: you have not seen how the change was made and must not look for its transcript. Read-only — do not edit, approve, merge, or push. Run in order: $CHAIN. Report one verdict per gate (PASS, FAIL, or SKIPPED with the reason) with the command output as evidence, and a summary ≤2000 chars.
+Verify the change for board item $ID on branch ${BRANCH:-<unknown>} in this worktree (diff base: $INTEG). You are a separate reviewer: you have not seen how the change was made and must not look for its transcript. Read-only — do not edit, approve, merge, or push. Run in order: $CHAIN. Report one verdict per gate (PASS, FAIL, or SKIPPED with the reason) with the command output as evidence, and a summary ≤2000 chars.
 EOF
     GATE_ENUM='"verify","review","quality","scan","mutate"'; [ -n "$KIND_GATE" ] && GATE_ENUM="$GATE_ENUM,\"$ITEM_KIND\""   # only the entry's OWN kind gate
     SCHEMA='{"type":"object","required":["summary","verdicts"],"properties":{"summary":{"type":"string","maxLength":2000},"verdicts":{"type":"array","items":{"type":"object","required":["gate","verdict"],"properties":{"gate":{"enum":['"$GATE_ENUM"']},"verdict":{"enum":["PASS","FAIL","SKIPPED"]},"evidence":{"type":"string","maxLength":500}}}}}}' ;;
@@ -187,7 +191,7 @@ EOF
     [ -n "$WORKTREE" ] || die "session-launch deploy $ID: no worktree recorded on the entry — the babysitter fixes in the PR's checkout"
     [ -d "$WORKTREE" ] || die "session-launch deploy $ID: recorded worktree missing: $WORKTREE"
     read -r -d '' PROMPT <<EOF || true
-Run /hef.babysit $PRN --once --max-fixes $MAX_FIXES for board item $ID in this worktree. Headless: no one can answer a question — report every doubtful item in the summary instead; the ledger is written by the launcher from your output, so a ledger-id or ledger.sh failure is reported, never retried; if pr-watch.sh resolve refuses (wrong or stale checkout), the verdict is "refused" with its line in the summary. Never merge, approve, force-push or push main. When you stop, fill the structured output: summary (≤2000 chars), verdict, fixes (the count the babysit line printed), questions (same).
+Run /hef.babysit $PRN --once --max-fixes $MAX_FIXES for board item $ID in this worktree. Never push to a protected branch ($PROT). Headless: no one can answer a question — report every doubtful item in the summary instead; the ledger is written by the launcher from your output, so a ledger-id or ledger.sh failure is reported, never retried; if pr-watch.sh resolve refuses (wrong or stale checkout), the verdict is "refused" with its line in the summary. Never merge, approve, force-push or push main. When you stop, fill the structured output: summary (≤2000 chars), verdict, fixes (the count the babysit line printed), questions (same).
 EOF
     SCHEMA='{"type":"object","required":["summary","verdict","fixes","questions"],"properties":{"summary":{"type":"string","maxLength":2000},"verdict":{"enum":["mergeable","conflict","checks","review","pending","closed","refused"]},"fixes":{"type":"integer","minimum":0},"questions":{"type":"integer","minimum":0}}}' ;;
 esac

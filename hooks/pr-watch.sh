@@ -240,14 +240,23 @@ cmd_state() {
 }
 
 cmd_resolve() {
-  local pr="" local_=0 out state head base oid cur rc
+  local pr="" local_=0 out state head base oid cur rc bm push p
   while [ $# -gt 0 ]; do case "$1" in --local) local_=1 ;; -*) usage ;; *) pr="$1" ;; esac; shift; done
   out=$(pr_json "$pr") || exit 1
   state=$(jq -r .state <<<"$out"); head=$(jq -r .headRefName <<<"$out"); base=$(jq -r .baseRefName <<<"$out"); oid=$(jq -r .headRefOid <<<"$out")
   [ "$state" = OPEN ] || die "pr-watch resolve: PR #$(jq -r .number <<<"$out") is $state, expected OPEN — nothing to babysit"
   case "$head" in main|master) die "pr-watch resolve: the PR's head branch is '$head' — the babysitter never works on $head" ;; esac
   [ "$head" != "$base" ] || die "pr-watch resolve: head and base are both '$head' — not a pull request the babysitter can fix"
-  if [ "$local_" = 1 ]; then
+  # branch-model FR-005: a head in the protected set (a promotion PR, e.g. stg → main) is WATCHED, never
+  # fixed — push:false, and no local checkout is required because no commit will be made.
+  bm=$(bash "$HERE/ledger.sh" branches) || die "pr-watch resolve: ledger.sh branches failed — fix .branches in .claude/project-status.json"
+  push=true
+  while IFS= read -r p; do
+    # shellcheck disable=SC2254  # the pattern IS a glob, on purpose (release/*)
+    case "$head" in $p) push=false ;; esac
+  done < <(jq -r '.protected[]' <<<"$bm")
+  out=$(jq -c --argjson push "$push" '. + {push: $push}' <<<"$out") || die "pr-watch resolve: cannot add the push flag"
+  if [ "$local_" = 1 ] && [ "$push" = true ]; then
     cur=$(current_branch)
     [ "$cur" = "$head" ] || die "pr-watch resolve: the local checkout is on '${cur:-<detached>}', the PR head is '$head' — git switch $head"
     if have_git; then

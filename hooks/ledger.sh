@@ -38,6 +38,8 @@ usage: ledger.sh <subcommand> …
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
   publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish)
   escalate [--record <id>]                              old human:* blocks as one-line pointers (opt-in: orchestrate.escalate_after_hours)
+  branches                                              the resolved branch model as JSON (config .branches; defaults = trunk on main)
+  where <id>                                            per environment: does it contain the entry's branch (local, then origin/)
 EOF
   exit 2
 }
@@ -59,6 +61,48 @@ project_config() { # the board config the launcher and the board read: <toplevel
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
+}
+
+# The branch model (branch-model FR-001): ONE place applies the defaults and validates; every consumer
+# (session-launch, pr-watch, speckit-helper, merge-tree-probe, the commands) asks `ledger.sh branches`.
+# `jq -n … input?`: an absent config must still run the program — jq never runs one over EMPTY input
+# (plan review 2026-10-05: `jq -ce … /dev/null` printed nothing and exited 4).
+branches_model() {
+  local c out; c=$(project_config) || c=""
+  out=$(jq -nce '
+    def nm: type == "string" and test("^[A-Za-z0-9._][A-Za-z0-9._/-]*$");
+    ((input? // null) | if type == "object" then .branches else null end) as $raw | ($raw // {}) as $b
+    | if ($b | type) != "object" then error("branches must be an object like {\"integration\": \"dev\"}")
+      else ($b.integration // "main") as $i | ($b.environments // [$i]) as $e | ($b.protected // []) as $p
+      | if ($i | nm | not) then error("branches.integration must be a branch name (got \($i | tojson))")
+        elif ($p | type) != "array" or ($p | any(type != "string" or length == 0)) then error("branches.protected must be a list of branch names or globs (got \($p | tojson))")
+        elif ($e | type) != "array" or ($e | length) == 0 or ($e | any(nm | not)) or $e[0] != $i then error("branches.environments must be a list of branch names starting with the integration branch \($i | tojson) (got \($e | tojson))")
+        else {integration: $i, protected: (["main", "master", $i] + $e + $p | unique), environments: $e, final: $e[-1]} end end' \
+    ${c:+"$c"} 2>&1 </dev/null) || die "ledger branches: ${c:-<no config>}: ${out#jq: error*: }"
+  echo "$out"
+}
+# in_branch <branch> <target> → prints the ref that contains it. Source and target are each tried
+# local first, then origin/ (fxcube often has no local `dev`, only origin/dev). Exit 0 = contained;
+# 1 = a target resolved and does not contain it ("not merged"); 3 = the branch resolves nowhere;
+# 4 = the target resolves nowhere. 3 and 4 are never "not merged" (plan reviews 2026-10-05).
+in_branch() {
+  local src t found=0
+  if git rev-parse --verify -q "$1^{commit}" >/dev/null 2>&1; then src="$1"
+  elif git rev-parse --verify -q "origin/$1^{commit}" >/dev/null 2>&1; then src="origin/$1"
+  else return 3; fi
+  for t in "$2" "origin/$2"; do
+    git rev-parse --verify -q "$t^{commit}" >/dev/null 2>&1 || continue
+    found=1
+    git merge-base --is-ancestor "$src" "$t" 2>/dev/null && { echo "$t"; return 0; }
+  done
+  [ "$found" = 1 ] && return 1
+  return 4
+}
+is_protected() { # $1 branch, $2 model JSON — glob match over the effective protected set
+  local p; while IFS= read -r p; do
+    # shellcheck disable=SC2254  # the pattern IS a glob, on purpose (release/*)
+    case "$1" in $p) return 0 ;; esac
+  done < <(jq -r '.protected[]' <<<"$2"); return 1
 }
 
 # Sort ids by prefix then NUMERIC suffix: lexical order would dispatch HEF-10 before HEF-9 (review 2026-09-27).
@@ -156,6 +200,17 @@ metrics_render() { # stdin = the JSON object; $1 since (or "")
 
 [ $# -ge 1 ] || usage
 SUB="$1"; shift
+# Read-only and ledger-free: answered before ledger_dir, which would create the directory (and needs a repo).
+# `branches --configured` exits 0 when the config declares a `branches` block, 1 otherwise — so the
+# consumers that keep the historical order for unconfigured repos ask here instead of re-reading.
+if [ "$SUB" = branches ]; then
+  if [ "${1:-}" = --configured ]; then   # 0 = declared, 1 = not, 2 = the config is not valid JSON (loud)
+    c=$(project_config) || exit 1
+    jq empty "$c" 2>/dev/null || { echo "ledger branches: $c is not valid JSON" >&2; exit 2; }
+    jq -e '.branches != null' "$c" >/dev/null 2>&1; [ $? -eq 0 ] && exit 0; exit 1
+  fi
+  branches_model; exit $?
+fi
 DIR=$(ledger_dir) || exit 1
 
 case "$SUB" in
@@ -207,6 +262,17 @@ case "$SUB" in
     E=$(entry "$ID") || exit 1
     CUR=$(jq -r .phase <<<"$E"); CI=$(phase_index "$CUR") || exit 1; TI=$(phase_index "$TO") || exit 1
     [ "$TI" -gt "$CI" ] || die "ledger advance $ID: '$TO' is not after '$CUR' (phases move forward only: ${PHASES[*]})"
+    if [ "$TO" = released ]; then   # branch-model FR-006 — the model is loaded only on this path
+      BM=$(branches_model) || exit 1
+      if [ "$(jq '.environments | length' <<<"$BM")" -gt 1 ]; then
+        FIN=$(jq -r .final <<<"$BM"); BR=$(jq -r '.branch // empty' <<<"$E")
+        [ -n "$BR" ] || die "ledger advance $ID released: no branch recorded — cannot check it reached $FIN"
+        in_branch "$BR" "$FIN" >/dev/null; rc=$?
+        [ "$rc" -ne 3 ] || die "ledger advance $ID released: branch '$BR' resolves to no commit (local or origin/) — git fetch first"
+        [ "$rc" -ne 4 ] || die "ledger advance $ID released: the final branch '$FIN' resolves nowhere (no $FIN, no origin/$FIN) — git fetch first"
+        [ "$rc" -eq 0 ] || die "ledger advance $ID released: '$BR' is in neither $FIN nor origin/$FIN — promote it first (git fetch if it was merged remotely)"
+      fi
+    fi
     jq --arg p "$TO" '.phase = $p' <<<"$E" | write_entry "$ID" || exit 1; echo "$ID $CUR → $TO" ;;
 
   verdict)
@@ -252,7 +318,11 @@ case "$SUB" in
         ! grep -q 'NEEDS CLARIFICATION' "$SPEC_DIR/spec.md" || die "ledger unblock $ID: $KIND — [NEEDS CLARIFICATION] markers remain in $SPEC_DIR/spec.md (run /hef.clarify)" ;;
       human:merge)
         [ -n "$BRANCH" ] || die "ledger unblock $ID: $KIND needs branch recorded"
-        git merge-base --is-ancestor "$BRANCH" main 2>/dev/null || die "ledger unblock $ID: $KIND — '$BRANCH' is not merged into main (git fetch first if it was merged remotely)" ;;
+        BM=$(branches_model) || exit 1; INT=$(jq -r .integration <<<"$BM")
+        in_branch "$BRANCH" "$INT" >/dev/null; rc=$?
+        [ "$rc" -ne 3 ] || die "ledger unblock $ID: $KIND — branch '$BRANCH' resolves to no commit (local or origin/) — git fetch origin first"
+        [ "$rc" -ne 4 ] || die "ledger unblock $ID: $KIND — the integration branch '$INT' resolves nowhere (no $INT, no origin/$INT) — git fetch origin first"
+        [ "$rc" -eq 0 ] || die "ledger unblock $ID: $KIND — '$BRANCH' is in neither $INT nor origin/$INT (git fetch origin first if it was merged remotely)" ;;
       human:intake)
         { [ "$REVIEWED" = 1 ] && [ -t 0 ]; } || die "ledger unblock $ID: $KIND needs --reviewed-by-human from an interactive shell (a person read the item text)" ;;
     esac
@@ -286,6 +356,18 @@ case "$SUB" in
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 
   show) ID="${1:-}"; [ -n "$ID" ] || usage; entry "$ID" ;;
+  where)   # branch-model FR-006 — computed from git, never stored
+    ID="${1:-}"; [ -n "$ID" ] || usage
+    E=$(entry "$ID") || exit 1; BR=$(jq -r '.branch // empty' <<<"$E")
+    [ -n "$BR" ] || die "ledger where $ID: no branch recorded (ledger.sh record $ID --branch <b>)"
+    BM=$(branches_model) || exit 1
+    UNK=0
+    while IFS= read -r ENV; do
+      REF=$(in_branch "$BR" "$ENV"); rc=$?
+      [ "$rc" -ne 3 ] || die "ledger where $ID: branch '$BR' resolves to no commit (local or origin/) — git fetch first"
+      case "$rc" in 0) echo "$ENV: yes ($REF)" ;; 4) echo "$ENV: unknown (no $ENV, no origin/$ENV)"; UNK=1 ;; *) echo "$ENV: no" ;; esac
+    done < <(jq -r '.environments[]' <<<"$BM")
+    [ "$UNK" = 0 ] || exit 1 ;;
 
   # --- ledger-surfaces (HEF-6, HEF-4, HEF-5) -------------------------------------------------------
   # handoff: the four calls a person makes for a hand-run item, through the same arms (their guards
@@ -304,7 +386,9 @@ case "$SUB" in
     CI=$(phase_index "$(jq -r .phase <<<"$E")") || exit 1; PI=$(phase_index pr) || exit 1
     [ "$CI" -le "$PI" ] || die "ledger handoff $ID: phase $(jq -r .phase <<<"$E") is already past pr"
     [ -n "$BR" ] || BR=$(git branch --show-current 2>/dev/null)
-    case "$BR" in ""|main|master) die "ledger handoff $ID: the branch is '${BR:-<detached>}' — hand off from the feature branch (or pass --branch)" ;; esac
+    [ -n "$BR" ] || die "ledger handoff $ID: no branch (detached HEAD) — hand off from the feature branch (or pass --branch)"
+    BM=$(branches_model) || exit 1
+    ! is_protected "$BR" "$BM" || die "ledger handoff $ID: '$BR' is a protected branch ($(jq -r '.protected | join(", ")' <<<"$BM")) — hand off from the feature branch (or pass --branch)"
     jq '.owner = {session_name: "hand", role: "implement", pid: null, started: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
     # A failure after the owner write must not strand the entry under a session that does not exist.
     unhand() { local e; e=$(entry "$ID") && jq 'if .owner.session_name == "hand" then .owner = null else . end' <<<"$e" | write_entry "$ID"; die "ledger handoff $ID: $1 failed — the entry is released; fix the cause and run handoff again"; }

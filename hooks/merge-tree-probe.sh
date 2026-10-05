@@ -29,7 +29,22 @@ BRANCH=$(git -C "$CWD" branch --show-current 2>/dev/null)
 case "$BRANCH" in main|master|dev|develop) exit 0 ;; esac
 
 BASE=""
-for b in origin/main origin/master main master; do
+# branch-model: a configured integration branch is the base (origin/ first, as for main); without a
+# `branches` block the historical order below is unchanged.
+CANDS="origin/main origin/master main master"
+TOP=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)
+# A hook: every failure here fails OPEN (exit 0 or the historical order), never blocks an edit.
+LED="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ledger.sh"
+if [ -n "$TOP" ] && (cd "$TOP" && bash "$LED" branches --configured 2>/dev/null); then
+  BM=$(cd "$TOP" && bash "$LED" branches 2>/dev/null) || exit 0
+  INT=$(jq -r '.integration // empty' <<<"$BM")
+  while IFS= read -r p; do   # a protected head (a promotion branch) is not a feature under review
+    # shellcheck disable=SC2254  # the pattern IS a glob, on purpose (release/*)
+    case "$BRANCH" in $p) exit 0 ;; esac
+  done < <(jq -r '.protected[]' <<<"$BM")
+  [ -n "$INT" ] && CANDS="origin/$INT $INT $CANDS"
+fi
+for b in $CANDS; do
   if git -C "$CWD" rev-parse --verify -q "$b" >/dev/null 2>&1; then BASE="$b"; break; fi
 done
 [ -z "$BASE" ] && exit 0

@@ -349,6 +349,41 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     to a provider is egress to that vendor:** `arena-run.sh` runs only from an unsandboxed pane. It
     refuses inside a launched worker (`HEFESTO_WORKER=1`, which `session-launch.sh` exports) and from a
     sandboxed shell (`$HOME` not writable).
+12. **A branch model other than trunk-on-`main`** (optional, HEF-15). If changes integrate on
+    another branch and promote through environments, declare it in `.claude/project-status.json`:
+
+    ```json
+    {
+      "branches": {
+        "integration": "dev",
+        "protected": ["release/*"],
+        "environments": ["dev", "stg", "main"]
+      }
+    }
+    ```
+
+    `hooks/ledger.sh branches` prints the resolved model. Unconfigured, it is `main` everywhere,
+    exactly as before. What it changes:
+    - **Integration branch:**
+      - workers open PRs against it (`gh pr create --base dev`), and so does `/hef.pr` when you name
+        no base;
+      - the verifier's diff base, `pr-files` and `deps-diff` compare against it, using the newer of
+        the merge-bases with `origin/dev` and the local `dev`;
+      - the merge-tree probe bases on it;
+      - `ledger.sh unblock` clears `human:merge` once the branch is in `dev` or `origin/dev`.
+    - **Protected set:** `main`, `master`, the integration branch, every environment and your
+      `protected` globs. These are never a worker's head and never pushed: `ledger.sh handoff`
+      refuses them, and `pr-watch.sh resolve` marks a promotion PR (`stg → main`) `"push": false`, so
+      `/hef.babysit` reports its red checks without ever fixing them.
+    - **Environments, in order:** the last is the **final** branch.
+      - `ledger.sh where <id>` shows how far a merged branch has travelled (`yes`, `no`, or `unknown`
+        when that branch exists neither locally nor on `origin`).
+      - `ledger.sh advance <id> released` waits for the final branch.
+      - `/hef.release` tags the final branch's commit.
+
+    Every promotion is still a person's merge. The remote is assumed to be named `origin`, and
+    `where` and the `released` check assume merge commits: a squash promotion defeats the ancestry
+    test.
 
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the

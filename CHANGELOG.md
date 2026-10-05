@@ -35,6 +35,29 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Added
+- **Branch model** (HEF-15; requested for fxcube, which integrates on `dev` and promotes
+  `dev → release/vX → stg → main`). A `branches` block in `.claude/project-status.json`:
+  - `integration`: the PR base for workers and `/hef.pr`, the verifier's diff base, the `human:merge`
+    ancestry check (local or `origin/`), and the base `pr_base`, `deps-diff` and the merge-tree probe
+    use (the newer of the merge-bases with `origin/<integration>` and the local branch);
+  - `protected`: never a worker head, never pushed. `handoff` refuses them; `pr-watch resolve` marks
+    a promotion PR `"push": false`, which `/hef.babysit` honours in `bound()`;
+  - `environments`: the ordered promotion chain. `ledger.sh where <id>` prints yes / no / unknown per
+    environment; `advance released` waits for the final branch; `/hef.release` tags it.
+
+  `ledger.sh branches [--configured]` is the one place the defaults and the validation live.
+  Unconfigured repos keep today's behaviour, with one widening: `human:merge` also clears via
+  `origin/main` (the old message already said `git fetch`, which never moved the local `main`).
+  Three fresh-context plan-review rounds (9 + 8 + 3 changes). The last round reproduced a stale-local-
+  `dev` merge-base that would have pulled the train into the item's diff.
+
+### Changed
+- `/hef.orchestrate` step 6 runs `git fetch origin` before `unblock` (not `git pull --ff-only`).
+- The smoke suite's dogfood-board check counts TODO.md's headings instead of pinning a number.
+
 ## [7.8.2] - 2026-10-05
 
 ### Fixed
