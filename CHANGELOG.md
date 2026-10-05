@@ -49,8 +49,10 @@ it is what caught the hand-bumped era:
     environment; `advance released` waits for the final branch; `/hef.release` tags it.
 
   `ledger.sh branches [--configured]` is the one place the defaults and the validation live.
-  Unconfigured repos keep today's behaviour, with one widening: `human:merge` also clears via
-  `origin/main` (the old message already said `git fetch`, which never moved the local `main`).
+  Unconfigured repos keep today's behaviour, with two widenings in `unblock human:merge`: it also
+  clears via `origin/main` (the old message already said `git fetch`, which never moved the local
+  `main`), and via `origin/<branch>` when the feature branch is gone locally (deleted after merge, or
+  handed off from another clone). The explicit `--base` appears only when a `branches` block exists.
   Three fresh-context plan-review rounds (9 + 8 + 3 changes). The last round reproduced a stale-local-
   `dev` merge-base that would have pulled the train into the item's diff.
 

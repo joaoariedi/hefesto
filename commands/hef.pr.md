@@ -75,10 +75,11 @@ When the agent reads any of them:
    > Create or update the pull request for this branch using the documented PR template. The
    > description must cite the verification evidence: the `/hef.verify` matrix if spec
    > artifacts exist, the `/hef.quality` result, and the `/hef.review` verdict. If an evidence
-   > item is missing, write "not run" — never invent it. A new PR targets the integration branch by
-   > default: unless the user named a base in the arguments (a hotfix off `release/v1` targets
-   > `release/v1`), run `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh branches` and pass
-   > `--base <integration>` to `gh pr create` (`main` unless `.branches.integration` names another).
+   > item is missing, write "not run" — never invent it. When the project declares a branch
+   > model (`${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh branches --configured` exits 0) and the user
+   > named no base in the arguments (a hotfix off `release/v1` targets `release/v1`), pass
+   > `--base <integration>` (from `ledger.sh branches`) to `gh pr create`; otherwise leave the base to
+   > the repository's default branch, as before.
    >
    > Do **not** merge, enable auto-merge, force-push, or delete branches. When several PRs are
    > ready, they are merged **one at a time by the user, each rebased or re-tested on the updated

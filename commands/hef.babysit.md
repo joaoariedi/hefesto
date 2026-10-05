@@ -151,5 +151,5 @@ means the ledger is unreadable — report it).
 
 Close with one short brief: the checks state, each fix (check or thread → sha), each doubtful item
 and what the person decided (or that it waits for one), the verdict, and — for `mergeable` — the
-PR URL and the after-merge steps (`git pull --ff-only`, `ledger.sh unblock <id>`,
+PR URL and the after-merge steps (`git fetch origin`, `ledger.sh unblock <id>`,
 `ledger.sh advance <id> merged`, `git worktree remove` if any).

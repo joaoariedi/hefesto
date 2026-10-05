@@ -3166,6 +3166,7 @@ bm_o2="$(bms verify HEF-6 --dry-run)"; grep -qF '(diff base: dev)' <<<"$bm_o2" |
 bm_o2="$(bms implement HEF-6 --dry-run)"
 { grep -qF 'gh pr create --base dev' <<<"$bm_o2" && grep -qF 'push to a protected branch (dev, main, master, release/*, stg)' <<<"$bm_o2"; } || { bad "the implement prompt must target dev and name the protected list: $(head -c 400 <<<"$bm_o2")"; bm_pfail=1; }
 bmc ''; grep -qF '(diff base: main)' <<<"$(bms verify HEF-6 --dry-run)" || { bad "unconfigured, the verifier's diff base stays main"; bm_pfail=1; }
+grep -qF 'gh pr create --base' <<<"$(bms implement HEF-6 --dry-run)" && { bad "unconfigured, the worker prompt must leave the PR base to the repository default (no --base)"; bm_pfail=1; }
 [ "$bm_pfail" -eq 0 ] && ok "session-launch: verifier diff base dev, PR --base dev and the protected list in the worker prompt; unconfigured keeps diff base main (branch-model FR-004)"
 
 # FR-005 pr-watch resolve: protected head → push:false (no checkout needed), main refused, feature → push:true
@@ -3181,6 +3182,13 @@ jq -e '.push == false' <<<"$(bmw release/v2)" >/dev/null 2>&1 || { bad "resolve 
 jq -e '.push == true' <<<"$(bmw feature/x)" >/dev/null 2>&1 || { bad "resolve on feature/x must be push:true: $(bmw feature/x)"; bm_rfail=1; }
 grep -qF 'never works on main' <<<"$(bmw main)" || { bad "resolve on head main must still be refused"; bm_rfail=1; }
 grep -qF 'if `resolve` returned `"push": false`' "$REPO/commands/hef.babysit.md" || { bad "/hef.babysit bound() must carry the push:false stop"; bm_rfail=1; }
+# a config that does not parse is malformed — never the trunk defaults with an empty protected set (code review B1)
+printf '{"branches":{"integration":"dev",}}\n' > "$bm_r/.claude/project-status.json"
+bml branches >/dev/null 2>&1 && { bad "ledger branches must die on a config that is not valid JSON"; bm_rfail=1; }
+bml init HEF-40 --kind tasks-repo --ref t >/dev/null 2>&1
+bml handoff HEF-40 --pr https://github.com/o/r/pull/40 --branch stg >/dev/null 2>&1 && { bad "handoff under an unparseable config must be refused, not accept stg"; bm_rfail=1; }
+bmw stg >/dev/null 2>&1 && { bad "resolve under an unparseable config must fail, not report push:true"; bm_rfail=1; }
+bmc "$BM_FULL"
 [ "$bm_rfail" -eq 0 ] && ok "pr-watch resolve: protected heads (stg, release/*) watched with push:false and no checkout, feature push:true, main refused; /hef.babysit bound() stops on push:false (branch-model FR-005)"
 
 # FR-009 a STALE local dev (fxcube's normal case: people fetch, rarely update dev): origin/dev gains
@@ -3222,6 +3230,13 @@ bmm ledger.sh 's/case "\$1" in \$p) return 0/case "$1" in "$p") return 0/'; bml 
 BM_LG="$bm_md/ledger.sh" bml handoff HEF-32 --pr https://github.com/o/r/pull/32 --branch release/v9 >/dev/null 2>&1 || { bad "mutation survived: glob match removed, release/v9 still refused"; bm_mfail=1; }
 bmm ledger.sh 's/-gt 1 \]; then/-gt 99 ]; then/'; bml init HEF-33 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-33 --branch HEF-2 >/dev/null 2>&1
 BM_LG="$bm_md/ledger.sh" bml advance HEF-33 released >/dev/null 2>&1 || { bad "mutation survived: the final-branch guard removed, released still refused"; bm_mfail=1; }
+bmm ledger.sh 's/^  \[ -z "\$c" \] || jq empty "\$c" 2>\/dev\/null || die/  true || die/'
+printf '{"branches":{"integration":"dev",}}\n' > "$bm_r/.claude/project-status.json"; bml init HEF-41 --kind tasks-repo --ref t >/dev/null 2>&1
+BM_LG="$bm_md/ledger.sh" bml handoff HEF-41 --pr https://github.com/o/r/pull/41 --branch stg >/dev/null 2>&1 || { bad "mutation survived: the parse check removed, an unparseable config still refused"; bm_mfail=1; }
+bmc "$BM_FULL"
+bmm session-launch.sh 's/PR_BASE_RULE=""; "\$LEDGER" branches --configured 2>\/dev\/null \&\& PR_BASE_RULE=/PR_BASE_RULE=/'; bmc ''
+grep -qF 'gh pr create --base main' <<<"$(BM_SL="$bm_md/session-launch.sh" bms implement HEF-6 --dry-run)" || { bad "mutation survived: the --base gate removed, unconfigured still has no --base"; bm_mfail=1; }
+bmc "$BM_FULL"
 bmm session-launch.sh 's/(diff base: \$INTEG)/(diff base: main)/'
 grep -qF '(diff base: dev)' <<<"$(BM_SL="$bm_md/session-launch.sh" bms verify HEF-6 --dry-run)" && { bad "mutation survived: verifier base hard-coded to main"; bm_mfail=1; }
 bmm pr-watch.sh 's/case "\$head" in \$p) push=false ;;/case "$head" in $p) push=true ;;/'
@@ -3240,7 +3255,7 @@ bmc "$BM_FULL"
 bmm merge-tree-probe.sh 's/\[ -n "\$INT" \] \&\& CANDS="origin\/\$INT \$INT \$CANDS"/true/'
 bmg checkout -q HEF-P >/dev/null 2>&1; grep -qF 'would CONFLICT with origin/dev' <<<"$(BM_MTP="$bm_md/merge-tree-probe.sh" bmp 9)" && { bad "mutation survived: the probe's integration base removed"; bm_mfail=1; }
 bmg checkout -q HEF-1 >/dev/null 2>&1
-[ "$bm_mfail" -eq 0 ] && ok "branch-model mutations: origin/ target, rc 4, environments[0] check, protected glob, released guard, verifier base, push:false, pr_base integration base, --configured gate, probe base — newest merge-base, --configured gate, probe base — all caught (SC-004 SC-006)"
+[ "$bm_mfail" -eq 0 ] && ok "branch-model mutations: origin/ target, rc 4, environments[0] check, protected glob, released guard, verifier base, push:false, pr_base integration base, --configured gate, probe base — parse check, PR-base gate — all caught (SC-004 SC-006)"
 rm -rf "$bm_t" "$bm_cfg" "$bm_md" "$bm_bin"
 
 # --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------

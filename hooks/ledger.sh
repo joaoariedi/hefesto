@@ -69,13 +69,16 @@ cfgp() { # jq over the project config; empty output when there is no config (cal
 # (plan review 2026-10-05: `jq -ce … /dev/null` printed nothing and exited 4).
 branches_model() {
   local c out; c=$(project_config) || c=""
+  # A config that does not PARSE is malformed, never "unconfigured": `input?` alone would swallow the
+  # parse error and hand back the trunk defaults — dropping every protected branch on a typo (code review B1).
+  [ -z "$c" ] || jq empty "$c" 2>/dev/null || die "ledger branches: $c is not valid JSON"
   out=$(jq -nce '
-    def nm: type == "string" and test("^[A-Za-z0-9._][A-Za-z0-9._/-]*$");
+    def nm: type == "string" and test("^[A-Za-z0-9._][A-Za-z0-9._/-]*$") and (test("\\.\\.") | not);
     ((input? // null) | if type == "object" then .branches else null end) as $raw | ($raw // {}) as $b
     | if ($b | type) != "object" then error("branches must be an object like {\"integration\": \"dev\"}")
       else ($b.integration // "main") as $i | ($b.environments // [$i]) as $e | ($b.protected // []) as $p
       | if ($i | nm | not) then error("branches.integration must be a branch name (got \($i | tojson))")
-        elif ($p | type) != "array" or ($p | any(type != "string" or length == 0)) then error("branches.protected must be a list of branch names or globs (got \($p | tojson))")
+        elif ($p | type) != "array" or ($p | any(type != "string" or length == 0 or test("[[:cntrl:]\\s]"))) then error("branches.protected must be a list of branch names or globs (got \($p | tojson))")
         elif ($e | type) != "array" or ($e | length) == 0 or ($e | any(nm | not)) or $e[0] != $i then error("branches.environments must be a list of branch names starting with the integration branch \($i | tojson) (got \($e | tojson))")
         else {integration: $i, protected: (["main", "master", $i] + $e + $p | unique), environments: $e, final: $e[-1]} end end' \
     ${c:+"$c"} 2>&1 </dev/null) || die "ledger branches: ${c:-<no config>}: ${out#jq: error*: }"

@@ -116,6 +116,9 @@ esac
 # come from `ledger.sh branches` — unconfigured, integration is main exactly as before.
 BM="$("$LEDGER" branches)" || exit 1
 INTEG="$(jq -r .integration <<<"$BM")"; PROT="$(jq -r '.protected | join(", ")' <<<"$BM")"
+# The explicit PR base only when a branches block is declared: unconfigured, `gh pr create` keeps the
+# repository's default branch (a `master` trunk has no `main`) — code review B2.
+PR_BASE_RULE=""; "$LEDGER" branches --configured 2>/dev/null && PR_BASE_RULE="Open the PR against $INTEG (gh pr create --base $INTEG). "
 WORKTREE="$(jq -r '.worktree // empty' <<<"$E")"; BRANCH="$(jq -r '.branch // empty' <<<"$E")"
 
 # --- settings (validated: -p ignores an invalid file silently) --------------------------------
@@ -144,12 +147,12 @@ case "$ROLE" in
       # artifact, not the phase: a retry after a failed run sits in `implement` and must not go back to
       # /hef.agent and re-spec (code review + quality gate 2026-09-30).
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. Do not re-spec or re-plan. Run /hef.implement (hefesto:workflow for a large task list), then /hef.verify, /hef.quality, /hef.review (code mode) and /hef.pr; stop at the first human gate. ${KIND_RULE}Open the PR against $INTEG (gh pr create --base $INTEG). Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
+Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. Do not re-spec or re-plan. Run /hef.implement (hefesto:workflow for a large task list), then /hef.verify, /hef.quality, /hef.review (code mode) and /hef.pr; stop at the first human gate. ${KIND_RULE}${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
 EOF
     else
       ITEM="$(item_as_data)" || exit 1
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository. Run /hef.agent on it: size the work, follow the route it picks (fix → /hef.fix → /hef.pr; light or full → /hef.spec and onward through /hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}$INJECTION_RULE Open the PR against $INTEG (gh pr create --base $INTEG). Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
+Board item $ID for this repository. Run /hef.agent on it: size the work, follow the route it picks (fix → /hef.fix → /hef.pr; light or full → /hef.spec and onward through /hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}$INJECTION_RULE ${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
 
 $ITEM
 EOF

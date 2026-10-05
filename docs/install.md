@@ -381,7 +381,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       - `ledger.sh advance <id> released` waits for the final branch.
       - `/hef.release` tags the final branch's commit.
 
-    Every promotion is still a person's merge. The remote is assumed to be named `origin`, and
+    A config file that is not valid JSON is an error, never "unconfigured". Without a `branches`
+    block, PRs keep the repository's default branch as their base. Every promotion is still a
+    person's merge. The remote is assumed to be named `origin`, and
     `where` and the `released` check assume merge commits: a squash promotion defeats the ancestry
     test.
 
