@@ -272,6 +272,8 @@ cmd_resolve() {
 }
 
 cmd_ledger_id() {
+  # external-board: `ledger.sh list` resolves the board through ledger.sh's board_ctx, which reads the pointer
+  # through the MAIN worktree — so from a PR worktree (no untracked .claude/ there) it still reads the central ledger.
   local all id
   all=$(bash "$HERE/ledger.sh" list) || die "pr-watch ledger-id: ledger.sh list failed"
   id=$(jq -r --arg u "$1" '.[] | select(.pr.url == $u) | .id' <<<"$all" | head -1) || die "pr-watch ledger-id: ledger.sh list returned invalid JSON"

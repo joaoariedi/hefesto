@@ -38,6 +38,14 @@ workers it starts are sandboxed by the settings it passes.
 > expansion". Do not write that variable with a $ and braces here: it would be
 > substituted into this note and the warning would read as nonsense.
 
+### Which board
+Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh board`
+
+It prints the resolved board as JSON. `mode` is `in-repo` (the board and the code share this
+repository, as before) or `external` (the board is its own repository and feeds the repos named in
+`repos`; `docs/install.md` §7 step 13). If it exits non-zero, report its stderr and **stop**: the
+pointer or the board config is wrong, and nothing below would read the right board.
+
 ### The board
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --detailed`
 
@@ -54,22 +62,36 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
 1. **Register the todo items.** For every id under `todo` in the board output that has no ledger
    entry yet, run with the Bash tool (one call per id, `<column>` is the todo column file):
    `KIND=$(${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-kind <id>) && ${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-raw <id> > "${TMPDIR:-/tmp}/hefesto-<id>.body" && ${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh init <id> --kind tasks-repo --ref <column>#<id> --body-file "${TMPDIR:-/tmp}/hefesto-<id>.body" --item-kind "$KIND"`
+   **External board** (`mode` is `external`): route the item first and register it with its repo —
+   one call per id:
+   `R=$(${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-repo <id>); RC=$?; [ "$RC" -eq 0 ] && KIND=$(${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-kind <id>) && ${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --item-raw <id> > "${TMPDIR:-/tmp}/hefesto-<id>.body" && ${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh init <id> --kind tasks-repo --ref <column>#<id> --body-file "${TMPDIR:-/tmp}/hefesto-<id>.body" --item-kind "$KIND" --repo "${R%%$'\t'*}"`
+   The exit status of `--item-repo` is captured, never piped through `cut` (a pipe would hide a
+   refusal and register the item with an empty repo). A **routing refusal** — the item names no
+   repo while the board feeds several, names two repos, or names one the board does not feed — is
+   reported by id with its message, and the item is **skipped**: nothing is written to the ledger
+   for it. A person fixes the item's `repo:` line; the next pass registers it.
    The kind (`feature`, `incident` for a 🐞 heading, `vulnerability` for 🛡) gives an incident fix a
    regression-test-first rule and a REQUIRED verifier gate; a detection that fails stops the
    registration rather than defaulting to `feature`.
    `init` is idempotent; an existing entry is left untouched. An entry whose id no longer appears on
    the board is **orphaned**: report it by id and leave it — never delete a ledger entry.
 
-2. **One worker per repository.** If `list --active` printed a non-empty array, report which entry
-   is owned by which session and **go to step 7**. Two concurrent workers on one repository is the 41.7 %
-   conflict configuration; sequential dispatch is the rule (report 14, report 17 §1f).
+2. **One worker per repository.** Report which entry is owned by which session (`list --active`).
+   Two concurrent workers on one repository is the 41.7 % conflict configuration; sequential
+   dispatch is the rule (report 14, report 17 §1f).
+   - **In-repo board:** if `list --active` printed a non-empty array, **go to step 7** — the one
+     repository is busy.
+   - **External board:** go on to step 3. `next` enforces the rule per repository: it skips an
+     entry whose repo already has an owned entry, so an `ops` worker and a `ui` worker can run side
+     by side. When every candidate's repo is busy it refuses, naming each busy repo and its owner.
 
 3. **Pick the next entry for the stage.** Run with the Bash tool:
    `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh next --stage <stage>`
    (`plan`: a queued item, or one whose plan run failed or was unblocked; `build`: queued, planned
    or a retry; `deploy`: an item in `pr` with a PR, even while it waits on `human:merge` — that wait
    is what the babysitter babysits.) Non-zero means nothing is dispatchable for this stage: report
-   the blocked entries from pre-flight (each names the human command that clears it) and **go to step 7**.
+   its message (on an external board it names the busy repos) and the blocked entries from
+   pre-flight (each names the human command that clears it), and **go to step 7**.
    For `deploy`, skip steps 1 and 4 — a deploy pass registers nothing and reads no item text; the
    babysitter reads the PR's comments as data itself — and go to step 5. (When the stage is
    `deploy`, run step 3 before step 1.)
@@ -106,13 +128,14 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    With `--dry-run` every role prints the exact `claude -p` line and claims nothing — use it to review
    the flags (tier, allowlist, permission mode) before the first real run.
 
-6. **After a person merges the PR** (never you): in the main checkout, run with the Bash tool
+6. **After a person merges the PR** (never you): in the main checkout (on an external board, the
+   entry's repo — `ledger.sh` checks the merge there by itself), run with the Bash tool
    `git fetch origin`, then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` — the helper
    accepts a `human:merge` block only when the branch is an ancestor of the integration branch
    (local or `origin/`; `ledger.sh branches` names it — `main` unless `.branches.integration` says
    otherwise) — then
    `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh advance <id> merged`. Print the cleanup for the person:
-   `git worktree remove .claude/worktrees/<id>`. When `.branches.environments` declares a promotion
+   `git worktree remove .claude/worktrees/<id>` (in the entry's repo on an external board). When `.branches.environments` declares a promotion
    chain (e.g. `dev → stg → main`), `ledger.sh where <id>` shows how far the merged branch has
    travelled; each promotion is a person's merge, and `advance <id> released` is accepted only once
    the branch is in the final branch.
@@ -121,11 +144,12 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    does a normal pass), then the brief (step 8). Both are opt-in; with neither configured, skip this
    step and say nothing about it. With `--dry-run` in **$ARGUMENTS**, run neither: print the publish
    command and the `escalate` lines you would act on, and send nothing — a dry run changes nothing.
-   - **Publish** — when `orchestrate.publish` is `true` in `.claude/project-status.json` and this pass
+   - **Publish** — when `orchestrate.publish` is `true` in the board config (`config` from `ledger.sh board`) and this pass
      touched an id (dispatched it, blocked it, or launched it), run with the Bash tool:
      `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh publish <id>`. It writes the state marker on the board item
      (or one issue comment), refuses an item a person edited since registration, and is silent when
-     nothing changed.
+     nothing changed. On an external board the mark lands in the board repo's file; committing it is
+     the person's step.
    - **Escalate** — when `orchestrate.escalate_after_hours` is set, run with the Bash tool:
      `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh escalate`. Each output line is `<session>` TAB `<pointer>`.
      For each line, send exactly the pointer text — nothing added, nothing summarised — as ONE

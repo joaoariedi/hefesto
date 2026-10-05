@@ -125,6 +125,10 @@ onto the board and `escalate_after_hours` sends one pointer for a stale human bl
 (`hooks/pr-watch.sh`) keeps a PR moving to the merge gate; `/hef.status` reports AI-delivery metrics
 from the ledger. A `branches` block names the integration branch (PR base, verifier diff base,
 `human:merge` check), the protected heads, and the promotion chain whose last branch is `released`.
+An **external board** (`ledger.sh board`) is a board repository that feeds several code repos: each
+code repo points at it with `board`, the board lists them in `repos`, the ledger is central (the
+board repo's git common dir, every entry tagged with its `repo`), `next` keeps one worker per repo,
+and every session runs in its entry's repo.
 **No pane and no worker ever merges** — the merge is the human gate. See README §5,
 [install §7](install.md) and `reports/17`.
 
