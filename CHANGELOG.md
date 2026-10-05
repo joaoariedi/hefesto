@@ -35,6 +35,13 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.8.2] - 2026-10-05
+
+### Fixed
+- `/hef.quality` spawned `quality-guardian` with `model: "sonnet"`, overriding the agent's `opus`
+  frontmatter and contradicting the tier policy (quality is the `opus` class). It now spawns at
+  `opus`; the smoke suite asserts it.
+
 ## [7.8.1] - 2026-10-05
 
 ### Fixed

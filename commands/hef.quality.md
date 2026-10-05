@@ -3,7 +3,7 @@ model: opus
 description: "Run comprehensive quality checks"
 ---
 
-Use the Task tool to spawn a quality-guardian agent with model: "sonnet" to run all available quality checks.
+Use the Task tool to spawn a quality-guardian agent with model: "opus" to run all available quality checks.
 
 ## Quality Checks
 
