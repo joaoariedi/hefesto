@@ -25,7 +25,8 @@
     "./agents/quality-guardian.md",
     "./agents/repo-scout.md",
     "./agents/review-coordinator.md",
-    "./agents/test-specialist.md"
+    "./agents/test-specialist.md",
+    "./agents/truth-scout.md"
   ],
   "workflows": "./workflows/"
 }
