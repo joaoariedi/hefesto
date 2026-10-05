@@ -3211,7 +3211,10 @@ grep -qF 'code-reviewer' "$REPO/commands/hef.review.md" 2>/dev/null || { bad "/h
 grep -qF 'review-coordinator' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr does not dispatch review-coordinator"; cw_fail=1; }
 grep -qiE 'not merge|never merge' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr must state that it never merges"; cw_fail=1; }
 grep -qF 'code-reviewer' "$REPO/commands/hef.verify.md" 2>/dev/null || { bad "/hef.verify does not run code-reviewer stage 1"; cw_fail=1; }
-[ "$cw_fail" -eq 0 ] && ok "hef.review → code-reviewer, hef.pr → review-coordinator (no merge), hef.verify → code-reviewer stage 1 (FR-002)"
+# /hef.quality spawns quality-guardian at the opus tier the policy assigns it (user decision 2026-10-05;
+# it was a sonnet override that contradicted the policy in .claude/CLAUDE.md)
+grep -qF 'quality-guardian agent with model: "opus"' "$REPO/commands/hef.quality.md" 2>/dev/null || { bad "/hef.quality must spawn quality-guardian with model: \"opus\""; cw_fail=1; }
+[ "$cw_fail" -eq 0 ] && ok "hef.review → code-reviewer, hef.pr → review-coordinator (no merge), hef.verify → code-reviewer stage 1, hef.quality → quality-guardian at opus (FR-002)"
 
 # --- Tier 1: prose that must exist because a hook points at it (FR-004, FR-005, FR-007) ---
 head_ "Guidance wiring"
