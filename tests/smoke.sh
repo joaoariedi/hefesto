@@ -3094,11 +3094,11 @@ bml branches --configured && { bad "branches --configured must exit 1 without a 
 bmc "$BM_FULL"
 jq -e '. == {"integration":"dev","protected":["dev","main","master","release/*","stg"],"environments":["dev","stg","main"],"final":"main"}' <<<"$(bml branches)" >/dev/null 2>&1 || { bad "ledger branches with the full block: got '$(bml branches 2>&1)'"; bm_fail=1; }
 bml branches --configured || { bad "branches --configured must exit 0 with a branches block"; bm_fail=1; }
-for c in '"dev":branches must be an object' '{"integration":""}:branches.integration' '{"integration":"-dev"}:branches.integration' '{"protected":"x"}:branches.protected' '{"integration":"dev","environments":["stg"]}:branches.environments'; do
+for c in '"dev":branches must be an object' '{"integration":""}:branches.integration' '{"integration":"-dev"}:branches.integration' '{"integration":"a..b"}:branches.integration' '{"protected":"x"}:branches.protected' '{"protected":["hot\nfix*"]}:branches.protected' '{"integration":"dev","environments":["stg"]}:branches.environments'; do
   bmc ",\"branches\":${c%:*}"; bm_o2="$(bml branches 2>&1)" && { bad "branches ${c%:*} must be refused"; bm_fail=1; }
   grep -qF "${c##*:}" <<<"$bm_o2" || { bad "branches ${c%:*}: the refusal must name ${c##*:}, got '$bm_o2'"; bm_fail=1; }
 done
-[ "$bm_fail" -eq 0 ] && ok "ledger branches: trunk defaults unconfigured, the full model, five malformed shapes named, --configured, no side effect (branch-model FR-001)"
+[ "$bm_fail" -eq 0 ] && ok "ledger branches: trunk defaults unconfigured, the full model, seven malformed shapes named (incl. '..' and a control character), --configured, no side effect (branch-model FR-001)"
 
 # FR-009 the tools diff against the integration branch — only when configured. HEF-1 tracks origin/HEF-1.
 bm_tfail=0
@@ -3146,7 +3146,13 @@ bmc "$BM_FULL"
 bml advance HEF-1 released >/dev/null 2>&1 && { bad "advance released must wait for the final branch (main)"; bm_lfail=1; }
 ( bmg checkout -q main && bmg merge -q --no-ff HEF-1 -m rel && bmg checkout -q HEF-1 ) >/dev/null 2>&1
 bml advance HEF-1 released >/dev/null 2>&1 || { bad "advance released must pass once the branch is in main: $(bml advance HEF-1 released 2>&1)"; bm_lfail=1; }
-bmc ',"branches":{"integration":"dev"}'; bml advance HEF-2 released >/dev/null 2>&1 || { bad "advance released with a single environment must stay free"; bm_lfail=1; }
+# HEF-P is in no environment (off main, never merged): with a single environment the guard must not run at all
+bml init HEF-35 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-35 --branch HEF-P >/dev/null 2>&1
+bmc ',"branches":{"integration":"dev"}'; bml advance HEF-35 released >/dev/null 2>&1 || { bad "advance released with a single environment must stay free (HEF-P is in no branch)"; bm_lfail=1; }
+# where on a branch that resolves nowhere: refused, never "no" for every environment at exit 0
+bmc "$BM_FULL"; bml init HEF-36 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-36 --branch ghost >/dev/null 2>&1
+bm_o2="$(bml where HEF-36 2>&1)" && { bad "where on a branch that resolves nowhere must exit non-zero: $bm_o2"; bm_lfail=1; }
+grep -qF 'resolves to no commit' <<<"$bm_o2" || { bad "where on a ghost branch must say it resolves to no commit, got '$bm_o2'"; bm_lfail=1; }
 # handoff: every protected head refused (literal and glob), a feature branch accepted
 bmc "$BM_FULL"; bm_i=10
 for b in stg release/v1 dev main; do
@@ -3163,6 +3169,11 @@ bm_pfail=0
 bml init HEF-6 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-6 --worktree "$bm_r" --branch HEF-1 --route fix >/dev/null 2>&1
 bms() { (cd "$bm_r" && CLAUDE_CONFIG_DIR="$bm_cfg" bash "${BM_SL:-$SL}" "$@" 2>&1); }
 bm_o2="$(bms verify HEF-6 --dry-run)"; grep -qF '(diff base: dev)' <<<"$bm_o2" || { bad "the verifier's diff base must be dev: $(head -c 300 <<<"$bm_o2")"; bm_pfail=1; }
+# the PLANNED path (a plan stage ran: spec_dir with tasks.md) — the main path for full-route items
+printf '\n## HEF-7 — seven\nb\n' >> "$bm_r/tasks/TODO.md"; mkdir -p "$bm_r/.specify/specs/hef7" && printf -- '- [ ] T001 x\n' > "$bm_r/.specify/specs/hef7/tasks.md"
+bml init HEF-7 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-7 --spec-dir "$bm_r/.specify/specs/hef7" >/dev/null 2>&1
+bm_o2="$(bms implement HEF-7 --dry-run)"
+{ grep -qF 'planned by a separate session' <<<"$bm_o2" && grep -qF 'gh pr create --base dev' <<<"$bm_o2"; } || { bad "the planned-item prompt must target dev too: $(head -c 300 <<<"$bm_o2")"; bm_pfail=1; }
 bm_o2="$(bms implement HEF-6 --dry-run)"
 { grep -qF 'gh pr create --base dev' <<<"$bm_o2" && grep -qF 'push to a protected branch (dev, main, master, release/*, stg)' <<<"$bm_o2"; } || { bad "the implement prompt must target dev and name the protected list: $(head -c 400 <<<"$bm_o2")"; bm_pfail=1; }
 bmc ''; grep -qF '(diff base: main)' <<<"$(bms verify HEF-6 --dry-run)" || { bad "unconfigured, the verifier's diff base stays main"; bm_pfail=1; }
@@ -3237,6 +3248,10 @@ bmc "$BM_FULL"
 bmm session-launch.sh 's/PR_BASE_RULE=""; "\$LEDGER" branches --configured 2>\/dev\/null \&\& PR_BASE_RULE=/PR_BASE_RULE=/'; bmc ''
 grep -qF 'gh pr create --base main' <<<"$(BM_SL="$bm_md/session-launch.sh" bms implement HEF-6 --dry-run)" || { bad "mutation survived: the --base gate removed, unconfigured still has no --base"; bm_mfail=1; }
 bmc "$BM_FULL"
+bmm ledger.sh 's/-gt 1 \]; then/-gt 0 ]; then/'; bmc ',"branches":{"integration":"dev"}'; bml init HEF-37 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-37 --branch HEF-P >/dev/null 2>&1
+BM_LG="$bm_md/ledger.sh" bml advance HEF-37 released >/dev/null 2>&1 && { bad "mutation survived: the guard runs with one environment, an unmerged branch still released"; bm_mfail=1; }
+bmm ledger.sh 's/\[ "\$rc" -ne 3 \] || die "ledger where/true || die "ledger where/'; bmc "$BM_FULL"
+bm_o2="$(BM_LG="$bm_md/ledger.sh" bml where HEF-36 2>&1)" || { bad "mutation survived: where's ghost-branch refusal removed, still non-zero: $(tr '\n' '|' <<<"$bm_o2")"; bm_mfail=1; }
 bmm session-launch.sh 's/(diff base: \$INTEG)/(diff base: main)/'
 grep -qF '(diff base: dev)' <<<"$(BM_SL="$bm_md/session-launch.sh" bms verify HEF-6 --dry-run)" && { bad "mutation survived: verifier base hard-coded to main"; bm_mfail=1; }
 bmm pr-watch.sh 's/case "\$head" in \$p) push=false ;;/case "$head" in $p) push=true ;;/'
