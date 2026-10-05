@@ -308,6 +308,36 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     report that gate, and a missing or SKIPPED one blocks the entry on `verdict`. `/hef.status` reads
     a heading's first token as its sub-state, so add the kind glyphs to `states` if you want them
     labelled.
+11. **Providers: other vendors as arena readers and as a second opinion** (optional, HEF-13). Declare
+    the model access you already have in `.claude/project-status.json`:
+
+    ```json
+    "providers": {
+      "codex":  {"via": "codex"},
+      "gemini": {"via": "gemini", "model": "<your gemini model>"},
+      "bedrock_llama": {"via": "aws", "model": "<your Bedrock model id>", "region": "us-east-1", "max_tokens": 4096}
+    }
+    ```
+
+    Names are `[a-z0-9_]+` (they become Arena columns) and may not be a Claude tier (`sonnet`, `opus`,
+    `fable`, `haiku`). `model` and `region` must look like ids (no leading `-`, no `://`: the AWS CLI
+    would read a `file://` value from disk), and `max_tokens` must be a positive integer. `via` is one of four runners, each the CLI's own
+    non-interactive mode, detected with `command -v`, never installed by hefesto: `claude` (`claude -p
+    --permission-mode plan`), `codex` (`codex exec --sandbox read-only`), `gemini` (`gemini -p`, with no
+    approval flags; its headless mode has no read-only switch), `aws` (`aws bedrock-runtime converse`).
+    **Authentication is each CLI's own**: hefesto reads, stores and passes no key. A concrete model id
+    belongs here, in your config, never in the framework's files. Then `hooks/arena-run.sh --check`
+    prints one line per provider (`ok`, `missing (<install hint>)`, `ok (second-opinion only)` for
+    `aws`).
+
+    They are used in two places only: `/hef.plan --arena K --via <p,…>` gives up to K−1 arena slots
+    to providers (one `truth-scout` is always kept), and `/hef.review --second-opinion <p>` relays
+    another vendor's reading under "Second opinion (<p>) — not the gate". It never writes
+    `## Reviewed`, and a foreign model is never the verifier of record. `aws` is a message API that
+    cannot read the repository, so it is second-opinion only. **Sending the spec, the plan or the diff
+    to a provider is egress to that vendor:** `arena-run.sh` runs only from an unsandboxed pane. It
+    refuses inside a launched worker (`HEFESTO_WORKER=1`, which `session-launch.sh` exports) and from a
+    sandboxed shell (`$HOME` not writable).
 
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the

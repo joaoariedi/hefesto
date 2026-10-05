@@ -194,7 +194,7 @@ esac
 
 # --- the command line (FR-009) -------------------------------------------------------------------
 case "$ROLE" in implement) NAME="impl-$ID" ;; verify) NAME="verify-$ID" ;; plan) NAME="plan-$ID" ;; deploy) NAME="deploy-$ID" ;; esac
-CMD=(claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS" --max-budget-usd "$USD_CAP"
+CMD=(env HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS" --max-budget-usd "$USD_CAP"
      --output-format json --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)
 WT="$TOP/.claude/worktrees/$ID"
 case "$ROLE" in
