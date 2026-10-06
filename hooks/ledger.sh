@@ -31,7 +31,7 @@ usage: ledger.sh <subcommand> …
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
-  unblock <id> [--reviewed-by-human]                    human:* kinds need artifact evidence
+  unblock <id> [--reviewed-by-human --by <name>]        human:* kinds need artifact evidence (intake: a person's name, recorded)
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
   record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k]   (--body-file re-hashes the item)
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
@@ -346,8 +346,8 @@ case "$SUB" in
     echo "$ID blocked_on $KIND" ;;
 
   unblock)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0
-    while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; *) usage ;; esac; shift; done
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0; RBY=""
+    while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
     E=$(entry "$ID") || exit 1
     KIND=$(jq -r '.blocked_on.kind // empty' <<<"$E"); [ -n "$KIND" ] || die "ledger unblock $ID: not blocked"
     SPEC_DIR=$(jq -r '.spec_dir // empty' <<<"$E"); BRANCH=$(jq -r '.branch // empty' <<<"$E")
@@ -368,9 +368,25 @@ case "$SUB" in
         [ "$rc" -ne 4 ] || die "ledger unblock $ID: $KIND — the integration branch '$INT' resolves nowhere (no $INT, no origin/$INT) — git fetch origin first"
         [ "$rc" -eq 0 ] || die "ledger unblock $ID: $KIND — '$BRANCH' is in neither $INT nor origin/$INT (git fetch origin first if it was merged remotely)" ;;
       human:intake)
-        { [ "$REVIEWED" = 1 ] && [ -t 0 ]; } || die "ledger unblock $ID: $KIND needs --reviewed-by-human from an interactive shell (a person read the item text)" ;;
+        # The prompt-injection gate. It used to test `-t 0`, which the Bash tool never has, so a person
+        # who had read the item in an interactive session still had to copy the line into a terminal
+        # (fxcube, 2026-10-06). A terminal test proves nothing about who read the item, and anything a
+        # session can run, the model that read the hostile text can run too — so the gate is the
+        # PERMISSION PROMPT: this command must never be allowlisted (docs/install.md), every clear is a
+        # dialog the person answers, and the name is recorded. A launched worker is refused outright.
+        [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] \
+          || die "ledger unblock $ID: $KIND is never cleared from inside a launched worker — a person reads the item and runs it from their own session"
+        # Compatibility: from a real terminal, --reviewed-by-human alone still works (as before 7.9.1), recording the login.
+        [ -z "$RBY" ] && [ "$REVIEWED" = 1 ] && [ -t 0 ] && RBY="${USER:-$(id -un 2>/dev/null)}"
+        [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9][A-Za-z0-9._@\ -]{0,63}$ ]] \
+          || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist it" ;;
     esac
-    jq '.blocked_on = null' <<<"$E" | write_entry "$ID" || exit 1; echo "$ID unblocked ($KIND)" ;;
+    if [ "$KIND" = human:intake ]; then
+      jq --arg by "$RBY" '.blocked_on = null | .reviewed = ((.reviewed // []) + [{kind: "human:intake", by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
+      echo "$ID unblocked ($KIND, reviewed by $RBY)"
+    else
+      jq '.blocked_on = null' <<<"$E" | write_entry "$ID" || exit 1; echo "$ID unblocked ($KIND)"
+    fi ;;
 
   run)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; ROLE=""; RC=""; USD=""; SID=""
@@ -418,7 +434,7 @@ case "$SUB" in
   # handoff: the four calls a person makes for a hand-run item, through the same arms (their guards
   # apply). The temporary owner `hand` gives the run a session name, so the review guard (verdict --by ≠
   # an implement session) has something to compare. A blocked entry is refused: a handoff must never
-  # clear a human:intake or stall block that only a person at a TTY may clear.
+  # clear a human:intake or stall block that only a person may clear.
   handoff)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; PR=""; BR=""
     while [ $# -gt 0 ]; do case "$1" in --pr) PR="${2:-}"; shift ;; --branch) BR="${2:-}"; shift ;; *) usage ;; esac; shift; done

@@ -35,6 +35,17 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Changed
+- **`ledger.sh unblock` on `human:intake`** (requested from the fxcube orchestrator lane). The old
+  `-t 0` test could never pass from a Claude Code session, because the Bash tool has no TTY, so a person
+  who had read the item still had to copy the line into a terminal. It now takes
+  `--reviewed-by-human --by <name>`, records `{kind, by, at}` on the entry's `.reviewed`, and is
+  refused inside a launched worker (`HEFESTO_WORKER`). The gate is now Claude Code's permission prompt:
+  the docs say never to allowlist it, so every intake clear is a dialog the person answers. The refusal
+  message says what evidence to produce.
+
 ## [7.9.0] - 2026-10-05
 
 ### Added

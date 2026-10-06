@@ -266,9 +266,13 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
 5. **Watch for blocks**: every session opened in the checkout prints `ledger: <id> blocked_on <kind>`
    at start; `herdr agent wait --until blocked` and `claude agents --json` show the pane. A `human:*`
    block is cleared only by the artifact the human command leaves behind (`/hef.clarify`,
-   `/hef.review`, the merge itself), or — for `human:intake` only — by a person running
-   `hooks/ledger.sh unblock <id> --reviewed-by-human` at an interactive terminal; a non-interactive
-   caller is refused.
+   `/hef.review`, the merge itself), or — for `human:intake` only — by a person who read the item
+   text (`status-board.sh --item <id>`) running
+   `hooks/ledger.sh unblock <id> --reviewed-by-human --by <name>`. That clear works from any session,
+   and the name and time are recorded on the entry (`.reviewed`). The gate is Claude Code's
+   **permission prompt**: never add `--reviewed-by-human` (or a blanket `ledger.sh` rule) to any
+   allowlist, so every intake clear is a dialog you answer. The command is refused inside a launched
+   worker.
 6. **After you merge**: `git pull --ff-only`, then `hooks/ledger.sh unblock <id>` and
    `hooks/ledger.sh advance <id> merged`; remove the worktree with
    `git worktree remove .claude/worktrees/<id>`.
