@@ -1515,7 +1515,26 @@ if lg unblock HEF-10 >/dev/null 2>&1; then bad "ledger unblock human:merge befor
 ( cd "$lg_t" && git -c user.email=t@t -c user.name=t merge -q --no-ff wt -m merge ) >/dev/null 2>&1
 lg unblock HEF-10 >/dev/null 2>&1 || { bad "ledger unblock human:merge once wt is an ancestor of main must succeed"; lg_fail=1; }
 lg block HEF-10 --kind human:intake >/dev/null 2>&1
-if lg unblock HEF-10 --reviewed-by-human </dev/null >/dev/null 2>&1; then bad "ledger unblock human:intake from a non-TTY must fail even with --reviewed-by-human"; lg_fail=1; fi
+# human:intake (fxcube 2026-10-06): no TTY test any more — the gate is the permission prompt plus a
+# recorded name. Without --by, refused; inside a launched worker, refused even with --by; with it, cleared
+# and the reviewer recorded. Mutations below pin the worker refusal and the --by requirement.
+if lg unblock HEF-10 --reviewed-by-human </dev/null >/dev/null 2>&1; then bad "ledger unblock human:intake without --by <name> must fail"; lg_fail=1; fi
+grep -qF 'needs --reviewed-by-human --by <your name>' <<<"$(lg unblock HEF-10 --reviewed-by-human 2>&1)" || { bad "the intake refusal must name the evidence to produce"; lg_fail=1; }
+if (cd "$lg_t" && HEFESTO_WORKER=1 bash "$LG" unblock HEF-10 --reviewed-by-human --by Ana </dev/null) >/dev/null 2>&1; then bad "ledger unblock human:intake inside a launched worker must fail even with --by"; lg_fail=1; fi
+lg unblock HEF-10 --reviewed-by-human --by 'Ana Silva' </dev/null >/dev/null 2>&1 \
+  && jq -e '.blocked_on == null and (.reviewed[-1] | .kind == "human:intake" and .by == "Ana Silva" and (.at | length) > 0)' "$lg_t/.git/hefesto/ledger/HEF-10.json" >/dev/null 2>&1 \
+  || { bad "ledger unblock human:intake --reviewed-by-human --by <name> must clear from a non-TTY session and record the reviewer"; lg_fail=1; }
+lg block HEF-10 --kind human:intake >/dev/null 2>&1
+lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh" 2>/dev/null; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"
+cp "$LG" "$lg_md2/ledger.sh"; sed -i 's/\[ -z "\${HEFESTO_WORKER:-}" \] || \[ "\$HEFESTO_WORKER" = 0 \] \\/true \\/' "$lg_md2/ledger.sh"
+cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (worker refusal) did not apply"; lg_fail=1; }
+(cd "$lg_t" && HEFESTO_WORKER=1 bash "$lg_md2/ledger.sh" unblock HEF-10 --reviewed-by-human --by Ana) >/dev/null 2>&1 || { bad "mutation survived: intake worker refusal removed, a worker still refused"; lg_fail=1; }
+lg block HEF-10 --kind human:intake >/dev/null 2>&1
+cp "$LG" "$lg_md2/ledger.sh"; sed -i 's/\[ "\$REVIEWED" = 1 \] \&\& \[\[ "\$RBY" =~/[ "$REVIEWED" = 1 ] || [[ "$RBY" =~/' "$lg_md2/ledger.sh"
+cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (--by required) did not apply"; lg_fail=1; }
+(cd "$lg_t" && bash "$lg_md2/ledger.sh" unblock HEF-10 --reviewed-by-human </dev/null) >/dev/null 2>&1 || { bad "mutation survived: --by no longer required, a nameless clear still refused"; lg_fail=1; }
+rm -rf "$lg_md2"
+lg block HEF-10 --kind human:intake >/dev/null 2>&1
 lg block HEF-10 --kind ci >/dev/null 2>&1 && lg unblock HEF-10 >/dev/null 2>&1 || { bad "ledger unblock of a non-human kind (ci) must clear freely"; lg_fail=1; }
 # FR-007 — next: lowest id with owner=null, blocked_on=null, phase queued|implement; none → non-zero
 # (HEF-9 is stall-blocked; HEF-10 is parked in pr so it is not a candidate.)
