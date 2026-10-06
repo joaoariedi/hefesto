@@ -287,12 +287,18 @@ case "$SUB" in
     E=$(entry "$ID") || exit 1
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
+    # An intake-blocked entry is never worked on: claim → run → claim would reach the stall below and
+    # overwrite the block (security re-review 2026-10-06). human:merge stays claimable — the deploy stage
+    # babysits exactly that wait.
+    [ "$(jq -r '.blocked_on.kind // empty' <<<"$E")" != human:intake ] \
+      || die "ledger claim $ID: blocked on human:intake — a person reads the item and clears it (ledger.sh unblock $ID --reviewed-by-human --by <name>) before any session works on it"
     # attempts count IMPLEMENT claims only: a verify claim after each run would otherwise stall an
     # entry on its second implement attempt.
     INC=0; [ "$ROLE" = implement ] && INC=1
     N=$(jq --argjson i "$INC" '.attempts + $i' <<<"$E")
     if [ "$N" -gt 2 ]; then
-      jq '.blocked_on = {kind: "stall", since: (now | todate), question_path: null} | .attempts += 1' <<<"$E" | write_entry "$ID" || exit 1
+      # never over a person's block — the stall only records when nothing a person must clear is pending
+      jq 'if ((.blocked_on.kind // "") | startswith("human:")) then . else .blocked_on = {kind: "stall", since: (now | todate), question_path: null} end | .attempts += 1' <<<"$E" | write_entry "$ID" || exit 1
       die "ledger claim $ID: attempt $N exceeds 2 — blocked_on: stall (a human decides whether to split or drop it)"
     fi
     jq --arg s "$SESSION" --arg r "$ROLE" --argjson p "$$" --argjson i "$INC" \
@@ -347,6 +353,10 @@ case "$SUB" in
     # directory (security review 2026-10-06, reproduced on 7.9.0). The launcher itself — the pane process,
     # never HEFESTO_WORKER — still re-blocks after a deploy pass, as it always has.
     CURK=$(jq -r '.blocked_on.kind // empty' <<<"$E")
+    # human:intake is never replaced by ANY caller (user decision 2026-10-06): block-with-another-kind then
+    # clear-that-kind was a route around the named clear, behind dialogs that never mention intake.
+    [ "$CURK" != human:intake ] || [ "$KIND" = human:intake ] \
+      || die "ledger block $ID: it is blocked on human:intake — nothing replaces it; a person clears it with ledger.sh unblock $ID --reviewed-by-human --by <name>"
     if [ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ] && [[ "$CURK" == human:* ]] && [ "$KIND" != "$CURK" ]; then
       die "ledger block $ID: it is blocked on $CURK — a launched worker never replaces a person's block (only the person's own command clears it)"
     fi

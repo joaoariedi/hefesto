@@ -83,13 +83,14 @@ if [ -d "$LDIR" ]; then
   done
   # The intake gate is a permission dialog the person answers — there is none under auto, bypassPermissions
   # or dontAsk. Best effort: the last defaultMode among user, project and local settings.
-  if grep -lq '"human:intake"' "$LDIR"/*.json 2>/dev/null; then
+  # an OPEN intake block only — `.reviewed[]` history also contains the string (re-review S1')
+  if jq -e -s 'any(.[]; .blocked_on.kind? == "human:intake")' "$LDIR"/*.json >/dev/null 2>&1; then
     PMODE=""
     for sf in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$CWD/.claude/settings.json" "$CWD/.claude/settings.local.json"; do
       m="$(jq -r '.permissions.defaultMode // empty' "$sf" 2>/dev/null)"; [ -n "$m" ] && PMODE="$m"
     done
     case "$PMODE" in auto|bypassPermissions|dontAsk)
-      echo "hefesto WARNING: a human:intake block is open and this session's permission mode is '$PMODE' — no dialog will ask you before 'ledger.sh unblock --reviewed-by-human' runs; clear intake blocks from a pane in default mode (docs/install.md §7)" ;;
+      echo "hefesto WARNING: a human:intake block is open and this session's permission mode (from the settings files; best effort) is '$PMODE' — no dialog will ask you before 'ledger.sh unblock --reviewed-by-human' runs; clear intake blocks from a pane in default mode (docs/install.md §7)" ;;
     esac
   fi
 fi

@@ -1537,12 +1537,29 @@ cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (--by required) did n
 # names refused (quote, newline, trailing space); HEFESTO_WORKER=0 is not a worker; --by on another kind refused;
 # a real terminal without --by records the login (run under script(1) when present).
 lg block HEF-10 --kind human:intake >/dev/null 2>&1
-if (cd "$lg_t" && HEFESTO_WORKER=1 bash "$LG" block HEF-10 --kind ci) >/dev/null 2>&1; then bad "a launched worker must not replace a human:intake block with ci"; lg_fail=1; fi
-jq -e '.blocked_on.kind == "human:intake"' "$lg_t/.git/hefesto/ledger/HEF-10.json" >/dev/null 2>&1 || { bad "the refused replacement must leave the intake block in place"; lg_fail=1; }
+# human:intake is locked for EVERY caller (7.9.2): block with another kind refused, claim refused, a stall never overwrites it
+if lg block HEF-10 --kind ci >/dev/null 2>&1; then bad "nothing may replace a human:intake block (block --kind ci from the pane)"; lg_fail=1; fi
+if lg claim HEF-10 --session s --role implement >/dev/null 2>&1; then bad "claim must refuse an entry blocked on human:intake"; lg_fail=1; fi
+jq -e '.blocked_on.kind == "human:intake" and .owner == null' "$lg_t/.git/hefesto/ledger/HEF-10.json" >/dev/null 2>&1 || { bad "the refused replacement and claim must leave the intake block in place, unowned"; lg_fail=1; }
+lg2_mk() { jq "$2" "$lg_t/.git/hefesto/ledger/$1.json" > "$lg_t/.git/hefesto/ledger/$1.json.n" && mv "$lg_t/.git/hefesto/ledger/$1.json.n" "$lg_t/.git/hefesto/ledger/$1.json"; }
+lg init HEF-60 --kind tasks-repo --ref t >/dev/null 2>&1; lg block HEF-60 --kind human:clarify >/dev/null 2>&1; lg2_mk HEF-60 '.attempts = 2'
+lg claim HEF-60 --session s --role implement >/dev/null 2>&1
+jq -e '.blocked_on.kind == "human:clarify"' "$lg_t/.git/hefesto/ledger/HEF-60.json" >/dev/null 2>&1 || { bad "a stall must never overwrite a person's block (human:clarify)"; lg_fail=1; }
+# a worker may not replace any OTHER human:* block either
+lg block HEF-60 --kind human:merge >/dev/null 2>&1
+if (cd "$lg_t" && HEFESTO_WORKER=1 bash "$LG" block HEF-60 --kind ci) >/dev/null 2>&1; then bad "a launched worker must not replace a human:merge block with ci"; lg_fail=1; fi
 cp "$LG" "$lg_md2/ledger.sh" 2>/dev/null || { lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh"; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"; cp "$LG" "$lg_md2/ledger.sh"; }
 sed -i 's/\[\[ "\$CURK" == human:\* \]\] \&\& \[ "\$KIND" != "\$CURK" \]/false/' "$lg_md2/ledger.sh"
 cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (worker block replacement) did not apply"; lg_fail=1; }
-(cd "$lg_t" && HEFESTO_WORKER=1 bash "$lg_md2/ledger.sh" block HEF-10 --kind ci) >/dev/null 2>&1 || { bad "mutation survived: the worker replacement guard removed, still refused"; lg_fail=1; }
+(cd "$lg_t" && HEFESTO_WORKER=1 bash "$lg_md2/ledger.sh" block HEF-60 --kind ci) >/dev/null 2>&1 || { bad "mutation survived: the worker replacement guard removed, still refused"; lg_fail=1; }
+cp "$LG" "$lg_md2/ledger.sh"; sed -i 's/\[ "\$CURK" != human:intake \] || \[ "\$KIND" = human:intake \] \\/true \\/' "$lg_md2/ledger.sh"
+cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (unconditional lock) did not apply"; lg_fail=1; }
+(cd "$lg_t" && bash "$lg_md2/ledger.sh" block HEF-10 --kind ci) >/dev/null 2>&1 || { bad "mutation survived: the intake lock removed, block ci still refused"; lg_fail=1; }
+lg block HEF-10 --kind human:intake >/dev/null 2>&1 || { lg unblock HEF-10 >/dev/null 2>&1; lg block HEF-10 --kind human:intake >/dev/null 2>&1; }
+cp "$LG" "$lg_md2/ledger.sh"; sed -i 's/\[ "\$(jq -r .\.blocked_on\.kind \/\/ empty. <<<"\$E")" != human:intake \] \\/true \\/' "$lg_md2/ledger.sh"
+cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (claim guard) did not apply"; lg_fail=1; }
+(cd "$lg_t" && bash "$lg_md2/ledger.sh" claim HEF-10 --session s --role verify) >/dev/null 2>&1 || { bad "mutation survived: the claim guard removed, an intake entry still unclaimable"; lg_fail=1; }
+lg2_mk HEF-10 '.owner = null'
 lg block HEF-10 --kind human:intake >/dev/null 2>&1
 for n in 'a"b' "$(printf 'a\nb')" 'Ana ' '-x' '$(id)'; do
   if lg unblock HEF-10 --reviewed-by-human --by "$n" </dev/null >/dev/null 2>&1; then bad "ledger unblock must refuse the malformed name '$n'"; lg_fail=1; lg block HEF-10 --kind human:intake >/dev/null 2>&1; fi
@@ -1557,7 +1574,7 @@ if command -v script >/dev/null 2>&1; then
   jq -e '.blocked_on == null and .reviewed[-1].by == "ttyperson"' "$lg_t/.git/hefesto/ledger/HEF-10.json" >/dev/null 2>&1 || { bad "from a real terminal, --reviewed-by-human alone must clear and record the login"; lg_fail=1; }
 fi
 rm -rf "$lg_md2"
-lg block HEF-10 --kind human:intake >/dev/null 2>&1
+[ "$(jq -r '.blocked_on.kind // ""' "$lg_t/.git/hefesto/ledger/HEF-10.json")" != human:intake ] || lg unblock HEF-10 --reviewed-by-human --by fixture </dev/null >/dev/null 2>&1
 lg block HEF-10 --kind ci >/dev/null 2>&1 && lg unblock HEF-10 >/dev/null 2>&1 || { bad "ledger unblock of a non-human kind (ci) must clear freely"; lg_fail=1; }
 # FR-007 — next: lowest id with owner=null, blocked_on=null, phase queued|implement; none → non-zero
 # (HEF-9 is stall-blocked; HEF-10 is parked in pr so it is not a candidate.)
@@ -1895,6 +1912,9 @@ st_argv="$(cat "$sr_log")"
 { grep -qF -- '--name deploy-HEF-1' <<<"$st_argv" && ! grep -qE -- ' -w ' <<<"$st_argv" && grep -qF -- '--permission-mode acceptEdits' <<<"$st_argv" && grep -qF '/hef.babysit 12 --once --max-fixes 3' <<<"$st_argv" \
   && grep -qF "$st_hooks" <<<"$st_argv" && ! grep -qE 'gh pr merge|gh pr review|gh api' <<<"$st_argv"; } \
   || { bad "deploy argv must carry --name deploy-HEF-1, no -w, acceptEdits, the babysit line, the hooks rule and no merge verbs: $(head -c 300 <<<"$st_argv")"; st_fail=1; }
+# the deploy fixtures walk one entry through every verdict; after "questions"/"closed" it is on human:intake,
+# which nothing may replace (7.9.2) — clear it the person's way before parking it on human:merge again
+lg2_merge() { [ "$(jq -r '.blocked_on.kind // ""' "$sr_t/.git/hefesto/ledger/$1.json")" != human:intake ] || lg2 unblock "$1" --reviewed-by-human --by fixture </dev/null >/dev/null 2>&1; lg2 block "$1" --kind human:merge >/dev/null 2>&1; }
 st_dep() { printf '{"session_id":"dx","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"%s","fixes":%s,"questions":%s}}\n' "$1" "$2" "$3" > "$sr_res"; sr2 deploy HEF-1 >/dev/null 2>&1; jq -r '.blocked_on.kind // "none"' "$sr_t/.git/hefesto/ledger/HEF-1.json"; }
 [ "$(st_dep pending 0 0)" = human:merge ] || { bad "deploy pending must leave the block untouched"; st_fail=1; }
 [ "$(st_dep checks 2 0)" = human:merge ] || { bad "deploy checks under the bound must leave the block untouched"; st_fail=1; }
@@ -1902,12 +1922,12 @@ st_dep() { printf '{"session_id":"dx","total_cost_usd":0.1,"structured_output":{
 [ "$(st_dep conflict 0 0)" = conflict ] || { bad "deploy conflict must block conflict"; st_fail=1; }
 [ "$(st_dep refused 0 0)" = conflict ] || { bad "deploy refused must leave the block untouched"; st_fail=1; }
 [ "$(st_dep review 0 1)" = human:intake ] || { bad "deploy with questions must block human:intake whatever the verdict"; st_fail=1; }
-lg2 block HEF-1 --kind human:merge >/dev/null 2>&1
+lg2_merge HEF-1
 [ "$(st_dep closed 0 0)" = human:intake ] || { bad "deploy closed must block human:intake (the PR leaves the deploy set)"; st_fail=1; }
 sr2 deploy HEF-10 >/dev/null 2>&1 && { bad "deploy must refuse an entry without a recorded PR (HEF-10 has a worktree but never opened one)"; st_fail=1; }
 # deploy ordering: an unblocked pr entry first; then the least recently babysat
 st_init 11; lg2 record HEF-11 --pr https://github.com/o/r/pull/21 --worktree "$sr_t" --branch HEF-11 >/dev/null 2>&1; lg2 advance HEF-11 pr >/dev/null 2>&1
-lg2 block HEF-1 --kind human:merge >/dev/null 2>&1
+lg2_merge HEF-1
 [ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-11 ] || { bad "next --stage deploy must prefer the unblocked pr entry (HEF-11), got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
 lg2 block HEF-11 --kind human:merge >/dev/null 2>&1
 [ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-11 ] || { bad "next --stage deploy must prefer the entry never babysat (HEF-11) over HEF-1, got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
@@ -1966,10 +1986,10 @@ st_lmut 's/select(.role == "deploy") | .at\] | max/select(.role == "deploy") | .
 [ "$(LG_BIN="$LG_MUT" lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "mutation survived: max → min in the deploy ordering, HEF-15 still first"; st_mfail=1; }
 lg2 unblock HEF-12 >/dev/null 2>&1
 st_mut 's/if \[ "$Q" -gt 0 \]; then/if false; then/'
-lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; printf '{"session_id":"m1","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"review","fixes":0,"questions":1}}\n' > "$sr_res"
+lg2_merge HEF-1; printf '{"session_id":"m1","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"review","fixes":0,"questions":1}}\n' > "$sr_res"
 SL_BIN="$SL_MUT" sr2 deploy HEF-1 >/dev/null 2>&1; [ "$(jq -r .blocked_on.kind "$sr_t/.git/hefesto/ledger/HEF-1.json")" != human:intake ] || { bad "mutation survived: questions branch removed, still human:intake"; st_mfail=1; }
 st_mut 's/\[ "$F" -ge "$MAX_FIXES" \]/[ "$F" -gt "$MAX_FIXES" ]/'
-lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; printf '{"session_id":"m2","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"checks","fixes":3,"questions":0}}\n' > "$sr_res"
+lg2_merge HEF-1; printf '{"session_id":"m2","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"checks","fixes":3,"questions":0}}\n' > "$sr_res"
 SL_BIN="$SL_MUT" sr2 deploy HEF-1 >/dev/null 2>&1; [ "$(jq -r .blocked_on.kind "$sr_t/.git/hefesto/ledger/HEF-1.json")" != ci ] || { bad "mutation survived: -ge → -gt, fixes == max still blocks ci"; st_mfail=1; }
 st_mut '/\[ -n "$PRN" \] || die/d'
 printf '{"session_id":"m3","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"
@@ -1977,7 +1997,7 @@ SL_BIN="$SL_MUT" sr2 deploy HEF-10 >/dev/null 2>&1 && : || { bad "mutation survi
 st_mut 's/if \[ -n "$SPEC_DIR" \] \&\& \[ -f "$SPEC_DIR\/tasks.md" \]; then/if false; then/'
 st_dry="$(SL_BIN="$SL_MUT" sr2 implement HEF-8 --dry-run 2>&1)"; grep -qF '/hef.agent' <<<"$st_dry" || { bad "mutation survived: planned-entry prompt conditional removed, /hef.agent still absent"; st_mfail=1; }
 st_mut 's/mergeable) \[ "$CURK" = human:merge \] || {/mergeable) {/'
-lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; st_since="$(jq -r .blocked_on.since "$sr_t/.git/hefesto/ledger/HEF-1.json")"; sleep 1
+lg2_merge HEF-1; st_since="$(jq -r .blocked_on.since "$sr_t/.git/hefesto/ledger/HEF-1.json")"; sleep 1
 printf '{"session_id":"m4","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"mergeable","fixes":0,"questions":0}}\n' > "$sr_res"
 SL_BIN="$SL_MUT" sr2 deploy HEF-1 >/dev/null 2>&1; [ "$(jq -r .blocked_on.since "$sr_t/.git/hefesto/ledger/HEF-1.json")" != "$st_since" ] || { bad "mutation survived: mergeable-already-set guard removed, since unchanged"; st_mfail=1; }
 st_mut 's/ + \[\\$h\] | join/ | join/'
@@ -2006,10 +2026,13 @@ grep -qxF "hefesto $(jq -r .version "$REPO/.claude-plugin/plugin.json") hooks lo
 ss_cfg="$(mktemp -d)"; printf '{"permissions":{"defaultMode":"auto"}}\n' > "$ss_cfg/settings.json"
 ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)"
 grep -qE '^ledger: HEF-6 blocked_on human:intake .*unblock HEF-6 --reviewed-by-human --by <name>' <<<"$ss_out" || { bad "the intake blocked line must name the person's command"; ss_fail=1; }
-grep -qF "permission mode is 'auto'" <<<"$ss_out" || { bad "session-start must warn when an intake block meets auto mode"; ss_fail=1; }
+grep -qF "is 'auto'" <<<"$ss_out" || { bad "session-start must warn when an intake block meets auto mode"; ss_fail=1; }
 printf '{"permissions":{"defaultMode":"default"}}\n' > "$ss_cfg/settings.json"
 grep -qF 'hefesto WARNING' <<<"$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)" && { bad "no warning in default mode"; ss_fail=1; }
-( cd "$ss_t" && bash "$LG" unblock HEF-6 --reviewed-by-human --by Ana </dev/null >/dev/null ) 2>/dev/null; rm -rf "$ss_cfg"
+( cd "$ss_t" && bash "$LG" unblock HEF-6 --reviewed-by-human --by Ana </dev/null >/dev/null ) 2>/dev/null
+printf '{"permissions":{"defaultMode":"auto"}}\n' > "$ss_cfg/settings.json"
+grep -qF 'hefesto WARNING' <<<"$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)" && { bad "no warning once the intake block is cleared (its .reviewed history must not count as open)"; ss_fail=1; }
+rm -rf "$ss_cfg"
 ss_n="$(mktemp -d)"; ( cd "$ss_n" && git init -q . ) >/dev/null 2>&1
 ss_out2="$(printf '{"cwd":"%s","source":"startup"}' "$ss_n" | bash "$REPO/hooks/session-start-context.sh" 2>&1)"
 grep -q '^ledger: ' <<<"$ss_out2" && { bad "session-start must print no ledger line when the repo has no ledger"; ss_fail=1; }
@@ -2518,7 +2541,7 @@ ls_ma="$(grep -oE "PUBLISH_MARKERS_DEFAULT='[^']*'" "$LG")"; ls_mb="$(grep -oE "
 ls_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ls_md/board-lib.sh"; cp "$SB" "$ls_md/status-board.sh"; LSL_MUT="$ls_md/ledger.sh"; ls_mfail=0
 lsmut() { cp "$LG" "$LSL_MUT"; sed -i "$1" "$LSL_MUT"; cmp -s "$LG" "$LSL_MUT" && { bad "ledger-surfaces mutation did not apply: $1"; ls_mfail=1; }; }
 lsfresh() { lsl init "$1" --kind tasks-repo --ref t >/dev/null 2>&1; }
-lsmut 's/\[ -z "\$K" \] || die "ledger handoff/true || die "ledger handoff/'; lsfresh HM-1; lsl block HM-1 --kind human:intake >/dev/null 2>&1
+lsmut 's/\[ -z "\$K" \] || die "ledger handoff/true || die "ledger handoff/'; lsfresh HM-1; lsl block HM-1 --kind ci >/dev/null 2>&1
 LSL_BIN="$LSL_MUT" lsl handoff HM-1 --pr https://x/pull/1 >/dev/null 2>&1 && : || { bad "mutation survived: handoff blocked-entry refusal removed"; ls_mfail=1; }
 lsmut 's/\[ -z "\$OWNER" \] || die/true || die/'; lsfresh HM-2; lsl claim HM-2 --session s --role implement >/dev/null 2>&1
 LSL_BIN="$LSL_MUT" lsl handoff HM-2 --pr https://x/pull/2 >/dev/null 2>&1 && { lsj HM-2 '.owner == null' && : ; } || { bad "mutation survived: handoff owned refusal removed"; ls_mfail=1; }

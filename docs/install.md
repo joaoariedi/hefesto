@@ -275,8 +275,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    permission mode**: under `auto`, `bypassPermissions` or `dontAsk` no dialog appears (the session-start
    hook warns when an intake block is open in such a session). Never answer "Yes, don't ask again" on a
    `ledger.sh` call in the orchestrator pane either: the saved prefix rule would admit the clear
-   silently. The command is refused inside a launched worker, and a worker can never replace a
-   person's block with another kind.
+   silently. The command is refused inside a launched worker. Nothing replaces an intake block, and nothing claims
+   an intake-blocked entry: the named clear is the only way out. A worker cannot replace any other
+   person's block either.
 6. **After you merge**: `git pull --ff-only`, then `hooks/ledger.sh unblock <id>` and
    `hooks/ledger.sh advance <id> merged`; remove the worktree with
    `git worktree remove .claude/worktrees/<id>`.

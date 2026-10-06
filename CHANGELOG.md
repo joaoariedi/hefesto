@@ -38,11 +38,18 @@ it is what caught the hand-bumped era:
 ## [Unreleased]
 
 ### Fixed
-- **A launched worker could get around the `human:intake` gate** (security review of 7.9.1; the path
-  also existed on 7.9.0). It blocked the entry with another kind and then cleared that kind freely. Its
-  allowlist carries the hooks directory, so both calls ran without a prompt. Now `ledger.sh block`
-  refuses, inside a launched worker, to replace any `human:*` block with another kind. The launcher's
-  own re-blocks after a deploy pass are unchanged.
+- **Two paths around the `human:intake` gate** (security review of 7.9.1; both also existed on 7.9.0):
+  - blocking the entry with another kind, then clearing that kind freely;
+  - claim → run → claim until the stall rule overwrote the block.
+
+  A worker could take either path without a prompt, because its allowlist carries the hooks directory.
+  The pane could take them behind dialogs that never mention intake. Now:
+  - nothing replaces a `human:intake` block, whoever the caller;
+  - `claim` refuses an intake-blocked entry;
+  - a stall never overwrites a `human:*` block;
+  - inside a launched worker, `block` refuses to replace any `human:*` block.
+
+  The named `--reviewed-by-human --by` clear is the only way out.
 - `unblock --reviewed-by-human` / `--by` is refused on any kind other than `human:intake`, so a
   reviewer is never silently dropped. A name may not end in a space.
 
