@@ -215,6 +215,8 @@ each launching headless sessions for its stage's work and holding that stage's h
 A repository that integrates on a branch other than `main` (say `dev → stg → main`) declares it
 under `branches` in `.claude/project-status.json` — PR base, verifier diff base, merge check,
 protected heads and the promotion chain all follow ([install §7, step 12](docs/install.md)).
+Each long-lived pane has a `/compact` prompt shaped to what it owns — orchestrator, planner, builder,
+deployer — in [Performance → Compact prompts per pane](docs/performance.md#-compact-prompts-per-pane).
 A board kept in its own repository can feed several code repos — a `board` pointer in each, a
 `repos` map in the board, one central ledger, one worker per repo ([install §7, step 13](docs/install.md)).
 
