@@ -271,8 +271,12 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    `hooks/ledger.sh unblock <id> --reviewed-by-human --by <name>`. That clear works from any session,
    and the name and time are recorded on the entry (`.reviewed`). The gate is Claude Code's
    **permission prompt**: never add `--reviewed-by-human` (or a blanket `ledger.sh` rule) to any
-   allowlist, so every intake clear is a dialog you answer. The command is refused inside a launched
-   worker.
+   allowlist, so every intake clear is a dialog you answer. That needs the pane in **`default`
+   permission mode**: under `auto`, `bypassPermissions` or `dontAsk` no dialog appears (the session-start
+   hook warns when an intake block is open in such a session). Never answer "Yes, don't ask again" on a
+   `ledger.sh` call in the orchestrator pane either: the saved prefix rule would admit the clear
+   silently. The command is refused inside a launched worker, and a worker can never replace a
+   person's block with another kind.
 6. **After you merge**: `git pull --ff-only`, then `hooks/ledger.sh unblock <id>` and
    `hooks/ledger.sh advance <id> merged`; remove the worktree with
    `git worktree remove .claude/worktrees/<id>`.

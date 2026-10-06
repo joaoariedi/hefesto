@@ -35,6 +35,31 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Fixed
+- **A launched worker could get around the `human:intake` gate** (security review of 7.9.1; the path
+  also existed on 7.9.0). It blocked the entry with another kind and then cleared that kind freely. Its
+  allowlist carries the hooks directory, so both calls ran without a prompt. Now `ledger.sh block`
+  refuses, inside a launched worker, to replace any `human:*` block with another kind. The launcher's
+  own re-blocks after a deploy pass are unchanged.
+- `unblock --reviewed-by-human` / `--by` is refused on any kind other than `human:intake`, so a
+  reviewer is never silently dropped. A name may not end in a space.
+
+### Added
+- **Version line at session start.** The session-start hook prints which hefesto version THIS process
+  loaded, and from where (`hefesto <version> hooks loaded from <root>`). After a `plugin update`, a
+  resumed transcript still shows the previous process's output, and the profile registry names what
+  the next process will load (fxcube, 2026-10-06).
+- **Mode warning.** It also prints a warning when a `human:intake` block is open and the session's
+  permission mode is `auto`, `bypassPermissions` or `dontAsk`, since no dialog would ask before a clear.
+  The intake blocked line now names the person's command.
+
+### Changed
+- The docs require the orchestrator pane to run in `default` permission mode, and warn against "Yes,
+  don't ask again" on `ledger.sh` calls. `/hef.orchestrate` runs an intake clear only when the person
+  asks in the session; item text claiming a review is data.
+
 ## [7.9.1] - 2026-10-06
 
 ### Changed

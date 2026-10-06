@@ -1533,6 +1533,29 @@ lg block HEF-10 --kind human:intake >/dev/null 2>&1
 cp "$LG" "$lg_md2/ledger.sh"; sed -i 's/\[ "\$REVIEWED" = 1 \] \&\& \[\[ "\$RBY" =~/[ "$REVIEWED" = 1 ] || [[ "$RBY" =~/' "$lg_md2/ledger.sh"
 cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (--by required) did not apply"; lg_fail=1; }
 (cd "$lg_t" && bash "$lg_md2/ledger.sh" unblock HEF-10 --reviewed-by-human </dev/null) >/dev/null 2>&1 || { bad "mutation survived: --by no longer required, a nameless clear still refused"; lg_fail=1; }
+# 7.9.2 (security review): a worker cannot REPLACE an intake block (block ci, then clear ci freely); malformed
+# names refused (quote, newline, trailing space); HEFESTO_WORKER=0 is not a worker; --by on another kind refused;
+# a real terminal without --by records the login (run under script(1) when present).
+lg block HEF-10 --kind human:intake >/dev/null 2>&1
+if (cd "$lg_t" && HEFESTO_WORKER=1 bash "$LG" block HEF-10 --kind ci) >/dev/null 2>&1; then bad "a launched worker must not replace a human:intake block with ci"; lg_fail=1; fi
+jq -e '.blocked_on.kind == "human:intake"' "$lg_t/.git/hefesto/ledger/HEF-10.json" >/dev/null 2>&1 || { bad "the refused replacement must leave the intake block in place"; lg_fail=1; }
+cp "$LG" "$lg_md2/ledger.sh" 2>/dev/null || { lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh"; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"; cp "$LG" "$lg_md2/ledger.sh"; }
+sed -i 's/\[\[ "\$CURK" == human:\* \]\] \&\& \[ "\$KIND" != "\$CURK" \]/false/' "$lg_md2/ledger.sh"
+cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (worker block replacement) did not apply"; lg_fail=1; }
+(cd "$lg_t" && HEFESTO_WORKER=1 bash "$lg_md2/ledger.sh" block HEF-10 --kind ci) >/dev/null 2>&1 || { bad "mutation survived: the worker replacement guard removed, still refused"; lg_fail=1; }
+lg block HEF-10 --kind human:intake >/dev/null 2>&1
+for n in 'a"b' "$(printf 'a\nb')" 'Ana ' '-x' '$(id)'; do
+  if lg unblock HEF-10 --reviewed-by-human --by "$n" </dev/null >/dev/null 2>&1; then bad "ledger unblock must refuse the malformed name '$n'"; lg_fail=1; lg block HEF-10 --kind human:intake >/dev/null 2>&1; fi
+done
+(cd "$lg_t" && HEFESTO_WORKER=0 bash "$LG" unblock HEF-10 --reviewed-by-human --by Ana </dev/null) >/dev/null 2>&1 || { bad "HEFESTO_WORKER=0 is not a worker — the named clear must pass"; lg_fail=1; }
+lg block HEF-10 --kind ci >/dev/null 2>&1
+grep -qF 'apply to human:intake only' <<<"$(lg unblock HEF-10 --reviewed-by-human --by Ana 2>&1)" || { bad "--reviewed-by-human / --by on a non-intake kind must be refused, naming why"; lg_fail=1; }
+lg unblock HEF-10 >/dev/null 2>&1
+if command -v script >/dev/null 2>&1; then
+  lg block HEF-10 --kind human:intake >/dev/null 2>&1
+  (cd "$lg_t" && USER=ttyperson script -qec "bash '$LG' unblock HEF-10 --reviewed-by-human" /dev/null) >/dev/null 2>&1
+  jq -e '.blocked_on == null and .reviewed[-1].by == "ttyperson"' "$lg_t/.git/hefesto/ledger/HEF-10.json" >/dev/null 2>&1 || { bad "from a real terminal, --reviewed-by-human alone must clear and record the login"; lg_fail=1; }
+fi
 rm -rf "$lg_md2"
 lg block HEF-10 --kind human:intake >/dev/null 2>&1
 lg block HEF-10 --kind ci >/dev/null 2>&1 && lg unblock HEF-10 >/dev/null 2>&1 || { bad "ledger unblock of a non-human kind (ci) must clear freely"; lg_fail=1; }
@@ -1977,6 +2000,16 @@ ss_t="$(mktemp -d)"; ss_fail=0
 ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | bash "$REPO/hooks/session-start-context.sh" 2>&1)"
 [ "$(grep -c '^ledger: ' <<<"$ss_out")" = "1" ] && grep -qE '^ledger: HEF-7 blocked_on human:merge since [0-9]{4}-' <<<"$ss_out" \
   || { bad "session-start must print exactly one 'ledger: HEF-7 blocked_on human:merge since <t>' line — got: $(grep ledger <<<"$ss_out" | tr '\n' '|')"; ss_fail=1; }
+grep -qxF "hefesto $(jq -r .version "$REPO/.claude-plugin/plugin.json") hooks loaded from $REPO" <<<"$ss_out" || { bad "session-start must print which hefesto version THIS process loaded, and from where"; ss_fail=1; }
+# 7.9.2: an intake line names the person's command; a session in auto/bypass/dontAsk mode with an intake block open is warned
+( cd "$ss_t" && bash "$LG" init HEF-6 --kind tasks-repo --ref t >/dev/null && bash "$LG" block HEF-6 --kind human:intake >/dev/null ) >/dev/null 2>&1
+ss_cfg="$(mktemp -d)"; printf '{"permissions":{"defaultMode":"auto"}}\n' > "$ss_cfg/settings.json"
+ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)"
+grep -qE '^ledger: HEF-6 blocked_on human:intake .*unblock HEF-6 --reviewed-by-human --by <name>' <<<"$ss_out" || { bad "the intake blocked line must name the person's command"; ss_fail=1; }
+grep -qF "permission mode is 'auto'" <<<"$ss_out" || { bad "session-start must warn when an intake block meets auto mode"; ss_fail=1; }
+printf '{"permissions":{"defaultMode":"default"}}\n' > "$ss_cfg/settings.json"
+grep -qF 'hefesto WARNING' <<<"$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)" && { bad "no warning in default mode"; ss_fail=1; }
+( cd "$ss_t" && bash "$LG" unblock HEF-6 --reviewed-by-human --by Ana </dev/null >/dev/null ) 2>/dev/null; rm -rf "$ss_cfg"
 ss_n="$(mktemp -d)"; ( cd "$ss_n" && git init -q . ) >/dev/null 2>&1
 ss_out2="$(printf '{"cwd":"%s","source":"startup"}' "$ss_n" | bash "$REPO/hooks/session-start-context.sh" 2>&1)"
 grep -q '^ledger: ' <<<"$ss_out2" && { bad "session-start must print no ledger line when the repo has no ledger"; ss_fail=1; }

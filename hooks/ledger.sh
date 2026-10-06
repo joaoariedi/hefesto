@@ -342,6 +342,14 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --kind) KIND="${2:-}"; shift ;; --question) Q="${2:-}"; shift ;; *) usage ;; esac; shift; done
     in_list "$KIND" "$KINDS" || die "ledger block $ID: --kind must be one of: $KINDS (got '${KIND:-<none>}')"
     E=$(entry "$ID") || exit 1
+    # A launched worker never REPLACES a person's block: blocking a human:intake entry with `ci` and then
+    # clearing `ci` freely was a path around the gate open to any worker, whose allowlist carries the hooks
+    # directory (security review 2026-10-06, reproduced on 7.9.0). The launcher itself — the pane process,
+    # never HEFESTO_WORKER — still re-blocks after a deploy pass, as it always has.
+    CURK=$(jq -r '.blocked_on.kind // empty' <<<"$E")
+    if [ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ] && [[ "$CURK" == human:* ]] && [ "$KIND" != "$CURK" ]; then
+      die "ledger block $ID: it is blocked on $CURK — a launched worker never replaces a person's block (only the person's own command clears it)"
+    fi
     jq --arg k "$KIND" --arg q "$Q" '.blocked_on = {kind: $k, since: (now | todate), question_path: (if $q == "" then null else $q end)}' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID blocked_on $KIND" ;;
 
@@ -350,6 +358,8 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
     E=$(entry "$ID") || exit 1
     KIND=$(jq -r '.blocked_on.kind // empty' <<<"$E"); [ -n "$KIND" ] || die "ledger unblock $ID: not blocked"
+    [ "$KIND" = human:intake ] || { [ "$REVIEWED" = 0 ] && [ -z "$RBY" ]; } \
+      || die "ledger unblock $ID: --reviewed-by-human / --by apply to human:intake only — this entry is blocked on $KIND (a reviewer would not be recorded)"
     SPEC_DIR=$(jq -r '.spec_dir // empty' <<<"$E"); BRANCH=$(jq -r '.branch // empty' <<<"$E")
     case "$KIND" in
       human:plan-review)
@@ -374,11 +384,13 @@ case "$SUB" in
         # session can run, the model that read the hostile text can run too — so the gate is the
         # PERMISSION PROMPT: this command must never be allowlisted (docs/install.md), every clear is a
         # dialog the person answers, and the name is recorded. A launched worker is refused outright.
+        # That premise needs the pane in `default` permission mode: under auto, bypassPermissions or
+        # dontAsk there is no dialog — session-start-context.sh warns when an intake block meets one.
         [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] \
           || die "ledger unblock $ID: $KIND is never cleared from inside a launched worker — a person reads the item and runs it from their own session"
         # Compatibility: from a real terminal, --reviewed-by-human alone still works (as before 7.9.1), recording the login.
         [ -z "$RBY" ] && [ "$REVIEWED" = 1 ] && [ -t 0 ] && RBY="${USER:-$(id -un 2>/dev/null)}"
-        [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9][A-Za-z0-9._@\ -]{0,63}$ ]] \
+        [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
           || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist it" ;;
     esac
     if [ "$KIND" = human:intake ]; then
