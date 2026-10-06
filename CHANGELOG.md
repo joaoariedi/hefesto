@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased]
+## [7.9.1] - 2026-10-06
 
 ### Changed
 - **`ledger.sh unblock` on `human:intake`** (requested from the fxcube orchestrator lane). The old
