@@ -299,6 +299,8 @@ case "$SUB" in
     if [ "$N" -gt 2 ]; then
       # never over a person's block — the stall only records when nothing a person must clear is pending
       jq 'if ((.blocked_on.kind // "") | startswith("human:")) then . else .blocked_on = {kind: "stall", since: (now | todate), question_path: null} end | .attempts += 1' <<<"$E" | write_entry "$ID" || exit 1
+      K2=$(jq -r '.blocked_on.kind // empty' <<<"$E")
+      if [[ "$K2" == human:* ]]; then die "ledger claim $ID: attempt $N exceeds 2 — it stays blocked on $K2 (a person's block is never overwritten by a stall)"; fi
       die "ledger claim $ID: attempt $N exceeds 2 — blocked_on: stall (a human decides whether to split or drop it)"
     fi
     jq --arg s "$SESSION" --arg r "$ROLE" --argjson p "$$" --argjson i "$INC" \
