@@ -27,6 +27,12 @@ SPEC_DIR="$CWD/.specify/specs/${BRANCH#feature/}"
 DIRTY=$(git -C "$CWD" status --short 2>/dev/null | wc -l | tr -d ' ')
 
 echo "hefesto session context ($SOURCE): branch ${BRANCH:-detached}, $DIRTY uncommitted path(s)"
+# Which hefesto THIS process loaded — read from the tree the hook runs from, not the profile registry
+# (which names what the NEXT process will load). After a `plugin update`, a resumed transcript still
+# shows the old process's output; this line is the current process's own evidence (fxcube 2026-10-06).
+HROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+HVER="$(jq -r '.version // empty' "$HROOT/.claude-plugin/plugin.json" 2>/dev/null)"
+[ -n "$HVER" ] && echo "hefesto $HVER hooks loaded from $HROOT"
 echo "hefesto routing: feature-sized work (a new capability, or anything touching an API, a schema, a new dependency, or more than ~5 files) starts with /hef.spec — /hef.brainstorm when the ask is fuzzy, /hef.agent to size and route it — never with implementation from the prompt alone; trivial changes go through /hef.fix"
 echo "hefesto iron laws: no fix before a root-cause investigation (systematic-debugging skill) — a failing or flaky test is never skipped, retried, or loosened as a first move; size work by complexity and risk (task-effort-estimation skill), not by hours"
 if [ -d "$SPEC_DIR" ]; then
@@ -73,8 +79,20 @@ if [ -d "$LDIR" ]; then
   [ -n "$KIND2PANE" ] || KIND2PANE="$(jq -nc --argjson d "$PANES_DEFAULT" '$d | to_entries | map(.key as $p | .value[] | {key: ., value: $p}) | from_entries')"
   for f in "$LDIR"/*.json; do
     [ -f "$f" ] || continue
-    jq -r --argjson k "$KIND2PANE" 'select(.blocked_on != null) | "ledger: \(.id) blocked_on \(.blocked_on.kind) since \(.blocked_on.since) → \($k[.blocked_on.kind] // "orchestrator") pane — resolve with the human command it names, then ledger.sh unblock \(.id)"' "$f" 2>/dev/null
+    jq -r --argjson k "$KIND2PANE" 'select(.blocked_on != null) | "ledger: \(.id) blocked_on \(.blocked_on.kind) since \(.blocked_on.since) → \($k[.blocked_on.kind] // "orchestrator") pane — " + (if .blocked_on.kind == "human:intake" then "a person reads the item (status-board.sh --item \(.id)) and clears it: ledger.sh unblock \(.id) --reviewed-by-human --by <name>" else "resolve with the human command it names, then ledger.sh unblock \(.id)" end)' "$f" 2>/dev/null
   done
+  # The intake gate is a permission dialog the person answers — there is none under auto, bypassPermissions
+  # or dontAsk. Best effort: the last defaultMode among user, project and local settings.
+  # an OPEN intake block only — `.reviewed[]` history also contains the string (re-review S1')
+  if jq -e -s 'any(.[]; .blocked_on.kind? == "human:intake")' "$LDIR"/*.json >/dev/null 2>&1; then
+    PMODE=""
+    for sf in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$CWD/.claude/settings.json" "$CWD/.claude/settings.local.json"; do
+      m="$(jq -r '.permissions.defaultMode // empty' "$sf" 2>/dev/null)"; [ -n "$m" ] && PMODE="$m"
+    done
+    case "$PMODE" in auto|bypassPermissions|dontAsk)
+      echo "hefesto WARNING: a human:intake block is open and this session's permission mode (from the settings files; best effort) is '$PMODE' — no dialog will ask you before 'ledger.sh unblock --reviewed-by-human' runs; clear intake blocks from a pane in default mode (docs/install.md §7)" ;;
+    esac
+  fi
 fi
 
 KEY=$(printf '%s' "$CWD" | sha1sum | cut -c1-16)
