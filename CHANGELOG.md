@@ -35,6 +35,31 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Added
+- **Installation wizard: `install.sh`** — install or upgrade in one command, run in a normal terminal:
+  `bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh)`.
+  The install guide was too long for a junior engineer whose setup is unknown. The wizard:
+  - reports what it found: the clone, each profile's installed version, an old install;
+  - prints a numbered plan, with the reason for each step;
+  - asks about each step, and Enter accepts the recommendation;
+  - clones the latest release, or stays on `main` when the clone is ahead of it;
+  - installs or updates the plugin in each profile, with its own `CLAUDE_CONFIG_DIR`;
+  - copies the rules and `CLAUDE.md`, keeping yours as `CLAUDE.md.mine`, imported from hefesto's;
+  - ends with a table of profile → version → enabled, read from each registry, and the next steps.
+
+  It is safe by default. It never deletes, never uses `sudo`, refuses root and refuses to run inside
+  Claude Code. It backs up what it replaces to `~/hefesto-old/<timestamp>/`. It stops on a clone with
+  local changes, and never writes through a symlinked `rules/` or `CLAUDE.md`. Files from an old stow
+  install are listed with the exact commands, never moved. Without a terminal it refuses unless
+  `--yes` is given.
+
+  Flags: `--yes`, `--dry-run`, `--lang en|pt` (Portuguese also from `LANG`), `--profile`
+  (repeatable), `--version`. It needs only bash (written to be 3.2-compatible), git, jq and
+  `claude`. `tests/smoke.sh` drives it in throwaway HOMEs, against a local bare repo and a fake
+  `claude`, with eleven mutations; `SMOKE_LIVE=1` runs it against the real CLI.
+
 ## [7.9.2] - 2026-10-06
 
 ### Fixed
