@@ -4,6 +4,11 @@
 
 It is idempotent: safe to run on a clean machine, and safe to re-run on a machine that already has it.
 
+> **A person at a terminal does not need this runbook:** `install.sh` at the repository root is an
+> interactive wizard that does Steps 1–3 and 6 (plus the rules and `CLAUDE.md`) in every profile and
+> verifies the result — `bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh)`.
+> It refuses to run inside a Claude Code session, so an agent following this file keeps to the steps below.
+
 **Prerequisites:** `git`, `jq`, and the `claude` CLI on `PATH`. Check all three before starting; if either is missing, stop and say so rather than attempting a workaround.
 
 ---

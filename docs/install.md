@@ -6,6 +6,23 @@
 
 The framework is a Claude Code plugin. **The hooks ship with it** — you no longer hand-write `settings.json`, which is where every previous version leaked its most-reported friction.
 
+**The quick way: the installation wizard.** In a normal terminal (not inside a Claude Code
+session), run:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh)
+# pinned to a release:  …/hefesto/v<X.Y.Z>/install.sh  ·  from a clone:  bash ~/.claude-framework/install.sh
+```
+
+It does every step in this section, *Updating* (§5) and §6 for each profile it finds: it reports
+the clone, each profile's installed version and any old install, prints the numbered plan with the
+reason for each step, and asks about each one (Enter accepts the recommendation; `--yes` accepts all
+of them, `--dry-run` changes nothing). It never deletes or uses `sudo`; a file it replaces is backed
+up to `~/hefesto-old/<timestamp>/` first; it stops on a clone with local changes; and it leaves
+symlinked `rules/` or `CLAUDE.md` (dotfiles) alone. Files from an old stow install are listed with
+the exact commands to move them, never moved for you. It ends with a table of profile → version →
+enabled, read from each profile's plugin registry. The manual steps follow.
+
 A plugin is installed **from a marketplace**, so the framework ships one (`.claude-plugin/marketplace.json`) that lists exactly one plugin: itself. Clone once, then point the marketplace at the clone:
 
 ```bash

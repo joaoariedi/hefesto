@@ -45,7 +45,33 @@ Everything else — the agents, the skills, the research corpus — is support f
 
 ## 📦 Install
 
-**Hand `SETUP.md` to an agent.** It is a runbook written for Claude Code to execute: it clones,
+**One command, in a normal terminal** (not inside a Claude Code session). It installs or upgrades:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh)
+```
+
+The wizard looks at your machine, shows what it found and the steps it recommends, and asks about
+each one — **Enter accepts the recommendation**. It clones the latest release, installs the plugin
+in each profile, copies the rules and `CLAUDE.md` (yours is kept as `CLAUDE.md.mine`), and checks
+the result. It never deletes, never uses `sudo`, and backs up what it changes to `~/hefesto-old/`.
+`--dry-run` shows the plan and changes nothing; `--lang pt` speaks Portuguese; `--help` lists the rest.
+
+To run a specific release's copy of the script instead of `main`'s, pin the tag — the release you
+want, 7.10.0 or later (earlier tags do not carry `install.sh`):
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/v<X.Y.Z>/install.sh)
+```
+
+Or clone first and read the script before you run it:
+
+```bash
+git clone https://github.com/joaoariedi/hefesto.git ~/.claude-framework
+bash ~/.claude-framework/install.sh
+```
+
+**Or hand `SETUP.md` to an agent.** It is a runbook written for Claude Code to execute: it clones,
 installs, configures the permission rule, verifies the result, and tells you what it did.
 
 ```bash

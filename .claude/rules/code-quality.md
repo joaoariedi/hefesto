@@ -25,7 +25,9 @@ file may not have *more* functions over the limits than its `HEAD` version. Brow
 visible and non-blocking; the change that made it worse is blocked. `/hef.quality` reports the
 absolute picture.
 
-### The one exemption: `workflows/workflow.js`
+### The two exemptions
+
+#### `workflows/workflow.js`
 
 The file limit's remedy is "split the file." For a Claude Code **Workflow script** that remedy does not
 exist, so the limit is scoped to exclude this one file — deliberately, and with the reason on record.
@@ -41,8 +43,21 @@ one records a defect that was *measured* — a `throw null` that killed the erro
 threw on every path, a `gate &&` that reported 2/2 across six dead gates. Deleting them keeps the
 complexity and loses the only reason anyone would not reintroduce it.
 
-**Every other file keeps the 500-line limit.** If a second file ever needs this exemption, that is a
-signal the harness constraint has spread, and it deserves a fresh argument rather than a precedent.
+#### `install.sh`
+
+The installation wizard is delivered as **one file** through `bash <(curl -fsSL …/install.sh)`, so
+the remedy does not exist here either. A module split would need a bootstrap that downloads the rest
+— a clone — *before* the wizard has shown the person what it found and asked about a single step.
+That defeats the design the wizard exists for: consent first, nothing changed until the plan is on
+the screen and answered. One file is the spec's decision, not an accident of layout.
+
+About 260 of its roughly 900 code lines are the two message tables, English and Brazilian
+Portuguese: data, one line per message, kept as two `case` functions because macOS `/bin/bash` 3.2
+has no associative arrays. Its functions stay under 50 lines, except those two message tables (data).
+The exemption is for the file length only; every other limit applies.
+
+**Every other file keeps the 500-line limit.** If a third file ever needs an exemption, that is a
+signal the constraint has spread, and it deserves a fresh argument rather than a precedent.
 
 ## Testing Requirements
 - Test existing patterns when framework present
