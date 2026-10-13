@@ -103,19 +103,59 @@ in_branch() {
   [ "$found" = 1 ] && return 1
   return 4
 }
-merge_commit_of() { # $1 entry JSON, $2 --merge-sha or "", $3 the branch name → the PR's merge commit sha, or die naming both ways to give it
-  local sha="$2" url st
-  if [ -z "$sha" ]; then
-    url=$(jq -r '.pr.url // empty' <<<"$1")
-    [ -n "$url" ] || die "ledger unblock: branch $3 resolves to no commit (local or origin/) — git fetch origin; if it was deleted after the merge, pass --merge-sha <the merge commit> (no PR is recorded to look it up)"
-    command -v "${HEFESTO_GH_BIN:-gh}" >/dev/null 2>&1 || die "ledger unblock: branch $3 resolves to no commit (local or origin/) — git fetch origin; if it was deleted after the merge, pass --merge-sha <the merge commit> (gh is not installed to look it up)"
-    st=$("${HEFESTO_GH_BIN:-gh}" pr view "$url" --json state,mergeCommit -q '"\(.state) \(.mergeCommit.oid // "")"' 2>/dev/null) \
-      || die "ledger unblock: branch $3 resolves to no commit (local or origin/) and gh could not read $url — git fetch origin, or pass --merge-sha <the merge commit>"
-    [ "${st%% *}" = MERGED ] || die "ledger unblock: $url is ${st%% *}, not MERGED — the gate stays"
-    sha="${st#* }"
+gh_pr_fact() { # $1 PR url → "<state> <headRefName> <mergeCommit oid>" or non-zero (no gh, unreadable)
+  command -v "${HEFESTO_GH_BIN:-gh}" >/dev/null 2>&1 || return 1
+  "${HEFESTO_GH_BIN:-gh}" pr view "$1" --json state,headRefName,mergeCommit -q '"\(.state) \(.headRefName) \(.mergeCommit.oid // "-")"' 2>/dev/null
+}
+# merge_evidence <entry> <sha or ""> <flag|recorded> → prints how the entry is merged ("branch" or "commit <sha>"),
+# or dies naming what is missing. The ONE check behind `unblock human:merge` and any `advance` into merged:
+#   1. the recorded branch inside the integration branch (local or origin/) — a merge-commit merge;
+#   2. a sha (--merge-sha from a person, or .pr.merge_sha recorded by an earlier unblock) inside the
+#      integration branch — cross-checked against the PR when gh can read it: MERGED, the entry's branch
+#      as head, the sha a prefix of its merge commit (code review 2026-10-13: an unchecked sha was a claim);
+#   3. the branch deleted (GitHub deletes it on merge) → the recorded PR's merge commit through gh.
+# A --merge-sha is refused inside a launched worker: a worker never asserts a person's merge.
+merge_evidence() {
+  local E="$1" sha="$2" from="$3" br url fact st head oid int rc
+  br=$(jq -r '.branch // empty' <<<"$E"); url=$(jq -r '.pr.url // empty' <<<"$E")
+  [ -n "$br" ] || die "ledger: no branch recorded — ledger.sh record <id> --branch <b>"
+  if [ "$from" = flag ] && [ -n "$sha" ] && [ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ]; then
+    die "ledger: --merge-sha is never given from inside a launched worker — a person supplies the merge commit"
   fi
-  [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]] || die "ledger unblock: merge commit '$sha' is not a commit sha (7–40 hex characters)"
-  echo "$sha"
+  cd_entry_repo "$E" || exit 1   # external-board: the merge is checked in the entry's repo
+  int=$(branches_model | jq -r .integration) || exit 1
+  if [ -n "$sha" ]; then
+    [[ "$sha" =~ ^[0-9a-fA-F]{7,40}$ ]] || die "ledger: merge commit '$sha' is not a commit sha (7–40 hex characters)"
+    sha=$(tr 'A-F' 'a-f' <<<"$sha")
+    if [ -n "$url" ] && fact=$(gh_pr_fact "$url"); then
+      read -r st head oid <<<"$fact"
+      [ "$st" = MERGED ] || die "ledger: $url is $st, not MERGED — the gate stays"
+      [ "$head" = "$br" ] || die "ledger: $url merged branch '$head', not this entry's '$br' — the gate stays"
+      [[ "$oid" == "$sha"* ]] || die "ledger: $sha is not $url's merge commit ($oid) — the gate stays"
+    fi
+    in_branch "$sha" "$int" >/dev/null; rc=$?
+    [ "$rc" -ne 3 ] || die "ledger: merge commit $sha is not in this clone — git fetch origin first"
+    [ "$rc" -ne 4 ] || die "ledger: the integration branch '$int' resolves nowhere (no $int, no origin/$int) — git fetch origin first"
+    [ "$rc" -eq 0 ] || die "ledger: merge commit $sha is in neither $int nor origin/$int"
+    echo "commit $sha"; return 0
+  fi
+  in_branch "$br" "$int" >/dev/null; rc=$?
+  case "$rc" in
+    0) echo branch; return 0 ;;
+    4) die "ledger: the integration branch '$int' resolves nowhere (no $int, no origin/$int) — git fetch origin first" ;;
+    1) die "ledger: '$br' is in neither $int nor origin/$int (git fetch --prune origin first if it was merged remotely; a squash or rebase merge needs --merge-sha <the PR's merge commit>)" ;;
+  esac
+  # rc 3: the branch is gone — the recorded PR's merge commit, read through gh
+  [ -n "$url" ] || die "ledger: branch '$br' resolves to no commit (local or origin/) — git fetch origin; if it was deleted after the merge, pass --merge-sha <the merge commit> (no PR is recorded to look it up)"
+  fact=$(gh_pr_fact "$url") || die "ledger: branch '$br' resolves to no commit (local or origin/) and gh cannot read $url — git fetch origin, or pass --merge-sha <the merge commit>"
+  read -r st head oid <<<"$fact"
+  [ "$st" = MERGED ] || die "ledger: $url is $st, not MERGED — the gate stays"
+  [ "$head" = "$br" ] || die "ledger: $url merged branch '$head', not this entry's '$br' — the gate stays"
+  [ "$oid" != - ] || die "ledger: $url reports no merge commit — pass --merge-sha <the merge commit>"
+  in_branch "$oid" "$int" >/dev/null; rc=$?
+  [ "$rc" -ne 3 ] || die "ledger: merge commit $oid is not in this clone — git fetch origin first"
+  [ "$rc" -eq 0 ] || die "ledger: merge commit $oid is in neither $int nor origin/$int"
+  echo "commit $oid"
 }
 is_protected() { # $1 branch, $2 model JSON — glob match over the effective protected set
   local p; while IFS= read -r p; do
@@ -330,6 +370,15 @@ case "$SUB" in
     # `unblock` refused human:merge). Every launcher path advances BEFORE it blocks, so none is affected.
     BK=$(jq -r '.blocked_on.kind // empty' <<<"$E")
     [[ "$BK" != human:* ]] || die "ledger advance $ID: blocked on $BK — clear it first with ledger.sh unblock $ID (the human gate is never stepped over)"
+    # Reaching merged needs the merge itself, however the entry got here — re-blocking with ci and clearing
+    # that, or skipping pr → released, must not walk around the human:merge gate (code review 2026-10-13).
+    MI=$(phase_index merged) || exit 1
+    if [ "$CI" -lt "$MI" ] && [ "$TI" -ge "$MI" ]; then
+      # In a subshell: merge_evidence dies on a refusal, which would exit before this line's own message
+      # (and its cd_entry_repo must not move the arms below).
+      ( merge_evidence "$E" "$(jq -r '.pr.merge_sha // empty' <<<"$E")" recorded >/dev/null ) \
+        || die "ledger advance $ID $TO: the merge is not evidenced (see above) — the person merges the PR, then ledger.sh unblock $ID"
+    fi
     if [ "$TO" = released ]; then   # branch-model FR-006 — the model is loaded only on this path
       cd_entry_repo "$E" || exit 1   # external-board: the entry's repo, its own model and its own branches
       BM=$(branches_model) || exit 1
@@ -391,7 +440,7 @@ case "$SUB" in
     [ -z "$MSHA" ] || [ "$KIND" = human:merge ] || die "ledger unblock $ID: --merge-sha applies to human:merge only — this entry is blocked on $KIND"
     [ "$KIND" = human:intake ] || { [ "$REVIEWED" = 0 ] && [ -z "$RBY" ]; } \
       || die "ledger unblock $ID: --reviewed-by-human / --by apply to human:intake only — this entry is blocked on $KIND (a reviewer would not be recorded)"
-    SPEC_DIR=$(jq -r '.spec_dir // empty' <<<"$E"); BRANCH=$(jq -r '.branch // empty' <<<"$E")
+    SPEC_DIR=$(jq -r '.spec_dir // empty' <<<"$E")
     case "$KIND" in
       human:plan-review)
         [ -n "$SPEC_DIR" ] || die "ledger unblock $ID: $KIND needs spec_dir recorded (ledger.sh record $ID --spec-dir …)"
@@ -401,20 +450,8 @@ case "$SUB" in
         [ -f "$SPEC_DIR/spec.md" ] || die "ledger unblock $ID: $KIND needs $SPEC_DIR/spec.md"
         ! grep -q 'NEEDS CLARIFICATION' "$SPEC_DIR/spec.md" || die "ledger unblock $ID: $KIND — [NEEDS CLARIFICATION] markers remain in $SPEC_DIR/spec.md (run /hef.clarify)" ;;
       human:merge)
-        [ -n "$BRANCH" ] || die "ledger unblock $ID: $KIND needs branch recorded"
-        cd_entry_repo "$E" || exit 1   # external-board: run from the board repo, the merge is checked in the entry's repo
-        BM=$(branches_model) || exit 1; INT=$(jq -r .integration <<<"$BM")
-        in_branch "$BRANCH" "$INT" >/dev/null; rc=$?
-        if [ "$rc" -eq 3 ]; then
-          # The branch is gone (GitHub deletes it on merge — fxcube 2026-10-13): judge the PR's MERGE COMMIT
-          # instead — given with --merge-sha, or read from the recorded PR through gh when it says MERGED.
-          MSHA=$(merge_commit_of "$E" "$MSHA" "'$BRANCH'") || exit 1
-          in_branch "$MSHA" "$INT" >/dev/null; rc=$?
-          [ "$rc" -ne 3 ] || die "ledger unblock $ID: $KIND — merge commit $MSHA is not in this clone — git fetch origin first"
-          MERGED_VIA="$MSHA"
-        fi
-        [ "$rc" -ne 4 ] || die "ledger unblock $ID: $KIND — the integration branch '$INT' resolves nowhere (no $INT, no origin/$INT) — git fetch origin first"
-        [ "$rc" -eq 0 ] || die "ledger unblock $ID: $KIND — '$BRANCH' is in neither $INT nor origin/$INT (git fetch origin first if it was merged remotely)" ;;
+        VIA=$(merge_evidence "$E" "$MSHA" flag) || exit 1
+        case "$VIA" in "commit "*) MERGED_VIA="${VIA#commit }" ;; esac ;;
       human:intake)
         # The prompt-injection gate. It used to test `-t 0`, which the Bash tool never has, so a person
         # who had read the item in an interactive session still had to copy the line into a terminal

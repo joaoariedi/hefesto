@@ -238,6 +238,12 @@ q() { if [[ "$1" =~ ^[A-Za-z0-9_./:=,@+-]+$ ]]; then printf '%s ' "$1"; else pri
 if [ "$DRY" = 1 ]; then [ "$EXT" = 1 ] && echo "# cwd: $PWD"; for a in "${CMD[@]}"; do q "$a"; done; echo; exit 0; fi
 
 # --- run and transcribe (FR-011) -------------------------------------------------------------------
+# A person's gate is never worked around by a launch (code review 2026-10-13): refuse a human:* block before
+# claiming — except the deploy stage on human:merge, which is exactly the wait the babysitter watches.
+EBK="$(jq -r '.blocked_on.kind // empty' <<<"$E")"
+if [[ "$EBK" == human:* ]] && ! { [ "$ROLE" = deploy ] && [ "$EBK" = human:merge ]; }; then
+  die "session-launch $ROLE $ID: blocked on $EBK — the person clears it first (it names the command); no session is launched over a human gate"
+fi
 "$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" >/dev/null || exit 1
 case "$ROLE:$PHASE" in
   implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || exit 1 ;;

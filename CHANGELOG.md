@@ -41,12 +41,20 @@ it is what caught the hand-bumped era:
 - **`ledger.sh advance` stepped over an open human gate** (fxcube, 2026-10-13). `advance <id> merged`
   succeeded while the entry was blocked on `human:merge`. It now refuses while any `human:*` block is
   open, and names `ledger.sh unblock <id>`. Every launcher path advances before it blocks, so none is
-  affected.
+  affected. Reaching `merged` (or `released`) from an earlier phase also requires the merge evidence —
+  the same check `unblock human:merge` runs — so re-blocking with `ci` and clearing that, or skipping
+  `pr → released`, no longer walks around the merge gate (code review 2026-10-13).
+- **`session-launch.sh` launched over a human gate.** It now refuses, before claiming, an entry blocked
+  on any `human:*` kind, naming the block; the `deploy` role on `human:merge` (the babysitter's wait) is
+  the one exception.
 - **`unblock human:merge` after GitHub deletes the merged branch.** When the recorded branch resolves
   nowhere, the PR's merge commit is judged instead. It comes from `--merge-sha <sha>`, or from `gh pr
   view` on the recorded PR, and only when the PR is MERGED. The commit must be in the integration branch
-  (local or `origin/`), and it is recorded as `.pr.merge_sha`. `--merge-sha` applies to `human:merge`
-  only.
+  (local or `origin/`), and it is recorded as `.pr.merge_sha`. When gh can read the PR, any sha is
+  cross-checked: the PR must be MERGED, with the entry's branch as head, and the sha must be a prefix
+  of its merge commit. A squash or rebase merge (branch present, not an ancestor) clears with
+  `--merge-sha <the merge commit>`. `--merge-sha` applies to `human:merge` only, takes 7–40 hex
+  characters (never a ref name), and is refused inside a launched worker.
 
 ## [7.9.2] - 2026-10-06
 
