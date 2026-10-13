@@ -31,7 +31,7 @@ usage: ledger.sh <subcommand> …
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
-  unblock <id> [--reviewed-by-human --by <name>]        human:* kinds need artifact evidence (intake: a person's name, recorded)
+  unblock <id> [--reviewed-by-human --by <name>] [--merge-sha <sha>]   human:* kinds need artifact evidence (intake: a person's name; merge: the branch, or the PR's merge commit once the branch is deleted)
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
   record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k]   (--body-file re-hashes the item)
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
@@ -102,6 +102,20 @@ in_branch() {
   done
   [ "$found" = 1 ] && return 1
   return 4
+}
+merge_commit_of() { # $1 entry JSON, $2 --merge-sha or "", $3 the branch name → the PR's merge commit sha, or die naming both ways to give it
+  local sha="$2" url st
+  if [ -z "$sha" ]; then
+    url=$(jq -r '.pr.url // empty' <<<"$1")
+    [ -n "$url" ] || die "ledger unblock: branch $3 resolves to no commit (local or origin/) — git fetch origin; if it was deleted after the merge, pass --merge-sha <the merge commit> (no PR is recorded to look it up)"
+    command -v "${HEFESTO_GH_BIN:-gh}" >/dev/null 2>&1 || die "ledger unblock: branch $3 resolves to no commit (local or origin/) — git fetch origin; if it was deleted after the merge, pass --merge-sha <the merge commit> (gh is not installed to look it up)"
+    st=$("${HEFESTO_GH_BIN:-gh}" pr view "$url" --json state,mergeCommit -q '"\(.state) \(.mergeCommit.oid // "")"' 2>/dev/null) \
+      || die "ledger unblock: branch $3 resolves to no commit (local or origin/) and gh could not read $url — git fetch origin, or pass --merge-sha <the merge commit>"
+    [ "${st%% *}" = MERGED ] || die "ledger unblock: $url is ${st%% *}, not MERGED — the gate stays"
+    sha="${st#* }"
+  fi
+  [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]] || die "ledger unblock: merge commit '$sha' is not a commit sha (7–40 hex characters)"
+  echo "$sha"
 }
 is_protected() { # $1 branch, $2 model JSON — glob match over the effective protected set
   local p; while IFS= read -r p; do
@@ -312,6 +326,10 @@ case "$SUB" in
     E=$(entry "$ID") || exit 1
     CUR=$(jq -r .phase <<<"$E"); CI=$(phase_index "$CUR") || exit 1; TI=$(phase_index "$TO") || exit 1
     [ "$TI" -gt "$CI" ] || die "ledger advance $ID: '$TO' is not after '$CUR' (phases move forward only: ${PHASES[*]})"
+    # A person's gate is never stepped over (fxcube 2026-10-13: `advance … merged` went through while
+    # `unblock` refused human:merge). Every launcher path advances BEFORE it blocks, so none is affected.
+    BK=$(jq -r '.blocked_on.kind // empty' <<<"$E")
+    [[ "$BK" != human:* ]] || die "ledger advance $ID: blocked on $BK — clear it first with ledger.sh unblock $ID (the human gate is never stepped over)"
     if [ "$TO" = released ]; then   # branch-model FR-006 — the model is loaded only on this path
       cd_entry_repo "$E" || exit 1   # external-board: the entry's repo, its own model and its own branches
       BM=$(branches_model) || exit 1
@@ -366,10 +384,11 @@ case "$SUB" in
     echo "$ID blocked_on $KIND" ;;
 
   unblock)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0; RBY=""
-    while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0; RBY=""; MSHA=""
+    while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; --merge-sha) MSHA="${2:-}"; shift ;; *) usage ;; esac; shift; done
     E=$(entry "$ID") || exit 1
     KIND=$(jq -r '.blocked_on.kind // empty' <<<"$E"); [ -n "$KIND" ] || die "ledger unblock $ID: not blocked"
+    [ -z "$MSHA" ] || [ "$KIND" = human:merge ] || die "ledger unblock $ID: --merge-sha applies to human:merge only — this entry is blocked on $KIND"
     [ "$KIND" = human:intake ] || { [ "$REVIEWED" = 0 ] && [ -z "$RBY" ]; } \
       || die "ledger unblock $ID: --reviewed-by-human / --by apply to human:intake only — this entry is blocked on $KIND (a reviewer would not be recorded)"
     SPEC_DIR=$(jq -r '.spec_dir // empty' <<<"$E"); BRANCH=$(jq -r '.branch // empty' <<<"$E")
@@ -386,7 +405,14 @@ case "$SUB" in
         cd_entry_repo "$E" || exit 1   # external-board: run from the board repo, the merge is checked in the entry's repo
         BM=$(branches_model) || exit 1; INT=$(jq -r .integration <<<"$BM")
         in_branch "$BRANCH" "$INT" >/dev/null; rc=$?
-        [ "$rc" -ne 3 ] || die "ledger unblock $ID: $KIND — branch '$BRANCH' resolves to no commit (local or origin/) — git fetch origin first"
+        if [ "$rc" -eq 3 ]; then
+          # The branch is gone (GitHub deletes it on merge — fxcube 2026-10-13): judge the PR's MERGE COMMIT
+          # instead — given with --merge-sha, or read from the recorded PR through gh when it says MERGED.
+          MSHA=$(merge_commit_of "$E" "$MSHA" "'$BRANCH'") || exit 1
+          in_branch "$MSHA" "$INT" >/dev/null; rc=$?
+          [ "$rc" -ne 3 ] || die "ledger unblock $ID: $KIND — merge commit $MSHA is not in this clone — git fetch origin first"
+          MERGED_VIA="$MSHA"
+        fi
         [ "$rc" -ne 4 ] || die "ledger unblock $ID: $KIND — the integration branch '$INT' resolves nowhere (no $INT, no origin/$INT) — git fetch origin first"
         [ "$rc" -eq 0 ] || die "ledger unblock $ID: $KIND — '$BRANCH' is in neither $INT nor origin/$INT (git fetch origin first if it was merged remotely)" ;;
       human:intake)
@@ -405,7 +431,10 @@ case "$SUB" in
         [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
           || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist it" ;;
     esac
-    if [ "$KIND" = human:intake ]; then
+    if [ "$KIND" = human:merge ] && [ -n "${MERGED_VIA:-}" ]; then
+      jq --arg m "$MERGED_VIA" '.blocked_on = null | .pr.merge_sha = $m' <<<"$E" | write_entry "$ID" || exit 1
+      echo "$ID unblocked ($KIND, via merge commit $MERGED_VIA — the branch is deleted)"
+    elif [ "$KIND" = human:intake ]; then
       jq --arg by "$RBY" '.blocked_on = null | .reviewed = ((.reviewed // []) + [{kind: "human:intake", by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
       echo "$ID unblocked ($KIND, reviewed by $RBY)"
     else

@@ -35,6 +35,19 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Fixed
+- **`ledger.sh advance` stepped over an open human gate** (fxcube, 2026-10-13). `advance <id> merged`
+  succeeded while the entry was blocked on `human:merge`. It now refuses while any `human:*` block is
+  open, and names `ledger.sh unblock <id>`. Every launcher path advances before it blocks, so none is
+  affected.
+- **`unblock human:merge` after GitHub deletes the merged branch.** When the recorded branch resolves
+  nowhere, the PR's merge commit is judged instead. It comes from `--merge-sha <sha>`, or from `gh pr
+  view` on the recorded PR, and only when the PR is MERGED. The commit must be in the integration branch
+  (local or `origin/`), and it is recorded as `.pr.merge_sha`. `--merge-sha` applies to `human:merge`
+  only.
+
 ## [7.9.2] - 2026-10-06
 
 ### Fixed

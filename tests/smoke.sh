@@ -1963,7 +1963,10 @@ st_mut() { cp "$SL" "$SL_MUT"; sed -i "$1" "$SL_MUT"; cmp -s "$SL" "$SL_MUT" && 
 st_lmut() { cp "$LG" "$LG_MUT"; sed -i "$1" "$LG_MUT"; cmp -s "$LG" "$LG_MUT" && { bad "stage-roles ledger mutation did not apply: $1"; st_mfail=1; }; }
 st_lmut 's/(.phase == "queued" or .phase == "intake")/(.phase == "queued")/'
 [ "$(LG_BIN="$LG_MUT" lg2 next --stage plan 2>/dev/null)" != HEF-10 ] || { bad "mutation survived: intake dropped from the plan filter, HEF-10 still returned"; st_mfail=1; }
-lg2 advance HEF-11 merged >/dev/null 2>&1 || true   # HEF-11 leaves the deploy set (phase merged)
+# HEF-11 leaves the deploy set (phase merged): its human:merge block is cleared first, as a person's unblock
+# would — advance never steps over a human gate (fxcube 2026-10-13)
+jq '.blocked_on = null' "$sr_t/.git/hefesto/ledger/HEF-11.json" > "$sr_t/.git/hefesto/ledger/HEF-11.json.n" && mv "$sr_t/.git/hefesto/ledger/HEF-11.json.n" "$sr_t/.git/hefesto/ledger/HEF-11.json"
+lg2 advance HEF-11 merged >/dev/null 2>&1 || bad "fixture: advance HEF-11 merged after its gate was cleared must pass"
 st_lmut 's/ORDER=.sort_by(\[(if .blocked_on == null then 0 else 1 end), .*$/ORDER="$ID_SORT" ;;/'
 lg2 init HEF-12 --kind tasks-repo --ref t >/dev/null 2>&1; lg2 record HEF-12 --pr https://github.com/o/r/pull/22 >/dev/null 2>&1; lg2 advance HEF-12 pr >/dev/null 2>&1
 [ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-12 ] || { bad "next --stage deploy must prefer the unblocked HEF-12 over the blocked HEF-1"; st_mfail=1; }
@@ -3618,6 +3621,56 @@ grep -qF 'External board' "$REPO/docs/install.md" && grep -qF -- '--item-repo' "
   && ok "the external board is documented (install §7 step 13, hooks: --item-repo, HEFESTO_BOARD_TOP) and /hef.orchestrate runs ledger.sh board (external-board FR-005 FR-007)" \
   || bad "docs/install.md step 13, docs/hooks.md (--item-repo, HEFESTO_BOARD_TOP) and the orchestrate pre-flight (ledger.sh board) must exist"
 rm -rf "$eb_t" "$eb_cfg" "$eb_md" "$eb_bin" "$eb_alone" "$eb_n"
+
+# --- Tier 1: the merge gate (fxcube 2026-10-13: advance stepped over human:merge; a deleted branch) -----
+head_ "Merge gate"
+mg_t="$(mktemp -d)"; mg_o="$mg_t/o.git"; mg_r="$mg_t/r"; mg_bin="$(mktemp -d)"; mg_md="$(mktemp -d)"; mg_fail=0
+mgg() { git -C "$mg_r" -c user.email=t@t -c user.name=t "$@"; }
+( git init -q --bare -b main "$mg_o" && git init -q -b main "$mg_r" && git -C "$mg_r" remote add origin "$mg_o" \
+  && mgg commit -q --allow-empty -m init && mgg push -q origin main \
+  && mgg checkout -q -b MG-1 && printf '1\n' > "$mg_r/f" && mgg add f && mgg commit -q -m one \
+  && mgg checkout -q main && mgg merge -q --no-ff MG-1 -m 'Merge MG-1' && mgg push -q origin main \
+  && mgg checkout -q -b MG-2 && printf '2\n' > "$mg_r/g" && mgg add g && mgg commit -q -m two && mgg checkout -q main ) >/dev/null 2>&1
+mg_merge="$(mgg rev-parse main)"; mg_unmerged="$(mgg rev-parse MG-2)"
+mgl() { (cd "$mg_r" && HEFESTO_GH_BIN="$mg_bin/gh" bash "${MG_LG:-$LG}" "$@"); }
+cat > "$mg_bin/gh" <<'GHEOF'
+#!/bin/bash
+# FakeGhPrView: prints "<state> <mergeCommit oid>" as `gh pr view --json state,mergeCommit -q …` would
+printf '%s %s\n' "${MG_STATE:-MERGED}" "${MG_SHA:-}"
+GHEOF
+chmod +x "$mg_bin/gh"
+mgl init MG-1 --kind tasks-repo --ref t >/dev/null 2>&1; mgl record MG-1 --branch MG-1 --pr https://github.com/o/r/pull/1 >/dev/null 2>&1
+mgl advance MG-1 pr >/dev/null 2>&1; mgl block MG-1 --kind human:merge >/dev/null 2>&1
+# 1. advance never steps over a person's gate
+mg_o2="$(mgl advance MG-1 merged 2>&1)" && { bad "advance must refuse while human:merge is open"; mg_fail=1; }
+grep -qF 'blocked on human:merge — clear it first' <<<"$mg_o2" || { bad "the advance refusal must name the block and the fix, got '$mg_o2'"; mg_fail=1; }
+jq -e '.phase == "pr"' "$mg_r/.git/hefesto/ledger/MG-1.json" >/dev/null 2>&1 || { bad "a refused advance must leave the phase at pr"; mg_fail=1; }
+# 2. the branch is deleted after the merge: unblock judges the PR's merge commit
+mgg branch -D MG-1 >/dev/null 2>&1
+mg_o2="$(mgl unblock MG-1 --merge-sha nothex 2>&1)" && { bad "a malformed --merge-sha must be refused"; mg_fail=1; }
+mg_o2="$(mgl unblock MG-1 --merge-sha "$mg_unmerged" 2>&1)" && { bad "a merge sha that is not in main must be refused"; mg_fail=1; }
+grep -qF 'is in neither main nor origin/main' <<<"$mg_o2" || { bad "the not-in-main refusal must say so, got '$mg_o2'"; mg_fail=1; }
+mg_o2="$(MG_STATE=OPEN MG_SHA="" mgl unblock MG-1 2>&1)" && { bad "an OPEN PR must not clear the merge gate"; mg_fail=1; }
+grep -qF 'is OPEN, not MERGED' <<<"$mg_o2" || { bad "the open-PR refusal must say so, got '$mg_o2'"; mg_fail=1; }
+MG_STATE=MERGED MG_SHA="$mg_merge" mgl unblock MG-1 >/dev/null 2>&1 \
+  && jq -e --arg m "$mg_merge" '.blocked_on == null and .pr.merge_sha == $m' "$mg_r/.git/hefesto/ledger/MG-1.json" >/dev/null 2>&1 \
+  || { bad "a deleted branch must clear through the PR's merge commit (via gh) and record it: $(MG_SHA="$mg_merge" mgl unblock MG-1 2>&1)"; mg_fail=1; }
+mgl advance MG-1 merged >/dev/null 2>&1 || { bad "advance must pass once the gate is cleared"; mg_fail=1; }
+# --merge-sha given by the person, no gh needed; --merge-sha on another kind refused
+mgl init MG-3 --kind tasks-repo --ref t >/dev/null 2>&1; mgl record MG-3 --branch gone-branch --pr https://github.com/o/r/pull/3 >/dev/null 2>&1; mgl block MG-3 --kind human:merge >/dev/null 2>&1
+(cd "$mg_r" && HEFESTO_GH_BIN=/nonexistent bash "$LG" unblock MG-3 --merge-sha "$mg_merge") >/dev/null 2>&1 || { bad "--merge-sha must clear a deleted branch's gate without gh"; mg_fail=1; }
+mgl block MG-3 --kind ci >/dev/null 2>&1
+grep -qF -- '--merge-sha applies to human:merge only' <<<"$(mgl unblock MG-3 --merge-sha "$mg_merge" 2>&1)" || { bad "--merge-sha on another kind must be refused"; mg_fail=1; }
+# Mutations (constitution 3)
+mgm() { rm -rf "$mg_md"; mkdir -p "$mg_md"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$mg_md/$(basename "$f")"; done; rm "$mg_md/ledger.sh"; cp "$LG" "$mg_md/ledger.sh"; sed -i "$1" "$mg_md/ledger.sh"; cmp -s "$LG" "$mg_md/ledger.sh" && { bad "merge-gate mutation did not apply: $1"; mg_fail=1; }; }
+mgl init MG-4 --kind tasks-repo --ref t >/dev/null 2>&1; mgl advance MG-4 pr >/dev/null 2>&1; mgl block MG-4 --kind human:merge >/dev/null 2>&1
+mgm 's/\[\[ "\$BK" != human:\* \]\] || die "ledger advance/true || die "ledger advance/'
+MG_LG="$mg_md/ledger.sh" mgl advance MG-4 merged >/dev/null 2>&1 || { bad "mutation survived: the advance guard removed, a blocked advance still refused"; mg_fail=1; }
+mgl init MG-5 --kind tasks-repo --ref t >/dev/null 2>&1; mgl record MG-5 --branch gone2 --pr https://github.com/o/r/pull/5 >/dev/null 2>&1; mgl block MG-5 --kind human:merge >/dev/null 2>&1
+mgm 's/\[ "\${st%% \*}" = MERGED \] || die/true || die/'
+MG_STATE=OPEN MG_SHA="$mg_merge" MG_LG="$mg_md/ledger.sh" mgl unblock MG-5 >/dev/null 2>&1 || { bad "mutation survived: the MERGED check removed, an open PR still refused"; mg_fail=1; }
+[ "$mg_fail" -eq 0 ] && ok "merge gate: advance never steps over a human:* block; a deleted branch clears through the PR's merge commit (gh or --merge-sha) only when MERGED and in main, and records it; --merge-sha scoped to human:merge; 2 mutations caught"
+rm -rf "$mg_t" "$mg_bin" "$mg_md"
 
 # --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------
 head_ "Parallel-safety"
