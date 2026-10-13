@@ -46,8 +46,8 @@ See `.claude/rules/context-management.md` (the 40 % "Dumb Zone" checkpoint thres
 `/compact` keeps whatever its instructions name and drops the rest, so each long-lived pane gets a
 prompt shaped to what it **owns**. The shared truth (the board, the ledger, the PRs, the spec files)
 is already on disk, so a pane keeps **pointers** — ids, paths, PR numbers, block kinds — never the
-payload. Between items a pane runs `/clear`, not `/compact` (README §5: a pane never does a stage's
-work in its own context). These prompts are for staying coherent *within* a stretch of work.
+payload. Between items a pane runs its own prompt below: the stage's work happened in fresh sessions
+(README §5), so what is left in the pane is the pointers worth carrying to the next item.
 
 **General (any session)**
 
@@ -70,7 +70,7 @@ work in its own context). These prompts are for staying coherent *within* a stre
 **🔨 Builder** — implement → verify → quality → review → PR (`/hef.implement` or `hefesto:workflow`, `/hef.verify`, `/hef.quality`, `/hef.review`, `/hef.pr`)
 
 ```text
-/compact **Keep**: the item id, branch, worktree and spec directory, the task ids done and open in tasks.md, each failing test by name with its first error line and the root cause found, fixes made and why, gate findings still open (blocking vs advisory) and the mutations that survived, files changed and the reason for each, conventions discovered in this codebase. **Drop**: code blocks, diffs, full test and linter output, file contents, exploration and search results, gate reports already acted on. **Goal**: Prepare the context to finish the current item through its gates to a PR — no new item before /clear.
+/compact **Keep**: the item id, branch, worktree and spec directory, the task ids done and open in tasks.md, each failing test by name with its first error line and the root cause found, fixes made and why, gate findings still open (blocking vs advisory) and the mutations that survived, files changed and the reason for each, conventions discovered in this codebase. **Drop**: code blocks, diffs, full test and linter output, file contents, exploration and search results, gate reports already acted on. **Goal**: Prepare the context to finish the current item through its gates to a PR.
 ```
 
 **🚀 Deployer** — PRs to the merge gate, promotions, releases (`/hef.orchestrate --stage deploy`, `/hef.babysit`, `/hef.release`)
