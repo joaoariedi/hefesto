@@ -28,6 +28,14 @@ ok()   { printf '  \033[32mok\033[0m   %s\n' "$1"; PASS=$((PASS + 1)); }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL + 1)); }
 head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
+# Hermetic: no test reaches the real gh (code review 2026-10-13 — the sandbox saw api.github.com traffic
+# once ledger.sh began cross-checking a recorded PR through gh). Every test that needs gh passes its own
+# named fake through HEFESTO_GH_BIN; everything else meets a path that does not exist, so gh_pr_fact
+# answers "unreadable" instead of calling out. A caller's own HEFESTO_GH_BIN still wins. The live tier
+# (SMOKE_LIVE=1) never calls gh, so it needs nothing restored.
+SMOKE_NO_GH_DIR="$(mktemp -d)"
+export HEFESTO_GH_BIN="${HEFESTO_GH_BIN:-$SMOKE_NO_GH_DIR/no-gh}"
+
 # NEVER write `producer | grep -q pattern` in this script.
 #
 # `set -o pipefail` is on, and `grep -q` exits the instant it matches. The producer then dies
@@ -1624,7 +1632,8 @@ if lg show '../ledger/HEF-A4' >/dev/null 2>&1 || lg init 'HEF 1' --kind tasks-re
 # two failed runs (0.4), Q1 queued. Mutations: merge-rate denominator over all entries → 20% → red;
 # USD per merged PR over all entries → red; --since filter removed → future date still answers → red.
 lm_t="$(mktemp -d)"; lm_fail=0
-( cd "$lm_t" && git init -q -b main . && for i in M1 P1 F1 S1 Q1; do bash "$LG" init HEF-$i --kind tasks-repo --ref t >/dev/null; done \
+# HEF-M1 reaches merged, which now needs merge evidence: b1 is cut at main's tip, so it IS in main.
+( cd "$lm_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && git branch -f b1 main && for i in M1 P1 F1 S1 Q1; do bash "$LG" init HEF-$i --kind tasks-repo --ref t >/dev/null; done \
   && bash "$LG" claim HEF-M1 --session impl-M1 --role implement && bash "$LG" run HEF-M1 --role implement --exit 0 --usd 1.5 && bash "$LG" record HEF-M1 --pr https://x/pull/1 --branch b1 && bash "$LG" advance HEF-M1 verify \
   && bash "$LG" claim HEF-M1 --session verify-M1 --role verify && bash "$LG" run HEF-M1 --role verify --exit 0 --usd 0.5 && bash "$LG" verdict HEF-M1 --gate review --verdict PASS --by verify-M1 && bash "$LG" advance HEF-M1 pr && bash "$LG" advance HEF-M1 merged \
   && bash "$LG" claim HEF-P1 --session impl-P1 --role implement && bash "$LG" run HEF-P1 --role implement --exit 0 --usd 1 && bash "$LG" record HEF-P1 --pr https://x/pull/2 --branch b2 && bash "$LG" advance HEF-P1 verify \
@@ -1963,7 +1972,12 @@ st_mut() { cp "$SL" "$SL_MUT"; sed -i "$1" "$SL_MUT"; cmp -s "$SL" "$SL_MUT" && 
 st_lmut() { cp "$LG" "$LG_MUT"; sed -i "$1" "$LG_MUT"; cmp -s "$LG" "$LG_MUT" && { bad "stage-roles ledger mutation did not apply: $1"; st_mfail=1; }; }
 st_lmut 's/(.phase == "queued" or .phase == "intake")/(.phase == "queued")/'
 [ "$(LG_BIN="$LG_MUT" lg2 next --stage plan 2>/dev/null)" != HEF-10 ] || { bad "mutation survived: intake dropped from the plan filter, HEF-10 still returned"; st_mfail=1; }
-lg2 advance HEF-11 merged >/dev/null 2>&1 || true   # HEF-11 leaves the deploy set (phase merged)
+# HEF-11 leaves the deploy set (phase merged): its human:merge block is cleared first, as a person's unblock
+# would — advance never steps over a human gate (fxcube 2026-10-13)
+jq '.blocked_on = null' "$sr_t/.git/hefesto/ledger/HEF-11.json" > "$sr_t/.git/hefesto/ledger/HEF-11.json.n" && mv "$sr_t/.git/hefesto/ledger/HEF-11.json.n" "$sr_t/.git/hefesto/ledger/HEF-11.json"
+# and merged needs the merge evidenced: the branch HEF-11 is cut at main's tip, so it is in main
+git -C "$sr_t" branch -f HEF-11 main >/dev/null 2>&1
+lg2 advance HEF-11 merged >/dev/null 2>&1 || bad "fixture: advance HEF-11 merged after its gate was cleared must pass"
 st_lmut 's/ORDER=.sort_by(\[(if .blocked_on == null then 0 else 1 end), .*$/ORDER="$ID_SORT" ;;/'
 lg2 init HEF-12 --kind tasks-repo --ref t >/dev/null 2>&1; lg2 record HEF-12 --pr https://github.com/o/r/pull/22 >/dev/null 2>&1; lg2 advance HEF-12 pr >/dev/null 2>&1
 [ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-12 ] || { bad "next --stage deploy must prefer the unblocked HEF-12 over the blocked HEF-1"; st_mfail=1; }
@@ -2006,7 +2020,28 @@ st_mut 's/CMD+=(--permission-mode default)/CMD+=(--permission-mode acceptEdits)/
 st_dry="$(SL_BIN="$SL_MUT" sr2 plan HEF-10 --dry-run 2>&1)"; grep -qF -- '--permission-mode acceptEdits' <<<"$st_dry" || { bad "mutation check: acceptEdits mutation not visible in the plan argv"; st_mfail=1; }
 st_mut "s/\"Bash(gh auth status)\"\]/\"Bash(gh auth status)\",\"Bash(gh api *)\"]/"
 st_defaults="$(grep -E "^  (implement|verify|plan|deploy)\) +ALLOWED=" "$SL_MUT")"; grep -qE 'gh api' <<<"$st_defaults" || { bad "mutation survived: a gh api rule added to a default array was not caught"; st_mfail=1; }
-[ "$st_mfail" -eq 0 ] && ok "stage-roles mutations: plan filter, deploy ordering, questions branch, ci bound, pr.url refusal, tasks prompt, mergeable guard, hooks-rule append, plan mode, merge verbs — all caught (SC-001)"
+# The launcher never works over a person's gate (code review 2026-10-13): a human:clarify entry is refused
+# before any claim or claude call; the deploy stage on human:merge is the one exception (the babysitter's wait).
+# HEF-16 sits in intake, as a plan run that stopped on human:clarify leaves it: plan:intake advances nothing,
+# so without the guard the launcher would claim and start claude over the person's question.
+st_init 16; lg2 advance HEF-16 intake >/dev/null 2>&1; lg2 block HEF-16 --kind human:clarify >/dev/null 2>&1; st_calls="$(wc -l < "$sr_log")"
+printf '{"session_id":"g1","total_cost_usd":0.1,"structured_output":{"summary":"x","outcome":"blocked","blocked_on":"human:clarify","spec_dir":null}}\n' > "$sr_res"
+st_o="$(sr2 plan HEF-16 2>&1)"; st_rc=$?
+{ [ "$st_rc" -ne 0 ] && grep -qF 'no session is launched over a human gate' <<<"$st_o" && [ "$(wc -l < "$sr_log")" = "$st_calls" ] && jq -e '.owner == null and .attempts == 0 and .blocked_on.kind == "human:clarify"' "$sr_t/.git/hefesto/ledger/HEF-16.json" >/dev/null 2>&1; } \
+  || { bad "session-launch plan on a human:clarify entry must be refused before any claim or claude call (rc=$st_rc): $(head -c 200 <<<"$st_o")"; st_mfail=1; }
+printf '{"session_id":"g2","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"
+st_runs="$(jq '.runs | length' "$sr_t/.git/hefesto/ledger/HEF-15.json")"
+sr2 deploy HEF-15 >/dev/null 2>&1 && [ "$(jq '.runs | length' "$sr_t/.git/hefesto/ledger/HEF-15.json")" -gt "$st_runs" ] \
+  || { bad "session-launch deploy on a human:merge entry must launch (the babysitter's wait): $(sr2 deploy HEF-15 2>&1 | head -c 200)"; st_mfail=1; }
+st_mut 's/^if \[\[ "\$EBK" == human:\* \]\] \&\& /if false \&\& /'
+printf '{"session_id":"g3","total_cost_usd":0.1,"structured_output":{"summary":"x","outcome":"blocked","blocked_on":"human:clarify","spec_dir":null}}\n' > "$sr_res"
+st_calls="$(wc -l < "$sr_log")"; SL_BIN="$SL_MUT" sr2 plan HEF-16 >/dev/null 2>&1
+[ "$(wc -l < "$sr_log")" -gt "$st_calls" ] || { bad "mutation survived: the human-gate launch guard removed, plan over human:clarify still not launched"; st_mfail=1; }
+st_mut 's/ \&\& ! { \[ "\$ROLE" = deploy \] \&\& \[ "\$EBK" = human:merge \]; }; then/; then/'
+printf '{"session_id":"g4","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"
+lg2 block HEF-15 --kind human:merge >/dev/null 2>&1
+SL_BIN="$SL_MUT" sr2 deploy HEF-15 >/dev/null 2>&1 && { bad "mutation survived: the deploy-on-human:merge exception removed, deploy still launched"; st_mfail=1; }
+[ "$st_mfail" -eq 0 ] && ok "stage-roles mutations: plan filter, deploy ordering, questions branch, ci bound, pr.url refusal, tasks prompt, mergeable guard, hooks-rule append, plan mode, merge verbs, human-gate launch guard (clarify refused, deploy on human:merge allowed — both mutants caught) — all caught (SC-001)"
 rm -rf "$st_mutdir"
 rm -rf "$sr_t" "$sr_cfg" "$sr_bin"
 [ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output (FR-011 FR-013 SC-007)"
@@ -2022,16 +2057,28 @@ ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | bash "$REPO/hooks/s
   || { bad "session-start must print exactly one 'ledger: HEF-7 blocked_on human:merge since <t>' line — got: $(grep ledger <<<"$ss_out" | tr '\n' '|')"; ss_fail=1; }
 grep -qxF "hefesto $(jq -r .version "$REPO/.claude-plugin/plugin.json") hooks loaded from $REPO" <<<"$ss_out" || { bad "session-start must print which hefesto version THIS process loaded, and from where"; ss_fail=1; }
 # 7.9.2: an intake line names the person's command; a session in auto/bypass/dontAsk mode with an intake block open is warned
+# HEF-7's human:merge block now warns too (below), so it is parked here and restored for its own case
+ss_l7="$ss_t/.git/hefesto/ledger/HEF-7.json"; cp "$ss_l7" "$ss_t/HEF-7.saved"; jq '.blocked_on = null' "$ss_t/HEF-7.saved" > "$ss_l7"
 ( cd "$ss_t" && bash "$LG" init HEF-6 --kind tasks-repo --ref t >/dev/null && bash "$LG" block HEF-6 --kind human:intake >/dev/null ) >/dev/null 2>&1
 ss_cfg="$(mktemp -d)"; printf '{"permissions":{"defaultMode":"auto"}}\n' > "$ss_cfg/settings.json"
 ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)"
 grep -qE '^ledger: HEF-6 blocked_on human:intake .*unblock HEF-6 --reviewed-by-human --by <name>' <<<"$ss_out" || { bad "the intake blocked line must name the person's command"; ss_fail=1; }
-grep -qF "is 'auto'" <<<"$ss_out" || { bad "session-start must warn when an intake block meets auto mode"; ss_fail=1; }
+grep -qF "is 'auto'" <<<"$ss_out" && grep -qF 'a human:intake block is open' <<<"$ss_out" || { bad "session-start must warn, naming human:intake, when an intake block meets auto mode"; ss_fail=1; }
 printf '{"permissions":{"defaultMode":"default"}}\n' > "$ss_cfg/settings.json"
 grep -qF 'hefesto WARNING' <<<"$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)" && { bad "no warning in default mode"; ss_fail=1; }
 ( cd "$ss_t" && bash "$LG" unblock HEF-6 --reviewed-by-human --by Ana </dev/null >/dev/null ) 2>/dev/null
 printf '{"permissions":{"defaultMode":"auto"}}\n' > "$ss_cfg/settings.json"
 grep -qF 'hefesto WARNING' <<<"$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)" && { bad "no warning once the intake block is cleared (its .reviewed history must not count as open)"; ss_fail=1; }
+# an OPEN human:merge block warns in auto mode too, naming the kind (user decision 2026-10-13: a merge clear is a
+# person's assertion); mutation: human:merge dropped from the any-check → no warning → red
+cp "$ss_t/HEF-7.saved" "$ss_l7"; rm -f "$ss_t/HEF-7.saved"
+ss_out="$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$REPO/hooks/session-start-context.sh" 2>&1)"
+{ grep -qF "is 'auto'" <<<"$ss_out" && grep -qF 'hefesto WARNING: a human:merge block is open' <<<"$ss_out"; } || { bad "session-start must warn, naming human:merge, when a merge block meets auto mode: $(grep -F WARNING <<<"$ss_out")"; ss_fail=1; }
+ss_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$ss_md/$(basename "$f")"; done; rm "$ss_md/session-start-context.sh"
+sed 's/ or \.blocked_on\.kind? == "human:merge")/)/' "$REPO/hooks/session-start-context.sh" > "$ss_md/session-start-context.sh"
+cmp -s "$REPO/hooks/session-start-context.sh" "$ss_md/session-start-context.sh" && { bad "session-start mutation did not apply: human:merge in the warning any-check"; ss_fail=1; }
+grep -qF 'hefesto WARNING' <<<"$(printf '{"cwd":"%s","source":"startup"}' "$ss_t" | CLAUDE_CONFIG_DIR="$ss_cfg" bash "$ss_md/session-start-context.sh" 2>&1)" && { bad "mutation survived: human:merge dropped from the warning check, a merge block still warned"; ss_fail=1; }
+rm -rf "$ss_md"
 rm -rf "$ss_cfg"
 ss_n="$(mktemp -d)"; ( cd "$ss_n" && git init -q . ) >/dev/null 2>&1
 ss_out2="$(printf '{"cwd":"%s","source":"startup"}' "$ss_n" | bash "$REPO/hooks/session-start-context.sh" 2>&1)"
@@ -3216,14 +3263,23 @@ bm_o2="$(bml where HEF-1 2>&1)"; bm_rc=$?
 { [ "$bm_rc" -eq 0 ] && grep -qxF 'dev: yes (dev)' <<<"$bm_o2" && grep -qxF 'stg: no' <<<"$bm_o2" && grep -qxF 'main: no' <<<"$bm_o2"; } || { bad "where HEF-1 (rc=$bm_rc): $(tr '\n' '|' <<<"$bm_o2")"; bm_lfail=1; }
 bmc ',"branches":{"integration":"dev","environments":["dev","uat","main"]}'; bm_o2="$(bml where HEF-1 2>&1)"; bm_rc=$?
 { [ "$bm_rc" -ne 0 ] && grep -qxF 'uat: unknown (no uat, no origin/uat)' <<<"$bm_o2"; } || { bad "where must print unknown and exit 1 for an environment that resolves nowhere (rc=$bm_rc): $(tr '\n' '|' <<<"$bm_o2")"; bm_lfail=1; }
-# released: refused before the final branch, accepted after; free with a single environment
+# released: refused before the final branch, accepted after; with a single environment, the merge alone
 bmc "$BM_FULL"
 bml advance HEF-1 released >/dev/null 2>&1 && { bad "advance released must wait for the final branch (main)"; bm_lfail=1; }
 ( bmg checkout -q main && bmg merge -q --no-ff HEF-1 -m rel && bmg checkout -q HEF-1 ) >/dev/null 2>&1
 bml advance HEF-1 released >/dev/null 2>&1 || { bad "advance released must pass once the branch is in main: $(bml advance HEF-1 released 2>&1)"; bm_lfail=1; }
-# HEF-P is in no environment (off main, never merged): with a single environment the guard must not run at all
-bml init HEF-35 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-35 --branch HEF-P >/dev/null 2>&1
-bmc ',"branches":{"integration":"dev"}'; bml advance HEF-35 released >/dev/null 2>&1 || { bad "advance released with a single environment must stay free (HEF-P is in no branch)"; bm_lfail=1; }
+# With ONE environment, final == integration. This case used to release HEF-P — in no branch at all — to pin
+# that the final-branch guard does not run then. Since code review 2026-10-13 nothing reaches merged or
+# beyond without the integration merge (ledger.sh merge_evidence), so an unmerged branch is refused, and
+# with one environment that merge is the whole check: HEF-2 is in (local) dev and in no main, and is
+# released with no final-branch check beyond the integration one. The old "-gt 1 → -gt 0" mutant is now
+# equivalent (it checks dev twice); its slot in the mutations below targets the merge-evidence call.
+bmc ',"branches":{"integration":"dev"}'
+bml init HEF-35 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-35 --branch HEF-2 >/dev/null 2>&1
+bml advance HEF-35 released >/dev/null 2>&1 || { bad "advance released with a single environment must pass once the branch is in the integration branch (HEF-2 is in dev, not main): $(bml advance HEF-35 released 2>&1)"; bm_lfail=1; }
+bml init HEF-38 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-38 --branch HEF-P >/dev/null 2>&1
+bm_o2="$(bml advance HEF-38 released 2>&1)" && { bad "advance released with a single environment must still refuse an unmerged branch (HEF-P is in no branch)"; bm_lfail=1; }
+grep -qF 'the merge is not evidenced' <<<"$bm_o2" || { bad "the single-environment refusal must say the merge is not evidenced, got '$bm_o2'"; bm_lfail=1; }
 # where on a branch that resolves nowhere: refused, never "no" for every environment at exit 0
 bmc "$BM_FULL"; bml init HEF-36 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-36 --branch ghost >/dev/null 2>&1
 bm_o2="$(bml where HEF-36 2>&1)" && { bad "where on a branch that resolves nowhere must exit non-zero: $bm_o2"; bm_lfail=1; }
@@ -3237,7 +3293,7 @@ for b in stg release/v1 dev main; do
 done
 bml init HEF-20 --kind tasks-repo --ref t >/dev/null 2>&1
 bml handoff HEF-20 --pr https://github.com/o/r/pull/20 --branch feature/x >/dev/null 2>&1 || { bad "handoff from feature/x must be accepted: $(bml handoff HEF-20 --pr https://github.com/o/r/pull/20 --branch feature/x 2>&1)"; bm_lfail=1; }
-[ "$bm_lfail" -eq 0 ] && ok "ledger on a dev-integrating repo: unblock via origin/dev (no local dev) and via local dev, refuses unmerged naming both, rc3/rc4 named; where yes/no/unknown; released waits for main, free with one environment; handoff refuses stg/release/*/dev/main (branch-model FR-002 FR-003 FR-006)"
+[ "$bm_lfail" -eq 0 ] && ok "ledger on a dev-integrating repo: unblock via origin/dev (no local dev) and via local dev, refuses unmerged naming both, rc3/rc4 named; where yes/no/unknown; released waits for main, with one environment needs only the dev merge (unmerged refused); handoff refuses stg/release/*/dev/main (branch-model FR-002 FR-003 FR-006)"
 
 # FR-004 the launcher prompts; unconfigured keeps "diff base: main"
 bm_pfail=0
@@ -3314,7 +3370,11 @@ BM_LG="$bm_md/ledger.sh" bml branches >/dev/null 2>&1 || { bad "mutation survive
 bmc "$BM_FULL"
 bmm ledger.sh 's/case "\$1" in \$p) return 0/case "$1" in "$p") return 0/'; bml init HEF-32 --kind tasks-repo --ref t >/dev/null 2>&1
 BM_LG="$bm_md/ledger.sh" bml handoff HEF-32 --pr https://github.com/o/r/pull/32 --branch release/v9 >/dev/null 2>&1 || { bad "mutation survived: glob match removed, release/v9 still refused"; bm_mfail=1; }
-bmm ledger.sh 's/-gt 1 \]; then/-gt 99 ]; then/'; bml init HEF-33 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-33 --branch HEF-2 >/dev/null 2>&1
+# HEF-33 must be merged into dev and NOT into main, or merge_evidence (not the final-branch guard) refuses it:
+# local dev (holding HEF-2) is gone by now (bm_merged), so the branch is HEF-D, cut at origin/dev's tip
+bmg branch -f HEF-D origin/dev >/dev/null 2>&1
+bmm ledger.sh 's/-gt 1 \]; then/-gt 99 ]; then/'; bml init HEF-33 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-33 --branch HEF-D >/dev/null 2>&1
+bml advance HEF-33 released >/dev/null 2>&1 && { bad "fixture: HEF-D is in origin/dev but not main — the real ledger must refuse released"; bm_mfail=1; }
 BM_LG="$bm_md/ledger.sh" bml advance HEF-33 released >/dev/null 2>&1 || { bad "mutation survived: the final-branch guard removed, released still refused"; bm_mfail=1; }
 bmm ledger.sh 's/^  \[ -z "\$c" \] || jq empty "\$c" 2>\/dev\/null || die/  true || die/'
 printf '{"branches":{"integration":"dev",}}\n' > "$bm_r/.claude/project-status.json"; bml init HEF-41 --kind tasks-repo --ref t >/dev/null 2>&1
@@ -3323,8 +3383,10 @@ bmc "$BM_FULL"
 bmm session-launch.sh 's/PR_BASE_RULE=""; "\$LEDGER" branches --configured 2>\/dev\/null \&\& PR_BASE_RULE=/PR_BASE_RULE=/'; bmc ''
 grep -qF 'gh pr create --base main' <<<"$(BM_SL="$bm_md/session-launch.sh" bms implement HEF-6 --dry-run)" || { bad "mutation survived: the --base gate removed, unconfigured still has no --base"; bm_mfail=1; }
 bmc "$BM_FULL"
-bmm ledger.sh 's/-gt 1 \]; then/-gt 0 ]; then/'; bmc ',"branches":{"integration":"dev"}'; bml init HEF-37 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-37 --branch HEF-P >/dev/null 2>&1
-BM_LG="$bm_md/ledger.sh" bml advance HEF-37 released >/dev/null 2>&1 && { bad "mutation survived: the guard runs with one environment, an unmerged branch still released"; bm_mfail=1; }
+# (was "-gt 1 → -gt 0": equivalent since merged needs the integration merge — see HEF-35 above)
+bmm ledger.sh 's/^      ( merge_evidence "\$E" .* recorded >\/dev\/null ) \\$/      true \\/'; bmc ',"branches":{"integration":"dev"}'; bml init HEF-37 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-37 --branch HEF-P >/dev/null 2>&1
+bml advance HEF-37 merged >/dev/null 2>&1 && { bad "fixture: HEF-P is in no branch — the real ledger must refuse merged"; bm_mfail=1; }
+BM_LG="$bm_md/ledger.sh" bml advance HEF-37 merged >/dev/null 2>&1 || { bad "mutation survived: the merge-evidence call in advance removed, an unmerged branch still refused merged"; bm_mfail=1; }
 bmm ledger.sh 's/\[ "\$rc" -ne 3 \] || die "ledger where/true || die "ledger where/'; bmc "$BM_FULL"
 bm_o2="$(BM_LG="$bm_md/ledger.sh" bml where HEF-36 2>&1)" || { bad "mutation survived: where's ghost-branch refusal removed, still non-zero: $(tr '\n' '|' <<<"$bm_o2")"; bm_mfail=1; }
 bmm session-launch.sh 's/(diff base: \$INTEG)/(diff base: main)/'
@@ -3345,7 +3407,7 @@ bmc "$BM_FULL"
 bmm merge-tree-probe.sh 's/\[ -n "\$INT" \] \&\& CANDS="origin\/\$INT \$INT \$CANDS"/true/'
 bmg checkout -q HEF-P >/dev/null 2>&1; grep -qF 'would CONFLICT with origin/dev' <<<"$(BM_MTP="$bm_md/merge-tree-probe.sh" bmp 9)" && { bad "mutation survived: the probe's integration base removed"; bm_mfail=1; }
 bmg checkout -q HEF-1 >/dev/null 2>&1
-[ "$bm_mfail" -eq 0 ] && ok "branch-model mutations: origin/ target, rc 4, environments[0] check, protected glob, released guard, verifier base, push:false, pr_base integration base, --configured gate, probe base — parse check, PR-base gate — all caught (SC-004 SC-006)"
+[ "$bm_mfail" -eq 0 ] && ok "branch-model mutations: origin/ target, rc 4, environments[0] check, protected glob, released guard, advance merge evidence, verifier base, push:false, pr_base integration base, --configured gate, probe base — parse check, PR-base gate — all caught (SC-004 SC-006)"
 rm -rf "$bm_t" "$bm_cfg" "$bm_md" "$bm_bin"
 
 # --- Tier 1: external board (feature external-board FR-001..FR-007; fxcube lane-setup-v2 §4 G1) ----------
@@ -3601,10 +3663,11 @@ ebm ledger.sh 's/c=\$(repo_config) || exit 1   # the same file/c=$(project_confi
 EB_LG="$EB_ML" ebl "$eb_wt" branches --configured 2>/dev/null; eb_rc=$?
 [ "$eb_rc" -eq 1 ] || { bad "mutation survived (or crashed): --configured off repo_config must answer 1 (not declared) from the ops worktree, got rc=$eb_rc"; eb_mfail=1; }
 ebl "$eb_wt" branches --configured || { bad "branches --configured from the ops worktree must exit 0 (main worktree's .branches)"; eb_mfail=1; }
-# 8 the unblock cd → git runs in the board repo, where the branch resolves nowhere
+# 8 the merge check's cd → git runs in the board repo, where the branch resolves nowhere. The cd moved from
+# the unblock arm into merge_evidence (code review 2026-10-13), which both unblock and advance call.
 { ebl "$eb_ops" init MUT-8 --kind tasks-repo --ref t --repo ops && ebl "$eb_ops" record MUT-8 --branch OPS-1 && ebl "$eb_ops" block MUT-8 --kind human:merge; } >/dev/null 2>&1 || { bad "fixture: MUT-8 setup failed"; eb_mfail=1; }
-ebm ledger.sh 's/^        cd_entry_repo "\$E" || exit 1   # external-board: run from the board repo/        true   # external-board: run from the board repo/'
-grep -qF 'resolves to no commit' <<<"$(EB_LG="$EB_ML" ebl "$eb_k" unblock MUT-8 2>&1)" || { bad "mutation survived: the unblock cd removed, the board repo still resolved OPS-1"; eb_mfail=1; }
+ebm ledger.sh 's/^  cd_entry_repo "\$E" || exit 1   # external-board: the merge is checked in the entry.s repo$/  true   # external-board: the merge is checked in the entry repo/'
+grep -qF 'resolves to no commit' <<<"$(EB_LG="$EB_ML" ebl "$eb_k" unblock MUT-8 2>&1)" || { bad "mutation survived: the merge-check cd removed, the board repo still resolved OPS-1"; eb_mfail=1; }
 ebl "$eb_k" unblock MUT-8 >/dev/null 2>&1 || { bad "unblock MUT-8 from the board must pass (OPS-1 is in ops's dev)"; eb_mfail=1; }
 # 9 comment-stripped routing → the <!-- repo: ops --> in NONE-1 routes
 ebm status-board.sh 's/names="\$(strip_comments <<<"\$body" | repo_lines/names="$(cat <<<"$body" | repo_lines/'
@@ -3613,11 +3676,153 @@ ebm status-board.sh 's/names="\$(strip_comments <<<"\$body" | repo_lines/names="
 ebm ledger.sh 's/\[ -n "\$RNAME" \] || die "ledger init \$ID: --repo is empty/true || die "ledger init $ID: --repo is empty/'
 eb_o="$(EB_LG="$EB_ML" ebl "$eb_ops" init MUT-10 --kind tasks-repo --ref t --repo "" 2>&1)"; grep -qF "is not a repo the board feeds" <<<"$eb_o" || { bad "empty --repo mutant did not reach the membership check: $eb_o"; eb_mfail=1; }
 grep -qF -- '--repo is empty' <<<"$eb_o" && { bad "mutation survived: the empty --repo refusal removed, still named"; eb_mfail=1; }
-[ "$eb_mfail" -eq 0 ] && ok "external-board mutations: pointer ignored, central ledger, per-repo next, two-repo refusal, cd \$TOP, main-worktree resolution, --configured repo_config, unblock cd, comment-stripped routing, empty --repo — all caught (SC-003)"
+[ "$eb_mfail" -eq 0 ] && ok "external-board mutations: pointer ignored, central ledger, per-repo next, two-repo refusal, cd \$TOP, main-worktree resolution, --configured repo_config, merge-check cd, comment-stripped routing, empty --repo — all caught (SC-003)"
 grep -qF 'External board' "$REPO/docs/install.md" && grep -qF -- '--item-repo' "$REPO/docs/hooks.md" && grep -qF 'HEFESTO_BOARD_TOP' "$REPO/docs/hooks.md" && grep -qF 'ledger.sh board' "$REPO/commands/hef.orchestrate.md" \
   && ok "the external board is documented (install §7 step 13, hooks: --item-repo, HEFESTO_BOARD_TOP) and /hef.orchestrate runs ledger.sh board (external-board FR-005 FR-007)" \
   || bad "docs/install.md step 13, docs/hooks.md (--item-repo, HEFESTO_BOARD_TOP) and the orchestrate pre-flight (ledger.sh board) must exist"
 rm -rf "$eb_t" "$eb_cfg" "$eb_md" "$eb_bin" "$eb_alone" "$eb_n"
+
+# --- Tier 1: the merge gate (fxcube 2026-10-13: advance stepped over human:merge; a deleted branch) -----
+head_ "Merge gate"
+mg_t="$(mktemp -d)"; mg_o="$mg_t/o.git"; mg_r="$mg_t/r"; mg_bin="$(mktemp -d)"; mg_md="$(mktemp -d)"; mg_fail=0
+mgg() { git -C "$mg_r" -c user.email=t@t -c user.name=t "$@"; }
+( git init -q --bare -b main "$mg_o" && git init -q -b main "$mg_r" && git -C "$mg_r" remote add origin "$mg_o" \
+  && mgg commit -q --allow-empty -m init && mgg push -q origin main \
+  && mgg checkout -q -b MG-1 && printf '1\n' > "$mg_r/f" && mgg add f && mgg commit -q -m one \
+  && mgg checkout -q main && mgg merge -q --no-ff MG-1 -m 'Merge MG-1' && mgg push -q origin main \
+  && mgg checkout -q -b MG-2 && printf '2\n' > "$mg_r/g" && mgg add g && mgg commit -q -m two && mgg checkout -q main ) >/dev/null 2>&1
+mg_merge="$(mgg rev-parse main)"; mg_init="$(mgg rev-parse main^1)"; mg_unmerged="$(mgg rev-parse MG-2)"
+mgl() { (cd "$mg_r" && HEFESTO_GH_BIN="$mg_bin/gh" bash "${MG_LG:-$LG}" "$@"); }
+mgn() { (cd "$mg_r" && HEFESTO_GH_BIN=/nonexistent bash "${MG_LG:-$LG}" "$@"); }   # gh unreachable
+cat > "$mg_bin/gh" <<'GHEOF'
+#!/bin/bash
+# FakeGhPrView: answers `gh pr view <url> --json … -q <expr>` by applying <expr> to the canned PR JSON in
+# MG_JSON with jq — so a broken query in ledger.sh's gh_pr_fact fails here as it would against gh (review
+# S6). No MG_JSON → exit 1, as gh does when it cannot read the PR.
+q=""; while [ $# -gt 0 ]; do [ "$1" = -q ] && { q="$2"; shift; }; shift; done
+[ -n "${MG_JSON:-}" ] || exit 1
+jq -r "${q:-.}" <<<"$MG_JSON"
+GHEOF
+chmod +x "$mg_bin/gh"
+mgj() { jq -nc --arg s "$1" --arg h "$2" --arg o "${3:-}" '{state: $s, headRefName: $h, mergeCommit: (if $o == "" then null else {oid: $o} end)}'; }   # state head [oid]
+mgb() { mgl init "$1" --kind tasks-repo --ref t >/dev/null 2>&1; mgl record "$1" --branch "$2" --pr "https://github.com/o/r/pull/${1#MG-}" >/dev/null 2>&1; mgl advance "$1" pr >/dev/null 2>&1; mgl block "$1" --kind human:merge >/dev/null 2>&1; }
+mgl init MG-1 --kind tasks-repo --ref t >/dev/null 2>&1; mgl record MG-1 --branch MG-1 --pr https://github.com/o/r/pull/1 >/dev/null 2>&1
+mgl advance MG-1 pr >/dev/null 2>&1; mgl block MG-1 --kind human:merge >/dev/null 2>&1
+# 1. advance never steps over a person's gate
+mg_o2="$(mgl advance MG-1 merged 2>&1)" && { bad "advance must refuse while human:merge is open"; mg_fail=1; }
+grep -qF 'blocked on human:merge — clear it first' <<<"$mg_o2" || { bad "the advance refusal must name the block and the fix, got '$mg_o2'"; mg_fail=1; }
+jq -e '.phase == "pr"' "$mg_r/.git/hefesto/ledger/MG-1.json" >/dev/null 2>&1 || { bad "a refused advance must leave the phase at pr"; mg_fail=1; }
+# 2. the branch is deleted after the merge: unblock judges the PR's merge commit
+mgg branch -D MG-1 >/dev/null 2>&1
+MG_OK="$(mgj MERGED MG-1 "$mg_merge")"
+mg_o2="$(MG_JSON="$MG_OK" mgl unblock MG-1 --merge-sha nothex 2>&1)" && { bad "a malformed --merge-sha must be refused"; mg_fail=1; }
+grep -qF 'is not a commit sha' <<<"$mg_o2" || { bad "a malformed --merge-sha must be refused BY THE REGEX, got '$mg_o2'"; mg_fail=1; }
+# a ref name is not a sha (review B2): 'main' is trivially "in main", so only the regex stands between it and a clear
+mg_o2="$(mgn unblock MG-1 --merge-sha main 2>&1)" && { bad "--merge-sha main (a ref name) must be refused"; mg_fail=1; }
+grep -qF "merge commit 'main' is not a commit sha" <<<"$mg_o2" || { bad "--merge-sha main must be refused by the regex, got '$mg_o2'"; mg_fail=1; }
+mg_o2="$(mgn unblock MG-1 --merge-sha "$mg_unmerged" 2>&1)" && { bad "a merge sha that is not in main must be refused"; mg_fail=1; }
+grep -qF 'is in neither main nor origin/main' <<<"$mg_o2" || { bad "the not-in-main refusal must say so, got '$mg_o2'"; mg_fail=1; }
+# a sha that IS in main but is not the PR's merge commit (main's first parent) → refused when gh can read the PR
+mg_o2="$(MG_JSON="$MG_OK" mgl unblock MG-1 --merge-sha "$mg_init" 2>&1)" && { bad "a --merge-sha that is not gh's merge commit must be refused"; mg_fail=1; }
+grep -qF "is not https://github.com/o/r/pull/1's merge commit" <<<"$mg_o2" || { bad "the merge-commit mismatch refusal must say so, got '$mg_o2'"; mg_fail=1; }
+mg_o2="$(MG_JSON="$(mgj OPEN MG-1)" mgl unblock MG-1 2>&1)" && { bad "an OPEN PR must not clear the merge gate"; mg_fail=1; }
+grep -qF 'is OPEN, not MERGED' <<<"$mg_o2" || { bad "the open-PR refusal must say so, got '$mg_o2'"; mg_fail=1; }
+mg_o2="$(MG_JSON="$(mgj MERGED other-branch "$mg_merge")" mgl unblock MG-1 2>&1)" && { bad "a PR whose head is another branch must not clear the merge gate"; mg_fail=1; }
+grep -qF "merged branch 'other-branch', not this entry's 'MG-1'" <<<"$mg_o2" || { bad "the head-branch refusal must name both branches, got '$mg_o2'"; mg_fail=1; }
+# review S2: the sha path's own head check — gh says MERGED from another branch, with exactly this sha
+mg_o2="$(MG_JSON="$(mgj MERGED other-branch "$mg_merge")" mgl unblock MG-1 --merge-sha "$mg_merge" 2>&1)" && { bad "a --merge-sha whose PR merged another branch must be refused"; mg_fail=1; }
+grep -qF "(that sha is another branch's merge)" <<<"$mg_o2" || { bad "the sha-path head refusal must say so, got '$mg_o2'"; mg_fail=1; }
+# fail closed (user decision 2026-10-13): gh installed but unable to read the PR never clears on a hand-given sha
+mg_o2="$(mgl unblock MG-1 --merge-sha "$mg_merge" 2>&1)" && { bad "gh present but failing + --merge-sha must be refused"; mg_fail=1; }
+grep -qF "gh could not read https://github.com/o/r/pull/1" <<<"$mg_o2" && grep -qF 'not cleared on an unchecked sha' <<<"$mg_o2" || { bad "the fail-closed refusal must name the PR and the reason, got '$mg_o2'"; mg_fail=1; }
+mg_o2="$(MG_JSON="$MG_OK" HEFESTO_WORKER=1 mgl unblock MG-1 --merge-sha "$mg_merge" 2>&1)" && { bad "--merge-sha inside a launched worker must be refused"; mg_fail=1; }
+grep -qF 'never given from inside a launched worker' <<<"$mg_o2" || { bad "the worker --merge-sha refusal must say so, got '$mg_o2'"; mg_fail=1; }
+jq -e '.blocked_on.kind == "human:merge"' "$mg_r/.git/hefesto/ledger/MG-1.json" >/dev/null 2>&1 || { bad "every refused unblock must leave human:merge in place"; mg_fail=1; }
+mg_o2="$(MG_JSON="$MG_OK" mgl unblock MG-1 2>&1)" \
+  && jq -e --arg m "$mg_merge" '.blocked_on == null and .pr.merge_sha == $m and (.pr | has("merge_unverified") | not)' "$mg_r/.git/hefesto/ledger/MG-1.json" >/dev/null 2>&1 \
+  && grep -qF "via merge commit $mg_merge — the branch is deleted (read from gh)" <<<"$mg_o2" && ! grep -qF UNVERIFIED <<<"$mg_o2" \
+  || { bad "a deleted branch must clear through the PR's merge commit (via gh) and record it: $(MG_JSON="$MG_OK" mgl unblock MG-1 2>&1)"; mg_fail=1; }
+MG_JSON="$MG_OK" mgl advance MG-1 merged >/dev/null 2>&1 || { bad "advance must pass once the gate is cleared (the recorded merge_sha is the evidence): $(MG_JSON="$MG_OK" mgl advance MG-1 merged 2>&1)"; mg_fail=1; }
+# --merge-sha given by the person, no gh needed; --merge-sha on another kind refused
+mgl init MG-3 --kind tasks-repo --ref t >/dev/null 2>&1; mgl record MG-3 --branch gone-branch --pr https://github.com/o/r/pull/3 >/dev/null 2>&1; mgl block MG-3 --kind human:merge >/dev/null 2>&1
+# gh absent (not installed): the hand-given sha is accepted, flagged .pr.merge_unverified and printed UNVERIFIED
+mg_o2="$(mgn unblock MG-3 --merge-sha "$mg_merge" 2>&1)" || { bad "--merge-sha must clear a deleted branch's gate without gh: $mg_o2"; mg_fail=1; }
+jq -e --arg m "$mg_merge" '.blocked_on == null and .pr.merge_sha == $m and .pr.merge_unverified == true' "$mg_r/.git/hefesto/ledger/MG-3.json" >/dev/null 2>&1 || { bad "a clear without gh must record .pr.merge_unverified = true"; mg_fail=1; }
+grep -qxF 'UNVERIFIED (gh not installed; the merge commit was not checked against https://github.com/o/r/pull/3)' <<<"$mg_o2" || { bad "a clear without gh must print UNVERIFIED naming the PR, got '$mg_o2'"; mg_fail=1; }
+grep -qF "via merge commit $mg_merge — given by --merge-sha; the branch is deleted" <<<"$mg_o2" || { bad "the clear must say the sha was given and the branch is deleted, got '$mg_o2'"; mg_fail=1; }
+mgl block MG-3 --kind ci >/dev/null 2>&1
+grep -qF -- '--merge-sha applies to human:merge only' <<<"$(mgl unblock MG-3 --merge-sha "$mg_merge" 2>&1)" || { bad "--merge-sha on another kind must be refused"; mg_fail=1; }
+# 3. a squash merge: the branch still exists but is no ancestor of main; --merge-sha <the squash commit> clears
+#    when gh confirms it, and advance merged then rests on the recorded sha, not the branch
+( mgg checkout -q -b MG-SQ main && printf 's\n' > "$mg_r/sq" && mgg add sq && mgg commit -q -m sq-work \
+  && mgg checkout -q main && mgg merge -q --squash MG-SQ && mgg commit -q -m 'squash MG-SQ' ) >/dev/null 2>&1
+mg_squash="$(mgg rev-parse main)"; mgb MG-7 MG-SQ
+mg_o2="$(MG_JSON="$(mgj MERGED MG-SQ "$mg_squash")" mgl unblock MG-7 2>&1)" && { bad "a squash-merged branch must not clear by the branch alone"; mg_fail=1; }
+grep -qF 'a squash or rebase merge needs --merge-sha' <<<"$mg_o2" || { bad "the squash refusal must point at --merge-sha, got '$mg_o2'"; mg_fail=1; }
+mg_o2="$(MG_JSON="$(mgj MERGED MG-SQ "$mg_squash")" mgl unblock MG-7 --merge-sha "${mg_squash:0:12}" 2>&1)" \
+  && grep -qF "given by --merge-sha; squash/rebase: the branch is not an ancestor" <<<"$mg_o2" \
+  && jq -e --arg m "${mg_squash:0:12}" '.blocked_on == null and .pr.merge_sha == $m' "$mg_r/.git/hefesto/ledger/MG-7.json" >/dev/null 2>&1 \
+  || { bad "--merge-sha <the squash commit> must clear when gh confirms it: $(MG_JSON="$(mgj MERGED MG-SQ "$mg_squash")" mgl unblock MG-7 --merge-sha "${mg_squash:0:12}" 2>&1)"; mg_fail=1; }
+MG_JSON="$(mgj MERGED MG-SQ "$mg_squash")" mgl advance MG-7 merged >/dev/null 2>&1 || { bad "advance merged must pass on the recorded squash sha: $(MG_JSON="$(mgj MERGED MG-SQ "$mg_squash")" mgl advance MG-7 merged 2>&1)"; mg_fail=1; }
+# 4. re-blocking with ci and clearing that never walks around the merge (review S4): MG-2 is unmerged
+mgb MG-10 MG-2; mgl block MG-10 --kind ci >/dev/null 2>&1; mgl unblock MG-10 >/dev/null 2>&1 || { bad "fixture: a ci block clears freely"; mg_fail=1; }
+mg_o2="$(MG_JSON="$(mgj OPEN MG-2)" mgl advance MG-10 merged 2>&1)" && { bad "advance merged after ci-over-human:merge → unblock must be refused: the merge is not evidenced"; mg_fail=1; }
+grep -qF 'the merge is not evidenced' <<<"$mg_o2" || { bad "the S4 refusal must say the merge is not evidenced, got '$mg_o2'"; mg_fail=1; }
+jq -e '.phase == "pr"' "$mg_r/.git/hefesto/ledger/MG-10.json" >/dev/null 2>&1 || { bad "a refused advance must leave MG-10 at pr"; mg_fail=1; }
+# Mutations (constitution 3)
+mgm() { rm -rf "$mg_md"; mkdir -p "$mg_md"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$mg_md/$(basename "$f")"; done; rm "$mg_md/ledger.sh"; cp "$LG" "$mg_md/ledger.sh"; sed -i "$1" "$mg_md/ledger.sh"; cmp -s "$LG" "$mg_md/ledger.sh" && { bad "merge-gate mutation did not apply: $1"; mg_fail=1; }; }
+mgl init MG-4 --kind tasks-repo --ref t >/dev/null 2>&1; mgl advance MG-4 pr >/dev/null 2>&1; mgl block MG-4 --kind human:merge >/dev/null 2>&1
+mgg branch -f MG-4 main >/dev/null 2>&1; mgl record MG-4 --branch MG-4 >/dev/null 2>&1   # merged, so only the block guard stands
+mgm 's/\[\[ "\$BK" != human:\* \]\] || die "ledger advance/true || die "ledger advance/'
+MG_LG="$mg_md/ledger.sh" mgl advance MG-4 merged >/dev/null 2>&1 || { bad "mutation survived: the advance guard removed, a blocked advance still refused"; mg_fail=1; }
+# the MERGED check (both copies in merge_evidence) → an OPEN PR with a deleted branch clears
+mgb MG-5 gone2
+mgm 's/\[ "\$st" = MERGED \] || die/true || die/'
+MG_JSON="$(mgj OPEN gone2 "$mg_merge")" MG_LG="$mg_md/ledger.sh" mgl unblock MG-5 >/dev/null 2>&1 || { bad "mutation survived: the MERGED check removed, an open PR still refused"; mg_fail=1; }
+# the headRefName check → another branch's merged PR clears this entry
+mgb MG-8 gone3
+# each headRefName copy has its own killing case: the deleted-branch copy (2-space indent) …
+mgm 's/^  \[ "\$head" = "\$br" \] || die/  true || die/'
+MG_JSON="$(mgj MERGED other-branch "$mg_merge")" MG_LG="$mg_md/ledger.sh" mgl unblock MG-8 >/dev/null 2>&1 || { bad "mutation survived: the deleted-branch headRefName check removed, another branch's PR still refused"; mg_fail=1; }
+# … and the --merge-sha copy (6-space indent, review S2)
+mgb MG-12 gone7
+mgm 's/^      \[ "\$head" = "\$br" \] || die/      true || die/'
+MG_JSON="$(mgj MERGED other-branch "$mg_merge")" MG_LG="$mg_md/ledger.sh" mgl unblock MG-12 --merge-sha "$mg_merge" >/dev/null 2>&1 || { bad "mutation survived: the sha-path headRefName check removed, another branch's merge sha still refused"; mg_fail=1; }
+# fail closed → the old "gh readable, else skip" test: a failing gh lets a hand-given sha through
+mgb MG-13 gone8
+mgm 's/if \[ -n "\$url" \] \&\& gh_present; then/if [ -n "$url" ] \&\& fact=$(gh_pr_fact "$url"); then/'
+MG_LG="$mg_md/ledger.sh" mgl unblock MG-13 --merge-sha "$mg_merge" >/dev/null 2>&1 || { bad "mutation survived: fail-closed removed, a failing gh still refused the sha"; mg_fail=1; }
+# the unverified marking → without gh the clear is neither flagged nor printed UNVERIFIED
+mgb MG-14 gone9
+mgm 's/^      ver=unverified .*$/      :/'
+mg_o2="$(MG_LG="$mg_md/ledger.sh" mgn unblock MG-14 --merge-sha "$mg_merge" 2>&1)"
+{ grep -qF UNVERIFIED <<<"$mg_o2" && jq -e '.pr.merge_unverified == true' "$mg_r/.git/hefesto/ledger/MG-14.json" >/dev/null 2>&1; } && { bad "mutation survived: the unverified marking removed, still flagged and printed"; mg_fail=1; }
+# the unverified flag write → printed UNVERIFIED, but .pr.merge_unverified not recorded
+mgb MG-15 gone10
+mgm 's/if \$v == "unverified" then .pr.merge_unverified = true/if false then .pr.merge_unverified = true/'
+MG_LG="$mg_md/ledger.sh" mgn unblock MG-15 --merge-sha "$mg_merge" >/dev/null 2>&1
+jq -e '.pr.merge_unverified == true' "$mg_r/.git/hefesto/ledger/MG-15.json" >/dev/null 2>&1 && { bad "mutation survived: the merge_unverified write removed, still recorded"; mg_fail=1; }
+# the merge-commit match → a sha that is in main but is not the PR's merge commit clears
+mgb MG-9 gone4
+mgm 's/\[\[ "\$oid" == "\$sha"\* \]\] || die/true || die/'
+MG_JSON="$(mgj MERGED gone4 "$mg_merge")" MG_LG="$mg_md/ledger.sh" mgl unblock MG-9 --merge-sha "$mg_init" >/dev/null 2>&1 || { bad "mutation survived: the merge-commit match removed, a mismatched --merge-sha still refused"; mg_fail=1; }
+# the sha regex (review B2) → --merge-sha main, gh unreachable, clears because 'main' is in main
+mgb MG-6 gone5
+mgm 's/\[\[ "\$sha" =~ ^\[0-9a-fA-F\]{7,40}\$ \]\] || die/[[ "$sha" =~ ^.+$ ]] || die/'
+MG_LG="$mg_md/ledger.sh" mgn unblock MG-6 --merge-sha main >/dev/null 2>&1 || { bad "mutation survived: the sha regex loosened, --merge-sha main still refused"; mg_fail=1; }
+# the worker refusal → a launched worker clears the gate with a sha
+mgb MG-11 gone6
+mgm 's/\[ "\$from" = flag \] \&\& \[ -n "\$sha" \] \&\& \[ -n "\${HEFESTO_WORKER:-}" \]/false/'
+MG_JSON="$(mgj MERGED gone6 "$mg_merge")" HEFESTO_WORKER=1 MG_LG="$mg_md/ledger.sh" mgl unblock MG-11 --merge-sha "$mg_merge" >/dev/null 2>&1 || { bad "mutation survived: the worker --merge-sha refusal removed, still refused"; mg_fail=1; }
+# the advance merge-evidence call (review S4) → MG-10, unmerged, reaches merged
+mgm 's/^      ( merge_evidence "\$E" .* recorded >\/dev\/null ) \\$/      true \\/'
+MG_JSON="$(mgj OPEN MG-2)" MG_LG="$mg_md/ledger.sh" mgl advance MG-10 merged >/dev/null 2>&1 || { bad "mutation survived: the merge-evidence call in advance removed, an unmerged branch still refused merged"; mg_fail=1; }
+# no PR recorded at all: a hand-given sha clears only as UNVERIFIED (nothing to check it against)
+mgl init MG-20 --kind tasks-repo --ref t >/dev/null 2>&1; mgl record MG-20 --branch gone-np >/dev/null 2>&1; mgl block MG-20 --kind human:merge >/dev/null 2>&1
+mg_o2="$(mgl unblock MG-20 --merge-sha "$mg_merge" 2>&1)"
+{ grep -qF 'UNVERIFIED (no PR is recorded' <<<"$mg_o2" && jq -e '.pr.merge_unverified == true' "$mg_r/.git/hefesto/ledger/MG-20.json" >/dev/null 2>&1; } || { bad "a --merge-sha with no PR recorded must clear only as UNVERIFIED and be flagged: $mg_o2"; mg_fail=1; }
+[ "$mg_fail" -eq 0 ] && ok "merge gate: advance never steps over a human:* block nor reaches merged unevidenced (ci re-block, S4); a deleted branch clears through the PR's merge commit (gh, applied with jq to canned JSON) only when MERGED, from this entry's head branch and in main, and records it; --merge-sha refused for a ref name, a non-sha, a sha not in main, a sha that is not gh's merge commit, inside a worker, and on another kind; a squash clears with the squash commit; gh present-but-failing refuses a sha (fail closed), gh absent clears it flagged .pr.merge_unverified and printed UNVERIFIED; clear messages name the reason; 11 mutations caught (block guard, MERGED, headRefName ×2, merge-commit match, sha regex, worker refusal, advance evidence, fail closed, unverified marking, unverified flag)"
+rm -rf "$mg_t" "$mg_bin" "$mg_md"
 
 # --- Tier 2: merge-tree probe + owned files (FR-012) --------------------------------------
 head_ "Parallel-safety"
@@ -3786,5 +3991,6 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 [ "$gw_fail" -eq 0 ] && ok "every hook-cited rule and section is present (FR-004, FR-005, FR-007)"
 
 # --- Result --------------------------------------------------------------------------
+rmdir "$SMOKE_NO_GH_DIR" 2>/dev/null
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

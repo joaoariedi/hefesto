@@ -266,20 +266,28 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
 5. **Watch for blocks**: every session opened in the checkout prints `ledger: <id> blocked_on <kind>`
    at start; `herdr agent wait --until blocked` and `claude agents --json` show the pane. A `human:*`
    block is cleared only by the artifact the human command leaves behind (`/hef.clarify`,
-   `/hef.review`, the merge itself), or — for `human:intake` only — by a person who read the item
+   `/hef.review`, the merge itself — the branch in the integration branch or, once GitHub deletes it,
+   the PR's merge commit there), or — for `human:intake` only — by a person who read the item
    text (`status-board.sh --item <id>`) running
    `hooks/ledger.sh unblock <id> --reviewed-by-human --by <name>`. That clear works from any session,
    and the name and time are recorded on the entry (`.reviewed`). The gate is Claude Code's
    **permission prompt**: never add `--reviewed-by-human` (or a blanket `ledger.sh` rule) to any
    allowlist, so every intake clear is a dialog you answer. That needs the pane in **`default`
    permission mode**: under `auto`, `bypassPermissions` or `dontAsk` no dialog appears (the session-start
-   hook warns when an intake block is open in such a session). Never answer "Yes, don't ask again" on a
+   hook warns when an intake or a `human:merge` block is open in such a session). Never answer "Yes, don't ask again" on a
    `ledger.sh` call in the orchestrator pane either: the saved prefix rule would admit the clear
    silently. The command is refused inside a launched worker. Nothing replaces an intake block, and nothing claims
    an intake-blocked entry: the named clear is the only way out. A worker cannot replace any other
    person's block either.
-6. **After you merge**: `git pull --ff-only`, then `hooks/ledger.sh unblock <id>` and
-   `hooks/ledger.sh advance <id> merged`; remove the worktree with
+6. **After you merge**: `git fetch --prune origin` (and `git pull --ff-only`), then
+   `hooks/ledger.sh unblock <id>` and `hooks/ledger.sh advance <id> merged`. The unblock accepts the
+   branch inside the integration branch or, once the branch is deleted, the recorded PR's merge commit
+   (read through `gh`, which must say MERGED from that branch); it records that commit as
+   `.pr.merge_sha`, which `advance … merged` re-checks. For a squash or rebase merge whose branch still
+   exists, pass the merge commit yourself: `hooks/ledger.sh unblock <id> --merge-sha <sha>` (refused
+   inside a launched worker). With gh installed the sha is checked against the PR, and a gh that
+   cannot read it refuses (fail closed — fix `gh auth status` or retry); without gh it is accepted but
+   printed `UNVERIFIED` and recorded as `.pr.merge_unverified`. Remove the worktree with
    `git worktree remove .claude/worktrees/<id>`.
 7. **Between the PR and the merge, let the babysitter watch it**: from the checkout of the PR's
    branch, `/hef.babysit` (or `/loop 25m /hef.babysit <n> --once` while a review is pending). It

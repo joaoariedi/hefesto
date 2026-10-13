@@ -84,13 +84,16 @@ if [ -d "$LDIR" ]; then
   # The intake gate is a permission dialog the person answers — there is none under auto, bypassPermissions
   # or dontAsk. Best effort: the last defaultMode among user, project and local settings.
   # an OPEN intake block only — `.reviewed[]` history also contains the string (re-review S1')
-  if jq -e -s 'any(.[]; .blocked_on.kind? == "human:intake")' "$LDIR"/*.json >/dev/null 2>&1; then
+  # An OPEN human:merge block too (user decision 2026-10-13): its clear, `--merge-sha` above all, is a
+  # person's assertion that no dialog would surface in those modes either.
+  if jq -e -s 'any(.[]; .blocked_on.kind? == "human:intake" or .blocked_on.kind? == "human:merge")' "$LDIR"/*.json >/dev/null 2>&1; then
+    GKINDS="$(jq -r -s '[.[] | .blocked_on.kind? | select(. == "human:intake" or . == "human:merge")] | unique | join(" and ")' "$LDIR"/*.json 2>/dev/null)"
     PMODE=""
     for sf in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$CWD/.claude/settings.json" "$CWD/.claude/settings.local.json"; do
       m="$(jq -r '.permissions.defaultMode // empty' "$sf" 2>/dev/null)"; [ -n "$m" ] && PMODE="$m"
     done
     case "$PMODE" in auto|bypassPermissions|dontAsk)
-      echo "hefesto WARNING: a human:intake block is open and this session's permission mode (from the settings files; best effort) is '$PMODE' — no dialog will ask you before 'ledger.sh unblock --reviewed-by-human' runs; clear intake blocks from a pane in default mode (docs/install.md §7)" ;;
+      echo "hefesto WARNING: a $GKINDS block is open and this session's permission mode (from the settings files; best effort) is '$PMODE' — no dialog will ask you before 'ledger.sh unblock' clears it (--reviewed-by-human for intake, --merge-sha for merge); clear human gates from a pane in default mode (docs/install.md §7)" ;;
     esac
   fi
 fi
