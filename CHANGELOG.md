@@ -58,7 +58,7 @@ it is what caught the hand-bumped era:
   Flags: `--yes`, `--dry-run`, `--lang en|pt` (Portuguese also from `LANG`), `--profile`
   (repeatable), `--version`. It needs only bash (written to be 3.2-compatible), git, jq and
   `claude`. `tests/smoke.sh` drives it in throwaway HOMEs, against a local bare repo and a fake
-  `claude`, with eleven mutations; `SMOKE_LIVE=1` runs it against the real CLI.
+  `claude`, with seventeen mutations; `SMOKE_LIVE=1` runs it against the real CLI.
 
 ## [7.9.2] - 2026-10-06
 

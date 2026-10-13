@@ -3690,12 +3690,19 @@ iw_commit() { # $1 version, $2 message
   printf '{"name":"hefesto","owner":{"name":"t"},"plugins":[{"name":"hefesto","source":"./","version":"%s"}]}\n' "$1" > "$s/.claude-plugin/marketplace.json"
   printf 'quality rules %s\n' "$1" > "$s/.claude/rules/code-quality.md"; printf 'git rules\n' > "$s/.claude/rules/git-workflow.md"
   printf '# Hefesto v%s\n\nagents of %s\n' "${1%.*}" "$1" > "$s/.claude/CLAUDE.md"; printf 'readme\n' > "$s/README.md"
+  mkdir -p "$s/agents" "$s/commands"; printf 'reviewer agent %s\n' "$1" > "$s/agents/code-reviewer.md"; printf 'plan command\n' > "$s/commands/hef.plan.md"
   git -C "$s" add -A -f && git -C "$s" -c user.email=s@t -c user.name=s commit -q --allow-empty -m "$2"
 }
 { git init -q -b main "$iw_t/src" && iw_commit 7.8.0 'chore(release): 7.8.0' && git -C "$iw_t/src" tag -a v7.8.0 -m v7.8.0 \
   && iw_commit 7.9.2 'chore(release): 7.9.2' && git -C "$iw_t/src" tag -a v7.9.2 -m v7.9.2 \
   && iw_commit 7.9.2 'feat: unreleased' && git clone -q --bare "$iw_t/src" "$iw_bare"; } >/dev/null 2>&1 || bad "install wizard: the bare-repo fixture failed"
 iw_sha() { git -C "$iw_bare" rev-parse "$1^{commit}"; }
+# A second bare repo whose newest tag, v7.9.3, checks out to an invalid path (.git/x): the clone
+# succeeds, its checkout fails — the shape of a first install that dies half-way (B2).
+iw_badbare="$iw_t/bad.git"
+{ iw_bt="$(printf '%s\n040000 tree %s\t.git\n' "$(git -C "$iw_t/src" ls-tree HEAD)" "$(git -C "$iw_t/src" rev-parse 'HEAD:.claude')" | git -C "$iw_t/src" mktree)" \
+  && git -C "$iw_t/src" tag -a v7.9.3 -m bad "$(git -C "$iw_t/src" -c user.email=s@t -c user.name=s commit-tree "$iw_bt" -p HEAD -m bad)" \
+  && git clone -q --bare "$iw_t/src" "$iw_badbare" && git -C "$iw_t/src" tag -d v7.9.3; } >/dev/null 2>&1 || bad "install wizard: the bad-repo fixture failed"
 IW_SRC_CMD="$iw_t/src/.claude/CLAUDE.md"; IW_SRC_RULE="$iw_t/src/.claude/rules/code-quality.md"
 
 iw_home() { # a fresh HOME: two real profiles plus three decoys that must never count as profiles
@@ -3723,14 +3730,25 @@ iw_ver() { jq -r '.plugins["hefesto@hefesto"][0].version // "-"' "$1/plugins/ins
 iw_on() { jq -r '.enabledPlugins["hefesto@hefesto"] // false' "$1/settings.json" 2>/dev/null; }
 # "Nothing lost": every regular file outside the clone exists afterwards at its path, or under
 # ~/hefesto-old, with the same hash. The clone is excluded: git owns its history.
-iw_snap() { (cd "$1" && find . -path ./hefesto-old -prune -o -path ./hefesto-src -prune -o -type f -print0 | sort -z | xargs -0 sha256sum); }
-iw_lost() { # $1 home, $2 snapshot → the files whose content is nowhere
-  local h="$1" sum f old
+# Directories and symlinks count too: a dry run that only made an empty folder is still a change,
+# and a moved link must still exist somewhere with the same target.
+iw_snap() {
+  (cd "$1" && find . \( -path ./hefesto-old -o -path ./hefesto-src \) -prune -o \
+    \( -type f -exec sh -c 'printf "f %s %s\n" "$(sha256sum < "$1" | cut -d" " -f1)" "$1"' _ {} \; \) -o \
+    \( -type l -exec sh -c 'printf "l %s %s\n" "$(readlink "$1")" "$1"' _ {} \; \) -o \( -type d -printf 'd - %p\n' \) | sort)
+}
+iw_lost() { # $1 home, $2 snapshot → the entries whose content (or link, or folder) is nowhere
+  local h="$1" kind sum f old links
   old="$( (cd "$h/hefesto-old" 2>/dev/null && find . -type f -exec sha256sum {} +) )"
-  while read -r sum f; do
+  links="$( (cd "$h" && find . -path ./hefesto-src -prune -o -type l -exec readlink {} \;) )"
+  while read -r kind sum f; do
     [ -n "$f" ] || continue
-    [ -f "$h/$f" ] && [ "$(sha256sum < "$h/$f" | cut -d' ' -f1)" = "$sum" ] && continue
-    grep -q "^$sum " <<<"$old" || printf '%s ' "$f"
+    case "$kind" in
+      d) [ -d "$h/$f" ] || printf '%s ' "$f" ;;
+      l) grep -qxF -- "$sum" <<<"$links" || printf '%s ' "$f" ;;
+      f) [ -f "$h/$f" ] && [ "$(sha256sum < "$h/$f" | cut -d' ' -f1)" = "$sum" ] && continue
+         grep -q "^$sum " <<<"$old" || printf '%s ' "$f" ;;
+    esac
   done <<<"$2"
 }
 
@@ -3740,7 +3758,7 @@ iw_upgrade() {
   IW_H="$(iw_home)"; IW_ENV=()
   git clone -q -c advice.detachedHead=false --branch v7.8.0 "$iw_bare" "$IW_H/hefesto-src" 2>/dev/null
   for p in "" "$IW_H/.claude-work"; do iw_fake "$IW_H" "$p" plugin marketplace add "$IW_H/hefesto-src"; iw_fake "$IW_H" "$p" plugin install hefesto@hefesto; done
-  printf '# Hefesto v7.8\nold\n' | tee "$IW_H/.claude/CLAUDE.md" "$IW_H/.claude-work/CLAUDE.md" >/dev/null
+  git -C "$iw_bare" show v7.8.0:.claude/CLAUDE.md | tee "$IW_H/.claude/CLAUDE.md" "$IW_H/.claude-work/CLAUDE.md" >/dev/null
   printf 'mine\n' > "$IW_H/.claude/CLAUDE.md.mine"
   mkdir -p "$IW_H/.claude/rules" "$IW_H/dotfiles/rules"; printf 'my edits\n' > "$IW_H/.claude/rules/code-quality.md"
   printf 'dot rules\n' > "$IW_H/dotfiles/rules/code-quality.md"; ln -s "$IW_H/dotfiles/rules" "$IW_H/.claude-work/rules"
@@ -3754,6 +3772,7 @@ iw_legacy() {
     printf '{"version":2,"plugins":{"ai-development-framework@ai-development-framework":[{"scope":"user","version":"5.2.0"}]}}\n' > "${p%%:*}/plugins/installed_plugins.json"
   done
   printf 'custom\n' > "$IW_H/.claude/CLAUDE.md"; printf 'older\n' > "$IW_H/.claude/CLAUDE.md.mine"
+  printf '# Hefesto v7.1\n\nMY OWN RULES\n' > "$IW_H/.claude-work/CLAUDE.md"   # starts like hefesto's, is not a shipped blob
 }
 iw_main() {
   IW_H="$(iw_home)"; IW_ENV=(HEFESTO_CLONE_DIR="$IW_H/hefesto-src")
@@ -3831,22 +3850,26 @@ grep -qF 'kept the marketplace ai-development-framework' <<<"$iw_out" || { bad "
 [ "$(cat "$H/.claude/CLAUDE.md")" = custom ] && [ "$(cat "$H/.claude/CLAUDE.md.mine")" = older ] && grep -qF 'CLAUDE.md.mine already exists' <<<"$iw_out" \
   || { bad "legacy: an existing .mine must stop the CLAUDE.md step, both files untouched"; iw_fail=1; }
 [ "$(iw_ver "$H/.claude")" = 7.9.2 ] || { bad "legacy: hefesto must be installed after the old plugin is removed"; iw_fail=1; }
+grep -qF 'MY OWN RULES' "$H/.claude-work/CLAUDE.md.mine" 2>/dev/null && [ "$(tail -n 1 "$H/.claude-work/CLAUDE.md")" = "@CLAUDE.md.mine" ] \
+  && ! grep -qF 'MY OWN RULES' "$H/.claude-work/CLAUDE.md" || { bad "a '# Hefesto v7.1' file with the person's own rules is NOT a shipped copy: it must move to .mine, imported"; iw_fail=1; }
 iw_l="$(iw_lost "$H" "$S0")"; [ -z "$iw_l" ] || { bad "legacy: files lost: $iw_l"; iw_fail=1; }
-[ "$iw_fail" -eq 0 ] && ok "install wizard, legacy plugin: uninstalled per profile, its marketplace removed except the one that is the clone, an existing .mine stops the CLAUDE.md step, nothing lost"
+[ "$iw_fail" -eq 0 ] && ok "install wizard, legacy plugin: uninstalled per profile, its marketplace removed except the one that is the clone, an existing .mine stops the CLAUDE.md step, a '# Hefesto v' file with your own rules is kept as .mine (blob rule), nothing lost"
 rm -rf "$H"
 
 # Legacy FILES are report-only (plan simplification a): listed with the exact mv / stow commands, and
 # the default answer stops before installing — nothing moved, no CLI call, no clone.
 iw_fail=0; IW_H="$(iw_home)"; H="$IW_H"; IW_ENV=(HEFESTO_CLONE_DIR="$H/hefesto-src")
-mkdir -p "$H/.claude/commands" "$H/.claude/agents" "$H/dotfiles/agents"; printf 'old\n' > "$H/.claude/commands/speckit.plan.md"
-printf 'agent\n' > "$H/dotfiles/agents/code-reviewer.md"; ln -s "$H/dotfiles/agents/code-reviewer.md" "$H/.claude/agents/code-reviewer.md"
+mkdir -p "$H/.claude/commands" "$H/.claude/agents" "$H/stowdir/hefesto-pkg/.claude/agents"; printf 'old\n' > "$H/.claude/commands/speckit.plan.md"
+printf 'agent\n' > "$H/stowdir/hefesto-pkg/.claude/agents/code-reviewer.md"
+ln -s ../../stowdir/hefesto-pkg/.claude/agents/code-reviewer.md "$H/.claude/agents/code-reviewer.md"   # the relative link stow makes
 iw_go "$H" "$IW" --yes
-[ "$iw_rc" -ne 0 ] && grep -qF 'Old file   ~/.claude/commands/speckit.plan.md' <<<"$iw_out" && grep -qF 'Old link   ~/.claude/agents/code-reviewer.md' <<<"$iw_out" \
-  && grep -qF "speckit.plan.md $H/hefesto-old/" <<<"$iw_out" && grep -qF 'stow -D claude' <<<"$iw_out" && grep -qF 'Stopped before installing' <<<"$iw_out" \
+[ "$iw_rc" -ne 0 ] && grep -qF "Old file?  ~/.claude/commands/speckit.plan.md (possibly hefesto's" <<<"$iw_out" && grep -qF 'Old file?  ~/.claude/agents/code-reviewer.md' <<<"$iw_out" \
+  && grep -qF "speckit.plan.md $H/hefesto-old/" <<<"$iw_out" && grep -qF "/legacy/.claude/commands/" <<<"$iw_out" \
+  && grep -qF 'cd ~/stowdir && stow -D hefesto-pkg' <<<"$iw_out" && grep -qF 'Stopped before installing' <<<"$iw_out" \
   || { bad "legacy files: must be listed with mv + stow commands and stop: rc=$iw_rc $(tail -8 <<<"$iw_out")"; iw_fail=1; }
 [ -f "$H/.claude/commands/speckit.plan.md" ] && [ -L "$H/.claude/agents/code-reviewer.md" ] && [ ! -s "$iw_log" ] && [ ! -e "$H/hefesto-src" ] \
   || { bad "legacy files: nothing may move, no CLI call, no clone"; iw_fail=1; }
-[ "$iw_fail" -eq 0 ] && ok "install wizard, legacy files: reported with the exact mv and stow -D commands, default stops before installing, nothing touched"
+[ "$iw_fail" -eq 0 ] && ok "install wizard, legacy files with no clone: 'possibly hefesto's', mv into legacy/<profile>/<dir>, the stow package derived from the link, default stops, nothing touched"
 rm -rf "$H"
 
 # US4: a dirty clone stops the wizard before any change, naming the fix.
@@ -3947,6 +3970,84 @@ iw_p="$(iw_parity "$IW")"
   && ok "install wizard: en/pt message parity over every key; main \"\$@\" is the last line (a truncated download runs nothing)" \
   || bad "install wizard parity / last line: ${iw_p:-last line is $(tail -n 1 "$IW")}"
 
+# B1: with a clone, an old file is legacy only when its bytes match a blob the clone's history
+# shipped at that path; each profile gets its own legacy/<profile>/<dir> folder in the printed mv.
+iw_lclone() {
+  IW_H="$(iw_home)"; IW_ENV=(HEFESTO_CLONE_DIR="$IW_H/hefesto-src")
+  git clone -q -c advice.detachedHead=false --branch v7.9.2 "$iw_bare" "$IW_H/hefesto-src" 2>/dev/null
+  for p in .claude .claude-work; do mkdir -p "$IW_H/$p/agents" "$IW_H/$p/commands"; git -C "$iw_bare" show v7.8.0:agents/code-reviewer.md > "$IW_H/$p/agents/code-reviewer.md"; done
+  printf 'my own agent\n' > "$IW_H/.claude-work/agents/quality-guardian.md"; printf 'my plan tweaks\n' > "$IW_H/.claude/commands/hef.plan.md"
+}
+iw_lc_dests() { grep -E '^  \$ mv .*/agents/code-reviewer\.md ' <<<"$iw_out" | awk '{print $NF}' | sort -u | wc -l | tr -d ' '; }
+iw_fail=0; iw_lclone; H="$IW_H"
+iw_go "$H" "$IW" --yes --profile "$H/.claude-work"
+[ "$iw_rc" -ne 0 ] && grep -qF 'Old file   ~/.claude/agents/code-reviewer.md' <<<"$iw_out" && grep -qF 'Old file   ~/.claude-work/agents/code-reviewer.md' <<<"$iw_out" \
+  && grep -qF '/legacy/.claude/agents/' <<<"$iw_out" && grep -qF '/legacy/.claude-work/agents/' <<<"$iw_out" && [ "$(iw_lc_dests)" = 2 ] \
+  || { bad "legacy with a clone: both shipped code-reviewer.md files must be listed, each into its own legacy/<profile>/agents/: $(grep -F '$ mv' <<<"$iw_out")"; iw_fail=1; }
+grep -qE 'quality-guardian|hef\.plan\.md' <<<"$iw_out" && { bad "legacy with a clone: a person's own quality-guardian.md / hef.plan.md was flagged as hefesto's"; iw_fail=1; }
+[ -f "$H/.claude-work/agents/quality-guardian.md" ] && [ ! -s "$iw_log" ] || { bad "legacy with a clone: nothing may move, no CLI call"; iw_fail=1; }
+[ "$iw_fail" -eq 0 ] && ok "install wizard, legacy files with a clone: flagged only when the bytes match a shipped blob (your own agent and command are not), one legacy/<profile>/<dir> folder per profile (B1)"
+rm -rf "$H"
+
+# B2: an explicit --version is checked against the remote before any change; a first clone that
+# fails half-way leaves no half-made clone folder, so the next run just works.
+iw_fail=0; iw_fresh; H="$IW_H"; S0="$(iw_snap "$H")"
+iw_go "$H" "$IW" --yes --version v9.9.9
+[ "$iw_rc" -ne 0 ] && grep -qF -- '--version v9.9.9 is not a release. Available: v7.8.0 v7.9.2' <<<"$iw_out" && [ ! -s "$iw_log" ] && [ "$(iw_snap "$H")" = "$S0" ] \
+  || { bad "an unknown --version must be refused before any change, naming the tags: rc=$iw_rc $(tail -2 <<<"$iw_out")"; iw_fail=1; }
+IW_ENV=(HEFESTO_CLONE_DIR="$H/hefesto-src" HEFESTO_REPO_URL="$iw_badbare"); iw_go "$H" "$IW" --yes
+[ "$iw_rc" -ne 0 ] && grep -qF 'This step failed' <<<"$iw_out" && [ ! -e "$H/hefesto-src" ] && [ ! -s "$iw_log" ] \
+  || { bad "a first clone whose checkout fails must leave no ~/hefesto-src: rc=$iw_rc $(tail -2 <<<"$iw_out")"; iw_fail=1; }
+IW_ENV=(HEFESTO_CLONE_DIR="$H/hefesto-src"); iw_go "$H" "$IW" --yes
+[ "$iw_rc" -eq 0 ] && [ "$(git -C "$H/hefesto-src" rev-parse HEAD 2>/dev/null)" = "$(iw_sha v7.9.2)" ] || { bad "after a failed first clone, the next run must succeed: rc=$iw_rc"; iw_fail=1; }
+[ "$iw_fail" -eq 0 ] && ok "install wizard: --version v9.9.9 refused naming the tags, before any change; a first clone that fails at checkout leaves no clone folder, and the next run succeeds (B2)"
+rm -rf "$H"
+
+# B3: a commit on a detached HEAD would be orphaned by the checkout — stop and say how to keep it.
+iw_orphan() { iw_dirty; git -C "$IW_H/hefesto-src" checkout -q README.md; git -C "$IW_H/hefesto-src" -c user.email=s@t -c user.name=s commit -q --allow-empty -m 'my local fix'; }
+iw_fail=0; iw_orphan; H="$IW_H"; iw_head="$(git -C "$H/hefesto-src" rev-parse HEAD)"
+iw_go "$H" "$IW" --yes
+[ "$iw_rc" -ne 0 ] && grep -qF "has a commit that is on no branch ($(git -C "$H/hefesto-src" rev-parse --short HEAD))" <<<"$iw_out" \
+  && grep -qF "git -C $H/hefesto-src branch keep-" <<<"$iw_out" && [ "$(git -C "$H/hefesto-src" rev-parse HEAD)" = "$iw_head" ] && [ ! -s "$iw_log" ] \
+  || { bad "a detached local commit must stop the wizard with the branch hint, HEAD untouched: rc=$iw_rc $(tail -2 <<<"$iw_out")"; iw_fail=1; }
+[ "$iw_fail" -eq 0 ] && ok "install wizard: a commit on a detached HEAD stops it, naming the commit and the git branch command; HEAD and the profiles untouched (B3)"
+rm -rf "$H"
+
+# S1: placeholders are spliced, so bash before 4.3 (BASH_COMPAT=4.2 here) prints no stray quotes and
+# bash 5.2's patsub_replacement does not expand the & in a path.
+iw_fail=0; iw_fresh; H="$IW_H"
+IW_ENV=(HEFESTO_CLONE_DIR="$H/a&b" BASH_COMPAT=4.2); iw_go "$H" "$IW" --dry-run --yes
+grep -qF 'Clone      ~/a&b — not there yet' <<<"$iw_out" || { bad "BASH_COMPAT=4.2: the clone line must read '~/a&b' with no quotes: $(grep -F 'Clone ' <<<"$iw_out")"; iw_fail=1; }
+IW_ENV=(HEFESTO_CLONE_DIR="$H/a&b"); iw_go "$H" "$IW" --dry-run --yes
+grep -qF 'Clone      ~/a&b — not there yet' <<<"$iw_out" || { bad "an & in a path must print as itself: $(grep -F 'Clone ' <<<"$iw_out")"; iw_fail=1; }
+[ "$iw_fail" -eq 0 ] && ok "install wizard messages: no stray quotes under BASH_COMPAT=4.2, an & in a value prints as itself (S1)"
+rm -rf "$H"
+
+# S3 + S4: a profile registered to another clone is re-pointed at the chosen one (marketplace file
+# backed up first); an absent CLAUDE.md beside an existing .mine gets hefesto's WITH the import.
+iw_repoint() {
+  IW_H="$(iw_home)"; IW_ENV=(HEFESTO_CLONE_DIR="$IW_H/hefesto-src")
+  git clone -q -c advice.detachedHead=false --branch v7.9.2 "$iw_bare" "$IW_H/hefesto-src" 2>/dev/null
+  git clone -q -c advice.detachedHead=false --branch v7.8.0 "$iw_bare" "$IW_H/other-clone" 2>/dev/null
+  iw_fake "$IW_H" "" plugin marketplace add "$IW_H/hefesto-src"; iw_fake "$IW_H" "" plugin install hefesto@hefesto
+  iw_fake "$IW_H" "$IW_H/.claude-work" plugin marketplace add "$IW_H/other-clone"; iw_fake "$IW_H" "$IW_H/.claude-work" plugin install hefesto@hefesto
+  printf 'old mine\n' > "$IW_H/.claude/CLAUDE.md.mine"
+}
+iw_fail=0; iw_repoint; H="$IW_H"; S0="$(iw_snap "$H")"
+iw_go "$H" "$IW" --yes --profile "$H/.claude-work"
+[ "$iw_rc" -eq 0 ] && grep -qF 'Point 1 profile(s) at ~/hefesto-src' <<<"$iw_out" && grep -qF '~/.claude-work uses another hefesto folder: ~/other-clone' <<<"$iw_out" \
+  || { bad "re-point: the plan must name the profile on another clone: rc=$iw_rc $(tail -3 <<<"$iw_out")"; iw_fail=1; }
+grep -qF "cfg=$H/.claude-work scope=user plugin marketplace remove hefesto" "$iw_log" && grep -qF "cfg=$H/.claude-work scope=user plugin marketplace add $H/hefesto-src" "$iw_log" \
+  && ! grep -qF 'cfg=unset scope=user plugin marketplace remove' "$iw_log" || { bad "re-point: only ~/.claude-work gets remove + add: $(cat "$iw_log")"; iw_fail=1; }
+[ "$(jq -r .hefesto.installLocation "$H/.claude-work/plugins/known_marketplaces.json")" = "$H/hefesto-src" ] && [ "$(iw_ver "$H/.claude-work")" = 7.9.2 ] \
+  && grep -qF other-clone "$(find "$H/hefesto-old" -path '*/.claude-work/plugins/known_marketplaces.json' | head -n 1)" \
+  || { bad "re-point: ~/.claude-work must read the chosen clone at 7.9.2, its old marketplace file backed up"; iw_fail=1; }
+[ "$(tail -n 1 "$H/.claude/CLAUDE.md")" = "@CLAUDE.md.mine" ] && [ "$(cat "$H/.claude/CLAUDE.md.mine")" = "old mine" ] \
+  || { bad "an absent CLAUDE.md beside an existing .mine must get hefesto's WITH the import (S4)"; iw_fail=1; }
+iw_l="$(iw_lost "$H" "$S0")"; [ -z "$iw_l" ] || { bad "re-point: entries lost: $iw_l"; iw_fail=1; }
+[ "$iw_fail" -eq 0 ] && ok "install wizard: a profile registered to another clone is re-pointed (remove + add, marketplace file backed up) and converges at 7.9.2; an absent CLAUDE.md beside a .mine imports it (S3, S4)"
+rm -rf "$H"
+
 # SC-002 mutations: each one reintroduces a defect the plan names, must APPLY (cmp), and must turn a
 # state assertion red — the mutant's registry, clone, log or files, never only its exit code.
 iw_md="$(mktemp -d)"; IW_MUT="$iw_md/install.sh"; iw_mfail=0
@@ -3987,7 +4088,28 @@ iw_mut '/clone_dirty && die clone_dirty/d'; iw_dirty; H="$IW_H"; iw_go "$H" "$IW
 # 11 pt/en parity → a Portuguese text deleted
 iw_mut '/^msg_pt()/,/^}/{/^    found_header)/d}'
 grep -qF 'pt:found_header' <<<"$(iw_parity "$IW_MUT")" || { bad "mutation survived: msg_pt lost found_header, parity still clean"; iw_mfail=1; }
-[ "$iw_mfail" -eq 0 ] && ok "install-wizard mutations: dry-run writing, clone as profile, backup as profile, .mine overwrite, write through a symlinked CLAUDE.md, delete instead of move, no-tty default, main downgraded, per-profile CLAUDE_CONFIG_DIR, dirty-clone stop, pt/en parity — all caught (SC-002)"
+# 12 B1: the shared legacy folder → two code-reviewer.md mv lines paste into one destination
+iw_mut 's|d="\$BK/legacy/\$(basename "\$p")/\$(basename "\$(dirname "\$f")")"|d="$BK/legacy"|'; iw_lclone; H="$IW_H"; iw_go "$H" "$IW_MUT" --yes --profile "$H/.claude-work"
+[ "$(iw_lc_dests)" = 2 ] && { bad "mutation survived: one shared legacy folder, yet two distinct mv destinations"; iw_mfail=1; }
+# 13 the shipped-blob test for legacy files → a person's own quality-guardian.md is flagged
+iw_mut 's/ shipped_blob "\$f" / true "$f" /'; iw_go "$H" "$IW_MUT" --yes --profile "$H/.claude-work"
+grep -qF 'quality-guardian.md' <<<"$iw_out" || { bad "mutation survived: every agent counts as legacy, yet your own quality-guardian.md is not listed"; iw_mfail=1; }; rm -rf "$H"
+# 14 B2: no temp clone → the failed checkout leaves a half-made ~/hefesto-src
+iw_mut 's/local tmp="\$CLONE.partial-\$\$"/local tmp="$CLONE"/'; iw_fresh; H="$IW_H"
+IW_ENV=(HEFESTO_CLONE_DIR="$H/hefesto-src" HEFESTO_REPO_URL="$iw_badbare"); iw_go "$H" "$IW_MUT" --yes
+[ -e "$H/hefesto-src" ] || { bad "mutation survived: cloned straight into place, yet no half-made clone after the failed checkout"; iw_mfail=1; }; rm -rf "$H"
+# 15 B3: the detached-commit check removed → the checkout moves HEAD off the local commit
+iw_mut '/^  check_orphan$/d'; iw_orphan; H="$IW_H"; iw_head="$(git -C "$H/hefesto-src" rev-parse HEAD)"; iw_go "$H" "$IW_MUT" --yes
+[ "$(git -C "$H/hefesto-src" rev-parse HEAD)" = "$iw_head" ] && { bad "mutation survived: the orphan check removed, HEAD still on the local commit"; iw_mfail=1; }; rm -rf "$H"
+# 16 the blob-hash previous-copy rule → a '# Hefesto v7.1' file with MY OWN RULES is overwritten
+iw_mut 's/if \[ ! -L "\$dst" \] && is_hefesto_copy "\$dst"; then/if [ ! -L "$dst" ] \&\& case "$(head -n 1 "$dst")" in "# Hefesto v"*) true ;; *) false ;; esac; then/'
+iw_legacy; H="$IW_H"; iw_go "$H" "$IW_MUT" --yes --profile "$H/.claude-work"
+grep -qF 'MY OWN RULES' "$H/.claude-work/CLAUDE.md.mine" 2>/dev/null && { bad "mutation survived: first-line rule, yet MY OWN RULES still in .mine"; iw_mfail=1; }; rm -rf "$H"
+# 17 S1: the quoted ${t//pat/"$a"} replacement → stray quotes under BASH_COMPAT=4.2
+iw_mut 's|t="$(fill "$t" "{$i}" "$a")"|t="${t//\\{$i\\}/"$a"}"|'; iw_fresh; H="$IW_H"
+IW_ENV=(HEFESTO_CLONE_DIR="$H/a&b" BASH_COMPAT=4.2); iw_go "$H" "$IW_MUT" --dry-run --yes
+grep -qF 'Clone      ~/a&b — not there yet' <<<"$iw_out" && { bad "mutation survived: the quoted replacement is back, yet no stray quotes under BASH_COMPAT=4.2"; iw_mfail=1; }; rm -rf "$H"
+[ "$iw_mfail" -eq 0 ] && ok "install-wizard mutations: dry-run writing, clone as profile, backup as profile, .mine overwrite, write through a symlinked CLAUDE.md, delete instead of move, no-tty default, main downgraded, per-profile CLAUDE_CONFIG_DIR, dirty-clone stop, pt/en parity, shared legacy folder, legacy blob test, no temp clone, detached-commit check, previous-copy blob rule, quoted replacement — all caught (SC-002, review)"
 IW_ENV=()
 
 # Live tier (SMOKE_LIVE=1): the REAL claude CLI, a directory marketplace, a throwaway HOME — the

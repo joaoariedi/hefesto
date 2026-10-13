@@ -57,10 +57,11 @@ in each profile, copies the rules and `CLAUDE.md` (yours is kept as `CLAUDE.md.m
 the result. It never deletes, never uses `sudo`, and backs up what it changes to `~/hefesto-old/`.
 `--dry-run` shows the plan and changes nothing; `--lang pt` speaks Portuguese; `--help` lists the rest.
 
-To run a specific release instead of `main`'s copy of the script, pin the tag:
+To run a specific release's copy of the script instead of `main`'s, pin the tag — the release you
+want, 7.10.0 or later (earlier tags do not carry `install.sh`):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/v7.9.2/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/v<X.Y.Z>/install.sh)
 ```
 
 Or clone first and read the script before you run it:

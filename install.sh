@@ -32,8 +32,8 @@ init_globals() {
   BK="$HOME/hefesto-old/$(date +%Y%m%d-%H%M%S)"; BACKED=""
   TIMEOUT=""; CLONE=""; CLONE_STATE=""; CLONE_VER=""; CLONE_BRANCH=""
   LATEST=""; TARGET=""; REC_MAIN=0; STEPS=""
-  FOUND=""; CANDIDATES=""; CHOSEN=""; OLD_IN=""
-  DO_BACKUP=0; DO_OLD=0; DO_CLONE=0; DO_RULES=0; DO_CMD=0
+  FOUND=""; CANDIDATES=""; CHOSEN=""; OLD_IN=""; REPOINT=""; TAGS=""; LEGACY_BLOBS=""; CMD_BLOBS=""
+  DO_BACKUP=0; DO_OLD=0; DO_CLONE=0; DO_RULES=0; DO_CMD=0; DO_REPOINT=0
 }
 
 # --- Messages ---------------------------------------------------------------------------------
@@ -51,7 +51,8 @@ msg_keys() {
   backup_note root in_claude missing_tools hint_mac hint_linux hint_claude hint_claude_local
   hint_alias gh_missing home_ro not_writable no_tty tty_eof bad_flag bad_lang bad_version
   need_value bad_profile clone_not_git clone_remote clone_dirty main_diverged no_remote no_tags
-  bad_json clone_needed no_profiles step_failed not_updated usage"
+  bad_json clone_needed no_profiles step_failed not_updated usage f_legacy_maybe f_prof_other
+  st_repoint why_repoint mkt_not_dir orphan_commit no_such_tag clone_tmp legacy_unstow dry_checkout_note"
 }
 
 msg_en() {
@@ -111,7 +112,17 @@ msg_en() {
     cmd_current) echo "  {1} is already hefesto's" ;;
     mine_exists) echo "  {1} already exists, so I leave {2} alone. Merge them by hand, then run me again." ;;
     legacy_cmds) echo "These files are from an old install. Move them out of the way (nothing is deleted):" ;;
-    legacy_stow) echo "Some are links from a stow install. Undo it with:  cd {1} && stow -D claude" ;;
+    legacy_stow) echo "Some are links from a stow install. Undo it with:  cd {1} && stow -D {2}" ;;
+    f_legacy_maybe) echo "  Old file?  {1} (possibly hefesto's: there is no clone yet to compare it with)" ;;
+    f_prof_other) echo "    {1} uses another hefesto folder: {2}" ;;
+    st_repoint) echo "Point {1} profile(s) at {2}" ;;
+    why_repoint) echo "a profile that reads another folder never gets this update (its marketplace file is backed up first)" ;;
+    mkt_not_dir) echo "  The hefesto marketplace in {1} is a {2} source, not a folder; I use the default clone folder." ;;
+    orphan_commit) echo "{1} has a commit that is on no branch ({2}). A checkout would orphan it. Keep it first:  git -C {1} branch keep-{2}" ;;
+    no_such_tag) echo "--version {1} is not a release. Available: {2} (or main)." ;;
+    clone_tmp) echo "  (downloading into {1} first; it gets its real name once complete)" ;;
+    legacy_unstow) echo "{1} is a link: unstow the package that owns it." ;;
+    dry_checkout_note) echo "  (note: the rules, CLAUDE.md and commit comparisons below use the clone as it is now, before the update)" ;;
     legacy_stop) echo "Stopped before installing. Move the old files, then run the wizard again." ;;
     verify_header) echo "Check" ;;
     col_profile) echo "Profile" ;;
@@ -225,7 +236,17 @@ msg_pt() {
     cmd_current) echo "  {1} já é o do hefesto" ;;
     mine_exists) echo "  {1} já existe, então não mexo em {2}. Junte os dois à mão e rode de novo." ;;
     legacy_cmds) echo "Estes arquivos são de uma instalação antiga. Tire-os do caminho (nada é apagado):" ;;
-    legacy_stow) echo "Alguns são links de uma instalação com stow. Desfaça com:  cd {1} && stow -D claude" ;;
+    legacy_stow) echo "Alguns são links de uma instalação com stow. Desfaça com:  cd {1} && stow -D {2}" ;;
+    f_legacy_maybe) echo "  Arquivo?   {1} (talvez do hefesto: ainda não há clone para comparar)" ;;
+    f_prof_other) echo "    {1} usa outra pasta do hefesto: {2}" ;;
+    st_repoint) echo "Apontar {1} perfil(is) para {2}" ;;
+    why_repoint) echo "um perfil que lê outra pasta nunca recebe esta atualização (o arquivo de marketplaces ganha backup antes)" ;;
+    mkt_not_dir) echo "  O marketplace hefesto em {1} é uma fonte {2}, não uma pasta; uso a pasta padrão do clone." ;;
+    orphan_commit) echo "{1} tem um commit fora de qualquer branch ({2}). Um checkout o deixaria órfão. Guarde-o antes:  git -C {1} branch keep-{2}" ;;
+    no_such_tag) echo "--version {1} não é uma versão publicada. Disponíveis: {2} (ou main)." ;;
+    clone_tmp) echo "  (baixando primeiro em {1}; ganha o nome certo quando terminar)" ;;
+    legacy_unstow) echo "{1} é um link: desfaça o stow do pacote que é dono dele." ;;
+    dry_checkout_note) echo "  (nota: as regras, o CLAUDE.md e as comparações de commit abaixo usam o clone como está agora, antes de atualizar)" ;;
     legacy_stop) echo "Parei antes de instalar. Mova os arquivos antigos e rode o instalador de novo." ;;
     verify_header) echo "Conferência" ;;
     col_profile) echo "Perfil" ;;
@@ -293,8 +314,20 @@ msg() { # $1 key, then the values for {1} {2} … → the text, no newline
   t="$(msg_"${LNG:-$(env_lang)}" "$k")"
   [ -n "$t" ] || t="$(msg_en "$k")"
   [ -n "$t" ] || t="$k"
-  for a in "$@"; do t="${t//\{$i\}/"$a"}"; i=$((i + 1)); done
+  for a in "$@"; do t="$(fill "$t" "{$i}" "$a")"; i=$((i + 1)); done
   printf '%s' "$t"
+}
+
+# Splice, not ${t//pat/"$a"}: before bash 4.3 the quotes in that replacement stay in the output
+# (macOS /bin/bash 3.2 printed "~/.claude" with its quotes), and without them bash 5.2's
+# patsub_replacement turns an & in a path into the matched text.
+fill() { # $1 text, $2 placeholder, $3 value → every placeholder replaced by the value
+  local t="$1" out=""
+  while case "$t" in *"$2"*) true ;; *) false ;; esac; do
+    out="$out${t%%"$2"*}$3"
+    t="${t#*"$2"}"
+  done
+  printf '%s' "$out$t"
 }
 say() { printf '%s\n' "$(msg "$@")"; }
 die() { printf '\n%s\n' "$(msg "$@")" >&2; exit 1; }
@@ -375,7 +408,7 @@ parse_args() {
     case "$1" in
       -y|--yes) YES=1 ;;
       --dry-run) DRY=1 ;;
-      --lang) need_value "$1" "${2:-}"; LNG="$2"; shift ;;
+      --lang) need_value "$1" "${2:-}"; set_lang "$2"; shift ;;
       --profile) need_value "$1" "${2:-}"; PROFILE_ARGS="$PROFILE_ARGS$(abs_dir "$2")
 "; shift ;;
       --version) need_value "$1" "${2:-}"; VERSION_ARG="$2"; shift ;;
@@ -384,8 +417,12 @@ parse_args() {
     esac
     shift
   done
-  case "$LNG" in "") LNG="$(env_lang)" ;; en|pt) ;; pt-BR|pt_BR) LNG=pt ;; *) local bad="$LNG"; LNG=en; die bad_lang "$bad" ;; esac
+  [ -n "$LNG" ] || LNG="$(env_lang)"
   case "$VERSION_ARG" in "") ;; main|v[0-9]*) ;; [0-9]*) VERSION_ARG="v$VERSION_ARG" ;; *) die bad_version "$VERSION_ARG" ;; esac
+}
+
+set_lang() { # validated where it is read, so --help or an error after it never calls a missing table
+  case "$1" in en|pt) LNG="$1" ;; pt-BR|pt_BR) LNG=pt ;; *) LNG=en; die bad_lang "$1" ;; esac
 }
 
 abs_dir() { local d="${1%/}"; case "$d" in /*) printf '%s' "$d" ;; *) printf '%s/%s' "$PWD" "$d" ;; esac; }
@@ -408,7 +445,7 @@ preflight() {
   done
   [ "$missing" = 0 ] || die missing_tools
   command -v gh >/dev/null 2>&1 || say gh_missing
-  probe_write "$HOME" || die home_ro "$HOME"
+  [ "$DRY" = 1 ] || probe_write "$HOME" || die home_ro "$HOME"
   if command -v timeout >/dev/null 2>&1; then TIMEOUT="timeout 300"
   elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT="gtimeout 300"; fi
 }
@@ -437,7 +474,8 @@ detect_profiles() {
 json_ok() { [ ! -e "$1" ] || jq empty "$1" >/dev/null 2>&1; }
 
 # Constitution 5: an unreadable registry is an error, never "not installed". Only a MISSING file
-# means "not installed". Checked here, outside any $(…), so the die really stops the wizard.
+# means "not installed". Checked over the CHOSEN profiles before any change, outside any $(…), so
+# the die really stops the wizard; the reads below stay quiet so detection can still print.
 check_json() { # $1 profile
   local f
   for f in settings.json plugins/installed_plugins.json plugins/known_marketplaces.json; do
@@ -449,13 +487,19 @@ reg_field() { # $1 profile, $2 plugin id, $3 field → the user-scope entry's va
   local f="$1/plugins/installed_plugins.json"
   [ -f "$f" ] || return 0
   jq -r --arg id "$2" --arg k "$3" \
-    '(.plugins[$id] // []) | map(select(.scope == "user")) | (.[0][$k] // empty) | tostring' "$f"
+    '(.plugins[$id] // []) | map(select(.scope == "user")) | (.[0][$k] // empty) | tostring' "$f" 2>/dev/null
 }
 
 km_location() { # $1 profile, $2 marketplace name → its folder, or nothing
   local f="$1/plugins/known_marketplaces.json"
   [ -f "$f" ] || return 0
-  jq -r --arg n "$2" '.[$n].installLocation // .[$n].source.path // empty' "$f"
+  jq -r --arg n "$2" '.[$n].installLocation // .[$n].source.path // empty' "$f" 2>/dev/null
+}
+
+km_source() { # $1 profile → the hefesto marketplace's source type (directory, github, …), or nothing
+  local f="$1/plugins/known_marketplaces.json"
+  [ -f "$f" ] || return 0
+  jq -r '.hefesto.source.source // empty' "$f" 2>/dev/null
 }
 
 enabled_in() { # $1 profile → true|false: enabledPlugins in that profile's settings.json
@@ -482,21 +526,35 @@ pick_candidates() {
   else
     CANDIDATES="$FOUND"
   fi
-  local p
-  while IFS= read -r p; do [ -n "$p" ] && check_json "$p"; done <<<"$FOUND
-$CANDIDATES"
 }
 
 # An existing clone is reused wherever it is (the marketplace records it), never duplicated.
 find_clone() {
   local p loc
   if [ -n "${HEFESTO_CLONE_DIR:-}" ]; then CLONE="$HEFESTO_CLONE_DIR"; return; fi
+  CLONE="$HOME/.claude-framework"
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     loc="$(km_location "$p" hefesto)"
-    if [ -n "$loc" ] && [ -d "$loc" ]; then CLONE="$loc"; return; fi
+    [ -n "$loc" ] || continue
+    # Only a DIRECTORY marketplace's folder is a clone; a github one's is Claude Code's own cache.
+    if [ "$(km_source "$p")" != directory ]; then say mkt_not_dir "$(tilde "$p")" "$(km_source "$p")"; continue; fi
+    if [ -d "$loc" ]; then CLONE="$loc"; return; fi
   done <<<"$CANDIDATES"
-  CLONE="$HOME/.claude-framework"
+}
+
+# Profiles whose hefesto marketplace points somewhere other than the clone never converge: each
+# `marketplace update` re-reads its own folder. They are re-pointed (S3), after a backup.
+find_repoint() {
+  local p loc
+  REPOINT=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    loc="$(km_location "$p" hefesto)"
+    [ -n "$loc" ] || continue
+    same_dir "$loc" "$CLONE" || [ "$loc" = "$CLONE" ] || REPOINT="$REPOINT$p
+"
+  done <<<"$CANDIDATES"
 }
 
 norm_url() { # ssh/https/.git spellings of one repository → one string
@@ -520,9 +578,17 @@ inspect_clone() {
   remote_ok "$url" || die clone_remote "$CLONE" "${url:-?}"
   # Stop BEFORE any change: a junior's uncommitted edit is exactly what a checkout would destroy.
   clone_dirty && die clone_dirty "$CLONE"
+  check_orphan
   CLONE_STATE=present
   CLONE_VER="$(jq -r '.version // empty' "$CLONE/.claude-plugin/plugin.json" 2>/dev/null)"
   CLONE_BRANCH="$(git -C "$CLONE" symbolic-ref -q --short HEAD 2>/dev/null)"
+}
+
+# A commit made on a detached HEAD lives on no branch: the next checkout would orphan it (B3).
+check_orphan() {
+  local c
+  c="$(git -C "$CLONE" rev-list -1 HEAD --not --branches --remotes --tags 2>/dev/null)"
+  [ -z "$c" ] || die orphan_commit "$CLONE" "$(git -C "$CLONE" rev-parse --short "$c")"
 }
 
 clone_where() { # where HEAD is: the branch, the exact tag, or the short commit
@@ -549,6 +615,10 @@ find_latest() {
   done
   [ -n "$best" ] || die no_tags "$REPO_URL"
   LATEST="$best"
+  TAGS="$(printf '%s\n' "$refs" | sed -n 's#.*refs/tags/\(v[0-9][0-9.]*\)$#\1#p' | tr '\n' ' ')"
+  # An explicit --version is checked against the remote before ANY change (B2): a typo must not
+  # get as far as a half-made clone.
+  case "$VERSION_ARG" in ""|main) ;; *) case " $TAGS" in *" $VERSION_ARG "*) ;; *) die no_such_tag "$VERSION_ARG" "${TAGS% }" ;; esac ;; esac
 }
 
 # A clone on main at or ahead of the latest release stays on main: recommending the tag would
@@ -563,14 +633,51 @@ recommend_version() {
   fi
 }
 
-legacy_files() { # $1 profile → the files an old (stow or copy) install left in it
+# Old-install files (B1). With a clone, a file is hefesto's only when its bytes match a blob that
+# the clone's history shipped at that path: a person's own code-reviewer.md is not legacy. With no
+# clone yet (a fresh machine) there is nothing to compare with, so the known names are "possibly".
+load_legacy_blobs() {
+  [ "$CLONE_STATE" = present ] || return 0
+  LEGACY_BLOBS="$(git -C "$CLONE" log --all --format= --raw --no-abbrev -- commands agents hooks \
+    .claude/commands .claude/agents .claude/hooks 2>/dev/null | awk '{print $4, $NF}')"
+}
+
+shipped_blob() { # $1 file, $2 its path below the profile (agents/x.md) → 0 when history shipped it
+  local h
+  h="$(git hash-object "$1" 2>/dev/null)" || return 1
+  awk -v h="$h" -v t="$2" '$1 == h && ($2 == t || substr($2, length($2) - length(t)) == "/" t) { f = 1 }
+    END { exit !f }' <<<"$LEGACY_BLOBS"
+}
+
+legacy_files() { # $1 profile → "old<TAB>path" (matches hefesto's history) or "maybe<TAB>path"
   local p="$1" f n
+  if [ "$CLONE_STATE" = present ]; then
+    for f in "$p"/commands/* "$p"/agents/* "$p"/hooks/*; do
+      [ -f "$f" ] && shipped_blob "$f" "$(basename "$(dirname "$f")")/$(basename "$f")" && printf 'old\t%s\n' "$f"
+    done
+    return 0
+  fi
   for f in "$p"/commands/speckit.*.md "$p"/commands/hef.*.md "$p"/hooks/speckit-helper.sh; do
-    if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\n' "$f"; fi
+    if path_exists "$f"; then printf 'maybe\t%s\n' "$f"; fi
   done
   for n in code-reviewer forensic-specialist quality-guardian repo-scout review-coordinator test-specialist truth-scout; do
     f="$p/agents/$n.md"
-    if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\n' "$f"; fi
+    if path_exists "$f"; then printf 'maybe\t%s\n' "$f"; fi
+  done
+}
+
+# How to undo the stow that linked a flagged file (S7): the package is wherever the link points,
+# minus the file's path below $HOME — never a guessed ~/dotfiles + claude.
+stow_hint() { # $1 flagged file
+  local x t rel pkg
+  for x in "$1" "$(dirname "$1")"; do
+    [ -L "$x" ] || continue
+    t="$(readlink "$x")"
+    case "$t" in /*) ;; *) t="$(cd "$(dirname "$x")" 2>/dev/null && cd "$(dirname "$t")" 2>/dev/null && pwd)/$(basename "$t")" ;; esac
+    rel="${x#"$HOME"/}"
+    case "$t" in */"$rel") pkg="${t%/"$rel"}"; say legacy_stow "$(tilde "$(dirname "$pkg")")" "$(basename "$pkg")"; return ;; esac
+    say legacy_unstow "$(tilde "$x")"
+    return
   done
 }
 
@@ -580,6 +687,8 @@ detect() {
   inspect_clone
   find_latest
   recommend_version
+  find_repoint
+  load_legacy_blobs
   local p
   while IFS= read -r p; do
     [ -n "$p" ] || continue
@@ -599,6 +708,9 @@ print_profiles() {
     else printf '    %-28s %s\n' "$(tilde "$p")" "$(msg f_prof_none)"; fi
   done <<<"$CANDIDATES"
   while IFS= read -r p; do
+    [ -n "$p" ] && say f_prof_other "$(tilde "$p")" "$(tilde "$(km_location "$p" hefesto)")"
+  done <<<"$REPOINT"
+  while IFS= read -r p; do
     [ -n "$p" ] || continue
     case "
 $CANDIDATES
@@ -616,7 +728,9 @@ print_old() {
     while IFS= read -r f; do
       [ -n "$f" ] || continue
       any=1
-      if [ -L "$f" ]; then say f_legacy_link "$(tilde "$f")" "$(readlink "$f")"; else say f_legacy_file "$(tilde "$f")"; fi
+      if [ "${f%%	*}" = maybe ]; then say f_legacy_maybe "$(tilde "${f#*	}")"
+      elif [ -L "${f#*	}" ]; then say f_legacy_link "$(tilde "${f#*	}")" "$(readlink "${f#*	}")"
+      else say f_legacy_file "$(tilde "${f#*	}")"; fi
     done <<<"$(legacy_files "$p")"
   done <<<"$CANDIDATES"
   [ "$any" = 1 ] || say f_old_none
@@ -636,7 +750,9 @@ build_steps() {
   STEPS="backup"
   [ -n "$OLD_IN" ] && STEPS="$STEPS oldplugin"
   [ -z "$VERSION_ARG" ] && STEPS="$STEPS version"
-  STEPS="$STEPS clone profiles rules claudemd"
+  STEPS="$STEPS clone"
+  [ -n "$REPOINT" ] && STEPS="$STEPS repoint"
+  STEPS="$STEPS profiles rules claudemd"
 }
 
 step_text() { # $1 step → its one-line description
@@ -645,6 +761,7 @@ step_text() { # $1 step → its one-line description
     oldplugin) msg st_oldplugin ;;
     version) if [ "$REC_MAIN" = 1 ]; then msg st_stay_main "$LATEST"; else msg st_use_tag "$LATEST"; fi ;;
     clone) if [ "$CLONE_STATE" = absent ]; then msg st_clone "$(tilde "$CLONE")"; else msg st_update "$(tilde "$CLONE")"; fi ;;
+    repoint) msg st_repoint "$(printf '%s\n' "$REPOINT" | awk 'NF' | wc -l | tr -d ' ')" "$(tilde "$CLONE")" ;;
     profiles) msg st_profiles "$(printf '%s\n' "$CANDIDATES" | awk 'NF' | wc -l | tr -d ' ')" ;;
     rules) msg st_rules ;;
     claudemd) msg st_claudemd ;;
@@ -690,6 +807,7 @@ set_answer() { # $1 step, $2 1|0
     clone) DO_CLONE="$2" ;;
     rules) DO_RULES="$2" ;;
     claudemd) DO_CMD="$2" ;;
+    repoint) DO_REPOINT="$2" ;;
     version) [ "$2" = 1 ] || { if [ "$REC_MAIN" = 1 ]; then TARGET="$LATEST"; else TARGET=main; fi; } ;;
   esac
 }
@@ -706,26 +824,33 @@ ask_steps() {
 
 # The old install's files are only REPORTED (plan simplification a): they may be links into
 # someone's dotfiles, so the person moves them. The default answer is to stop before installing.
+# Each file gets its own folder per profile and kind (B1): two profiles both holding
+# agents/code-reviewer.md must not paste into one destination and lose a file.
 gate_legacy() {
-  local p f all="" stow=0
-  while IFS= read -r p; do [ -n "$p" ] && all="$all$(legacy_files "$p")
-"; done <<<"$CHOSEN"
-  [ -n "$(printf '%s' "$all" | tr -d '\n')" ] || return 0
-  echo; say legacy_cmds
-  printf '  $ mkdir -p %q\n' "$BK/legacy"
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    [ -L "$f" ] && stow=1
-    printf '  $ mv %q %q\n' "$f" "$BK/legacy/"
-  done <<<"$all"
-  [ "$stow" = 1 ] && say legacy_stow "$(tilde "$HOME/dotfiles")"
+  local p line f d dirs="" any=0 hints=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      [ "$any" = 1 ] || { echo; say legacy_cmds; any=1; }
+      f="${line#*	}"; d="$BK/legacy/$(basename "$p")/$(basename "$(dirname "$f")")"
+      case "$dirs" in *"|$d|"*) ;; *) printf '  $ mkdir -p %q\n' "$d"; dirs="$dirs|$d|" ;; esac
+      printf '  $ mv %q %q\n' "$f" "$d/"
+      hints="$hints$(stow_hint "$f")
+"
+    done <<<"$(legacy_files "$p")"
+  done <<<"$CHOSEN"
+  [ "$any" = 1 ] || return 0
+  printf '%s' "$hints" | awk 'NF && !seen[$0]++'
   ask q_legacy n || die legacy_stop
 }
 
 check_answers() {
   [ "$DO_CLONE" = 1 ] || [ "$CLONE_STATE" = present ] || die clone_needed
   [ -n "$CHOSEN" ] || die no_profiles
+  each_profile check_json
   gate_legacy
+  [ "$DRY" = 1 ] && return 0
   local p
   while IFS= read -r p; do
     [ -n "$p" ] && [ -d "$p" ] && { probe_write "$p" || die not_writable "$p"; }
@@ -773,15 +898,33 @@ sync_clone() {
   if [ "$CLONE_STATE" = absent ]; then
     # Not `clone --branch <tag>`: git 2.56 warns "refs/tags/… is not a commit!" for an annotated
     # tag, which reads like an error to the person watching. Clone, then check the tag out.
-    if [ "$TARGET" = main ]; then run git clone -q --branch main "$REPO_URL" "$CLONE"; return; fi
-    run git clone -q --no-checkout "$REPO_URL" "$CLONE"
-    run git -C "$CLONE" -c advice.detachedHead=false checkout -q "$TARGET"
+    # Into a folder beside the target, renamed only once the checkout succeeded (B2): a failed
+    # first clone must leave no half-made ~/.claude-framework that the next run would refuse.
+    local tmp="$CLONE.partial-$$"
+    say clone_tmp "$(tilde "$tmp")"
+    if [ "$TARGET" = main ]; then run git clone -q --branch main "$REPO_URL" "$tmp"
+    else
+      run git clone -q --no-checkout "$REPO_URL" "$tmp"
+      run git -C "$tmp" -c advice.detachedHead=false checkout -q "$TARGET"
+    fi
+    run mv "$tmp" "$CLONE"
     return
   fi
   clone_dirty && die clone_dirty "$CLONE"   # again: nothing may have changed it since detection
+  check_orphan
   run git -C "$CLONE" fetch -q --tags origin
   if [ "$TARGET" = main ]; then sync_main
   else run git -C "$CLONE" -c advice.detachedHead=false checkout -q "$TARGET"; fi
+}
+
+repoint_profile() { # $1 profile → its hefesto marketplace re-pointed at the chosen clone (S3)
+  case "
+$REPOINT" in *"
+$1
+"*) ;; *) return 0 ;; esac
+  backup_file "$1" plugins/known_marketplaces.json
+  run_claude "$1" plugin marketplace remove hefesto --scope user
+  run_claude "$1" plugin marketplace add "$CLONE" --scope user
 }
 
 target_version() { # the version the profiles must end at
@@ -845,16 +988,28 @@ path_exists() { [ -e "$1" ] || [ -L "$1" ]; }   # true for a dangling link too
 # CLAUDE.md (user decision 2026-10-13, "Hefesto + import theirs"): absent → hefesto's; a previous
 # hefesto copy → replaced (keeping the import when a .mine exists); anything else → MOVED to
 # CLAUDE.md.mine (a link moves as a link, never written through) and imported from hefesto's.
+# The CLAUDE.md the clone's history shipped, by blob hash. A file that merely STARTS with
+# "# Hefesto v" may carry the person's own additions (review 2026-10-13): only a byte-identical
+# shipped copy — or one plus the import line this wizard appends — counts as "previous hefesto".
+is_hefesto_copy() { # $1 file
+  [ -d "$CLONE/.git" ] || return 1
+  [ -n "$CMD_BLOBS" ] || CMD_BLOBS="$(git -C "$CLONE" log --all --format= --raw --no-abbrev -- .claude/CLAUDE.md | awk '{print $4}')"
+  grep -qx "$(git hash-object "$1")" <<<"$CMD_BLOBS" && return 0
+  [ "$(tail -n 1 "$1")" = "@CLAUDE.md.mine" ] || return 1
+  grep -qx "$(sed '$d' "$1" | sed '$d' | git hash-object --stdin)" <<<"$CMD_BLOBS"
+}
+
+# CLAUDE.md (user decision 2026-10-13, "Hefesto + import theirs"): absent → hefesto's (importing an
+# existing .mine); a shipped hefesto copy → replaced, keeping the import; anything else → MOVED to
+# CLAUDE.md.mine (a link moves as a link, never written through) and imported from hefesto's.
 copy_claude_md() {
   local p="$1" src="$CLONE/.claude/CLAUDE.md" dst="$1/CLAUDE.md" mine="$1/CLAUDE.md.mine" mi=0
   [ -f "$src" ] || { say dry_later; return 0; }
-  if ! path_exists "$dst"; then run cp "$src" "$dst"; return 0; fi
-  if [ ! -L "$dst" ] && cmp -s "$src" "$dst"; then say cmd_current "$(tilde "$dst")"; return 0; fi
   path_exists "$mine" && mi=1
-  if [ ! -L "$dst" ]; then
-    case "$(head -n 1 "$dst")" in
-      "# Hefesto v"*) backup_file "$p" CLAUDE.md; write_claude_md "$src" "$dst" "$mi"; return 0 ;;
-    esac
+  if ! path_exists "$dst"; then write_claude_md "$src" "$dst" "$mi"; return 0; fi
+  if [ ! -L "$dst" ] && cmp -s "$src" "$dst"; then say cmd_current "$(tilde "$dst")"; return 0; fi
+  if [ ! -L "$dst" ] && is_hefesto_copy "$dst"; then
+    backup_file "$p" CLAUDE.md; write_claude_md "$src" "$dst" "$mi"; return 0
   fi
   if [ "$mi" = 1 ]; then say mine_exists "$(tilde "$mine")" "$(tilde "$dst")"; return 0; fi
   backup_file "$p" CLAUDE.md
@@ -862,11 +1017,15 @@ copy_claude_md() {
   write_claude_md "$src" "$dst" 1
 }
 
+# The clone first (S5): the old plugin's marketplace is compared with it, and every later step
+# reads from it.
 execute() {
   say run_header
   [ "$DO_BACKUP" = 1 ] && each_profile backup_profile
-  [ "$DO_OLD" = 1 ] && each_profile remove_old_plugin
   [ "$DO_CLONE" = 1 ] && sync_clone
+  [ "$DO_OLD" = 1 ] && each_profile remove_old_plugin
+  [ "$DO_REPOINT" = 1 ] && each_profile repoint_profile
+  if [ "$DRY" = 1 ] && [ "$CLONE_STATE" = present ] && [ "$DO_CLONE" = 1 ]; then say dry_checkout_note; fi
   each_profile install_plugin
   [ "$DO_RULES" = 1 ] && each_profile copy_rules
   [ "$DO_CMD" = 1 ] && each_profile copy_claude_md
