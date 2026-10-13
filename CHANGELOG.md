@@ -55,6 +55,14 @@ it is what caught the hand-bumped era:
   of its merge commit. A squash or rebase merge (branch present, not an ancestor) clears with
   `--merge-sha <the merge commit>`. `--merge-sha` applies to `human:merge` only, takes 7–40 hex
   characters (never a ref name), and is refused inside a launched worker.
+- **An unchecked `--merge-sha` fails closed.** With gh installed but unable to read the recorded PR, a
+  hand-given or recorded merge sha is refused ("fix gh (`gh auth status`) or retry").
+- **Without gh, a `--merge-sha` clear is marked unverified.** It is accepted as before, recorded as
+  `.pr.merge_unverified = true` and printed `UNVERIFIED (gh not installed; …)`. The clear message
+  names how it was proven: branch deleted, squash/rebase, or given by `--merge-sha`.
+- **The permission-mode warning covers `human:merge`.** `session-start-context.sh` now warns in an
+  `auto`, `bypassPermissions` or `dontAsk` session when a `human:merge` block is open, not only
+  `human:intake`, and names the kind(s).
 
 ## [7.9.2] - 2026-10-06
 

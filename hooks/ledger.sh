@@ -103,20 +103,23 @@ in_branch() {
   [ "$found" = 1 ] && return 1
   return 4
 }
+gh_present() { command -v "${HEFESTO_GH_BIN:-gh}" >/dev/null 2>&1; }   # a HEFESTO_GH_BIN at a missing path is "absent"
 gh_pr_fact() { # $1 PR url → "<state> <headRefName> <mergeCommit oid>" or non-zero (no gh, unreadable)
-  command -v "${HEFESTO_GH_BIN:-gh}" >/dev/null 2>&1 || return 1
+  gh_present || return 1
   "${HEFESTO_GH_BIN:-gh}" pr view "$1" --json state,headRefName,mergeCommit -q '"\(.state) \(.headRefName) \(.mergeCommit.oid // "-")"' 2>/dev/null
 }
-# merge_evidence <entry> <sha or ""> <flag|recorded> → prints how the entry is merged ("branch" or "commit <sha>"),
-# or dies naming what is missing. The ONE check behind `unblock human:merge` and any `advance` into merged:
+# merge_evidence <entry> <sha or ""> <flag|recorded> → prints how the entry is merged — "branch", or
+# "commit <sha> <verified|unverified> <reason>" — or dies naming what is missing. The ONE check behind `unblock human:merge` and any `advance` into merged:
 #   1. the recorded branch inside the integration branch (local or origin/) — a merge-commit merge;
 #   2. a sha (--merge-sha from a person, or .pr.merge_sha recorded by an earlier unblock) inside the
 #      integration branch — cross-checked against the PR when gh can read it: MERGED, the entry's branch
-#      as head, the sha a prefix of its merge commit (code review 2026-10-13: an unchecked sha was a claim);
+#      as head, the sha a prefix of its merge commit (code review 2026-10-13: an unchecked sha was a claim).
+#      Fail closed (user decision 2026-10-13): gh installed but unable to read the PR → refused; gh absent →
+#      accepted as "unverified", which unblock records (.pr.merge_unverified) and prints as UNVERIFIED;
 #   3. the branch deleted (GitHub deletes it on merge) → the recorded PR's merge commit through gh.
 # A --merge-sha is refused inside a launched worker: a worker never asserts a person's merge.
 merge_evidence() {
-  local E="$1" sha="$2" from="$3" br url fact st head oid int rc
+  local E="$1" sha="$2" from="$3" br url fact st head oid int rc ver=verified why
   br=$(jq -r '.branch // empty' <<<"$E"); url=$(jq -r '.pr.url // empty' <<<"$E")
   [ -n "$br" ] || die "ledger: no branch recorded — ledger.sh record <id> --branch <b>"
   if [ "$from" = flag ] && [ -n "$sha" ] && [ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ]; then
@@ -127,17 +130,27 @@ merge_evidence() {
   if [ -n "$sha" ]; then
     [[ "$sha" =~ ^[0-9a-fA-F]{7,40}$ ]] || die "ledger: merge commit '$sha' is not a commit sha (7–40 hex characters)"
     sha=$(tr 'A-F' 'a-f' <<<"$sha")
-    if [ -n "$url" ] && fact=$(gh_pr_fact "$url"); then
+    if [ -n "$url" ] && gh_present; then
+      fact=$(gh_pr_fact "$url") || die "ledger: gh could not read $url — fix gh (\`gh auth status\`) or retry; the merge gate is not cleared on an unchecked sha"
       read -r st head oid <<<"$fact"
       [ "$st" = MERGED ] || die "ledger: $url is $st, not MERGED — the gate stays"
-      [ "$head" = "$br" ] || die "ledger: $url merged branch '$head', not this entry's '$br' — the gate stays"
+      [ "$head" = "$br" ] || die "ledger: $url merged branch '$head', not this entry's '$br' — the gate stays (that sha is another branch's merge)"
       [[ "$oid" == "$sha"* ]] || die "ledger: $sha is not $url's merge commit ($oid) — the gate stays"
+    else
+      ver=unverified   # nothing to check the sha against: gh absent, or no PR recorded at all
     fi
     in_branch "$sha" "$int" >/dev/null; rc=$?
     [ "$rc" -ne 3 ] || die "ledger: merge commit $sha is not in this clone — git fetch origin first"
     [ "$rc" -ne 4 ] || die "ledger: the integration branch '$int' resolves nowhere (no $int, no origin/$int) — git fetch origin first"
     [ "$rc" -eq 0 ] || die "ledger: merge commit $sha is in neither $int nor origin/$int"
-    echo "commit $sha"; return 0
+    in_branch "$br" "$int" >/dev/null; rc=$?
+    case "$rc" in
+      3) why="the branch is deleted" ;;
+      1) why="squash/rebase: the branch is not an ancestor" ;;
+      *) why="the branch is merged" ;;
+    esac
+    [ "$from" = flag ] && why="given by --merge-sha; $why" || why="recorded .pr.merge_sha; $why"
+    echo "commit $sha $ver $why"; return 0
   fi
   in_branch "$br" "$int" >/dev/null; rc=$?
   case "$rc" in
@@ -155,7 +168,7 @@ merge_evidence() {
   in_branch "$oid" "$int" >/dev/null; rc=$?
   [ "$rc" -ne 3 ] || die "ledger: merge commit $oid is not in this clone — git fetch origin first"
   [ "$rc" -eq 0 ] || die "ledger: merge commit $oid is in neither $int nor origin/$int"
-  echo "commit $oid"
+  echo "commit $oid verified the branch is deleted (read from gh)"
 }
 is_protected() { # $1 branch, $2 model JSON — glob match over the effective protected set
   local p; while IFS= read -r p; do
@@ -451,7 +464,7 @@ case "$SUB" in
         ! grep -q 'NEEDS CLARIFICATION' "$SPEC_DIR/spec.md" || die "ledger unblock $ID: $KIND — [NEEDS CLARIFICATION] markers remain in $SPEC_DIR/spec.md (run /hef.clarify)" ;;
       human:merge)
         VIA=$(merge_evidence "$E" "$MSHA" flag) || exit 1
-        case "$VIA" in "commit "*) MERGED_VIA="${VIA#commit }" ;; esac ;;
+        case "$VIA" in "commit "*) read -r _ MERGED_VIA MERGED_VER MERGED_WHY <<<"$VIA" ;; esac ;;
       human:intake)
         # The prompt-injection gate. It used to test `-t 0`, which the Bash tool never has, so a person
         # who had read the item in an interactive session still had to copy the line into a terminal
@@ -469,8 +482,14 @@ case "$SUB" in
           || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist it" ;;
     esac
     if [ "$KIND" = human:merge ] && [ -n "${MERGED_VIA:-}" ]; then
-      jq --arg m "$MERGED_VIA" '.blocked_on = null | .pr.merge_sha = $m' <<<"$E" | write_entry "$ID" || exit 1
-      echo "$ID unblocked ($KIND, via merge commit $MERGED_VIA — the branch is deleted)"
+      jq --arg m "$MERGED_VIA" --arg v "$MERGED_VER" '.blocked_on = null | .pr.merge_sha = $m
+        | if $v == "unverified" then .pr.merge_unverified = true else del(.pr.merge_unverified) end' <<<"$E" | write_entry "$ID" || exit 1
+      echo "$ID unblocked ($KIND, via merge commit $MERGED_VIA — $MERGED_WHY)"
+      if [ "$MERGED_VER" = unverified ]; then
+        U=$(jq -r '.pr.url // empty' <<<"$E")
+        if [ -n "$U" ]; then echo "UNVERIFIED (gh not installed; the merge commit was not checked against $U)"
+        else echo "UNVERIFIED (no PR is recorded; the merge commit was not checked against one)"; fi
+      fi
     elif [ "$KIND" = human:intake ]; then
       jq --arg by "$RBY" '.blocked_on = null | .reviewed = ((.reviewed // []) + [{kind: "human:intake", by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
       echo "$ID unblocked ($KIND, reviewed by $RBY)"

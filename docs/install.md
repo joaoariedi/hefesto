@@ -274,7 +274,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    **permission prompt**: never add `--reviewed-by-human` (or a blanket `ledger.sh` rule) to any
    allowlist, so every intake clear is a dialog you answer. That needs the pane in **`default`
    permission mode**: under `auto`, `bypassPermissions` or `dontAsk` no dialog appears (the session-start
-   hook warns when an intake block is open in such a session). Never answer "Yes, don't ask again" on a
+   hook warns when an intake or a `human:merge` block is open in such a session). Never answer "Yes, don't ask again" on a
    `ledger.sh` call in the orchestrator pane either: the saved prefix rule would admit the clear
    silently. The command is refused inside a launched worker. Nothing replaces an intake block, and nothing claims
    an intake-blocked entry: the named clear is the only way out. A worker cannot replace any other
@@ -285,7 +285,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    (read through `gh`, which must say MERGED from that branch); it records that commit as
    `.pr.merge_sha`, which `advance … merged` re-checks. For a squash or rebase merge whose branch still
    exists, pass the merge commit yourself: `hooks/ledger.sh unblock <id> --merge-sha <sha>` (refused
-   inside a launched worker). Remove the worktree with
+   inside a launched worker). With gh installed the sha is checked against the PR, and a gh that
+   cannot read it refuses (fail closed — fix `gh auth status` or retry); without gh it is accepted but
+   printed `UNVERIFIED` and recorded as `.pr.merge_unverified`. Remove the worktree with
    `git worktree remove .claude/worktrees/<id>`.
 7. **Between the PR and the merge, let the babysitter watch it**: from the checkout of the PR's
    branch, `/hef.babysit` (or `/loop 25m /hef.babysit <n> --once` while a review is pending). It
