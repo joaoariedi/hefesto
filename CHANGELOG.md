@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased]
+## [7.10.0] - 2026-10-13
 
 ### Added
 - **Installation wizard: `install.sh`** — install or upgrade in one command, run in a normal terminal:
