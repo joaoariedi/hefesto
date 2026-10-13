@@ -31,7 +31,7 @@ init_globals() {
   REPO_URL="${HEFESTO_REPO_URL:-https://github.com/joaoariedi/hefesto.git}"
   BK="$HOME/hefesto-old/$(date +%Y%m%d-%H%M%S)"; BACKED=""
   TIMEOUT=""; CLONE=""; CLONE_STATE=""; CLONE_VER=""; CLONE_BRANCH=""
-  LATEST=""; TARGET=""; REC_MAIN=0; STEPS=""
+  LATEST=""; TARGET=""; REC_MAIN=0; STEPS=""; PARTIAL=""
   FOUND=""; CANDIDATES=""; CHOSEN=""; OLD_IN=""; REPOINT=""; TAGS=""; LEGACY_BLOBS=""; CMD_BLOBS=""
   DO_BACKUP=0; DO_OLD=0; DO_CLONE=0; DO_RULES=0; DO_CMD=0; DO_REPOINT=0
 }
@@ -52,7 +52,7 @@ msg_keys() {
   hint_alias gh_missing home_ro not_writable no_tty tty_eof bad_flag bad_lang bad_version
   need_value bad_profile clone_not_git clone_remote clone_dirty main_diverged no_remote no_tags
   bad_json clone_needed no_profiles step_failed not_updated usage f_legacy_maybe f_prof_other
-  st_repoint why_repoint mkt_not_dir orphan_commit no_such_tag clone_tmp legacy_unstow dry_checkout_note"
+  st_repoint why_repoint mkt_not_dir orphan_commit no_such_tag clone_tmp legacy_unstow dry_checkout_note partial_left"
 }
 
 msg_en() {
@@ -122,6 +122,7 @@ msg_en() {
     no_such_tag) echo "--version {1} is not a release. Available: {2} (or main)." ;;
     clone_tmp) echo "  (downloading into {1} first; it gets its real name once complete)" ;;
     legacy_unstow) echo "{1} is a link: unstow the package that owns it." ;;
+    partial_left) echo "{1} is an unfinished download from this run. Nothing uses it; you can delete it." ;;
     dry_checkout_note) echo "  (note: the rules, CLAUDE.md and commit comparisons below use the clone as it is now, before the update)" ;;
     legacy_stop) echo "Stopped before installing. Move the old files, then run the wizard again." ;;
     verify_header) echo "Check" ;;
@@ -246,6 +247,7 @@ msg_pt() {
     no_such_tag) echo "--version {1} não é uma versão publicada. Disponíveis: {2} (ou main)." ;;
     clone_tmp) echo "  (baixando primeiro em {1}; ganha o nome certo quando terminar)" ;;
     legacy_unstow) echo "{1} é um link: desfaça o stow do pacote que é dono dele." ;;
+    partial_left) echo "{1} é um download incompleto desta execução. Nada o usa; você pode apagá-lo." ;;
     dry_checkout_note) echo "  (nota: as regras, o CLAUDE.md e as comparações de commit abaixo usam o clone como está agora, antes de atualizar)" ;;
     legacy_stop) echo "Parei antes de instalar. Mova os arquivos antigos e rode o instalador de novo." ;;
     verify_header) echo "Conferência" ;;
@@ -330,7 +332,13 @@ fill() { # $1 text, $2 placeholder, $3 value → every placeholder replaced by t
   printf '%s' "$out$t"
 }
 say() { printf '%s\n' "$(msg "$@")"; }
-die() { printf '\n%s\n' "$(msg "$@")" >&2; exit 1; }
+# A first clone that dies half-way leaves its .partial folder: the wizard never deletes, so it
+# names the folder instead (a trap that rm -rf's a computed path is the riskier trade).
+die() {
+  printf '\n%s\n' "$(msg "$@")" >&2
+  if [ -n "$PARTIAL" ] && [ -e "$PARTIAL" ]; then printf '%s\n' "$(msg partial_left "$PARTIAL")" >&2; fi
+  exit 1
+}
 
 tilde() { # display a path with ~ for $HOME — display only, commands always get the full path
   case "$1" in "$HOME") printf '\176' ;; "$HOME"/*) printf '\176/%s' "${1#"$HOME"/}" ;; *) printf '%s' "$1" ;; esac
@@ -875,6 +883,10 @@ same_dir() { [ -d "$1" ] && [ -d "$2" ] && [ "$(cd "$1" && pwd -P)" = "$(cd "$2"
 remove_old_plugin() {
   local p="$1" loc
   [ -n "$(reg_field "$p" "$OLD_ID" version)" ] || return 0
+  # Backed up here even when the backup step was declined: the re-point step backs up the same
+  # file later, and by then this removal would already have changed it.
+  backup_file "$p" plugins/known_marketplaces.json
+  backup_file "$p" plugins/installed_plugins.json
   run_claude "$p" plugin uninstall "$OLD_ID" --scope user
   loc="$(km_location "$p" ai-development-framework)"
   [ -n "$loc" ] || return 0
@@ -902,12 +914,14 @@ sync_clone() {
     # first clone must leave no half-made ~/.claude-framework that the next run would refuse.
     local tmp="$CLONE.partial-$$"
     say clone_tmp "$(tilde "$tmp")"
+    PARTIAL="$tmp"
     if [ "$TARGET" = main ]; then run git clone -q --branch main "$REPO_URL" "$tmp"
     else
       run git clone -q --no-checkout "$REPO_URL" "$tmp"
       run git -C "$tmp" -c advice.detachedHead=false checkout -q "$TARGET"
     fi
     run mv "$tmp" "$CLONE"
+    PARTIAL=""
     return
   fi
   clone_dirty && die clone_dirty "$CLONE"   # again: nothing may have changed it since detection
