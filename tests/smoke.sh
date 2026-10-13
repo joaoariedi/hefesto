@@ -3684,6 +3684,9 @@ rm -rf "$eb_t" "$eb_cfg" "$eb_md" "$eb_bin" "$eb_alone" "$eb_n"
 
 # --- Tier 1: install wizard (feature install-wizard FR-001..FR-007, SC-001, SC-002) -------------------
 head_ "Install wizard"
+# A test-only git identity for this block's fixtures (annotated tags and in-test commits need one; CI
+# runners have no global user.name/email — the first CI run failed here). install.sh itself never commits.
+export GIT_AUTHOR_NAME=smoke GIT_AUTHOR_EMAIL=smoke@test GIT_COMMITTER_NAME=smoke GIT_COMMITTER_EMAIL=smoke@test
 
 # install.sh is what a junior engineer runs, pressing Enter at every question, so the suite drives it
 # end to end in throwaway HOMEs: a local bare repo stands in for GitHub (HEFESTO_REPO_URL) and a named
@@ -4384,6 +4387,8 @@ else
   printf '  \033[33mskip\033[0m SMOKE_LIVE=1 to run the install wizard against the real claude CLI\n'
 fi
 rm -rf "$iw_t" "$iw_md"
+
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 
 # --- Tier 1: the merge gate (fxcube 2026-10-13: advance stepped over human:merge; a deleted branch) -----
 head_ "Merge gate"
