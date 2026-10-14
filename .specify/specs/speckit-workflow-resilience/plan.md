@@ -209,7 +209,7 @@ only via agent death or retry exhaustion. Those are structurally different value
 cannot confuse "no gate configured" with "the gate died".
 
 **Known cost, priced not hidden**: a gate that throws is now retried 3×, so a dying gate re-runs the full
-suite three times — on FxCube's 728-test/~12-min suite that is ~36 minutes. A introduces this; bounding
+suite three times — on a real 728-test/~12-min suite that is ~36 minutes. A introduces this; bounding
 it belongs to B (#29), which owns suite-run amplitude.
 
 ### Sketch 4: the halt ledger

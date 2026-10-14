@@ -429,7 +429,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
 
     // <board repo>/.claude/project-status.json — the board config as in step 1, plus the repos it feeds
     { "source": "tasks-repo", "root": ".", "orchestrate": { … },
-      "repos": { "ops": "../operations_api", "ui": "../cube_ui" } }
+      "repos": { "ops": "../api_service", "ui": "../web_app" } }
     ```
 
     `hooks/ledger.sh board` prints the resolved board (`mode` `in-repo` or `external`, the board top,
@@ -445,8 +445,8 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       branch model and `/hef.status` report it as before). Every `repos` path must exist on this
       machine, or every call refuses naming it. Only a `source: tasks-repo` board can be external:
       routing (`--item-repo`) reads item bodies, which a `github-project` board does not have here.
-    - **The pointer is read through the main worktree.** If `.claude/` is ignored (globally, as in
-      fxcube), the pointer file is untracked and a linked worktree has none; `ledger.sh` reads it
+    - **The pointer is read through the main worktree.** If `.claude/` is ignored (globally, as some
+      teams do), the pointer file is untracked and a linked worktree has none; `ledger.sh` reads it
       from `$(dirname "$(git rev-parse --git-common-dir)")`. Submodules and `--separate-git-dir`
       checkouts are out of scope. External mode needs git; the launcher exports
       `HEFESTO_BOARD_TOP` so every child call, the worker included, resolves the same board.

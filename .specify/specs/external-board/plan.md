@@ -128,7 +128,7 @@ N=$(jq -rs "[.[] | select(.owner != null) | (.repo // \"\")] as \$busy | map(sel
 
 ## Plan review 2026-10-05 (fresh `code-reviewer`, REVISE_PLAN, 10 changes) — applied as the build contract
 
-1. **Linked worktrees (D1).** fxcube ignores `.claude/` globally, so the pointer file is untracked and
+1. **Linked worktrees (D1).** Where `.claude/` is ignored globally, the pointer file is untracked and
    absent in every linked worktree.
    - `board_ctx` reads the `board` pointer, and matches the current repo against `repos`, through the
      **main worktree** (`dirname "$(git rev-parse --path-format=absolute --git-common-dir)"`), never
@@ -163,7 +163,7 @@ N=$(jq -rs "[.[] | select(.owner != null) | (.repo // \"\")] as \$busy | map(sel
    - The docs say the `repo:` line must sit above any `###` sub-heading on `^#{2,3}` boards.
    - `/hef.orchestrate` gains a pre-flight `ledger.sh board` and captures `--item-repo`'s exit status
      (never `| cut`).
-   - With several repos and no `repo:` line, the item is reported and skipped each pass. fxcube adds
+   - With several repos and no `repo:` line, the item is reported and skipped each pass. The project adds
      the lines.
 9. **`publish_commit` is DEFERRED** (out of scope). `publish` marks the board file in the board repo,
    and the person commits it. A follow-up board item records the five guards it would need: a clean
@@ -183,7 +183,7 @@ N=$(jq -rs "[.[] | select(.owner != null) | (.repo // \"\")] as \$busy | map(sel
    commits it, and auto-commit is board item HEF-16. The SC-003 mutation list matches change 10.
 2. `repo_config` is the CURRENT worktree's `.claude/project-status.json` when it exists, else the main
    worktree's. In-repo stays byte-identical (a hefesto feature branch that edits its tracked
-   `.branches` reads its own), and fxcube's untracked file is still found. Smoke case: an in-repo
+   `.branches` reads its own), and an untracked pointer file is still found. Smoke case: an in-repo
    linked worktree whose tracked `.branches` differs from main's reads its own.
 3. The dry run prints `# cwd: <TOP>` ONLY in external mode, as a shell comment, so the output stays
    copy-pasteable and in-repo output stays byte-identical. `HEFESTO_BOARD_TOP` also reaches the

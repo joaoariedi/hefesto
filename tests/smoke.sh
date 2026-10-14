@@ -1523,7 +1523,7 @@ if lg unblock HEF-10 >/dev/null 2>&1; then bad "ledger unblock human:merge befor
 ( cd "$lg_t" && git -c user.email=t@t -c user.name=t merge -q --no-ff wt -m merge ) >/dev/null 2>&1
 lg unblock HEF-10 >/dev/null 2>&1 || { bad "ledger unblock human:merge once wt is an ancestor of main must succeed"; lg_fail=1; }
 lg block HEF-10 --kind human:intake >/dev/null 2>&1
-# human:intake (fxcube 2026-10-06): no TTY test any more — the gate is the permission prompt plus a
+# human:intake (field report 2026-10-06): no TTY test any more — the gate is the permission prompt plus a
 # recorded name. Without --by, refused; inside a launched worker, refused even with --by; with it, cleared
 # and the reviewer recorded. Mutations below pin the worker refusal and the --by requirement.
 if lg unblock HEF-10 --reviewed-by-human </dev/null >/dev/null 2>&1; then bad "ledger unblock human:intake without --by <name> must fail"; lg_fail=1; fi
@@ -1973,7 +1973,7 @@ st_lmut() { cp "$LG" "$LG_MUT"; sed -i "$1" "$LG_MUT"; cmp -s "$LG" "$LG_MUT" &&
 st_lmut 's/(.phase == "queued" or .phase == "intake")/(.phase == "queued")/'
 [ "$(LG_BIN="$LG_MUT" lg2 next --stage plan 2>/dev/null)" != HEF-10 ] || { bad "mutation survived: intake dropped from the plan filter, HEF-10 still returned"; st_mfail=1; }
 # HEF-11 leaves the deploy set (phase merged): its human:merge block is cleared first, as a person's unblock
-# would — advance never steps over a human gate (fxcube 2026-10-13)
+# would — advance never steps over a human gate (field report 2026-10-13)
 jq '.blocked_on = null' "$sr_t/.git/hefesto/ledger/HEF-11.json" > "$sr_t/.git/hefesto/ledger/HEF-11.json.n" && mv "$sr_t/.git/hefesto/ledger/HEF-11.json.n" "$sr_t/.git/hefesto/ledger/HEF-11.json"
 # and merged needs the merge evidenced: the branch HEF-11 is cut at main's tip, so it is in main
 git -C "$sr_t" branch -f HEF-11 main >/dev/null 2>&1
@@ -3189,10 +3189,10 @@ for tok in 'Second opinion (<provider>) — not the gate' 'Never append `## Revi
 done
 [ "$pw_fail" -eq 0 ] && ok "/hef.plan --via (one scout kept, K−1 providers, prompt file, --purpose arena, column per provider, fallback, aws refused) and /hef.review --second-opinion (labelled, untrusted, never ## Reviewed, capped diff) (provider-runners FR-004 FR-005)"
 
-# --- Tier 1: branch model (feature branch-model FR-001..FR-009; fxcube lane-setup-v2 §4 G2) --------
+# --- Tier 1: branch model (feature branch-model FR-001..FR-009) --------
 head_ "Branch model"
 # A repo with a bare origin: main ← stg; dev = main + dev-lead.txt; HEF-1 off dev. The integration
-# branch is dev — the shape fxcube runs (dev → stg → main, release/* carriers).
+# branch is dev — the shape a real team runs (dev → stg → main, release/* carriers).
 bm_t="$(mktemp -d)"; bm_o="$bm_t/o.git"; bm_r="$bm_t/r"; bm_cfg="$(mktemp -d)"; bm_md="$(mktemp -d)"; bm_bin="$(mktemp -d)"; bm_fail=0
 bmg() { git -C "$bm_r" -c user.email=t@t -c user.name=t "$@"; }
 bmc() { printf '{"source":"tasks-repo","root":"tasks"%s}\n' "$1" > "$bm_r/.claude/project-status.json"; }
@@ -3245,7 +3245,7 @@ bm_lfail=0; bmc "$BM_FULL"
 bml init HEF-1 --kind tasks-repo --ref t >/dev/null 2>&1; bml record HEF-1 --branch HEF-1 >/dev/null 2>&1; bml block HEF-1 --kind human:merge >/dev/null 2>&1
 bm_o2="$(bml unblock HEF-1 2>&1)" && { bad "unblock human:merge must refuse an unmerged branch"; bm_lfail=1; }
 grep -qF "in neither dev nor origin/dev" <<<"$bm_o2" || { bad "the refusal must name dev and origin/dev, got '$bm_o2'"; bm_lfail=1; }
-# merged on the remote only, and no local dev at all (fxcube's checkouts)
+# merged on the remote only, and no local dev at all (a common checkout state)
 ( bmg checkout -q dev && bmg merge -q --no-ff HEF-1 -m m && bmg push -q origin dev && bmg checkout -q HEF-1 && bmg update-ref -d refs/heads/dev ) >/dev/null 2>&1
 bml unblock HEF-1 >/dev/null 2>&1 && bmj HEF-1 '.blocked_on == null' || { bad "unblock must clear via origin/dev with no local dev: $(bml unblock HEF-1 2>&1)"; bm_lfail=1; }
 # merged locally only
@@ -3333,7 +3333,7 @@ bmw stg >/dev/null 2>&1 && { bad "resolve under an unparseable config must fail,
 bmc "$BM_FULL"
 [ "$bm_rfail" -eq 0 ] && ok "pr-watch resolve: protected heads (stg, release/*) watched with push:false and no checkout, feature push:true, main refused; /hef.babysit bound() stops on push:false (branch-model FR-005)"
 
-# FR-009 a STALE local dev (fxcube's normal case: people fetch, rarely update dev): origin/dev gains
+# FR-009 a STALE local dev (the usual case: people fetch, rarely update dev): origin/dev gains
 # d2-other, HEF-S is cut from origin/dev, local dev stays behind — the diff must not pull d2-other in
 bm_sfail=0; bmc "$BM_FULL"
 ( bmg checkout -q -b tmpd origin/dev && printf 'x\n' > "$bm_r/d2.txt" && bmg add d2.txt && bmg commit -q -m d2-other && bmg push -q origin tmpd:dev \
@@ -3410,11 +3410,11 @@ bmg checkout -q HEF-1 >/dev/null 2>&1
 [ "$bm_mfail" -eq 0 ] && ok "branch-model mutations: origin/ target, rc 4, environments[0] check, protected glob, released guard, advance merge evidence, verifier base, push:false, pr_base integration base, --configured gate, probe base — parse check, PR-base gate — all caught (SC-004 SC-006)"
 rm -rf "$bm_t" "$bm_cfg" "$bm_md" "$bm_bin"
 
-# --- Tier 1: external board (feature external-board FR-001..FR-007; fxcube lane-setup-v2 §4 G1) ----------
+# --- Tier 1: external board (feature external-board FR-001..FR-007) ----------
 head_ "External board"
-# fxcube's shape: a board repo (kanban/, root tasks/) feeding two code repos — ops integrates on dev (a
+# A real-world shape: a board repo (root tasks/) feeding two code repos — ops integrates on dev (a
 # dev → main chain), ui on trunk — every one with a REAL bare origin. The pointer files are UNTRACKED and
-# .claude/ is in each repo's info/exclude (fxcube ignores .claude/ globally), so the linked worktree of ops
+# .claude/ is in each repo's info/exclude (some teams ignore .claude/ globally), so the linked worktree of ops
 # has no pointer of its own. Real git common dirs throughout, never HEFESTO_LEDGER_DIR.
 eb_t="$(cd "$(mktemp -d)" && pwd -P)"; eb_cfg="$(mktemp -d)"; eb_md="$(mktemp -d)"; eb_bin="$(mktemp -d)"; eb_alone="$(mktemp -d)"
 EB_TAB=$'\t'; eb_k="$eb_t/kanban"; eb_ops="$eb_t/ops"; eb_ui="$eb_t/ui"; eb_wt="$eb_t/ops-wt"; eb_fail=0
@@ -3424,7 +3424,7 @@ EB_KCFG="{\"source\":\"tasks-repo\",\"root\":\"tasks\",\"orchestrate\":{\"tiers\
     && printf '.claude/\n' >> "$eb_t/$r/.git/info/exclude" && mkdir -p "$eb_t/$r/.claude" && printf '%s\n' "$r" > "$eb_t/$r/README" \
     && ebg "$eb_t/$r" add README && ebg "$eb_t/$r" commit -q -m init && ebg "$eb_t/$r" push -q origin main; done \
   && mkdir -p "$eb_k/tasks" "$eb_ops/sub" \
-  && printf '# TODO\n\n## OPS-1 — ops one\nrepo: ops\n\n## OPS-2 — ops two\nrepo: ops\n\n## UI-1 — ui one\nrepo: ui\n\n## TWO-1 — both\nrepo: ops, ui\n\n## WEB-1 — undeclared\nrepo: web\n\n## NONE-1 — routed only in a comment\nbody\n<!--\nrepo: ops\n-->\n\n## BUL-1 — fxcube bullet\n  - repo: ui\r\n\n## STAR-1 — star bullet\n* repo: ops\n\n## MANY-1 — seven repos\nrepo: a, b, c, d, e, f, g\n\n## BOLD-1 — bold is unsupported\n**repo:** ops\n\n## EVIL-1 — hostile name\nrepo: Z;rm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > "$eb_k/tasks/TODO.md" \
+  && printf '# TODO\n\n## OPS-1 — ops one\nrepo: ops\n\n## OPS-2 — ops two\nrepo: ops\n\n## UI-1 — ui one\nrepo: ui\n\n## TWO-1 — both\nrepo: ops, ui\n\n## WEB-1 — undeclared\nrepo: web\n\n## NONE-1 — routed only in a comment\nbody\n<!--\nrepo: ops\n-->\n\n## BUL-1 — indented bullet\n  - repo: ui\r\n\n## STAR-1 — star bullet\n* repo: ops\n\n## MANY-1 — seven repos\nrepo: a, b, c, d, e, f, g\n\n## BOLD-1 — bold is unsupported\n**repo:** ops\n\n## EVIL-1 — hostile name\nrepo: Z;rm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > "$eb_k/tasks/TODO.md" \
   && for c in DOING DONE BACKLOG; do printf '# %s\n' "$c" > "$eb_k/tasks/$c.md"; done && ebg "$eb_k" add tasks && ebg "$eb_k" commit -q -m board \
   && printf '%s\n' "$EB_KCFG" > "$eb_k/.claude/project-status.json" \
   && printf '{"board":"../kanban","branches":{"integration":"dev","environments":["dev","main"]}}\n' > "$eb_ops/.claude/project-status.json" \
@@ -3474,7 +3474,7 @@ for c in 'TWO-1:targets 2 repos (ops, ui) — split it into one item per repo' "
   eb_o="$(ebs "$eb_ops" --item-repo "${c%%:*}" 2>&1)" && { bad "--item-repo ${c%%:*} must be refused, got '$eb_o'"; eb_rfail=1; }
   grep -qF -- "${c#*:}" <<<"$eb_o" || { bad "--item-repo ${c%%:*}: the refusal must say '${c#*:}', got '$eb_o'"; eb_rfail=1; }
 done
-# fxcube's format: an indented bullet with a CRLF ending, a `* ` bullet; `**repo:**` is not a repo line; a hostile
+# a format seen on real boards: an indented bullet with a CRLF ending, a `* ` bullet; `**repo:**` is not a repo line; a hostile
 # name is echoed as [a-z0-9_-] only (refusals print outside the untrusted delimiters)
 [ "$(ebs "$eb_ops" --item-repo BUL-1 2>&1)" = "ui${EB_TAB}$eb_ui" ] && [ "$(ebs "$eb_ops" --item-repo STAR-1 2>&1)" = "ops${EB_TAB}$eb_ops" ] \
   || { bad "--item-repo must accept '  - repo: ui' (CRLF) and '* repo: ops': $(ebs "$eb_ops" --item-repo BUL-1 2>&1 | tr '\r' '^') / $(ebs "$eb_ops" --item-repo STAR-1 2>&1)"; eb_rfail=1; }
@@ -4390,7 +4390,7 @@ rm -rf "$iw_t" "$iw_md"
 
 unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 
-# --- Tier 1: the merge gate (fxcube 2026-10-13: advance stepped over human:merge; a deleted branch) -----
+# --- Tier 1: the merge gate (field report 2026-10-13: advance stepped over human:merge; a deleted branch) -----
 head_ "Merge gate"
 mg_t="$(mktemp -d)"; mg_o="$mg_t/o.git"; mg_r="$mg_t/r"; mg_bin="$(mktemp -d)"; mg_md="$(mktemp -d)"; mg_fail=0
 mgg() { git -C "$mg_r" -c user.email=t@t -c user.name=t "$@"; }

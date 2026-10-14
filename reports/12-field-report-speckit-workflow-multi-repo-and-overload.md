@@ -6,8 +6,8 @@ date: 2026-07-16
 # Field Report: speckit-workflow — Multi-Repo Support & Overload Resilience
 
 A field report from running `workflows/speckit-workflow.js` on a **real two-repo monorepo feature**
-(the FxCube `#314 portfolio-folders` feature: a Django backend in `operations_api/` and a React
-frontend in `cube_ui/`, with the `.specify/` specs living in a *third* directory, `tasks/`). The run
+(a real project's `#314 portfolio-folders` feature: a Django backend in `api_service/` and a React
+frontend in `web_app/`, with the `.specify/` specs living in a *third* directory, `tasks/`). The run
 surfaced two structural gaps and one robustness gap. This file records what happened and proposes
 concrete, minimal-diff changes. It is a **recommendation, not a spec** — the changes below are
 sketches to be reviewed before implementation.
@@ -16,7 +16,7 @@ Not covered here: the workflow's *design rationale* (why phases are a barrier, w
 must not grade its own homework) — that is documented in the header comment of
 `workflows/speckit-workflow.js` and in `reports/03-agent-topology-orchestration.md`.
 
-**Source:** FxCube `#314 portfolio-folders` run (2026-07-15), run id `wf_ba8bb0be-11d`.
+**Source:** A real project's `#314 portfolio-folders` run (2026-07-15), run id `wf_ba8bb0be-11d`.
 **Proposed change in:** `workflows/speckit-workflow.js`.
 
 ---
@@ -45,14 +45,14 @@ agent is told to `cd` there and resolve relative paths against it.
 That is correct **only when the spec lives inside the repo it describes**. In this monorepo:
 
 ```
-fxcube/
+monorepo/
 ├── tasks/.specify/specs/portfolio-folders/   ← spec lives here
-├── operations_api/   ← Django code + its own pytest suite + its own git repo
-└── cube_ui/          ← React code + its own vitest suite + its own git repo
+├── api_service/   ← Django code + its own pytest suite + its own git repo
+└── web_app/          ← React code + its own vitest suite + its own git repo
 ```
 
-Stripping `/.specify/specs/portfolio-folders` yields `fxcube/tasks` — a repo that contains **none**
-of the code the tasks reference (`operations_api/operation/models.py`, `cube_ui/src/...`). Every
+Stripping `/.specify/specs/portfolio-folders` yields `monorepo/tasks` — a repo that contains **none**
+of the code the tasks reference (`api_service/operation/models.py`, `web_app/src/...`). Every
 implementer would `cd tasks/` and fail to find its target files. There is also no single
 `testCommand`: the backend runs `poetry run pytest` (needs Postgres + Redis env), the frontend runs
 `npx vitest run` + `npm run typecheck`.

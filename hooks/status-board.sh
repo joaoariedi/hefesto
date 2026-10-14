@@ -4,7 +4,7 @@
 #
 #   source "github-project"  — a GitHub Projects board: status distribution, epics (issues whose
 #                              title starts with epic_prefix) with sub-issue completion, roadmap
-#                              quarter. This is batuta's scripts/project-status.sh with its three
+#                              quarter. This is an earlier project-status.sh script with its three
 #                              constants moved into the config.
 #   source "tasks-repo"      — a kanban kept as markdown files (TODO/DOING/DONE/BACKLOG): items are
 #                              headings that carry an id, sub-states are the heading's leading
@@ -247,7 +247,7 @@ mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (strip
 
 # Routing (external-board FR-002, spec US2): the item's `repo: <name>` body line → "<name>\t<abs path>". It
 # parses the COMMENT-STRIPPED body, the same text --item shows, so a `<!-- repo: … -->` never routes. The line
-# may be indented and bulleted (`  - repo: ops`, fxcube's format) and end in CR; `**repo:**` is not a repo line.
+# may be indented and bulleted (`  - repo: ops`, a format seen on real boards) and end in CR; `**repo:**` is not a repo line.
 repo_lines() { tr -d '\r' | grep -iE '^[[:space:]]*([-*][[:space:]]+)?repo:' | sed -E 's/^[[:space:]]*([-*][[:space:]]+)?[Rr][Ee][Pp][Oo]:[[:space:]]*//'; }
 # A refusal echoes board text OUTSIDE the untrusted delimiters, so a name is shown only as [a-z0-9_-] (anything
 # else → ?), at most 32 characters, and a list beyond 5 names as a count (code review 2026-10-05).
@@ -376,7 +376,7 @@ source_tasks() {
 }
 
 # =============================================================================================
-# github-project — batuta's scripts/project-status.sh, parameterised (FR-004, FR-005)
+# github-project — an earlier project-status.sh script, parameterised (FR-004, FR-005)
 # =============================================================================================
 gh_preflight() {
   [ "$MODE" = "check" ] && echo "status-board preflight — GitHub Project #$PROJECT @ $OWNER:"

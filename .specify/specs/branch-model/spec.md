@@ -4,13 +4,13 @@
 
 ## Overview
 
-Board item HEF-15, requested by fxcube-project (fxcube `tasks/initiatives/lane-setup-v2.md` §4 G2).
+Board item HEF-15, requested by a peer project.
 Hefesto hard-codes `main` as the branch a change lands on:
 - `ledger.sh unblock human:merge` checks ancestry against local `main`;
 - the verifier is told "diff base: main";
 - `handoff` and `pr-watch resolve` refuse only `main`/`master` as a head.
 
-fxcube integrates on `dev` and promotes `dev → release/vX → stg → main`. This feature adds a
+A project that integrates on `dev` promotes `dev → release/vX → stg → main`. This feature adds a
 configurable **branch model** to `.claude/project-status.json`. Unconfigured, the model resolves to
 today's trunk behaviour exactly, except that `human:merge` now also accepts `origin/<integration>`
 (today's message already tells the user to `git fetch`, which never updates the local branch).
@@ -106,7 +106,7 @@ Decisions taken here:
 | SC-003 | `pr-watch resolve` on fake `gh`:<br>- head `stg` → `push: false`;<br>- head `main` refused;<br>- head `feature/x` → `push: true`;<br>- `/hef.babysit` wiring states the `push: false` rule | `tests/smoke.sh` |
 | SC-004 | Mutations, each turning the suite red:<br>- the origin ref dropped from unblock;<br>- integration hard-coded back to `main` in the verifier prompt;<br>- the glob match in handoff;<br>- the `push: false` branch;<br>- the final-branch guard on `released` | `tests/smoke.sh` |
 | SC-006 | Tool base:<br>- in a `dev`-configured fixture, `pr-files` lists only the item's commits (not `dev`'s lead over `main`);<br>- unconfigured, `pr_base` still answers `@{u}` first, then `main`;<br>- `where` prints `unknown` and exits non-zero for an environment that resolves nowhere;<br>- unblock clears with only `origin/dev` and no local `dev`;<br>- mutations: the integration base removed; the `--configured` gate removed (unconfigured order changes); the rc-4 distinction removed | `tests/smoke.sh` |
-| SC-005 | fxcube acceptance, run by the user or fxcube-project:<br>- in `operations_api` with `integration: dev`, `session-launch.sh verify <id> --dry-run` shows `diff base: dev`;<br>- `ledger unblock` clears once the branch is in `origin/dev` | user-run |
+| SC-005 | Acceptance, run by the user or the requesting project:<br>- in `api_service` with `integration: dev`, `session-launch.sh verify <id> --dry-run` shows `diff base: dev`;<br>- `ledger unblock` clears once the branch is in `origin/dev` | user-run |
 
 ## Clarifications
 _None. The external board, item → repo routing and the central ledger are HEF-14, a separate spec._

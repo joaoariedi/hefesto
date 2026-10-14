@@ -40,4 +40,4 @@ heading in the board repo's file; committing it is still the person's. An opt-in
 - refuse during a merge or rebase in the board repo;
 - take the absolute path from `--mark`, and refuse a column outside the board repo;
 - commit before recording `published`, so a failed commit is retried;
-- state the branch expectation (fxcube pushes its board to main).
+- state the branch expectation (a board repo may push straight to main).

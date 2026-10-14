@@ -11,7 +11,7 @@ project_config() { # the board config the launcher and the board read: <toplevel
   local top; top=$(git rev-parse --show-toplevel 2>/dev/null) || top="$PWD"
   [ -f "$top/.claude/project-status.json" ] && echo "$top/.claude/project-status.json"
 }
-main_top() { # the MAIN worktree's top. fxcube ignores .claude/ globally, so its pointer file is untracked and
+main_top() { # the MAIN worktree's top. Where .claude/ is ignored globally, the pointer file is untracked and
   # exists only there — a linked worktree has none. Assumes a standard .git directory (submodules and
   # --separate-git-dir are out of scope, docs/install.md §7 step 13).
   local c; c=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && [ -n "$c" ] || return 1
@@ -48,7 +48,7 @@ cfg_role() { # $1 config → "pointer\t<path>", "board", or nothing (in-repo); d
 board_repos() { # $1 board top, $2 board config → {"name": "/abs/path", …}, or die naming the field
   local out='{}' name p abs
   jq -e '.repos | type == "object" and length > 0 and all(.[]; type == "string" and length > 0)' "$2" >/dev/null 2>&1 \
-    || die "ledger board: .repos in $2 must be a non-empty object of name → path, e.g. {\"ops\": \"../operations_api\"} (got $(jq -c .repos "$2" 2>/dev/null))"
+    || die "ledger board: .repos in $2 must be a non-empty object of name → path, e.g. {\"ops\": \"../api_service\"} (got $(jq -c .repos "$2" 2>/dev/null))"
   while IFS=$'\t' read -r name p; do
     [[ "$name" =~ ^[a-z0-9_-]+$ ]] || die "ledger board: repo name '$name' in $2 must match [a-z0-9_-]+"
     case "$p" in /*) abs="$p" ;; *) abs="$1/$p" ;; esac

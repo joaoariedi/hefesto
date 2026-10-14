@@ -61,7 +61,7 @@ it is what caught the hand-bumped era:
   `claude`, with seventeen mutations; `SMOKE_LIVE=1` runs it against the real CLI.
 
 ### Fixed
-- **`ledger.sh advance` stepped over an open human gate** (fxcube, 2026-10-13). `advance <id> merged`
+- **`ledger.sh advance` stepped over an open human gate** (field report, 2026-10-13). `advance <id> merged`
   succeeded while the entry was blocked on `human:merge`. It now refuses while any `human:*` block is
   open, and names `ledger.sh unblock <id>`. Every launcher path advances before it blocks, so none is
   affected. Reaching `merged` (or `released`) from an earlier phase also requires the merge evidence —
@@ -109,7 +109,7 @@ it is what caught the hand-bumped era:
 - **Version line at session start.** The session-start hook prints which hefesto version THIS process
   loaded, and from where (`hefesto <version> hooks loaded from <root>`). After a `plugin update`, a
   resumed transcript still shows the previous process's output, and the profile registry names what
-  the next process will load (fxcube, 2026-10-06).
+  the next process will load (field report, 2026-10-06).
 - **Mode warning.** It also prints a warning when a `human:intake` block is open and the session's
   permission mode is `auto`, `bypassPermissions` or `dontAsk`, since no dialog would ask before a clear.
   The intake blocked line now names the person's command.
@@ -122,7 +122,7 @@ it is what caught the hand-bumped era:
 ## [7.9.1] - 2026-10-06
 
 ### Changed
-- **`ledger.sh unblock` on `human:intake`** (requested from the fxcube orchestrator lane). The old
+- **`ledger.sh unblock` on `human:intake`** (requested from a peer project's orchestrator lane). The old
   `-t 0` test could never pass from a Claude Code session, because the Bash tool has no TTY, so a person
   who had read the item still had to copy the line into a terminal. It now takes
   `--reviewed-by-human --by <name>`, records `{kind, by, at}` on the entry's `.reviewed`, and is
@@ -133,7 +133,7 @@ it is what caught the hand-bumped era:
 ## [7.9.0] - 2026-10-05
 
 ### Added
-- **Branch model** (HEF-15; requested for fxcube, which integrates on `dev` and promotes
+- **Branch model** (HEF-15; requested for a project that integrates on `dev` and promotes
   `dev → release/vX → stg → main`). A `branches` block in `.claude/project-status.json`:
   - `integration`: the PR base for workers and `/hef.pr`, the verifier's diff base, the `human:merge`
     ancestry check (local or `origin/`), and the base `pr_base`, `deps-diff` and the merge-tree probe
@@ -151,7 +151,7 @@ it is what caught the hand-bumped era:
   Three fresh-context plan-review rounds (9 + 8 + 3 changes). The last round reproduced a stale-local-
   `dev` merge-base that would have pulled the train into the item's diff.
 
-- **External board** (HEF-14; requested for fxcube, whose board is its own `tasks/` repo feeding
+- **External board** (HEF-14; requested for a project whose board is its own `tasks/` repo feeding
   three code repos). A code repo's `.claude/project-status.json` points at the board with `board`;
   the board config lists the repos it feeds in `repos`. `ledger.sh board` is the one place that
   resolves it, reading the pointer through the MAIN worktree (an ignored `.claude/` is absent in
@@ -458,7 +458,7 @@ was written. The run also surfaced three framework defects, listed under *Known 
   items or sub-issues; `--check` prints the prerequisite checklist. Numbers come only from the helper.
 - **`hooks/status-board.sh`** — the mechanical half, a fetcher: the board on stdout at exit 0 or the
   reason on stderr at non-zero, never a sentinel. Two sources:
-  - `github-project` — batuta's `scripts/project-status.sh` with `owner`, `project`, `roadmap`, and
+  - `github-project` — an earlier `project-status.sh` script with `owner`, `project`, `roadmap`, and
     `epic_prefix` moved into the config: status distribution, epics by title prefix with sub-issue
     completion bars, roadmap quarter and days left. A failing sub-issue query now fails the board
     instead of rendering "no tasks yet".
@@ -469,7 +469,7 @@ was written. The run also surfaced three framework defects, listed under *Known 
     (dominant id prefix; struck-through or ✅ = done, whole-word matched); feature-directory
     checkboxes only when `epics.specs` is `true` — in one real repo 48 of 63 shipped features still
     show open boxes and would report a product in production as 23 % delivered.
-  Measured on the real fxcube tasks repository: 8 / 2 / 11 items and 11 delivered this quarter,
+  Measured on a real tasks repository: 8 / 2 / 11 items and 11 delivered this quarter,
   an exact match with a hand count. Zero-install: bash, jq, git; `gh` for the GitHub source.
 - **`req-coverage` reports `ELSEWHERE`** for an id declared by another spec directory, and fails only
   on an id no spec declares. The suite is shared across feature branches while `FR-NNN` ids are per
@@ -817,7 +817,7 @@ new id. Do it in every config profile, `CLAUDE_CONFIG_DIR` ones included.
 
 ## [5.2.0] - 2026-07-17
 
-**The FxCube #314 field report is fully delivered, and every defect found building it is fixed.**
+**The #314 field report is fully delivered, and every defect found building it is fixed.**
 5.1.0 shipped feature A (resilience). This ships B (overload) and C (multi-repo), plus five defects
 surfaced while building them. Seven issues, all measured against the shipped file, none reasoned about.
 
@@ -831,7 +831,7 @@ renamed, no path moves, no permission rule needs editing.
   detected by the loader or overridden with `args.repos` — routes each task to the repo whose path
   prefixes its files (longest-prefix, with a `+ '/'` boundary so `apple/` is not a match for a repo
   `app`). The motivating case now runs: a monorepo whose spec lives in `tasks/` and whose code lives in
-  `operations_api/` (pytest) and `cube_ui/` (vitest). A cross-repo task is rejected naming both repos; a
+  `api_service/` (pytest) and `web_app/` (vitest). A cross-repo task is rejected naming both repos; a
   file matching no repo is logged, not silently dropped; a no-files task goes to the first listed repo
   (operator-ordered, never positional-by-path-length); the phase gate runs once per repo the phase
   touched. **Single-repo is a `repos[]` of length 1 — one code path, unchanged behaviour.**
@@ -879,7 +879,7 @@ renamed, no path moves, no permission rule needs editing.
 **`speckit-workflow` no longer loses work to a single transient agent failure — and no longer
 reports a perfect score when it does.**
 
-Driven by a field report from a real two-repo run (`reports/12-…`, FxCube #314). That report named
+Driven by a field report from a real two-repo run (`reports/12-…`, #314). That report named
 three findings; this release ships **one** of them. The other two are #29 and #30, split out after
 review found the combined plan carried ~18 defects concentrated in the multi-repo design.
 

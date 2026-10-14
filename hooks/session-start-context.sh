@@ -29,7 +29,7 @@ DIRTY=$(git -C "$CWD" status --short 2>/dev/null | wc -l | tr -d ' ')
 echo "hefesto session context ($SOURCE): branch ${BRANCH:-detached}, $DIRTY uncommitted path(s)"
 # Which hefesto THIS process loaded — read from the tree the hook runs from, not the profile registry
 # (which names what the NEXT process will load). After a `plugin update`, a resumed transcript still
-# shows the old process's output; this line is the current process's own evidence (fxcube 2026-10-06).
+# shows the old process's output; this line is the current process's own evidence (field report 2026-10-06).
 HROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
 HVER="$(jq -r '.version // empty' "$HROOT/.claude-plugin/plugin.json" 2>/dev/null)"
 [ -n "$HVER" ] && echo "hefesto $HVER hooks loaded from $HROOT"
