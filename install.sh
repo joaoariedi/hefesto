@@ -454,8 +454,12 @@ preflight() {
   [ "$missing" = 0 ] || die missing_tools
   command -v gh >/dev/null 2>&1 || say gh_missing
   [ "$DRY" = 1 ] || probe_write "$HOME" || die home_ro "$HOME"
-  if command -v timeout >/dev/null 2>&1; then TIMEOUT="timeout 300"
-  elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT="gtimeout 300"; fi
+  # --foreground: a plain timeout runs claude in a background process group, and the CLI touches the
+  # terminal (its output is the tty), so the kernel STOPS it (SIGTTOU) — a hang no timeout or Ctrl+C
+  # ends, seen on a real upgrade right after "Successfully updated marketplace". -k 10: if the CLI
+  # ignores the TERM, it is killed 10 s later.
+  if command -v timeout >/dev/null 2>&1; then TIMEOUT="timeout --foreground -k 10 300"
+  elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT="gtimeout --foreground -k 10 300"; fi
 }
 
 # --- Detection -----------------------------------------------------------------------------------
