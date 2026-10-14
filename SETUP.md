@@ -22,8 +22,13 @@ work from the exact text: the commands below must be copied exactly.
 - Speak the engineer's language (Portuguese if they write in Portuguese). Assume a junior engineer:
   one step at a time, exact commands to copy, plain words. Wait for their answer before moving on.
 - Read-only checks need no permission. Before any change, say what it changes and ask.
+- Some choices are the engineer's lead's, not the engineer's: the board's format, repository
+  settings, spend limits, exceptions to the project's own rules. Collect them into one message for
+  the lead (Step 4b) instead of asking the engineer to decide.
 - Start at Step 1 every time this file is followed. The engineer restarts Claude Code partway
-  through (Step 2), and Step 1 finds where things stand.
+  through (Step 2), and Step 1 finds where things stand. If they also pasted their lead's answer to
+  a Step 4b message, run Steps 1 and 3 quickly, then the opening of Step 4 and 4a again
+  (read-only, no new message), then Step 4c with the pasted answers.
 - Never `sudo` (the engineer may need it to install a missing tool; they run it, not you). Never
   delete: move things to `~/hefesto-old/`. Never use `--force`. Never discard local changes in the
   hefesto clone. Never merge or approve a pull request. Never push to the default branch.
@@ -147,24 +152,92 @@ When the three checks pass, go to Step 4.
 ## Step 4 — Set up the project (once per repository)
 
 Ask which project. It must be a git repository with a GitHub remote, and `gh auth status` must
-pass. Work in its main folder, on its default branch, with a clean `git status`. Check each item
-first and skip what is already done; ask before writing anything.
+pass. Work in its main folder, on its default branch (or the branch where work integrates, once
+known), with a clean `git status`.
 
-1. **Bootstrap.** If `.specify/` is missing, ask the engineer to type `/hef.init`.
-2. **The board.** `tasks/TODO.md`, `tasks/DOING.md`, `tasks/DONE.md` and `tasks/BACKLOG.md`. Create the
-   missing ones with just a title (`# TODO`, `# DOING`, …). Each item is a heading with an id and a
-   title, then a few lines saying what is wanted. Never invent items. Ask the engineer or their
-   lead for the id prefix: two or more capital letters or digits, starting with a letter (`ABC-12`
+Step 4 runs in three passes: **look** at everything (read-only), send **one message** with every
+decision the lead must make, then **write** what was decided. Some of these choices belong to the
+engineer's lead, not to the engineer. Never ask the engineer to make them; that is what the message
+is for.
+
+### 4a — Look (read-only)
+
+Check each item below and note what is already done, what is missing, and what needs a decision.
+Also read the project's own `CLAUDE.md` and any board it already has.
+
+1. **Bootstrap.** Is there a `.specify/` folder?
+2. **The board.** Are there `tasks/TODO.md`, `tasks/DOING.md`, `tasks/DONE.md` and `tasks/BACKLOG.md`?
+   Hefesto reads an item only as a heading with an id and a title, then a few lines saying what is
+   wanted. The id prefix is two or more capital letters or digits, starting with a letter (`ABC-12`
    works; `A-1` and `abc-12` are silently ignored):
    ```markdown
    ## ABC-12 — Export orders as CSV
 
    The orders page gets an "Export CSV" button with the columns shown on screen.
    ```
-3. **The config.** If `.claude/project-status.json` is missing, create it. If it exists, add only
-   the keys it lacks; never overwrite it. Ask the engineer for the command that runs the project's
-   tests, and put it in both `allowed_tools` lists in place of `<test command>` (for example
-   `npm test`). Without it the worker sessions cannot run the tests.
+   If the project keeps its board another way (table rows, another prefix, another repository),
+   note it: converting it is a lead decision. If the board lives in its own repository and that
+   repository is already cloned next to this one, read it too.
+3. **The config.** Is there a `.claude/project-status.json`, and what does it hold? Which command
+   runs the project's tests? Look for it (`package.json` scripts, `Makefile`, the project's
+   `CLAUDE.md`) before asking anyone.
+4. **GitHub.** Run:
+   ```bash
+   gh repo view --json nameWithOwner,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed,defaultBranchRef
+   git branch -r
+   gh api "repos/{owner}/{repo}/branches/<branch>" -q .protected   # once per branch, see below
+   ```
+   Run the last line for the default branch and for each branch where work may integrate (for
+   example `dev`, if `git branch -r` shows one). It prints `true` or `false` and needs only read
+   access.
+   Hefesto needs merge commits allowed and the branch where work integrates protected (a pull
+   request required before merging): it detects a merge by finding the branch inside that branch,
+   which squash and rebase merges break. If changes integrate on a branch other than `main` (say
+   `dev`, promoted to `stg` and `main`), note it (`docs/install.md` §7 step 12).
+5. **Fit.** Does the project's `CLAUDE.md` have a rule that unattended worker sessions would break
+   (for example, every step needs a person's confirmation)? Are there board items that only a
+   person can do?
+
+### 4b — The lead's decisions: one message
+
+**Coming back with the answer?** If the engineer pastes the lead's message together with the
+lead's reply, do not write a new message: go to 4c with those answers. If they paste only a reply
+like `1a 2b`, ask for the message it answers too: the codes mean nothing without it.
+
+Write **one message** in the engineer's language for them to send to their lead. Tell the engineer
+to bring back the lead's reply **together with the whole message**, then stop. Put in it every decision that applies, and nothing already settled:
+
+- the board: convert its format, which id prefix, which items stay out of `TODO.md` (workers take
+  only from `TODO.md`; a person's items go to `BACKLOG.md`);
+- a board kept in its own repository: clone it next to this one (`docs/install.md` §7 step 13);
+- the integration branch and the promotion order, if not `main`;
+- repository settings only the lead can change: merge commits, protecting the integration branch;
+- the test command, if you could not find it;
+- the spend limits: `usd_cap` (per worker session) and `daily_usd_cap` (per day);
+- a project rule that the sessions would break, and whether to make an exception for board items.
+
+Number the decisions. For each, give the options, **your recommended answer first** with a one-line
+reason, and what changes with each answer. End with a line the lead can reply with, for example
+`1a 2a 3b`, and say that a value can be written instead of a letter (for example `4: usd_cap 10`). The message must make sense to someone who has not seen this conversation.
+
+If nothing needs a decision, skip to 4c.
+
+### 4c — Write
+
+With the lead's answers, write only what was decided. Ask the engineer before each change.
+
+1. **Bootstrap.** If `.specify/` is missing, ask the engineer to type `/hef.init`.
+2. **The board.** If the lead chose a board in its own repository, do this there (item 4). Create
+   the missing files with just a title (`# TODO`, `# DOING`, …), or convert the board as the lead
+   decided. Never invent items.
+3. **The config.** If the lead chose a board in its own repository, this repository gets only the
+   pointer, and the template below goes to the board repository (item 4). Otherwise: if
+   `.claude/project-status.json` is missing, create it. If it exists, add only
+   the keys it lacks; never overwrite it. Put the test command in both `allowed_tools` lists in
+   place of `<test command>` (for example `npm test`); without it the worker sessions cannot run the
+   tests. Add a `branches` block if the lead named an integration branch (`docs/install.md` §7
+   step 12), for example `"branches": {"integration": "dev", "environments": ["dev", "stg", "main"]}`
+   with only the branches that exist.
    ```json
    {
      "source": "tasks-repo",
@@ -182,26 +255,29 @@ first and skip what is already done; ask before writing anything.
      }
    }
    ```
-   `usd_cap` is the spend limit per worker session, `daily_usd_cap` the limit per day. Ask the
-   engineer whether their lead set other values.
-4. **Check the board.** Ask the engineer to type `/hef.status`. It prints the board. Check that it
-   counts every item in `tasks/`.
-5. **GitHub (read-only).** Run:
-   ```bash
-   gh repo view --json nameWithOwner,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed,defaultBranchRef
-   gh api "repos/{owner}/{repo}/branches/$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)/protection" >/dev/null 2>&1 \
-     && echo "default branch: protected" || echo "default branch: not protected, or no admin access to see it"
-   ```
-   It needs merge commits allowed and the default branch protected (a pull request required before
-   merging). Hefesto detects a merge by finding the branch inside the default branch, which squash
-   and rebase merges break. If either is missing, tell the engineer to ask their lead. Do not change
-   repository settings yourself.
-6. **Only if their lead says the project uses them:** an integration branch other than `main`
-   (`docs/install.md` §7 step 12) or a board kept in its own repository (step 13). Otherwise skip.
-7. **Commit the setup.** Offer to put the new files in a pull request: branch `chore/hefesto-setup`,
-   stage the files by name, commit, `git push origin chore/hefesto-setup`, `gh pr create`. A person
-   merges it. **Wait until it is merged**, then `git switch <default branch> && git pull --ff-only`.
-   Only then go to Step 5: the sessions read the board from the default branch.
+4. **A board in its own repository**, if the lead chose one (`docs/install.md` §7 step 13):
+   - the engineer clones it next to this repository (`git clone <url> ../<folder>`): you may not
+     write outside this folder;
+   - this repository's `.claude/project-status.json` gets only the pointer and its branches:
+     `{"board": "../<folder>", "branches": {…}}`;
+   - the board repository's `.claude/project-status.json` gets the template above, with `"root"`
+     set to the board's folder inside it (`"."` when the files sit at its top) and
+     `"repos": {"<name>": "../<this repository's folder>"}`;
+   - the board's files and their conversion live in the board repository;
+   - check, from this repository, with `bash <clone>/hooks/ledger.sh board`, where `<clone>` is the
+     hefesto folder Step 1 printed.
+5. **The project rule.** If the lead approved an exception to a project rule, add the sentence the
+   lead approved to the project's `CLAUDE.md`, in the setup pull request. If the lead refused it,
+   do not go to Step 5; say why under "Report back".
+6. **Check the board.** Ask the engineer to type `/hef.status`. It prints the board. Check that it
+   counts every item.
+7. **Commit the setup.** One pull request per repository you changed: branch
+   `chore/hefesto-setup`, stage the files by name, commit, `git push origin chore/hefesto-setup`,
+   then `gh pr create`, with `--base <integration branch>` when the lead named one. Never change
+   repository settings yourself. A person merges. **Wait until every setup pull request is merged**
+   and the lead has changed the repository settings they decided on. Then, in each repository that
+   got a setup pull request, `git switch` to the branch where work integrates and
+   `git pull --ff-only`. Go to Step 5.
 
 ## Step 5 — Hand over the four sessions
 
