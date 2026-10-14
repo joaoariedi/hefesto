@@ -257,8 +257,9 @@ Choose by object when one person runs the repository and a feature should stay i
 end; by stage when more than one person attends, when the panes sit on different hosts (CI and the
 PR on the workstation, the production release on the laptop), or when each stage should own its own
 clarifications. Either way a pane never does a stage's work in its own context: it launches a fresh
-session per item, or does the human step by hand, then `/clear`s. The ledger does not know which
-layout is in use.
+session per item, or does the human step by hand, then runs its own `/compact` prompt before the
+next item ([Performance → Compact prompts per pane](docs/performance.md#-compact-prompts-per-pane)).
+The ledger does not know which layout is in use.
 
 **The shared truth is three things, none of them a conversation:** the board (`tasks/` or the
 GitHub Project), the ledger (`.git/hefesto/ledger/<id>.json` — shared by every worktree, never
