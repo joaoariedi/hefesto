@@ -197,7 +197,7 @@ push=true; while read -r p; do case "$head" in $p) push=false ;; esac; done < <(
 ## Plan review round 3, 2026-10-05 (same reviewer, REVISE_PLAN: 1 required, 2 optional) — applied
 
 1. `integration_base` takes the NEWER of the merge-bases with `origin/<integration>` and the local
-   branch. A stale local `dev` (fxcube's normal case) no longer pulls dev's own commits into the
+   branch. A stale local `dev` (the usual case) no longer pulls dev's own commits into the
    item's diff, which the reviewer reproduced. FR-009 is reworded to match. A stale-local-`dev`
    fixture and an order mutation join SC-006.
 2. `branches --configured` dies (rc 2 or higher) on a config that is not valid JSON;

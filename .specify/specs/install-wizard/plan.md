@@ -7,7 +7,7 @@
 Truth map (inline):
 
 - **Profile signals.** Measured on the maintainer's machine:
-  - real profiles (`~/.claude`, `~/.claude-bedrock`, `~/.claude-sankofa`, `~/.claude-batuta`) each have `settings.json` and `plugins/`;
+  - real profiles (`~/.claude`, `~/.claude-bedrock`, `~/.claude-work`, `~/.claude-personal`) each have `settings.json` and `plugins/`;
   - the clone `~/.claude-framework` has neither, only `.claude-plugin/plugin.json`.
 - **Registry.** `plugins/installed_plugins.json` holds `.plugins["hefesto@hefesto"][0].version`, with `installPath` under `plugins/cache/hefesto/hefesto/<v>/`. `plugins/known_marketplaces.json` has `hefesto` as a key. `hooks/speckit-helper.sh` `doctor-copies` already reads this registry.
 - **CLI surface used:**

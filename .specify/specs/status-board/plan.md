@@ -7,7 +7,7 @@
 One helper, one command, two sources. `hooks/status-board.sh` is a fetcher in the
 `speckit-helper.sh` sense: it prints the board on stdout at exit 0, or a reason on stderr at
 non-zero, never a sentinel. `commands/hef.status.md` runs it with the Bash tool and adds the
-judgement sections. The github-project source is batuta's `scripts/project-status.sh` with the
+judgement sections. The github-project source is an earlier `project-status.sh` script with the
 three constants (`OWNER`, `PROJECT`, `ROADMAP`) and the `epic(` prefix moved into the config; the
 tasks-repo source is new.
 
@@ -34,8 +34,8 @@ fetcher failure.
 - `load_config` → validates `source` ∈ {github-project, tasks-repo}; missing file → stderr example
   for both sources, exit 1 (FR-001, FR-002).
 - `preflight_<source>` → the `[ok]/[MISSING]` checklist; in run mode silent unless missing (FR-003).
-- `render_header`, `bar` shared (batuta's 10-cell bar).
-- `source_github` → batuta's logic parameterised (FR-004, FR-005).
+- `render_header`, `bar` shared (the earlier script's 10-cell bar).
+- `source_github` → the earlier script's logic parameterised (FR-004, FR-005).
 - `source_tasks` → `column_items <file>` (headings matching `item_heading` with an `id_pattern`
   hit; leading marker = first token when it is not part of the id), `done_this_quarter`,
   `quarter_bounds` (calendar unless overridden), `initiative_epics` (dominant prefix per file;
@@ -67,11 +67,11 @@ with no movement marker, epics at 0 %, backlog growth, quarter days left vs rema
 `.claude/CLAUDE.md` (tier list: `hef.status` under sonnet) · `CHANGELOG.md` at release.
 
 ## Out of scope
-Writing the two project configs (batuta, fxcube) — those land in their own repos, from their own
+Writing the adopting projects' configs — those land in their own repos, from their own
 sessions, using the examples above. Retiring the dotfiles `project-status` command — the user's
 dotfiles, after `/hef.status` is installed.
 
 ## Risks
 - Heading heuristics on free-form kanban files: mitigated by configurable patterns and a hand
   count in SC-002.
-- `gh` sub-issue GraphQL fields may change: same exposure batuta already carries; `--check` names it.
+- `gh` sub-issue GraphQL fields may change: same exposure the earlier script already carries; `--check` names it.

@@ -17,7 +17,7 @@
 - [x] T007 [US2] [FR-008] tasks-repo: `quarter_bounds` (calendar or config override), `done_this_quarter` from `done_section` date capture, days left `hooks/status-board.sh`
 - [x] T008 [US3] [FR-009] tasks-repo: `initiative_epics` — dominant id prefix per file, completed = struck or ✅ line, bar per file; empty glob → `no initiatives found`, exit 0 `hooks/status-board.sh`
 - [x] T009 [US2] [US3] Smoke: tasks-repo end to end on the fixture — column counts, marker distribution, quarter filter, initiative bar; mutations: id requirement, quarter filter, strike detection, missing-file check; cites FR-006, FR-007, FR-008, FR-009, FR-011 `tests/smoke.sh`
-- [x] T010 [US1] [FR-004] github-project: batuta's logic with owner/project/roadmap/epic_prefix from config; totals, epic bars, bottom line `hooks/status-board.sh`
+- [x] T010 [US1] [FR-004] github-project: the earlier script's logic with owner/project/roadmap/epic_prefix from config; totals, epic bars, bottom line `hooks/status-board.sh`
 - [x] T011 [US1] Smoke: github-project on the fake `gh` — asserts the `project item-list` and `api graphql` calls were made with the configured owner/project and the rendered totals match the canned data; mutations: owner/project hard-coded; epic prefix filter removed (a non-epic issue must not render as an epic — the check that makes this mutation real was added after review 2026-09-25); failing graphql → non-zero; cites FR-004, FR-003 `tests/smoke.sh`
 - [x] T012 [US1] [US2] [FR-013] Command `commands/hef.status.md`: sonnet, runs the helper, four sections, stops on failure with `--check` findings; `--detailed` pass-through `commands/hef.status.md`
 
@@ -28,7 +28,7 @@
 ## Phase 4: Polish
 - [x] T015 [FR-013] Docs: `docs/commands.md` row, `docs/hooks.md` helper row, README toolbox row, `.claude/CLAUDE.md` tier list (`hef.status` → sonnet), config examples in `docs/commands.md` `docs/commands.md` `docs/hooks.md` `README.md` `.claude/CLAUDE.md`
 - [x] T016 [US1] [US2] Structural smoke: command file exists with `model: sonnet`, calls the helper, mentions `--check`; helper is executable and shellcheck-clean; `req-coverage` green `tests/smoke.sh`
-- [~] T017 [SC-001] [SC-002] Manual parity checks recorded in the PR: fxcube hand count vs helper — DONE 2026-09-25 (8/2/11 items, 11 delivered, exact match); batuta `make project-status` vs `/hef.status` — pending, needs gh outside the sandbox (user) `.specify/specs/status-board/tasks.md`
+- [~] T017 [SC-001] [SC-002] Manual parity checks recorded in the PR: real-board hand count vs helper — DONE 2026-09-25 (8/2/11 items, 11 delivered, exact match); the earlier script vs `/hef.status` — pending, needs gh outside the sandbox (user) `.specify/specs/status-board/tasks.md`
 
 ---
 **Legend**: `[P]` = parallelizable | `[US#]` = user scenario | `[FR-NNN]` = functional requirement

@@ -87,7 +87,7 @@ branches_model() {
   echo "$out"
 }
 # in_branch <branch> <target> → prints the ref that contains it. Source and target are each tried
-# local first, then origin/ (fxcube often has no local `dev`, only origin/dev). Exit 0 = contained;
+# local first, then origin/ (a checkout often has no local `dev`, only origin/dev). Exit 0 = contained;
 # 1 = a target resolved and does not contain it ("not merged"); 3 = the branch resolves nowhere;
 # 4 = the target resolves nowhere. 3 and 4 are never "not merged" (plan reviews 2026-10-05).
 in_branch() {
@@ -379,7 +379,7 @@ case "$SUB" in
     E=$(entry "$ID") || exit 1
     CUR=$(jq -r .phase <<<"$E"); CI=$(phase_index "$CUR") || exit 1; TI=$(phase_index "$TO") || exit 1
     [ "$TI" -gt "$CI" ] || die "ledger advance $ID: '$TO' is not after '$CUR' (phases move forward only: ${PHASES[*]})"
-    # A person's gate is never stepped over (fxcube 2026-10-13: `advance … merged` went through while
+    # A person's gate is never stepped over (field report 2026-10-13: `advance … merged` went through while
     # `unblock` refused human:merge). Every launcher path advances BEFORE it blocks, so none is affected.
     BK=$(jq -r '.blocked_on.kind // empty' <<<"$E")
     [[ "$BK" != human:* ]] || die "ledger advance $ID: blocked on $BK — clear it first with ledger.sh unblock $ID (the human gate is never stepped over)"
@@ -468,7 +468,7 @@ case "$SUB" in
       human:intake)
         # The prompt-injection gate. It used to test `-t 0`, which the Bash tool never has, so a person
         # who had read the item in an interactive session still had to copy the line into a terminal
-        # (fxcube, 2026-10-06). A terminal test proves nothing about who read the item, and anything a
+        # (field report, 2026-10-06). A terminal test proves nothing about who read the item, and anything a
         # session can run, the model that read the hostile text can run too — so the gate is the
         # PERMISSION PROMPT: this command must never be allowlisted (docs/install.md), every clear is a
         # dialog the person answers, and the name is recorded. A launched worker is refused outright.

@@ -1007,9 +1007,9 @@ test('#29: ...and the phase gate STILL runs it — the pair is the invariant', a
 
 // =============================================================================================
 // #30 — multi-repo. The loader computed projectRoot by stripping /.specify/specs/<name>, which is
-// right ONLY when the spec lives inside the repo it describes. In the FxCube monorepo the spec is in
-// tasks/, and the code is in operations_api/ (pytest) and cube_ui/ (vitest) — so the strip yielded
-// fxcube/tasks, a directory containing none of the code, and there is no single testCommand.
+// right ONLY when the spec lives inside the repo it describes. In a real monorepo the spec is in
+// tasks/, and the code is in api_service/ (pytest) and web_app/ (vitest) — so the strip yielded
+// monorepo/tasks, a directory containing none of the code, and there is no single testCommand.
 //
 // Design decisions settled up front (issue #30 listed four open questions):
 //   Q1 cross-repo task  -> REJECT with a tagged reason naming both repos
@@ -1019,8 +1019,8 @@ test('#29: ...and the phase gate STILL runs it — the pair is the invariant', a
 // =============================================================================================
 
 const REPOS = [
-  { path: '/mono/operations_api', testCommand: 'poetry run pytest', testCommandStatus: 'detected', lintCommand: 'ruff check .' },
-  { path: '/mono/cube_ui', testCommand: 'npx vitest run', testCommandStatus: 'detected', lintCommand: 'npm run typecheck' },
+  { path: '/mono/api_service', testCommand: 'poetry run pytest', testCommandStatus: 'detected', lintCommand: 'ruff check .' },
+  { path: '/mono/web_app', testCommand: 'npx vitest run', testCommandStatus: 'detected', lintCommand: 'npm run typecheck' },
 ]
 const monoGraph = (tasks, repos = REPOS, extra = {}) => ({
   featureDir: '/f', projectRoot: '/mono', repos, phases: [{ name: 'Phase 1', tasks }], ...extra,
@@ -1038,12 +1038,12 @@ async function driveCapturing({ canned, args }) {
 }
 
 test('#30: a task routes to the repo that owns its files, and that repo\'s command reaches its prompts', async () => {
-  const g = monoGraph([task('T001', { files: ['operations_api/operation/models.py'] })])
+  const g = monoGraph([task('T001', { files: ['api_service/operation/models.py'] })])
   const { prompts } = await driveCapturing({ canned: baseCanned(g) })
-  assert.match(prompts['impl:T001'], /operations_api/, 'the implementer must cd into the owning repo')
-  assert.ok(!/cube_ui/.test(prompts['impl:T001'] ?? ''), 'and not the other repo')
+  assert.match(prompts['impl:T001'], /api_service/, 'the implementer must cd into the owning repo')
+  assert.ok(!/web_app/.test(prompts['impl:T001'] ?? ''), 'and not the other repo')
   // its GATE must run that repo's suite, not the frontend's
-  assert.match(prompts['gate:Phase 1:operations_api'] ?? Object.values(prompts).find(p => /poetry run pytest/.test(p)) ?? '', /poetry run pytest/,
+  assert.match(prompts['gate:Phase 1:api_service'] ?? Object.values(prompts).find(p => /poetry run pytest/.test(p)) ?? '', /poetry run pytest/,
     'the gate for this repo must use its own test command')
 })
 
@@ -1058,12 +1058,12 @@ test('#30: longest-prefix wins — app/ui/x goes to app/ui, not app', async () =
 })
 
 test('#30: a task spanning two repos is REJECTED, and the reason names both', async () => {
-  const g = monoGraph([task('T001', { files: ['operations_api/api.py', 'cube_ui/src/App.tsx'] })])
+  const g = monoGraph([task('T001', { files: ['api_service/api.py', 'web_app/src/App.tsx'] })])
   const { result } = await driveCapturing({ canned: baseCanned(g) })
   assert.ok(result.halted, `a cross-repo task must halt; got ${JSON.stringify(result)}`)
   const reason = JSON.stringify(result.rejected)
-  assert.match(reason, /operations_api/, 'must name the first repo')
-  assert.match(reason, /cube_ui/, 'must name the second repo')
+  assert.match(reason, /api_service/, 'must name the first repo')
+  assert.match(reason, /web_app/, 'must name the second repo')
   assert.match(reason, /split|one task per repo|different suites/i, 'must tell the operator what to do')
 })
 
@@ -1101,18 +1101,18 @@ test('#30: a prefix-sibling directory is not a false match — apple/x must not 
 })
 
 test('#30: a file matching no repo is logged and attributed, not silently ignored', async () => {
-  // ["CHANGELOG.md", "operations_api/api.py"] — CHANGELOG.md matches no repo. The old hits.size===1
+  // ["CHANGELOG.md", "api_service/api.py"] — CHANGELOG.md matches no repo. The old hits.size===1
   // silently dropped it. It must be surfaced.
-  const g = monoGraph([task('T001', { files: ['CHANGELOG.md', 'operations_api/api.py'] })])
+  const g = monoGraph([task('T001', { files: ['CHANGELOG.md', 'api_service/api.py'] })])
   const { result, logs, prompts } = await driveCapturing({ canned: baseCanned(g) })
   assert.ok(!result.halted, 'one matched repo + a root file still routes (to the matched repo)')
-  assert.match(prompts['impl:T001'], /operations_api/, 'routes to the repo the matched file owns')
-  assert.ok(logs.some(l => /CHANGELOG\.md/.test(l) && /operations_api|attributed|matched no repo/i.test(l)),
+  assert.match(prompts['impl:T001'], /api_service/, 'routes to the repo the matched file owns')
+  assert.ok(logs.some(l => /CHANGELOG\.md/.test(l) && /api_service|attributed|matched no repo/i.test(l)),
     `the unmatched file must be logged, not dropped; logs:\n  ${logs.join('\n  ')}`)
 })
 
 test('#30: args.repos overrides loader detection', async () => {
-  const g = monoGraph([task('T001', { files: ['svc/main.go'] })], REPOS)   // loader says operations_api/cube_ui
+  const g = monoGraph([task('T001', { files: ['svc/main.go'] })], REPOS)   // loader says api_service/web_app
   const override = [{ path: '/w/svc', testCommand: 'go test ./...', testCommandStatus: 'detected', lintCommand: '' }]
   const { prompts } = await driveCapturing({ canned: baseCanned(g), args: { featureDir: '/f', repos: override } })
   assert.match(prompts['impl:T001'], /\/w\/svc/, 'args.repos must win over the loader')
@@ -1120,54 +1120,54 @@ test('#30: args.repos overrides loader detection', async () => {
 })
 
 test('#30: a repo path with a trailing slash still matches its files (normalisation)', async () => {
-  const repos = [{ path: '/mono/operations_api/', testCommand: 'pytest', testCommandStatus: 'detected', lintCommand: '' }]
-  const g = monoGraph([task('T001', { files: ['operations_api/models.py'] })], repos)
+  const repos = [{ path: '/mono/api_service/', testCommand: 'pytest', testCommandStatus: 'detected', lintCommand: '' }]
+  const g = monoGraph([task('T001', { files: ['api_service/models.py'] })], repos)
   const { result, prompts } = await driveCapturing({ canned: baseCanned(g) })
   assert.ok(!result.halted, `a trailing slash must not break matching; got ${JSON.stringify(result.rejected ?? result)}`)
-  assert.match(prompts['impl:T001'], /operations_api/, 'the file must still resolve to the repo')
+  assert.match(prompts['impl:T001'], /api_service/, 'the file must still resolve to the repo')
 })
 
 test('#30: a repo path of "/" is rejected, not treated as a catch-all', async () => {
   const repos = [
     { path: '/', testCommand: 'x', testCommandStatus: 'detected', lintCommand: '' },
-    { path: '/mono/operations_api', testCommand: 'pytest', testCommandStatus: 'detected', lintCommand: '' },
+    { path: '/mono/api_service', testCommand: 'pytest', testCommandStatus: 'detected', lintCommand: '' },
   ]
   // A no-files task exposes the filter: if "/" survives, it normalises to "" and becomes repos[0] —
   // the DEFAULT — and the prompt gets a bare `REPO ROOT: ` / `cd `. A task with files alone would be
   // saved by longest-prefix and hide the bug, so this drives the default path.
   const g = monoGraph([
-    task('T001', { files: ['operations_api/models.py'] }),
+    task('T001', { files: ['api_service/models.py'] }),
     task('T002', { files: [] }),
   ], repos)
   const { prompts, result } = await driveCapturing({ canned: baseCanned(g) })
   assert.ok(!result.halted, `should route, not halt; got ${JSON.stringify(result.rejected ?? result)}`)
-  assert.match(prompts['impl:T001'], /operations_api/, 'a file task must route to the real repo, not the "/" catch-all')
+  assert.match(prompts['impl:T001'], /api_service/, 'a file task must route to the real repo, not the "/" catch-all')
   // The no-files task must land in the real repo (the only surviving one), never an empty path.
-  assert.match(prompts['impl:T002'], /REPO ROOT: \/mono\/operations_api/, 'the default repo must be real, not the dropped "/"')
+  assert.match(prompts['impl:T002'], /REPO ROOT: \/mono\/api_service/, 'the default repo must be real, not the dropped "/"')
   assert.ok(!/REPO ROOT: *(\n|$)/.test(prompts['impl:T002']), 'no bare REPO ROOT from an empty repo path')
 })
 
 test('#30: an undetectable status on ANY repo halts at load, naming the repo', async () => {
   const repos = [
-    { path: '/mono/operations_api', testCommand: 'pytest', testCommandStatus: 'detected', lintCommand: '' },
-    { path: '/mono/cube_ui', testCommand: '', testCommandStatus: 'undetectable', lintCommand: '' },
+    { path: '/mono/api_service', testCommand: 'pytest', testCommandStatus: 'detected', lintCommand: '' },
+    { path: '/mono/web_app', testCommand: '', testCommandStatus: 'undetectable', lintCommand: '' },
   ]
-  const g = monoGraph([task('T001', { files: ['operations_api/a.py'] })], repos)
+  const g = monoGraph([task('T001', { files: ['api_service/a.py'] })], repos)
   const { result } = await driveCapturing({ canned: baseCanned(g) })
   assert.ok(result.halted, 'a repo whose command is undetectable must halt the whole run')
   assert.equal(result.haltedAt, 'Load')
-  assert.match(result.reason, /cube_ui/, 'the halt must name the offending repo')
+  assert.match(result.reason, /web_app/, 'the halt must name the offending repo')
 })
 
 test('#30: the phase gate runs once per repo the phase touched', async () => {
   const g = monoGraph([
-    task('T001', { parallel: true, files: ['operations_api/a.py'] }),
-    task('T002', { parallel: true, files: ['cube_ui/b.tsx'] }),
+    task('T001', { parallel: true, files: ['api_service/a.py'] }),
+    task('T002', { parallel: true, files: ['web_app/b.tsx'] }),
   ])
   const { spawned } = await driveCapturing({ canned: baseCanned(g) })
   const gates = spawned.filter(l => l.startsWith('gate:'))
   assert.equal(gates.length, 2, `two repos touched => two gates; got ${gates.join(', ')}`)
-  assert.ok(gates.some(l => /operations_api/.test(l)) && gates.some(l => /cube_ui/.test(l)),
+  assert.ok(gates.some(l => /api_service/.test(l)) && gates.some(l => /web_app/.test(l)),
     'one gate per repo, each identifiable')
 })
 

@@ -485,7 +485,7 @@ job running tests, then tests exist — say "undetectable" and let a human suppl
 
 MULTI-REPO: look at the task file paths. If they reference code in MORE THAN ONE repository — a
 monorepo whose spec lives in one directory (e.g. tasks/) and whose code lives in sibling repos with
-their OWN, DIFFERENT test commands (e.g. operations_api/ on pytest, cube_ui/ on vitest) — then fill
+their OWN, DIFFERENT test commands (e.g. api_service/ on pytest, web_app/ on vitest) — then fill
 the repos[] array: one entry per repo the tasks touch, each with its own path, testCommand and
 testCommandStatus. Detect each repo's command the same careful way. Order the array so the repo that
 should own tasks with no file paths (setup, migrations) comes FIRST. Leave repos[] empty for an
@@ -848,7 +848,7 @@ for (const ph of ctx.phases) {
   }
 
   // Phase gate — the whole suite, between phases, exactly as hef.implement requires. ONE gate per
-  // repo the phase actually TOUCHED (#30): a monorepo phase that changed operations_api/ and cube_ui/
+  // repo the phase actually TOUCHED (#30): a monorepo phase that changed api_service/ and web_app/
   // must have both suites run, each in its own repo with its own command. In single-repo this is one
   // gate, exactly as before. The repos are those stamped on the accepted tasks by implementAndVerify;
   // a rejected phase never reaches here.

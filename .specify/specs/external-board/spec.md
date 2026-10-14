@@ -4,15 +4,15 @@
 
 ## Overview
 
-Board item HEF-14, requested by fxcube-project (fxcube `tasks/initiatives/lane-setup-v2.md` §4 G1).
+Board item HEF-14, requested by a peer project.
 Hefesto assumes the board and the code share one repository:
 - `session-launch.sh` reads `$TOP/.claude/project-status.json` of the code repo;
 - `status-board.sh` resolves `root` against that repo's top;
 - the ledger lives in the code repo's git common dir, so "one worker per repository" only ever sees
   one repository.
 
-fxcube's board is its own git repo (`tasks/`), and it feeds three code repos (`operations_api`,
-`cube_ui`, `production_server`).
+A project's board can be its own git repo (`tasks/`), and it feeds three code repos (`api_service`,
+`web_app`, `worker_service`).
 
 This feature adds an **external board** mode. Unconfigured, it is today's `in-repo` mode exactly.
 
@@ -22,7 +22,7 @@ This feature adds an **external board** mode. Unconfigured, it is today's `in-re
 
 // <board repo>/.claude/project-status.json — the board config as today, plus the repos it feeds
 { "source": "tasks-repo", "root": ".", "orchestrate": { … },
-  "repos": { "ops": "../operations_api", "ui": "../cube_ui", "ps": "../production_server" } }
+  "repos": { "ops": "../api_service", "ui": "../web_app", "jobs": "../worker_service" } }
 ```
 
 Decisions taken here:
@@ -60,8 +60,8 @@ Decisions taken here:
 ## User Scenarios
 
 ### US1: Reading an external board from a code repo [P1]
-- **Given** `operations_api/.claude/project-status.json` = `{"board": "../tasks"}` and the board config with `repos`
-- **When** `status-board.sh` (or `/hef.status`) runs in `operations_api`
+- **Given** `api_service/.claude/project-status.json` = `{"board": "../tasks"}` and the board config with `repos`
+- **When** `status-board.sh` (or `/hef.status`) runs in `api_service`
 - **Then** it prints the board from `../tasks`, and `--item`, `--item-raw`, `--item-kind` read items from there
 - **Edge**: run from inside `../tasks` itself → the same output (the board repo is its own board)
 - **Error**: `board` points at a path with no board config → it dies naming the path
@@ -69,18 +69,18 @@ Decisions taken here:
 ### US2: Routing an item to its repo [P1]
 - **Given** an item `## OPS-12 — …` whose body has `repo: ops`
 - **When** `status-board.sh --item-repo OPS-12` runs
-- **Then** it prints `ops` and the absolute path of `../operations_api`, tab-separated
+- **Then** it prints `ops` and the absolute path of `../api_service`, tab-separated
 - **Edge**: no `repo:` line and exactly one repo declared → that repo
 - **Error**: `repo: ops, ui` → "targets 2 repos (ops, ui) — split it"; `repo: web` (undeclared) → "names repo 'web' the board does not feed (ops, ui, ps)"
 
 ### US3: Dispatching from one repo into another [P1]
 - **Given** an external board whose next item targets `ui`
-- **When** `/hef.orchestrate --dry-run` runs in `operations_api`
+- **When** `/hef.orchestrate --dry-run` runs in `api_service`
 - **Then**:
   - registration records `repo: ui` on the central ledger entry;
-  - `session-launch.sh implement <id> --dry-run` prints a line whose worktree is `cube_ui/.claude/worktrees/<id>`;
+  - `session-launch.sh implement <id> --dry-run` prints a line whose worktree is `web_app/.claude/worktrees/<id>`;
   - the tiers and allowlist come from the board's `orchestrate` block;
-  - the PR base and the verifier's diff base come from `cube_ui`'s own `branches`.
+  - the PR base and the verifier's diff base come from `web_app`'s own `branches`.
 
 ### US4: One worker per repo, several repos at once [P1]
 - **Given** an owned entry for `ops` and a queued entry for `ui`
@@ -114,7 +114,7 @@ Decisions taken here:
 | SC-001 | `ledger.sh board`: in-repo defaults; external mode from a code repo and from the board repo; each refusal named | `tests/smoke.sh` |
 | SC-002 | A fixture with a board repo and two code repos (ops: `integration: dev`; ui: trunk):<br>- `status-board` from ops shows the board, and the item commands read it;<br>- `--item-repo` routes and refuses (two repos, undeclared, none with several repos);<br>- `init --repo` writes the central ledger;<br>- `next` skips an owned repo and returns another;<br>- the implement dry run from ops for a ui item targets ui's worktree with no `--base`, and an ops item targets `--base dev`;<br>- `handoff` from an ops branch records `ops`;<br>- `publish` marks the board file in the board repo, not the code repo;<br>- an unconfigured single repo behaves exactly as before. | `tests/smoke.sh` |
 | SC-003 | Mutations: the pointer ignored, the central ledger dir, the per-repo `next` filter, the two-repo refusal, the launcher's repo `TOP`, the main-worktree resolution, `--configured` reading `repo_config`, the unblock `cd`, comment-stripped routing, and the empty `--repo` refusal. Each turns the suite red. | `tests/smoke.sh` |
-| SC-004 | fxcube acceptance: from `operations_api`, `/hef.orchestrate --dry-run` and `session-launch.sh implement <id> --dry-run` read `../tasks`, target the item's repo, and base on `dev`. Prerequisite: the dispatched items carry `repo:` lines (none do today), the pointer and `repos` map are in place, and ops's `branches` declares `dev` | user-run |
+| SC-004 | Acceptance: from `api_service`, `/hef.orchestrate --dry-run` and `session-launch.sh implement <id> --dry-run` read `../tasks`, target the item's repo, and base on `dev`. Prerequisite: the dispatched items carry `repo:` lines (none do today), the pointer and `repos` map are in place, and ops's `branches` declares `dev` | user-run |
 
 ## Clarifications
 _None. Worker environment isolation (`worker_setup`, per-worker env vars) is lower priority in the request and is left for a follow-up item._

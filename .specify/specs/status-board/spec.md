@@ -5,8 +5,8 @@
 ## Overview
 A `/hef.status` command that renders one management brief — where we are, per-epic completion
 bars, what is at risk, a bottom line — from a source each project declares in
-`.claude/project-status.json`: a **GitHub Project** board (today's batuta `scripts/project-status.sh`,
-generalised) or a **tasks repository** whose columns are markdown files (fxcube's
+`.claude/project-status.json`: a **GitHub Project** board (an existing `project-status.sh` script,
+generalised) or a **tasks repository** whose columns are markdown files (a real project's
 `TODO.md`/`DOING.md`/`DONE.md`/`BACKLOG.md`). A helper, `hooks/status-board.sh`, does every
 mechanical extraction with jq, git, and POSIX text tools only; the command adds the judgement.
 
@@ -19,7 +19,7 @@ mechanical extraction with jq, git, and POSIX text tools only; the command adds 
 - **Then** the helper prints the quarter header (from the roadmap, if present), the board status
   distribution, every epic (issues whose title starts with the configured `epic_prefix`, default
   `epic(`) with a completion bar from its sub-issue summary, and a bottom line — the same figures
-  batuta's script prints today
+  the earlier script prints today
 - **Edge:** the project has an epic with no sub-issues → the row reads `no tasks yet`, bar empty
 - **Error:** the token lacks `read:project` → `--check` names that prerequisite and its one-line
   fix; the run exits non-zero with nothing on stdout
@@ -59,7 +59,7 @@ mechanical extraction with jq, git, and POSIX text tools only; the command adds 
 - **When** `/hef.status` runs
 - **Then** each spec directory is an epic with `ticked/total` tasks as its completion
 - **Given** `"specs": false` or the key absent
-- **Then** spec directories are not read at all — because in fxcube 48 of 63 shipped specs still
+- **Then** spec directories are not read at all — because in one real project 48 of 63 shipped specs still
   show open boxes and would report a product in production as 23 % delivered
 - Files: `hooks/status-board.sh`, `tests/smoke.sh`
 
@@ -77,7 +77,7 @@ mechanical extraction with jq, git, and POSIX text tools only; the command adds 
 - **Given** a github-project source
 - **When** the user runs `/hef.status --detailed`
 - **Then** each epic is unfolded into its sub-issues with open/closed marker, board phase, assignee,
-  and title (batuta's `--detailed`)
+  and title (the earlier script's `--detailed`)
 - **Given** a tasks-repo source
 - **Then** `--detailed` lists each column's items (id, sub-state, title) under the column
 - Files: `hooks/status-board.sh`, `commands/hef.status.md`
@@ -106,8 +106,8 @@ mechanical extraction with jq, git, and POSIX text tools only; the command adds 
 
 | ID | Criterion | Validation Method |
 |----|-----------|-------------------|
-| SC-001 | On batuta-agent-v2 the github-project board prints the same totals, epic bars, and bottom line as `make project-status` | Run both, diff the numeric fields |
-| SC-002 | On fxcube/tasks the tasks-repo board prints item counts per column equal to a hand count of id-bearing headings, and DONE-this-quarter equal to the count of dated sections since the quarter start | Hand count vs helper output |
+| SC-001 | On a real GitHub Project the github-project board prints the same totals, epic bars, and bottom line as the earlier script | Run both, diff the numeric fields |
+| SC-002 | On a real tasks repository the tasks-repo board prints item counts per column equal to a hand count of id-bearing headings, and DONE-this-quarter equal to the count of dated sections since the quarter start | Hand count vs helper output |
 | SC-003 | `--check` with a token lacking `read:project` names exactly that and the fix | Run under a scoped-down token |
 | SC-004 | Every FR is cited by at least one smoke check (`req-coverage`) | `/hef.verify` |
 | SC-005 | Each new guard goes red under its mutation | Mutation pass recorded in the smoke comments |

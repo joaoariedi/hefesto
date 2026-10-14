@@ -96,7 +96,7 @@ Each CLI uses its own login; hefesto never handles a key.
 
 ## 7. Branch model — HEF-15 (unreleased)
 
-In a repository that integrates on `dev` (fxcube's `operations_api`), add
+In a repository that integrates on `dev` (an `api_service` repo, say), add
 `"branches": {"integration": "dev", "protected": ["release/*"], "environments": ["dev", "stg", "main"]}`
 to its `.claude/project-status.json`.
 

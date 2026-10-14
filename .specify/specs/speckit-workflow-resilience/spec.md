@@ -3,7 +3,7 @@
 <!-- Directory name MUST equal the branch name minus `feature/` — speckit-helper.sh resolves every
      artifact as .specify/specs/$(git branch --show-current | sed 's|^feature/||')/ and returns the
      string NO_SPEC (exit 0) when it does not match. -->
-<!-- Source: reports/12-field-report-speckit-workflow-multi-repo-and-overload.md (FxCube #314, wf_ba8bb0be-11d) -->
+<!-- Source: reports/12-field-report-speckit-workflow-multi-repo-and-overload.md (#314, wf_ba8bb0be-11d) -->
 
 ## Overview
 
@@ -38,7 +38,7 @@ carries four unresolved design questions, recorded rather than guessed at:
    silently ignores the unmatched files. **A genuine bug regardless of what (1) decides.**
 3. The default repo for a task declaring no files, without a positional fallback. `repos[repos.length-1]`
    after a longest-first sort is the *shortest* path — so the default is chosen by directory-name
-   character count, and renaming `cube_ui` to `frontend_application_workspace` silently flips the
+   character count, and renaming `web_app` to `frontend_application_workspace` silently flips the
    default from vitest to pytest.
 4. Normalising an LLM-produced `projectRoot` the same way repo paths are normalised — a trailing slash
    yields `/r//app/...`, matches nothing, and halts the phase.
@@ -188,7 +188,7 @@ the only path on which the old FR-016 was reachable.
 **Decision**: Removed from this feature and from the sketches. Recorded in C's backlog with all four
 open cases.
 **Rationale**: Cross-repo handling exists only inside C. The earlier sketch invented a reject-on-span
-behaviour with no requirement backing it; deferring costs nothing, and C will be specced with the FxCube
+behaviour with no requirement backing it; deferring costs nothing, and C will be specced with the field
 tree present rather than reconstructed from a report. Deleted rather than carried forward as an
 assumption nobody agreed to.
 **Impact**: Sketch 3 removed entirely.
