@@ -27,7 +27,8 @@ work from the exact text: the commands below must be copied exactly.
   the lead (Step 4b) instead of asking the engineer to decide.
 - Start at Step 1 every time this file is followed. The engineer restarts Claude Code partway
   through (Step 2), and Step 1 finds where things stand. If they also pasted their lead's answer to
-  a Step 4b message, run Steps 1 and 3 quickly, then go straight to Step 4c with it.
+  a Step 4b message, run Steps 1 and 3 quickly, then the opening of Step 4 and 4a again
+  (read-only, no new message), then Step 4c with the pasted answers.
 - Never `sudo` (the engineer may need it to install a missing tool; they run it, not you). Never
   delete: move things to `~/hefesto-old/`. Never use `--force`. Never discard local changes in the
   hefesto clone. Never merge or approve a pull request. Never push to the default branch.
@@ -226,9 +227,12 @@ If nothing needs a decision, skip to 4c.
 With the lead's answers, write only what was decided. Ask the engineer before each change.
 
 1. **Bootstrap.** If `.specify/` is missing, ask the engineer to type `/hef.init`.
-2. **The board.** Create the missing files with just a title (`# TODO`, `# DOING`, …), or convert the
-   board as the lead decided. Never invent items.
-3. **The config.** If `.claude/project-status.json` is missing, create it. If it exists, add only
+2. **The board.** If the lead chose a board in its own repository, do this there (item 4). Create
+   the missing files with just a title (`# TODO`, `# DOING`, …), or convert the board as the lead
+   decided. Never invent items.
+3. **The config.** If the lead chose a board in its own repository, this repository gets only the
+   pointer, and the template below goes to the board repository (item 4). Otherwise: if
+   `.claude/project-status.json` is missing, create it. If it exists, add only
    the keys it lacks; never overwrite it. Put the test command in both `allowed_tools` lists in
    place of `<test command>` (for example `npm test`); without it the worker sessions cannot run the
    tests. Add a `branches` block if the lead named an integration branch (`docs/install.md` §7
@@ -260,7 +264,8 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
      set to the board's folder inside it (`"."` when the files sit at its top) and
      `"repos": {"<name>": "../<this repository's folder>"}`;
    - the board's files and their conversion live in the board repository;
-   - check with `bash ~/.claude-framework/hooks/ledger.sh board`.
+   - check, from this repository, with `bash <clone>/hooks/ledger.sh board`, where `<clone>` is the
+     hefesto folder Step 1 printed.
 5. **The project rule.** If the lead approved an exception to a project rule, add the sentence the
    lead approved to the project's `CLAUDE.md`, in the setup pull request. If the lead refused it,
    do not go to Step 5; say why under "Report back".
@@ -270,8 +275,9 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
    `chore/hefesto-setup`, stage the files by name, commit, `git push origin chore/hefesto-setup`,
    then `gh pr create`, with `--base <integration branch>` when the lead named one. Never change
    repository settings yourself. A person merges. **Wait until every setup pull request is merged**
-   and the lead has changed the repository settings they decided on. Then `git switch` to the branch
-   where work integrates and `git pull --ff-only`, and go to Step 5.
+   and the lead has changed the repository settings they decided on. Then, in each repository that
+   got a setup pull request, `git switch` to the branch where work integrates and
+   `git pull --ff-only`. Go to Step 5.
 
 ## Step 5 — Hand over the four sessions
 
