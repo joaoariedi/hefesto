@@ -4370,6 +4370,37 @@ printf 'n\n\n\n\n\n\n\n\n\n' > "$H/answers"; IW_ENV+=(HEFESTO_TTY="$H/answers" H
 [ "$iw_mfail" -eq 0 ] && ok "install-wizard mutations: dry-run writing, clone as profile, backup as profile, .mine overwrite, write through a symlinked CLAUDE.md, delete instead of move, no-tty default, main downgraded, per-profile CLAUDE_CONFIG_DIR, dirty-clone stop, pt/en parity, shared legacy folder, legacy blob test, no temp clone, detached-commit check, previous-copy blob rule, quoted replacement, linked rule file, linked shipped CLAUDE.md, no-upstream main stop, 4 dry-run bypasses of run, env -u, 3 verify failure paths, 2 wrong-remote stops, not-a-git-clone stop, the old-plugin removal backups (marketplace, registry), the plain-cp CLAUDE.md dry-run bypass, the re-point backup — all caught, each reaching its step (SC-002, review, quality gate)"
 IW_ENV=()
 
+# A real terminal (field report 2026-10-14): the real CLI touches the tty it writes to. Under a plain
+# `timeout` it runs in a background process group, so the kernel STOPS it (SIGTTOU) and the wizard
+# hangs past its own timeout and past Ctrl+C. Every case above runs without a tty and could not see
+# that, so this one runs the wizard inside a pty (util-linux script) against FakeTtyClaude.
+if script -qec true /dev/null >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+  iw_tty_bin="$iw_t/ttybin"; mkdir -p "$iw_tty_bin"
+  cat > "$iw_tty_bin/claude" <<EOF
+#!/usr/bin/env bash
+# FakeTtyClaude — FakeClaudeCli that first sets the terminal's modes, as the real CLI does; a process
+# outside the terminal's foreground process group may not, and is stopped when it tries.
+stty echo </dev/tty 2>/dev/null
+exec "$iw_bin/claude" "\$@"
+EOF
+  chmod +x "$iw_tty_bin/claude"
+  iw_tty() { # $1 home, $2 script → $iw_trc: the wizard's exit code, or "hung" when the guard killed it
+    printf '%s\n' "env -i HOME='$1' PATH='$iw_tty_bin:/usr/bin:/bin' TMPDIR='${TMPDIR:-/tmp}' LANG=C FAKE_CLAUDE_LOG='$iw_log' HEFESTO_REPO_URL='$iw_bare' HEFESTO_CLONE_DIR='$1/hefesto-src' bash '$2' --yes >/dev/null 2>&1; echo \$? > '$iw_t/tty.rc'" > "$iw_t/tty.sh"
+    rm -f "$iw_t/tty.rc"; timeout -s KILL 20 script -qec "bash '$iw_t/tty.sh'" /dev/null >/dev/null 2>&1
+    iw_trc="$(cat "$iw_t/tty.rc" 2>/dev/null || echo hung)"
+  }
+  iw_tfail=0
+  H="$(iw_home)"; iw_tty "$H" "$IW"
+  { [ "$iw_trc" = 0 ] && [ "$(iw_ver "$H/.claude")" = 7.9.2 ]; } || { bad "install wizard on a real terminal: a claude that touches the tty must finish, not hang (rc=$iw_trc)"; iw_tfail=1; }
+  rm -rf "$H"
+  iw_mut 's/timeout --foreground -k 10 300/timeout 300/'; H="$(iw_home)"; iw_tty "$H" "$IW_MUT"
+  [ "$iw_trc" = hung ] || { bad "mutation survived: without --foreground the wizard should hang on the tty, got rc=$iw_trc"; iw_tfail=1; }
+  rm -rf "$H"
+  [ "$iw_tfail" -eq 0 ] && ok "install wizard on a real terminal: claude runs in the foreground process group, so a CLI that touches the tty finishes (field report 2026-10-14); the plain-timeout mutation hangs"
+else
+  printf '  \033[33mskip\033[0m the real-terminal wizard case needs util-linux script(1) and timeout\n'
+fi
+
 # Live tier (SMOKE_LIVE=1): the REAL claude CLI, a directory marketplace, a throwaway HOME — the
 # only check that the registry fields the wizard verifies are the ones the real CLI writes.
 if [ "${SMOKE_LIVE:-0}" = "1" ] && command -v claude >/dev/null 2>&1; then
