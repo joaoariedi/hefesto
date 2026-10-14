@@ -35,6 +35,34 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.10.1] - 2026-10-14
+
+**The installation wizard no longer hangs on a real terminal, and an engineer can now point Claude
+Code at `SETUP.md` to be guided through install, upgrade, repair and project setup.**
+
+### Fixed
+
+- **`install.sh` hung after "Successfully updated marketplace"**, past its own 300 s timeout and
+  past Ctrl+C. A plain `timeout` runs `claude` in a background process group; the CLI touches the
+  terminal it writes to, so the kernel stopped it (`SIGTTOU`), and nothing could finish it. The
+  wizard now runs `claude` with `timeout --foreground -k 10 300` (`gtimeout` on macOS). If an
+  earlier run hung, kill it from another terminal (`pkill -KILL -f 'claude plugin'`) and run the
+  wizard again: every step it had finished is safe to repeat. A new smoke case runs the wizard
+  inside a pseudo-terminal against a fake CLI that sets the terminal's modes, as the real one does.
+
+### Changed
+
+- **`SETUP.md` is a guided runbook.** An engineer opens Claude Code in a git project and types
+  ``Run `curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/SETUP.md` and follow it.``
+  Claude checks the machine read-only, has the engineer run the wizard when an install or upgrade
+  is due (it never runs it itself), verifies and repairs, sets up the project's board and
+  `.claude/project-status.json` (with the test command in `allowed_tools`), checks the GitHub merge
+  settings, and hands over the four sessions with their `/compact` prompts.
+- **Panes run their own `/compact` prompt between items**, not `/clear` (README §5,
+  `docs/performance.md`).
+- **The repository names no project that uses it.** Comments, test fixtures, docs and history files
+  use neutral names; behavior is unchanged.
+
 ## [7.10.0] - 2026-10-13
 
 ### Added
