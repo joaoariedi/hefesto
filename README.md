@@ -71,15 +71,16 @@ git clone https://github.com/joaoariedi/hefesto.git ~/.claude-framework
 bash ~/.claude-framework/install.sh
 ```
 
-**Or hand `SETUP.md` to an agent.** It is a runbook written for Claude Code to execute: it clones,
-installs, configures the permission rule, verifies the result, and tells you what it did.
+**Or let Claude guide you.** `SETUP.md` is a runbook written for Claude Code to follow. Claude
+checks the machine, then walks you step by step through installing or upgrading (you run the
+wizard when it says so), fixing a broken install, setting up a project's board, and opening the
+four sessions.
 
 ```bash
 cd ~/some-project && claude
 ```
 
-> Fetch https://raw.githubusercontent.com/joaoariedi/hefesto/main/SETUP.md
-> and follow it to install Hefesto on this machine.
+> Run `curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/SETUP.md` and follow it.
 
 Or do it yourself — it is three commands:
 
