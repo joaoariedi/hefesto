@@ -133,13 +133,17 @@ tasks_preflight() {
 
 # Items: headings matching ITEM_HEADING whose text contains an id (FR-006). Prints id<TAB>marker<TAB>text.
 # The marker is the heading's first token when it is neither the id nor an ordinary word (FR-007).
+# A marker is a leading token that is not text (an emoji, say). The test runs in the C locale: in a UTF-8
+# locale macOS's regex ranges can match the bytes of an emoji, and every marker would read as text.
+starts_like_text() { local LC_ALL=C; [[ "$1" =~ ^[A-Za-z0-9*_\`\[\(] ]]; }
+
 column_items() {
   local line id first marker
   grep -E "$ITEM_HEADING" "$1" | sed -E 's/^#+ *//' | while IFS= read -r line; do
     id="$(grep -oE "$ID_PATTERN" <<<"$line" | head -1)"
     [ -z "$id" ] && continue
     first="${line%% *}"
-    if [ "$first" = "$id" ] || [[ "$first" =~ ^[A-Za-z0-9*_\`\[\(] ]]; then marker=""; else marker="$first"; fi
+    if [ "$first" = "$id" ] || starts_like_text "$first"; then marker=""; else marker="$first"; fi
     printf '%s\t%s\t%s\n' "$id" "$marker" "$line"
   done
 }

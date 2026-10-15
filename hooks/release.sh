@@ -63,7 +63,8 @@ entry+="**<one-sentence thesis of this release — written by a human, not deriv
 [ -z "$added$changed$fixed" ] && entry+="_No commits since ${last_tag:-the beginning}; write the entry by hand._"$'\n\n'
 
 # Insert before the first existing version heading.
-awk -v e="$entry" 'BEGIN{done=0} /^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ && !done {printf "%s", e; done=1} {print}' CHANGELOG.md > "$tmp.md" && cat "$tmp.md" > CHANGELOG.md && rm -f "$tmp.md"
+# Through ENVIRON, not -v: macOS awk refuses a newline inside a -v value ("newline in string").
+ENTRY="$entry" awk 'BEGIN{done=0} /^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ && !done {printf "%s", ENVIRON["ENTRY"]; done=1} {print}' CHANGELOG.md > "$tmp.md" && cat "$tmp.md" > CHANGELOG.md && rm -f "$tmp.md"
 
 echo "release.sh: $CURRENT → $V ($DATE)"
 echo "  bumped: plugin.json, marketplace.json (×2), README footer, .claude/CLAUDE.md title"

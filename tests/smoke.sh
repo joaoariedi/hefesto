@@ -1126,7 +1126,7 @@ head_ "Complexity delta gate"
 # gate never ran (see the case's comment). The exemption removed → the exemption case went red.
 # Restored.
 cx_t="$(mktemp -d)"; cx_b="$(mktemp -d)"
-printf '#!/bin/bash\nf="${@: -1}"; n=$(grep -c LIZARD_VIOLATION "$f" 2>/dev/null || true); for i in $(seq 1 ${n:-0}); do echo "$f:$i: warning: fn$i has 60 NLOC, 12 CCN"; done; exit 0\n' > "$cx_b/lizard"
+printf '#!/bin/bash\nf="${@: -1}"; n=$(grep -c LIZARD_VIOLATION "$f" 2>/dev/null || true); i=0; while [ "$i" -lt "${n:-0}" ]; do i=$((i+1)); echo "$f:$i: warning: fn$i has 60 NLOC, 12 CCN"; done; exit 0\n' > "$cx_b/lizard"
 chmod +x "$cx_b/lizard"
 ( cd "$cx_t" && git init -q . && printf 'x # LIZARD_VIOLATION\n' > a.py && git add a.py && git -c user.email=s@t -c user.name=s commit -q -m 'feat: base' ) >/dev/null 2>&1
 cx_case() { # expected-exit description
@@ -2227,7 +2227,7 @@ head_ "PR babysitter"
 # HEFESTO_GH_BIN seam the eval scaffolds use too. Every guard has a mutation on a copy of the script.
 PW="$REPO/hooks/pr-watch.sh"
 pw_bin="$(mktemp -d)"; pw_fx="$pw_bin/fx"; mkdir -p "$pw_fx"; pw_log="$pw_bin/calls"; : > "$pw_log"
-pw_repo="$(mktemp -d)"; pw_ledger="$(mktemp -d)"; pw_fail=0
+pw_repo="$(cd "$(mktemp -d)" && pwd -P)"; pw_ledger="$(mktemp -d)"; pw_fail=0   # pwd -P: macOS /var → /private/var
 ( cd "$pw_repo" && git init -q -b main . && printf 'a\n' > a.txt && mkdir -p .github/workflows && printf 'name: ci\n' > .github/workflows/ci.yml \
   && git add -A && git -c user.email=s@t -c user.name=s commit -q -m 'base' && git remote add origin git@github.com:acme/app.git \
   && git checkout -q -b other && printf 'o\n' > o.txt && git add -A && git -c user.email=s@t -c user.name=s commit -q -m 'other' \
@@ -2431,13 +2431,14 @@ pw_out="$(pw in-diff 7 .github/workflows/ci.yml 2>&1)"; pw_rc=$?; { [ "$pw_rc" -
 # Mutations (constitution 3): each guard reintroduced on a copy must turn a case red.
 pw_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$pw_mutdir/board-lib.sh"; ln -s "$REPO/hooks/ledger.sh" "$pw_mutdir/ledger.sh"; PW_MUT="$pw_mutdir/pr-watch.sh"; pw_mfail=0
 pw_mut() { cp "$PW" "$PW_MUT"; sed_i "$1" "$PW_MUT"; cmp -s "$PW" "$PW_MUT" && { bad "pr-watch mutation did not apply: $1"; pw_mfail=1; }; }
-pw_mut '/untrusted-begin %s %s/c\  printf '"'"'<<<untrusted-begin %s %s\\n%s\\nuntrusted-end %s>>>\\n'"'"' "$1" "$nonce" "$body" "$nonce"'
+# an s///, not GNU's one-line `c\text`, which BSD sed (macOS) rejects
+pw_mut '/untrusted-begin %s %s/s/"\$(sed -E .*-->\/d'"'"')" "\$nonce"$/"$body" "$nonce"/'
 pw_out="$(PW_BIN="$PW_MUT" pw threads 7 2>&1)"; grep -qF 'hidden' <<<"$pw_out" || { bad "mutation survived: HTML-comment strip removed, hidden text still absent"; pw_mfail=1; }
 pw_mut 's/select((.comments.nodes | last | (.body \/\/ "") | contains($m)) | not) | //'
 pw_out="$(PW_BIN="$PW_MUT" pw threads 7 2>&1)"; grep -qE '^thread T2 ' <<<"$pw_out" || { bad "mutation survived: marker filter removed, T2 still skipped"; pw_mfail=1; }
 pw_mut '/command -v gitleaks/,/^  fi$/d'; : > "$pw_bin/posted"
 PW_BIN="$PW_MUT" pw reply 7 --thread T1 --body-file "$pw_bin/body-bad" >/dev/null 2>&1; [ -s "$pw_bin/posted" ] || { bad "mutation survived: gitleaks call removed, the secret was still not posted"; pw_mfail=1; }
-pw_mut '$a\"$GH" pr merge "$1"'
+cp "$PW" "$PW_MUT"; printf '%s\n' '"$GH" pr merge "$1"' >> "$PW_MUT"   # appended without GNU sed's one-line `a\text`
 pw_code="$(grep -vE '^\s*#' "$PW_MUT")"; pw_hits="$(grep -nE 'pr merge|--approve|merge --auto|push (--force|-f)|resolveReviewThread' <<<"$pw_code")"
 [ -n "$pw_hits" ] || { bad "mutation survived: a 'gh pr merge' line was not caught by the static assertion"; pw_mfail=1; }
 pw_mut 's/.bucket=="fail" or .bucket=="cancel"/.bucket=="fail"/g'; pw_checks "$PW_CANCEL"
@@ -3081,8 +3082,8 @@ cat > "$pr_bin/fake-vendor-cli" <<'STEOF'
 #!/bin/bash
 n=$(basename "$0")
 { printf '%s argv:' "$n"; printf ' [%s]' "$@"; echo; } >> "$PR_LOG"
-if [ "$n" = aws ]; then len=0; for a in "$@"; do case "$a" in file://*) len=$(jq -j '.[0].content[0].text' "${a#file://}" | wc -c) ;; esac; done
-else len=$(wc -c); fi
+if [ "$n" = aws ]; then len=0; for a in "$@"; do case "$a" in file://*) len=$(jq -j '.[0].content[0].text' "${a#file://}" | wc -c | tr -d ' ') ;; esac; done
+else len=$(wc -c | tr -d ' '); fi
 echo "$n stdin=$len" >> "$PR_LOG"
 case "${PR_MODE:-}" in empty) exit 0 ;; fail) echo "boom from $n" >&2; exit 3 ;; sleep) echo "still thinking from $n" >&2; sleep 5; exit 0 ;; esac
 [ "${PR_MODE:-}" = reasoning ] && [ "$n" = aws ] && { jq -nc '{output: {message: {content: [{reasoningContent: {reasoningText: {text: "hmm"}}}, {text: "aws answer"}]}}}'; exit 0; }
@@ -4472,23 +4473,24 @@ mp_rb "$RB" 5 sh -c 'exit 3';        [ "$mp_rc" = 3 ] || { bad "run-bounded must
 mp_rb "$RB" 1 sleep 8;               { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 4 ]; } || { bad "run-bounded 1 sleep 8 must stop it with 124 within seconds (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
 mp_o="$(printf 'from stdin\n' | "$RB" 5 cat)"; [ "$mp_o" = 'from stdin' ] || { bad "run-bounded must hand the caller's stdin to the command (got '$mp_o')"; mp_fail=1; }
 mp_rb "$RB" 30 echo quick;           { [ "$mp_o" = quick ] && [ "$mp_s" -le 3 ]; } || { bad "run-bounded inside \$(…) must return when the command does, not when its watchdog sleeps out (${mp_s}s)"; mp_fail=1; }
-mp_rb "$RB" -k 1 1 sh -c 'trap "" TERM; sleep 9'; { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 5 ]; } || { bad "run-bounded -k 1 must KILL a command that ignores TERM (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
+# bash -c, not sh -c: Linux's sh (dash) execs the last command and hides a grandchild; macOS's sh does not.
+mp_rb "$RB" -k 1 1 bash -c 'trap "" TERM; sleep 9'; { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 5 ]; } || { bad "run-bounded -k 1 must KILL a command that ignores TERM (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
+mp_rb "$RB" 1 bash -c 'sleep 9 & wait'; { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 4 ]; } || { bad "run-bounded must stop the command's children too, or one holds the caller's pipe (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
 mp_rb "$RB" abc true;                [ "$mp_rc" = 125 ] || { bad "run-bounded with a non-numeric SECONDS must refuse with 125 (got $mp_rc)"; mp_fail=1; }
 # Mutations (constitution 3): each removes one guarantee and must turn a check red.
 mp_md="$(mktemp -d)"
 mp_mut() { cp "$RB" "$mp_md/rb.sh"; sed_i "$1" "$mp_md/rb.sh"; chmod +x "$mp_md/rb.sh"; cmp -s "$RB" "$mp_md/rb.sh" && { bad "run-bounded mutation did not apply: $1"; mp_fail=1; }; }
-mp_mut 's/^"\$@" <&3 3<&- &$/"$@" \&/'
-mp_o="$(printf 'from stdin\n' | "$mp_md/rb.sh" 5 cat)"; [ "$mp_o" = 'from stdin' ] && { bad "mutation survived: stdin no longer handed over, yet the command still read it"; mp_fail=1; }
-mp_mut 's|^) </dev/null >/dev/null 2>&1 &$|) \&|'
-mp_rb "$mp_md/rb.sh" 6 echo quick; [ "$mp_s" -ge 5 ] || { bad "mutation survived: the watchdog keeps the caller's pipe, yet \$(…) returned in ${mp_s}s"; mp_fail=1; }
-mp_mut 's/sleep "\$kill_after"; kill -KILL "\$pid"/sleep "$kill_after"; true/'
-mp_rb "$mp_md/rb.sh" -k 1 1 sh -c 'trap "" TERM; sleep 7'; [ "$mp_s" -ge 6 ] || { bad "mutation survived: no KILL after -k, yet a TERM-ignoring command stopped in ${mp_s}s"; mp_fail=1; }
+mp_mut 's/sleep "\$kill_after"; kill -KILL -- "-\$pid"/sleep "$kill_after"; true/'
+mp_rb "$mp_md/rb.sh" -k 1 1 bash -c 'trap "" TERM; sleep 7'; [ "$mp_s" -ge 6 ] || { bad "mutation survived: no KILL after -k, yet a TERM-ignoring command stopped in ${mp_s}s"; mp_fail=1; }
+mp_mut 's/^set -m$/:/'
+mp_rb "$mp_md/rb.sh" 1 bash -c 'sleep 6 & wait'; [ "$mp_s" -ge 5 ] || { bad "mutation survived: no process group of its own, yet a grandchild was stopped in ${mp_s}s"; mp_fail=1; }
+mp_o="$(printf 'from stdin\n' | "$mp_md/rb.sh" 5 cat)"; [ "$mp_o" = 'from stdin' ] && { bad "mutation survived: without job control the command still read the caller's stdin"; mp_fail=1; }
 rm -rf "$mp_md"
 # 3. The helpers fall back to it rather than refusing to run on a Mac.
 grep -qF 'command -v timeout || command -v gtimeout || echo "$HERE/run-bounded.sh"' "$REPO/hooks/pr-watch.sh" \
   && grep -qF 'command -v gtimeout || echo "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-bounded.sh"' "$REPO/hooks/arena-run.sh" \
   || { bad "pr-watch.sh and arena-run.sh must fall back to run-bounded.sh when there is no timeout/gtimeout"; mp_fail=1; }
-[ "$mp_fail" -eq 0 ] && ok "macOS portability: no bash-4 construct, GNU-only flag or GNU-only checksum tool in the hooks; run-bounded.sh passes exit codes, stops at the limit (124), keeps stdin, frees \$(…) at once, KILLs after -k, refuses bad args; 3 mutations caught; pr-watch and arena-run fall back to it"
+[ "$mp_fail" -eq 0 ] && ok "macOS portability: no bash-4 construct, GNU-only flag or GNU-only checksum tool in the hooks; run-bounded.sh passes exit codes, stops at the limit (124), keeps stdin, frees \$(…) at once, KILLs after -k, stops its children, refuses bad args; 2 mutations caught (no KILL; no job control → no group, no stdin); pr-watch and arena-run fall back to it"
 
 # --- Tier 1: the merge gate (field report 2026-10-13: advance stepped over human:merge; a deleted branch) -----
 head_ "Merge gate"
