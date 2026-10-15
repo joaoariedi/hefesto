@@ -35,6 +35,44 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.11.0] - 2026-10-15
+
+**Hefesto runs on macOS as shipped — stock `/bin/bash` 3.2 and BSD tools, nothing from Homebrew — and a
+macOS CI job keeps it that way.**
+
+### Fixed
+
+- **The hooks broke on a Mac.** They run under `#!/bin/bash`, which is 3.2 on macOS, with BSD tools and
+  no `timeout`. The installer already worked; these did not:
+  - `/hef.status` and the orchestrator: `status-board.sh` used associative arrays and `mapfile`. Its
+    marker counts merged every emoji into one (macOS collation sorts them as equal), and its "days
+    left" was a day short at random (BSD `date -j` filled in the current time).
+  - every `/hef.orchestrate` launch: the item hash used `sha256sum`, which macOS lacks. The ledger,
+    session start, checkpoints and the test/format stamps used `sha256sum`, `sha1sum` and `md5sum`
+    the same way. Each now uses the GNU tool, else `shasum` or `md5 -r` (identical values on Linux).
+  - `/hef.babysit` and the arena: `pr-watch.sh` and `arena-run.sh` refused to run without `timeout`;
+    `pr-watch.sh` also tripped bash 3.2's empty-array bug.
+  - the session-start hook: an empty array under `set -u` failed when `timeout` is missing.
+  - the complexity gate (`mktemp --suffix`) and `release.sh` (`sed -i`, `awk -v` with newlines).
+- **`/hef.status --mark` through a symlink** no longer depends on `readlink -f`; where it is missing
+  (macOS before 13) a fallback follows links physically and refuses a dangling one.
+
+### Added
+
+- **`hooks/run-bounded.sh`** — the part of `timeout(1)` the helpers use, for a Mac without coreutils:
+  the command's exit code or 124, TERM to its whole process group and KILL after `-k`, the caller's
+  stdin kept, a signal to the wrapper passed on. `pr-watch.sh` and `arena-run.sh` use it only when
+  neither `timeout` nor `gtimeout` is on PATH.
+- **A `smoke-macos` CI job** runs the whole suite on `macos-latest` with the stock userland. The suite
+  itself is now portable, and a new "macOS portability" block guards the rule on Linux too: no hook
+  may use a bash-4 construct, a GNU-only flag or a GNU-only checksum tool without a fallback.
+
+### Changed
+
+- **`SETUP.md` Step 4 collects the lead's decisions in one message** — look (read-only), one numbered
+  message with the recommended answer first, then write only what was decided — instead of asking the
+  engineer. A board in its own repository, a project-rule exception and the setup PR's base are covered.
+
 ## [7.10.1] - 2026-10-14
 
 **The installation wizard no longer hangs on a real terminal, and an engineer can now point Claude
