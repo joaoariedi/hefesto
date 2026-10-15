@@ -309,7 +309,8 @@ done_this_quarter() { # count DONE sections whose date capture lies in [QS, QE]
 initiative_epics() { # each file matched by epics.initiatives → one bar (FR-009)
   local glob f name ids prefix total done_ id
   glob="$(cfg '.epics.initiatives // "initiatives/*.md"')"
-  mapfile -t files < <(cd "$TROOT" 2>/dev/null && compgen -G "$glob" || true)
+  files=()   # a read loop: macOS /bin/bash is 3.2, which has no builtin for this
+  while IFS= read -r f; do files+=("$f"); done < <(cd "$TROOT" 2>/dev/null && compgen -G "$glob" || true)
   if [ "${#files[@]}" -eq 0 ]; then echo "    no initiatives found ($glob)"; return; fi
   for f in "${files[@]}"; do
     name="$(basename "${f%.md}")"
@@ -337,7 +338,7 @@ spec_epics() { # only when epics.specs is true (FR-010)
   done
 }
 
-resolve_link() { # $1 → its target's absolute path, following every link (readlink -f is missing before macOS 13)
+resolve_link() { # $1 → the absolute path of its final target, following every link (readlink -f is missing before macOS 13)
   local p="$1" n=0 t
   while [ -L "$p" ] && [ "$n" -lt 40 ]; do
     t="$(readlink "$p")" || return 1

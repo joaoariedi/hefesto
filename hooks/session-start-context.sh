@@ -99,7 +99,7 @@ if [ -d "$LDIR" ]; then
   fi
 fi
 
-KEY=$(printf '%s' "$CWD" | sha1sum | cut -c1-16)
+KEY=$(printf '%s' "$CWD" | { sha1sum 2>/dev/null || shasum -a 1; } | cut -c1-16)
 CKPT="${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/progress/$KEY.md"
 if [ -f "$CKPT" ] && [ -n "$(find "$CKPT" -mtime -7 2>/dev/null)" ]; then
   echo "last checkpoint ($(sed -n 's/^- when: //p' "$CKPT" | head -1)): $CKPT — read it before resuming interrupted work"

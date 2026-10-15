@@ -339,7 +339,7 @@ case "$SUB" in
     in_list "$KIND" "tasks-repo github-project" || die "ledger init $ID: --kind must be tasks-repo or github-project (got '${KIND:-<none>}')"
     [ -n "$REF" ] || die "ledger init $ID: --ref is required (e.g. tasks/TODO.md#$ID)"
     SHA=null
-    if [ -n "$BODY" ]; then [ -f "$BODY" ] || die "ledger init $ID: body file not found: $BODY"; SHA="\"$(sha256sum "$BODY" | cut -c1-64)\""; fi
+    if [ -n "$BODY" ]; then [ -f "$BODY" ] || die "ledger init $ID: body file not found: $BODY"; SHA="\"$({ sha256sum 2>/dev/null || shasum -a 256; } < "$BODY" | cut -c1-64)\""; fi
     jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" --arg ik "$IKIND" --arg repo "$RNAME" '{
       id: $id, source: {kind: $kind, ref: $ref, url: (if $url == "" then null else $url end), body_sha256: $sha},
       item_kind: $ik, route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
@@ -514,7 +514,7 @@ case "$SUB" in
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1
     setf() { E=$(jq --arg v "$2" "$1" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set $1 to '$2'"; }
     while [ $# -gt 0 ]; do case "$1" in
-      --body-file) [ -f "${2:-}" ] || die "ledger record $ID: body file not found: '${2:-}'"; setf '.source.body_sha256 = $v' "$(sha256sum "$2" | cut -c1-64)"; shift ;;
+      --body-file) [ -f "${2:-}" ] || die "ledger record $ID: body file not found: '${2:-}'"; setf '.source.body_sha256 = $v' "$({ sha256sum 2>/dev/null || shasum -a 256; } < "$2" | cut -c1-64)"; shift ;;
       --worktree) setf '.worktree = $v' "${2:-}"; shift ;;
       --branch)   setf '.branch = $v' "${2:-}"; shift ;;
       --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; setf '.route = $v' "$2"; shift ;;
@@ -596,7 +596,7 @@ case "$SUB" in
       tasks-repo)
         SB="$HERE/status-board.sh"; T=$(mktemp) || die "ledger publish: mktemp failed"
         bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: the board has no item $ID"; }
-        STORED=$(jq -r '.source.body_sha256 // empty' <<<"$E"); NOW=$(sha256sum < "$T" | cut -c1-64)
+        STORED=$(jq -r '.source.body_sha256 // empty' <<<"$E"); NOW=$({ sha256sum 2>/dev/null || shasum -a 256; } < "$T" | cut -c1-64)
         if [ -n "$STORED" ] && [ "$NOW" != "$STORED" ]; then rm -f "$T"; die "ledger publish $ID: item text changed since claim (board sha256 ${NOW:0:12}…, ledger ${STORED:0:12}…) — a person re-reads it and re-hashes with ledger.sh record $ID --body-file <raw>; the board is untouched"; fi
         PREVM=$(jq -r '.published.state // empty' <<<"$E")
         MARKED=$(bash "$SB" --mark "$ID" "${M:--}" ${PREVM:+--was "$PREVM"}) || { rm -f "$T"; exit 1; }

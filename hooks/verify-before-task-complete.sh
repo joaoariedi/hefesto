@@ -83,9 +83,9 @@ if ! echo "$TREE" | grep -qE '\.(ts|tsx|js|jsx|py|rs|go|rb|java|c|h|cpp)$'; then
 fi
 
 # --- Reuse the last result if the tree is unchanged since it was computed. -----
-KEY=$(printf '%s' "$CWD" | md5sum | cut -d' ' -f1)
+KEY=$(printf '%s' "$CWD" | { md5sum 2>/dev/null || md5 -r; } | cut -d' ' -f1)
 CACHE="${TMPDIR:-/tmp}/.claude-verify-$KEY"
-TREE_HASH=$(printf '%s' "$TREE" | md5sum | cut -d' ' -f1)
+TREE_HASH=$(printf '%s' "$TREE" | { md5sum 2>/dev/null || md5 -r; } | cut -d' ' -f1)
 
 if [ -f "$CACHE" ]; then
   read -r CACHED_HASH CACHED_STATUS < "$CACHE" || true

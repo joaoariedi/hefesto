@@ -24,7 +24,7 @@
 #
 # FETCHER contract (speckit-helper.sh): the answer on stdout at exit 0; the offending value and the expected
 # shape on stderr at non-zero. No exit-0 sentinel (constitution 5). Usage errors exit 2. Zero-install:
-# bash, jq, git, coreutils `timeout` (or `gtimeout`); `gh` and `gitleaks` detected, never installed.
+# bash, jq, git, coreutils `timeout` (or `gtimeout`, else the bundled run-bounded.sh); `gh` and `gitleaks` detected, never installed.
 # HEFESTO_GH_BIN overrides the gh binary (the test seam, like HEFESTO_LEDGER_DIR).
 set -uo pipefail
 
@@ -67,7 +67,8 @@ need() {
   command -v "$GH" >/dev/null 2>&1 || die "pr-watch: gh not found — install GitHub CLI (https://cli.github.com) or set HEFESTO_GH_BIN"
   local auth; auth=$("$GH" auth status 2>&1) || die "pr-watch: gh auth status failed — a login (gh auth login) or, under the sandbox, api.github.com not granted: $(tail -1 <<<"$auth")"
   command -v jq >/dev/null 2>&1 || die "pr-watch: jq not found — install jq: https://jqlang.org"
-  TIMEOUT="$(command -v timeout || command -v gtimeout)" || die "pr-watch: timeout not found — coreutils on Linux, 'brew install coreutils' (gtimeout) on macOS"
+  # macOS ships no timeout: the bundled run-bounded.sh stands in rather than demanding coreutils
+  TIMEOUT="$(command -v timeout || command -v gtimeout || echo "$HERE/run-bounded.sh")"
   remote_ok || die "pr-watch: no git remote in $(git_dir)/config — add one: git remote add origin <url>"
 }
 

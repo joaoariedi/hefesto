@@ -31,6 +31,21 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 # suffix, so `sed -i 's/…/' f` there edits nothing and fails. Both accept a suffix glued to -i: edit with
 # one, then drop the backup. The file is the last argument.
 sed_i() { local f; for f; do :; done; sed -i.smoke-bak "$@" && rm -f -- "$f.smoke-bak"; }
+# macOS has shasum and md5, not the GNU sha256sum/md5sum this suite compares hashes with: put same-format
+# stand-ins on PATH (the hooks carry their own fallback; these are for the suite's own comparisons).
+if ! command -v sha256sum >/dev/null 2>&1; then
+  SMOKE_SHIM="$(mktemp -d)"
+  printf '#!/bin/sh\nexec shasum -a 256 "$@"\n' > "$SMOKE_SHIM/sha256sum"
+  printf '#!/bin/sh\nexec md5 -r "$@"\n' > "$SMOKE_SHIM/md5sum"
+  chmod +x "$SMOKE_SHIM"/*; export PATH="$SMOKE_SHIM:$PATH"
+fi
+# in_pty "<command line>": run it with a real terminal. util-linux script(1) takes -qec; BSD (macOS) takes the
+# command after the log file. Returns 99 when neither works (the caller skips).
+in_pty() {
+  if script -qec true /dev/null >/dev/null 2>&1; then script -qec "$1" /dev/null
+  elif script -q /dev/null true >/dev/null 2>&1; then script -q /dev/null /bin/bash -c "$1"
+  else return 99; fi
+}
 
 # Hermetic: no test reaches the real gh (code review 2026-10-13 — the sandbox saw api.github.com traffic
 # once ledger.sh began cross-checking a recorded PR through gh). Every test that needs gh passes its own
@@ -429,7 +444,7 @@ done
 # The lookbehind excludes anything path-prefixed (`~/.claude/agents/`, `/home/you/.claude/...`) —
 # those are the USER's home directory and are legitimate. Only a bare, relative
 # `.claude/<payload>/` refers to this repo's layout, and that is the thing that is wrong.
-stale_paths="$(grep -rnP '(?<![~/])\.claude/(commands|agents|hooks|workflows)/' "$REPO/docs" "$REPO/README.md" 2>/dev/null || true)"
+stale_paths="$(grep -rnE '(^|[^~/])\.claude/(commands|agents|hooks|workflows)/' "$REPO/docs" "$REPO/README.md" 2>/dev/null || true)"
 if [ -n "$stale_paths" ]; then
   bad "docs describe the pre-5.0 layout — the payload does not live under .claude/ (#9)"
   sed 's|^|       |' <<<"$stale_paths" | head -3
@@ -541,12 +556,12 @@ fi
 #    THIS PIPE IS SAFE and must not be "fixed" into capture-then-match. The header's ban is on
 #    `producer | grep -q`, where grep exits on first match and SIGPIPEs the producer. `wc -l` reads to
 #    EOF and never exits early: no SIGPIPE, no race. Here grep is the PRODUCER, not the matcher.
-raw_n="$(grep -oP '(?<![A-Za-z0-9_$.])agent\s*\(' "$WF" | wc -l || true)"
+raw_n="$(grep -oE '(^|[^A-Za-z0-9_$.])agent[[:space:]]*\(' "$WF" | wc -l | tr -d ' ' || true)"
 if [ "$raw_n" -eq 1 ]; then
   ok "exactly one unwrapped spawn — every other call routes through agentTyped"
 else
   bad "$raw_n unwrapped spawn occurrences, expected exactly 1 (the one inside agentTyped) — the rest bypass the retry choke point"
-  sed 's|^|       |' <<<"$(grep -nP '(?<![A-Za-z0-9_$.])agent\s*\(' "$WF" || true)" | head -6
+  sed 's|^|       |' <<<"$(grep -nE '(^|[^A-Za-z0-9_$.])agent[[:space:]]*\(' "$WF" || true)" | head -6
 fi
 
 # 5. The [P] batch collector must not filter its parallel() results. parallel() converts a thrown
@@ -1465,7 +1480,7 @@ else bad "dogfood board: rc=$so_rc, config or counts wrong — $(grep -iE 'todo|
 # the helper, every guard a `die`. Fixture: a temp repo with a second worktree.
 LG="$REPO/hooks/ledger.sh"
 if [ -x "$LG" ]; then ok "hook ledger.sh exists and is executable"; else bad "hooks/ledger.sh missing or not executable"; fi
-lg_t="$(mktemp -d)"; lg_fail=0
+lg_t="$(cd "$(mktemp -d)" && pwd -P)"; lg_fail=0   # pwd -P: on macOS /var is a link to /private/var
 ( cd "$lg_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init \
   && git worktree add -q "$lg_t/wt" -b wt && git -C "$lg_t/wt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m wt \
   && printf 'body line\n<!-- hidden -->\n' > body.txt ) >/dev/null 2>&1
@@ -1580,9 +1595,9 @@ done
 lg block HEF-10 --kind ci >/dev/null 2>&1
 grep -qF 'apply to human:intake only' <<<"$(lg unblock HEF-10 --reviewed-by-human --by Ana 2>&1)" || { bad "--reviewed-by-human / --by on a non-intake kind must be refused, naming why"; lg_fail=1; }
 lg unblock HEF-10 >/dev/null 2>&1
-if command -v script >/dev/null 2>&1; then
+if in_pty true >/dev/null 2>&1; then
   lg block HEF-10 --kind human:intake >/dev/null 2>&1
-  (cd "$lg_t" && USER=ttyperson script -qec "bash '$LG' unblock HEF-10 --reviewed-by-human" /dev/null) >/dev/null 2>&1
+  (cd "$lg_t" && USER=ttyperson in_pty "bash '$LG' unblock HEF-10 --reviewed-by-human") >/dev/null 2>&1
   jq -e '.blocked_on == null and .reviewed[-1].by == "ttyperson"' "$lg_t/.git/hefesto/ledger/HEF-10.json" >/dev/null 2>&1 || { bad "from a real terminal, --reviewed-by-human alone must clear and record the login"; lg_fail=1; }
 fi
 rm -rf "$lg_md2"
@@ -2534,7 +2549,7 @@ cmp -s "$ls_t/tasks/TODO.md" "$ls_bin/todo.m" || { bad "a refused --mark changed
 # a symlinked column is written through to its target and the file keeps its mode (quality gate 2026-10-02)
 ls_real="$(mktemp -d)/DOING.md"; printf '# DOING\n\n## HEF-20 — linked\nb\n' > "$ls_real"; chmod 664 "$ls_real"; rm -f "$ls_t/tasks/DOING.md"; ln -s "$ls_real" "$ls_t/tasks/DOING.md"
 (cd "$ls_t" && bash "$SB" --mark HEF-20 🔨 >/dev/null 2>&1)
-{ [ -L "$ls_t/tasks/DOING.md" ] && grep -qxF '## 🔨 HEF-20 — linked' "$ls_real" && [ "$(stat -c %a "$ls_real")" = 664 ]; } || { bad "--mark must write through a symlink and keep the mode (link=$( [ -L "$ls_t/tasks/DOING.md" ] && echo yes || echo no), mode=$(stat -c %a "$ls_real"))"; ls_pfail=1; }
+{ [ -L "$ls_t/tasks/DOING.md" ] && grep -qxF '## 🔨 HEF-20 — linked' "$ls_real" && [ "$(stat -c %a "$ls_real" 2>/dev/null || stat -f %Lp "$ls_real")" = 664 ]; } || { bad "--mark must write through a symlink and keep the mode (link=$( [ -L "$ls_t/tasks/DOING.md" ] && echo yes || echo no), mode=$(stat -c %a "$ls_real"))"; ls_pfail=1; }
 rm -f "$ls_t/tasks/DOING.md"; printf '# DOING\n' > "$ls_t/tasks/DOING.md"
 # every state has its marker: other block ⛔, plan 📐, pr 🔀, merged ✅ (the publish map, end to end)
 for ls_case in 'ci:implement:⛔' '-:spec:📐' '-:pr:🔀' '-:merged:✅'; do
@@ -2557,7 +2572,7 @@ ls_err="$(lsl publish GH-3 2>&1 >/dev/null)"; { [ $? -ne 0 ] && grep -qF 'needs 
 
 # FR-004 escalate — threshold, human kinds only, path by kind, recorded once, session naming, 200-char cap
 ls_efail=0
-ago() { date -u -d "-$1 hours" +%Y-%m-%dT%H:%M:%SZ; }
+ago() { date -u -d "-$1 hours" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-"$1"H +%Y-%m-%dT%H:%M:%SZ; }
 lsl record HEF-7 --pr https://github.com/o/r/pull/7 --spec-dir /x/spec >/dev/null 2>&1; lsl block HEF-7 --kind human:merge >/dev/null 2>&1; lsset HEF-7 ".blocked_on.since = \"$(ago 5)\""
 lsl block HEF-10 --kind ci >/dev/null 2>&1; lsset HEF-10 ".blocked_on.since = \"$(ago 9)\""
 lsl init HEF-11 --kind tasks-repo --ref t >/dev/null 2>&1; lsl block HEF-11 --kind human:clarify >/dev/null 2>&1; lsset HEF-11 ".blocked_on.since = \"$(ago 1)\""
@@ -3061,7 +3076,7 @@ pr_t="$(mktemp -d)"; pr_bin="$(mktemp -d)"; pr_bin2="$(mktemp -d)"; pr_none="$(m
 pr_log="$pr_bin/calls"; pr_fail=0
 for b in bash jq git mktemp rm cp tail grep cat wc basename sleep dirname tr sed head env cut; do p="$(command -v "$b")" && ln -s "$p" "$pr_sys/$b"; done
 # a logging shim over the real timeout (FakeTimeout): pins `-k 10` and the default seconds
-printf '#!/bin/bash\necho "timeout $*" | cut -d" " -f1-4 >> "$PR_LOG.timeout"\nexec %s "$@"\n' "$(command -v timeout)" > "$pr_sys/timeout"; chmod +x "$pr_sys/timeout"
+printf '#!/bin/bash\necho "timeout $*" | cut -d" " -f1-4 >> "$PR_LOG.timeout"\nexec %s "$@"\n' "$(command -v timeout || echo "$REPO/hooks/run-bounded.sh")" > "$pr_sys/timeout"; chmod +x "$pr_sys/timeout"
 cat > "$pr_bin/fake-vendor-cli" <<'STEOF'
 #!/bin/bash
 n=$(basename "$0")
@@ -3807,7 +3822,7 @@ iw_on() { jq -r '.enabledPlugins["hefesto@hefesto"] // false' "$1/settings.json"
 iw_snap() {
   (cd "$1" && find . \( -path ./hefesto-old -o -path ./hefesto-src \) -prune -o \
     \( -type f -exec sh -c 'printf "f %s %s\n" "$(sha256sum < "$1" | cut -d" " -f1)" "$1"' _ {} \; \) -o \
-    \( -type l -exec sh -c 'printf "l %s %s\n" "$(readlink "$1")" "$1"' _ {} \; \) -o \( -type d -printf 'd - %p\n' \) | sort)
+    \( -type l -exec sh -c 'printf "l %s %s\n" "$(readlink "$1")" "$1"' _ {} \; \) -o \( -type d -exec printf 'd - %s\n' {} \; \) | sort)
 }
 iw_lost() { # $1 home, $2 snapshot → the entries whose content (or link, or folder) is nowhere
   local h="$1" kind sum f links b hit
@@ -4282,7 +4297,7 @@ grep -qF "cfg=$H/.claude-work" "$iw_log" && { bad "mutation survived: CLAUDE_CON
 iw_mut '/clone_dirty && die clone_dirty/d'; iw_dirty; H="$IW_H"; iw_go "$H" "$IW_MUT" --yes
 [ "$(git -C "$H/hefesto-src" rev-parse HEAD)" = "$(iw_sha v7.8.0)" ] && [ ! -s "$iw_log" ] && { bad "mutation survived: the dirty stop removed, HEAD and the profiles still untouched"; iw_mfail=1; }; rm -rf "$H"
 # 11 pt/en parity → a Portuguese text deleted
-iw_mut '/^msg_pt()/,/^}/{/^    found_header)/d}'
+iw_mut '/^msg_pt()/,/^}/{/^    found_header)/d;}'
 grep -qF 'pt:found_header' <<<"$(iw_parity "$IW_MUT")" || { bad "mutation survived: msg_pt lost found_header, parity still clean"; iw_mfail=1; }
 # 12 B1: the shared legacy folder → two code-reviewer.md mv lines paste into one destination
 iw_mut 's|d="\$BK/legacy/\$(basename "\$p")/\$(basename "\$(dirname "\$f")")"|d="$BK/legacy"|'; iw_lclone; H="$IW_H"; iw_go "$H" "$IW_MUT" --yes --profile "$H/.claude-work"
@@ -4378,7 +4393,9 @@ IW_ENV=()
 # `timeout` it runs in a background process group, so the kernel STOPS it (SIGTTOU) and the wizard
 # hangs past its own timeout and past Ctrl+C. Every case above runs without a tty and could not see
 # that, so this one runs the wizard inside a pty (util-linux script) against FakeTtyClaude.
-if script -qec true /dev/null >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+if in_pty true >/dev/null 2>&1; then
+  # The guard that ends a hung run: timeout(1), or the bundled stand-in on a Mac without coreutils.
+  if command -v timeout >/dev/null 2>&1; then iw_guard=(timeout -s KILL 20); else iw_guard=("$REPO/hooks/run-bounded.sh" -k 1 20); fi
   iw_tty_bin="$iw_t/ttybin"; mkdir -p "$iw_tty_bin"
   cat > "$iw_tty_bin/claude" <<EOF
 #!/usr/bin/env bash
@@ -4390,19 +4407,24 @@ EOF
   chmod +x "$iw_tty_bin/claude"
   iw_tty() { # $1 home, $2 script → $iw_trc: the wizard's exit code, or "hung" when the guard killed it
     printf '%s\n' "env -i HOME='$1' PATH='$iw_tty_bin:/usr/bin:/bin' TMPDIR='${TMPDIR:-/tmp}' LANG=C FAKE_CLAUDE_LOG='$iw_log' HEFESTO_REPO_URL='$iw_bare' HEFESTO_CLONE_DIR='$1/hefesto-src' bash '$2' --yes >/dev/null 2>&1; echo \$? > '$iw_t/tty.rc'" > "$iw_t/tty.sh"
-    rm -f "$iw_t/tty.rc"; timeout -s KILL 20 script -qec "bash '$iw_t/tty.sh'" /dev/null >/dev/null 2>&1
+    rm -f "$iw_t/tty.rc"
+    if script -qec true /dev/null >/dev/null 2>&1; then "${iw_guard[@]}" script -qec "bash '$iw_t/tty.sh'" /dev/null >/dev/null 2>&1
+    else "${iw_guard[@]}" script -q /dev/null bash "$iw_t/tty.sh" >/dev/null 2>&1; fi
     iw_trc="$(cat "$iw_t/tty.rc" 2>/dev/null || echo hung)"
   }
   iw_tfail=0
   H="$(iw_home)"; iw_tty "$H" "$IW"
   { [ "$iw_trc" = 0 ] && [ "$(iw_ver "$H/.claude")" = 7.9.2 ]; } || { bad "install wizard on a real terminal: a claude that touches the tty must finish, not hang (rc=$iw_trc)"; iw_tfail=1; }
   rm -rf "$H"
-  iw_mut 's/timeout --foreground -k 10 300/timeout 300/'; H="$(iw_home)"; iw_tty "$H" "$IW_MUT"
-  [ "$iw_trc" = hung ] || { bad "mutation survived: without --foreground the wizard should hang on the tty, got rc=$iw_trc"; iw_tfail=1; }
-  rm -rf "$H"
+  # The mutation needs a timeout(1) for the wizard to misuse; without one (a stock Mac) it cannot hang.
+  if command -v timeout >/dev/null 2>&1; then
+    iw_mut 's/timeout --foreground -k 10 300/timeout 300/'; H="$(iw_home)"; iw_tty "$H" "$IW_MUT"
+    [ "$iw_trc" = hung ] || { bad "mutation survived: without --foreground the wizard should hang on the tty, got rc=$iw_trc"; iw_tfail=1; }
+    rm -rf "$H"
+  fi
   [ "$iw_tfail" -eq 0 ] && ok "install wizard on a real terminal: claude runs in the foreground process group, so a CLI that touches the tty finishes (field report 2026-10-14); the plain-timeout mutation hangs"
 else
-  printf '  \033[33mskip\033[0m the real-terminal wizard case needs util-linux script(1) and timeout\n'
+  printf '  \033[33mskip\033[0m the real-terminal wizard case needs script(1)\n'
 fi
 
 # Live tier (SMOKE_LIVE=1): the REAL claude CLI, a directory marketplace, a throwaway HOME — the
@@ -4424,6 +4446,49 @@ fi
 rm -rf "$iw_t" "$iw_md"
 
 unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+
+# --- Tier 1: macOS portability (field report 2026-10-15: /hef.status and /hef.babysit broke on a Mac) -----
+head_ "macOS portability"
+# Every hook runs under #!/bin/bash — 3.2 on macOS — with BSD sed/date/stat/mktemp/readlink and no
+# timeout(1). The smoke-macos CI job runs this whole suite there; this block guards the same rules on
+# Linux too, so a regression fails before it ever reaches a Mac.
+mp_fail=0
+# 1. No bash-4-only construct, no GNU-only flag without a BSD fallback, in anything that runs on a user's
+#    machine. Comments are skipped; a line that tries the GNU form and then the BSD one (`|| date -j`,
+#    `|| stat -f`) is a fallback, not a dependency.
+mp_bad="$(for f in "$REPO"/hooks/*.sh "$REPO"/install.sh; do
+  grep -n '' "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed -E "s/[[:space:]]#[^\"']*\$//" \
+    | grep -E '\bmapfile\b|\breadarray\b|declare -[a-zA-Z]*[gAn]|local -n|\$\{[A-Za-z_]+(,,?|\^\^?)\}|readlink -f|mktemp --|grep -[a-zA-Z]*P|sort -V|sed -i( |$)|chmod --reference|date (-u )?-d |stat -c|\b(md5sum|sha1sum|sha256sum)\b' \
+    | grep -vE '\|\| (date -j|stat -f)|(md5sum|sha1sum|sha256sum) 2>/dev/null \|\| (md5 -r|shasum)' | sed "s|^|$(basename "$f"):|"
+done)"
+[ -z "$mp_bad" ] || { bad "a hook depends on bash 4 or a GNU-only flag, which macOS /bin/bash 3.2 and BSD tools lack:"; printf '       %s\n' "$mp_bad" | head -10; mp_fail=1; }
+# 2. run-bounded.sh — the timeout(1) stand-in for a Mac without coreutils.
+RB="$REPO/hooks/run-bounded.sh"
+mp_rb() { # $1 script, then its args → $mp_o, $mp_rc, $mp_s (whole seconds it took)
+  local s="$1" t0; shift; t0=$(date +%s)
+  mp_o="$("$s" "$@" 2>&1)"; mp_rc=$?; mp_s=$(( $(date +%s) - t0 ))
+}
+mp_rb "$RB" 5 sh -c 'exit 3';        [ "$mp_rc" = 3 ] || { bad "run-bounded must pass the command's exit code through (got $mp_rc)"; mp_fail=1; }
+mp_rb "$RB" 1 sleep 8;               { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 4 ]; } || { bad "run-bounded 1 sleep 8 must stop it with 124 within seconds (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
+mp_o="$(printf 'from stdin\n' | "$RB" 5 cat)"; [ "$mp_o" = 'from stdin' ] || { bad "run-bounded must hand the caller's stdin to the command (got '$mp_o')"; mp_fail=1; }
+mp_rb "$RB" 30 echo quick;           { [ "$mp_o" = quick ] && [ "$mp_s" -le 3 ]; } || { bad "run-bounded inside \$(…) must return when the command does, not when its watchdog sleeps out (${mp_s}s)"; mp_fail=1; }
+mp_rb "$RB" -k 1 1 sh -c 'trap "" TERM; sleep 9'; { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 5 ]; } || { bad "run-bounded -k 1 must KILL a command that ignores TERM (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
+mp_rb "$RB" abc true;                [ "$mp_rc" = 125 ] || { bad "run-bounded with a non-numeric SECONDS must refuse with 125 (got $mp_rc)"; mp_fail=1; }
+# Mutations (constitution 3): each removes one guarantee and must turn a check red.
+mp_md="$(mktemp -d)"
+mp_mut() { cp "$RB" "$mp_md/rb.sh"; sed_i "$1" "$mp_md/rb.sh"; chmod +x "$mp_md/rb.sh"; cmp -s "$RB" "$mp_md/rb.sh" && { bad "run-bounded mutation did not apply: $1"; mp_fail=1; }; }
+mp_mut 's/^"\$@" <&3 3<&- &$/"$@" \&/'
+mp_o="$(printf 'from stdin\n' | "$mp_md/rb.sh" 5 cat)"; [ "$mp_o" = 'from stdin' ] && { bad "mutation survived: stdin no longer handed over, yet the command still read it"; mp_fail=1; }
+mp_mut 's|^) </dev/null >/dev/null 2>&1 &$|) \&|'
+mp_rb "$mp_md/rb.sh" 6 echo quick; [ "$mp_s" -ge 5 ] || { bad "mutation survived: the watchdog keeps the caller's pipe, yet \$(…) returned in ${mp_s}s"; mp_fail=1; }
+mp_mut 's/sleep "\$kill_after"; kill -KILL "\$pid"/sleep "$kill_after"; true/'
+mp_rb "$mp_md/rb.sh" -k 1 1 sh -c 'trap "" TERM; sleep 7'; [ "$mp_s" -ge 6 ] || { bad "mutation survived: no KILL after -k, yet a TERM-ignoring command stopped in ${mp_s}s"; mp_fail=1; }
+rm -rf "$mp_md"
+# 3. The helpers fall back to it rather than refusing to run on a Mac.
+grep -qF 'command -v timeout || command -v gtimeout || echo "$HERE/run-bounded.sh"' "$REPO/hooks/pr-watch.sh" \
+  && grep -qF 'command -v gtimeout || echo "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-bounded.sh"' "$REPO/hooks/arena-run.sh" \
+  || { bad "pr-watch.sh and arena-run.sh must fall back to run-bounded.sh when there is no timeout/gtimeout"; mp_fail=1; }
+[ "$mp_fail" -eq 0 ] && ok "macOS portability: no bash-4 construct, GNU-only flag or GNU-only checksum tool in the hooks; run-bounded.sh passes exit codes, stops at the limit (124), keeps stdin, frees \$(…) at once, KILLs after -k, refuses bad args; 3 mutations caught; pr-watch and arena-run fall back to it"
 
 # --- Tier 1: the merge gate (field report 2026-10-13: advance stepped over human:merge; a deleted branch) -----
 head_ "Merge gate"
