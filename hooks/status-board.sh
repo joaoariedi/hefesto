@@ -279,7 +279,7 @@ marker_summary() { # items → "label n · label n"
     [ -z "$m" ] && continue
     m="$(jq -r --arg m "$m" '.states[$m] // $m' "$CONFIG")"
     out+="${out:+ · }$m $n"
-  done < <(cut -f2 | sed '/^$/d' | LC_ALL=C sort | LC_ALL=C uniq -c | sort -rn)   # C: in macOS's UTF-8 collation every emoji sorts and uniqs as equal
+  done < <(cut -f2 | sed '/^$/d' | LC_ALL=C sort | LC_ALL=C uniq -c | LC_ALL=C sort -rn)   # C: in macOS's UTF-8 collation every emoji sorts and uniqs as equal
   printf '%s' "$out"
 }
 

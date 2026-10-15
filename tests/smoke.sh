@@ -3480,7 +3480,8 @@ done
 # board repo itself prints the same board (US1 edge)
 eb_sfail=0; eb_o="$(ebs "$eb_ops" --detailed 2>&1)"
 { grep -qF 'kanban — Status Board (tasks-repo: tasks/)' <<<"$eb_o" && grep -qE 'todo +11 items' <<<"$eb_o"; } || { bad "status-board from ops must print the kanban board: $(head -c 300 <<<"$eb_o")"; eb_sfail=1; }
-[ "$eb_o" = "$(ebs "$eb_k" --detailed 2>&1)" ] || { bad "status-board from the board repo must print the same board as from ops"; eb_sfail=1; }
+eb_o2="$(ebs "$eb_k" --detailed 2>&1)"
+[ "$eb_o" = "$eb_o2" ] || { bad "status-board from the board repo must print the same board as from ops — diff: $(diff <(printf '%s\n' "$eb_o") <(printf '%s\n' "$eb_o2") | head -6 | tr '\n' '|')"; eb_sfail=1; }
 eb_o="$(ebs "$eb_wt" --item OPS-1 2>&1)"; grep -qE '^<<<untrusted-begin OPS-1 ' <<<"$eb_o" || { bad "status-board --item from the ops linked worktree must read the board: $eb_o"; eb_sfail=1; }
 [ "$(ebs "$eb_wt" --item-kind UI-1 2>&1)" = feature ] && grep -qxF 'repo: ui' <<<"$(ebs "$eb_ops" --item-raw UI-1 2>&1)" || { bad "status-board --item-kind / --item-raw from a code repo must read the board"; eb_sfail=1; }
 [ "$eb_sfail" -eq 0 ] && ok "status-board from a code repo (and its linked worktree) prints the external board; --item, --item-raw, --item-kind read it; the board repo prints the same (external-board FR-002, US1)"
