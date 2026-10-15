@@ -126,8 +126,8 @@ tasks_preflight() {
   if [ -d "$TROOT" ]; then ok "root directory $TROOT"; else miss "root directory missing: $TROOT" "fix \"root\" in $CONFIG"; fi
   local key
   for key in todo doing backlog 'done'; do
-    local f="$TROOT/${COL[$key]}"
-    if [ -f "$f" ]; then ok "column $key: ${COL[$key]}"; else miss "column $key: $f" "create it or fix columns.$key in $CONFIG"; fi
+    local f; f="$TROOT/$(col "$key")"
+    if [ -f "$f" ]; then ok "column $key: $(col "$key")"; else miss "column $key: $f" "create it or fix columns.$key in $CONFIG"; fi
   done
 }
 
@@ -153,7 +153,7 @@ strip_comments() { sed -E 's/<!--[^>]*-->//g' | sed '/<!--/,/-->/d'; }   # what 
 item_body() { # $1 id, $2 raw|clean
   local col f body
   for col in todo doing backlog 'done'; do
-    f="$TROOT/${COL[$col]}"
+    f="$TROOT/$(col "$col")"
     body=$(awk -v h="$ITEM_HEADING" -v id="$1" '
       BEGIN { p = 0 }
       $0 ~ h { if (p) exit; p = ($0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)")) }
@@ -166,7 +166,7 @@ item_body() { # $1 id, $2 raw|clean
     printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(strip_comments <<<"$body")" "$nonce"
     return 0
   done
-  die "status-board --item $1: no such item in ${COL[todo]}, ${COL[doing]}, ${COL[backlog]} or ${COL[done]} under $TROOT"
+  die "status-board --item $1: no such item in $COL_todo, $COL_doing, $COL_backlog or $COL_done under $TROOT"
 }
 
 # The board's ONE write path (ledger-surfaces FR-002): put a publish state marker first on an item's
@@ -197,7 +197,7 @@ item_kind() { # $1 id → feature|incident|vulnerability
         else $d + $k | with_entries(.key |= novs) end' "$CONFIG" 2>/dev/null) \
     || die "status-board --item-kind: .kinds in $CONFIG must map glyphs (never a publish marker) to feature, incident or vulnerability"
   for col in todo doing backlog; do
-    f="$TROOT/${COL[$col]}"
+    f="$TROOT/$(col "$col")"
     line=$(awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") { print; exit }' "$f" 2>/dev/null)
     [ -n "$line" ] || continue
     pre="${line%%"$1"*}"
@@ -208,7 +208,7 @@ item_kind() { # $1 id → feature|incident|vulnerability
     done; set +f
     echo feature; return 0
   done
-  die "status-board --item-kind $1: no such item in ${COL[todo]}, ${COL[doing]} or ${COL[backlog]} under $TROOT"
+  die "status-board --item-kind $1: no such item in $COL_todo, $COL_doing or $COL_backlog under $TROOT"
 }
 mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (stripped too: a superseded map's glyph)
   local set col f tmp
@@ -220,16 +220,16 @@ mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (strip
       || set="$set $3"
   fi
   for col in todo doing backlog 'done'; do
-    f="$TROOT/${COL[$col]}"; [ -f "$f" ] || continue
+    f="$TROOT/$(col "$col")"; [ -f "$f" ] || continue
     awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") {found=1; exit} END {exit !found}' "$f" || continue
     # A DONE heading is a dated section the quarter count parses (^## YYYY-MM-DD); a marker in front would
     # break it — and the column already says the item is done.
-    if [ "$col" = 'done' ]; then echo "$1 is in ${COL[done]} — the column says it; not marked"; return 0; fi
+    if [ "$col" = 'done' ]; then echo "$1 is in $COL_done — the column says it; not marked"; return 0; fi
     # Write through a symlink to its target and keep the file's mode: a symlinked column (a specs-in-repo
     # layout) must not be replaced by a private regular file (quality gate 2026-10-02).
-    f=$(readlink -f "$f") || die "status-board --mark: cannot resolve $f"
+    f=$(resolve_link "$f") || die "status-board --mark: cannot resolve $f"
     tmp=$(mktemp "$(dirname "$f")/.mark.XXXXXX") || die "status-board --mark: cannot write next to $f"
-    chmod --reference="$f" "$tmp" 2>/dev/null || chmod "$(stat -c %a "$f" 2>/dev/null || echo 644)" "$tmp"
+    chmod "$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null || echo 644)" "$tmp"   # GNU, then BSD stat
     # The marker and the set reach awk through ENVIRON, not -v: -v processes backslash escapes.
     if ! HB_MARK="$2" HB_SET="$set" awk -v h="$ITEM_HEADING" -v id="$1" '
         BEGIN { m = ENVIRON["HB_MARK"]; n = split(ENVIRON["HB_SET"], S, " "); for (i = 1; i <= n; i++) mine[S[i]] = 1 }
@@ -240,9 +240,9 @@ mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (strip
           print pre rest; done = 1; next }
         { print }' "$f" > "$tmp"; then rm -f "$tmp"; die "status-board --mark $1: rewriting $f failed"; fi
     mv "$tmp" "$f" || { rm -f "$tmp"; die "status-board --mark $1: cannot replace $f"; }
-    echo "marked $1 $2 in ${COL[$col]}"; return 0
+    echo "marked $1 $2 in $(col "$col")"; return 0
   done
-  die "status-board --mark $1: no such item in ${COL[todo]}, ${COL[doing]}, ${COL[backlog]} or ${COL[done]} under $TROOT"
+  die "status-board --mark $1: no such item in $COL_todo, $COL_doing, $COL_backlog or $COL_done under $TROOT"
 }
 
 # Routing (external-board FR-002, spec US2): the item's `repo: <name>` body line → "<name>\t<abs path>". It
@@ -302,7 +302,7 @@ done_this_quarter() { # count DONE sections whose date capture lies in [QS, QE]
   while read -r d; do
     [ -z "$d" ] && continue
     if [[ "$d" > "$QS" || "$d" == "$QS" ]] && [[ "$d" < "$QE" || "$d" == "$QE" ]]; then n=$((n + 1)); fi
-  done < <(grep -E "$DONE_SECTION" "$TROOT/${COL[done]}" | sed -E 's/^[^0-9]*([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/')
+  done < <(grep -E "$DONE_SECTION" "$TROOT/$COL_done" | sed -E 's/^[^0-9]*([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/')
   echo "$n"
 }
 
@@ -337,10 +337,26 @@ spec_epics() { # only when epics.specs is true (FR-010)
   done
 }
 
+resolve_link() { # $1 → its target's absolute path, following every link (readlink -f is missing before macOS 13)
+  local p="$1" n=0 t
+  while [ -L "$p" ] && [ "$n" -lt 40 ]; do
+    t="$(readlink "$p")" || return 1
+    case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac; n=$((n + 1))
+  done
+  [ -L "$p" ] && return 1
+  printf '%s/%s\n' "$(cd "$(dirname "$p")" && pwd -P)" "$(basename "$p")"
+}
+
+col() { # $1 todo|doing|done|backlog → that column's file name
+  case "$1" in todo) echo "$COL_todo" ;; doing) echo "$COL_doing" ;; done) echo "$COL_done" ;; backlog) echo "$COL_backlog" ;;
+    *) die "status-board: unknown column '$1' (expected todo, doing, done or backlog)" ;; esac
+}
+
 tasks_config() { # the tasks-repo settings and the preflight, shared by the board and by --item
-  declare -gA COL
-  COL[todo]="$(cfg '.columns.todo // "TODO.md"')"; COL[doing]="$(cfg '.columns.doing // "DOING.md"')"
-  COL[done]="$(cfg '.columns.done // "DONE.md"')"; COL[backlog]="$(cfg '.columns.backlog // "BACKLOG.md"')"
+  # Plain variables, not an associative array: hooks run under #!/bin/bash, which is 3.2 on macOS and
+  # has neither associative arrays nor global declarations. col <key> reads one by name.
+  COL_todo="$(cfg '.columns.todo // "TODO.md"')"; COL_doing="$(cfg '.columns.doing // "DOING.md"')"
+  COL_done="$(cfg '.columns.done // "DONE.md"')"; COL_backlog="$(cfg '.columns.backlog // "BACKLOG.md"')"
   TROOT="$ROOT/$(cfg '.root // "."')"; TROOT="${TROOT%/.}"
   ITEM_HEADING="$(cfg '.item_heading // "^#{2,3} "')"
   ID_PATTERN="$(cfg '.id_pattern // "[A-Z][A-Z0-9]+(-[A-Z0-9]+){1,4}"')"
@@ -355,23 +371,22 @@ source_tasks() {
   rule; echo "  $name — Status Board (tasks-repo: $(basename "$TROOT")/)"; rule
   printf '  Quarter : %s → %s — %s days left\n' "$QS" "$QE" "$(days_until "$QE")"
   echo
-  declare -A COUNT
   for key in todo doing backlog; do
-    items="$(column_items "$TROOT/${COL[$key]}")"
-    n=$(printf '%s' "$items" | grep -c . || true); COUNT[$key]=$n
+    items="$(column_items "$TROOT/$(col "$key")")"
+    n=$(printf '%s' "$items" | grep -c . || true); case "$key" in todo) COUNT_todo=$n ;; doing) COUNT_doing=$n ;; backlog) COUNT_backlog=$n ;; esac
     printf '  %-8s %s items%s\n' "$key" "$n" "$( [ -n "$items" ] && printf ' — %s' "$(printf '%s\n' "$items" | marker_summary)")"
     if [ "$MODE" = "detailed" ] && [ -n "$items" ]; then
       printf '%s\n' "$items" | while IFS=$'\t' read -r id m text; do printf '      %-16s %-4s %s\n' "$id" "$m" "${text:0:70}"; done
     fi
   done
   delivered="$(done_this_quarter)"
-  printf '  %-8s delivered this quarter: %s (dated sections in %s)\n' "done" "$delivered" "${COL[done]}"
+  printf '  %-8s delivered this quarter: %s (dated sections in %s)\n' "done" "$delivered" "$COL_done"
   echo
   echo "  Epics — initiative scoreboards:"; initiative_epics
   if [ "$(cfg '.epics.specs // false')" = "true" ]; then echo "  Epics — feature directories (.specify/specs, opt-in):"; spec_epics; fi
   echo
   printf '  Bottom line: %s in doing · %s in todo · %s backlogged · %s delivered this quarter · %s days left.\n' \
-    "${COUNT[doing]}" "${COUNT[todo]}" "${COUNT[backlog]}" "$delivered" "$(days_until "$QE")"
+    "$COUNT_doing" "$COUNT_todo" "$COUNT_backlog" "$delivered" "$(days_until "$QE")"
   rule
 }
 

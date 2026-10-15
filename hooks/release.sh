@@ -34,8 +34,9 @@ tmp="$(mktemp)"
 jq --arg v "$V" '.version = $v' .claude-plugin/plugin.json > "$tmp" && cat "$tmp" > .claude-plugin/plugin.json
 jq --arg v "$V" '.metadata.version = $v | .plugins[0].version = $v' .claude-plugin/marketplace.json > "$tmp" && cat "$tmp" > .claude-plugin/marketplace.json
 rm -f "$tmp"
-sed -i -E "s/(\*\*Framework Version\*\*: )[0-9]+\.[0-9]+\.[0-9]+/\1$V/; s/(\*\*Last Updated\*\*: )[0-9]{4}-[0-9]{2}-[0-9]{2}/\1$DATE/" README.md
-sed -i -E "s/^# Hefesto v[0-9]+\.[0-9]+/# Hefesto v${V%.*}/" .claude/CLAUDE.md
+# -i.bak, then drop it: macOS (BSD) sed reads a bare -i's next argument as the backup suffix
+sed -i.bak -E "s/(\*\*Framework Version\*\*: )[0-9]+\.[0-9]+\.[0-9]+/\1$V/; s/(\*\*Last Updated\*\*: )[0-9]{4}-[0-9]{2}-[0-9]{2}/\1$DATE/" README.md && rm -f README.md.bak
+sed -i.bak -E "s/^# Hefesto v[0-9]+\.[0-9]+/# Hefesto v${V%.*}/" .claude/CLAUDE.md && rm -f .claude/CLAUDE.md.bak
 
 # --- the CHANGELOG scaffold ---------------------------------------------------------------
 last_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"

@@ -38,7 +38,8 @@ CI_CONFIG_RE='^(\.github/|\.gitlab-ci\.yml$|\.circleci/|Jenkinsfile$|azure-pipel
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Every temp file or dir this run creates is listed here and removed on exit — a reply body waiting to be
 # posted must not outlive the call (quality gate 2026-09-30).
-PW_TMP=(); trap 'rm -rf "${PW_TMP[@]}"' EXIT
+# ${a[@]+"${a[@]}"}: an empty array is "unbound" under set -u before bash 4.4 (macOS /bin/bash is 3.2).
+PW_TMP=(); trap 'rm -rf ${PW_TMP[@]+"${PW_TMP[@]}"}' EXIT
 tmpf() { local t; t="$(mktemp)"; PW_TMP+=("$t"); echo "$t"; }
 tmpd() { local t; t="$(mktemp -d)"; PW_TMP+=("$t"); echo "$t"; }
 

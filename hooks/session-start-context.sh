@@ -61,7 +61,8 @@ PCFG="$CWD/.claude/project-status.json"
 HERE="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 if [ -f "$HERE/ledger.sh" ]; then
   TO=(); command -v timeout >/dev/null 2>&1 && TO=(timeout 5)   # coreutils; macOS may lack it — then unbounded
-  BCTX="$(cd "$CWD" 2>/dev/null && "${TO[@]}" bash "$HERE/ledger.sh" board 2>/dev/null)" || BCTX=""
+  # (TO is empty then, and an empty array is "unbound" under set -u on bash 3.2: hence the +-expansion)
+  BCTX="$(cd "$CWD" 2>/dev/null && ${TO[@]+"${TO[@]}"} bash "$HERE/ledger.sh" board 2>/dev/null)" || BCTX=""
   if [ "$(jq -r '.mode // empty' <<<"$BCTX" 2>/dev/null)" = external ]; then
     LDIR="$(jq -r .ledger_dir <<<"$BCTX")"; PCFG="$(jq -r .config <<<"$BCTX")"
   fi
