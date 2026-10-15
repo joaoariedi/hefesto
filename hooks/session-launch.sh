@@ -148,7 +148,7 @@ item_as_data() {
   local stored now
   stored="$(jq -r '.source.body_sha256 // empty' <<<"$E")"
   if [ -n "$stored" ]; then
-    now="$("$BOARD" --item-raw "$ID" | sha256sum | cut -c1-64)" || exit 1
+    now="$("$BOARD" --item-raw "$ID" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)" || exit 1
     [ "$now" = "$stored" ] || die "session-launch $ROLE $ID: item text changed since claim (board sha256 ${now:0:12}…, ledger ${stored:0:12}…) — re-read it with status-board.sh --item $ID and, if it is still safe, ledger.sh record $ID --body-file <raw text file>"
   fi
   "$BOARD" --item "$ID" || exit 1          # sanitised, delimited — never the raw text

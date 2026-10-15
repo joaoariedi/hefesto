@@ -45,6 +45,20 @@ jobs:
       - name: Workflow behaviour tests
         run: node --test
 
+  # macOS: the hooks run under #!/bin/bash, which is 3.2 there, with BSD sed/date/stat/mktemp. A
+  # hook that leaned on bash 4 (declare -A, an empty array under set -u) or a GNU flag broke /hef.status,
+  # /hef.babysit and the session-start hook for every Mac user while every Linux run stayed green.
+  # This job runs the same suite on the stock macOS userland so that cannot happen silently again.
+  # No Homebrew bash or coreutils is installed: the Mac a user has is the one tested.
+  smoke-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Smoke test on macOS (/bin/bash 3.2, BSD tools)
+        run: /bin/bash tests/smoke.sh
+
   # Not on the PR path: this job installs the claude CLI, which the zero-install rule keeps out
   # of the job above. It carries no credentials, so the end-to-end check self-skips; everything
   # else in the tier - the throwaway-config install, `plugin list`, and every command invocation

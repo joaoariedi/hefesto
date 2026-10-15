@@ -36,7 +36,7 @@
 #   * aws (Bedrock's converse API) cannot read the repository — refused for --purpose arena.
 #
 # FETCHER contract: the model's text on stdout at exit 0; the reason on stderr at non-zero. Empty output
-# is not an answer. Zero-install: bash, jq, coreutils timeout.
+# is not an answer. Zero-install: bash, jq, coreutils timeout (else the bundled run-bounded.sh).
 set -uo pipefail
 
 die() { echo "arena-run: $*" >&2; exit 1; }
@@ -101,7 +101,8 @@ check_value model "$MODEL" "$NAME"; check_value region "$REGION" "$NAME"
 B=$(bin_of "$VIA") || die "provider $NAME has via '$VIA' (expected claude, codex, gemini or aws)"
 [ "$VIA" = aws ] && [ "$PURPOSE" = arena ] && die "$NAME (aws) is a message API — it cannot read the repository; use it for --second-opinion"
 command -v "$B" >/dev/null 2>&1 || die "$B not found for provider $NAME — $(hint "$VIA")"
-TIMEOUT="$(command -v timeout || command -v gtimeout)" || die "timeout not found (coreutils)"
+# macOS ships no timeout: the bundled run-bounded.sh stands in rather than demanding coreutils
+TIMEOUT="$(command -v timeout || command -v gtimeout || echo "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-bounded.sh")"
 
 TMP=$(mktemp -d) || die "mktemp failed"; trap 'rm -rf "$TMP"' EXIT
 OUT="$TMP/out"; ERR="$TMP/err"

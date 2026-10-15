@@ -32,7 +32,7 @@ esac
 ids="$(grep -ohwE 'FR-[0-9]+' "$FILE" 2>/dev/null | sort -u)"
 [ -z "$ids" ] && exit 0
 
-STAMP="${TMPDIR:-/tmp}/.hefesto-spec-cite-$(printf '%s' "$FILE" | md5sum | cut -d' ' -f1)"
+STAMP="${TMPDIR:-/tmp}/.hefesto-spec-cite-$(printf '%s' "$FILE" | { md5sum 2>/dev/null || md5 -r; } | cut -d' ' -f1)"
 NOW=$(date +%s)
 if [ -f "$STAMP" ] && [ $((NOW - $(cat "$STAMP" 2>/dev/null || echo 0))) -lt 60 ]; then exit 0; fi
 echo "$NOW" > "$STAMP"

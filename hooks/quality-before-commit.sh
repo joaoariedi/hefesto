@@ -142,10 +142,11 @@ if command -v lizard &>/dev/null; then
       now=$(lizard -w -C 10 -L 50 "$CWD/$f" 2>/dev/null | grep -c ': warning:' || true)
       before=0
       if git -C "$CWD" cat-file -e "HEAD:$f" 2>/dev/null; then
-        cx_tmp="$(mktemp --suffix=".${f##*.}")"
+        # lizard picks the language by extension; BSD mktemp (macOS) has no --suffix, so a temp dir holds it
+        cx_dir="$(mktemp -d)"; cx_tmp="$cx_dir/before.${f##*.}"
         git -C "$CWD" show "HEAD:$f" > "$cx_tmp" 2>/dev/null
         before=$(lizard -w -C 10 -L 50 "$cx_tmp" 2>/dev/null | grep -c ': warning:' || true)
-        rm -f "$cx_tmp"
+        rm -rf "$cx_dir"
       fi
       if [ "${now:-0}" -gt "${before:-0}" ]; then
         ERRORS="${ERRORS}Complexity/length got worse in $f (${before} → ${now} functions over the limits in rules/code-quality.md). "

@@ -23,6 +23,9 @@ symlinked `rules/` or `CLAUDE.md` (dotfiles) alone. Files from an old stow insta
 the exact commands to move them, never moved for you. It ends with a table of profile → version →
 enabled, read from each profile's plugin registry. The manual steps follow.
 
+It runs on Linux and on macOS as shipped: `/bin/bash` 3.2 and the BSD tools, no Homebrew bash or
+coreutils. The hooks keep to the same rule, and a `smoke-macos` CI job runs the whole suite on macOS.
+
 A plugin is installed **from a marketplace**, so the framework ships one (`.claude-plugin/marketplace.json`) that lists exactly one plugin: itself. Clone once, then point the marketplace at the clone:
 
 ```bash

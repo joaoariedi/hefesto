@@ -19,7 +19,7 @@ git -C "$CWD" rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
 
 DIR="${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/progress"
 mkdir -p "$DIR" 2>/dev/null || exit 0
-KEY=$(printf '%s' "$CWD" | sha1sum | cut -c1-16)
+KEY=$(printf '%s' "$CWD" | { sha1sum 2>/dev/null || shasum -a 1; } | cut -c1-16)
 OUT="$DIR/$KEY.md"
 
 BRANCH=$(git -C "$CWD" branch --show-current 2>/dev/null)

@@ -61,7 +61,8 @@ PCFG="$CWD/.claude/project-status.json"
 HERE="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 if [ -f "$HERE/ledger.sh" ]; then
   TO=(); command -v timeout >/dev/null 2>&1 && TO=(timeout 5)   # coreutils; macOS may lack it — then unbounded
-  BCTX="$(cd "$CWD" 2>/dev/null && "${TO[@]}" bash "$HERE/ledger.sh" board 2>/dev/null)" || BCTX=""
+  # (TO is empty then, and an empty array is "unbound" under set -u on bash 3.2: hence the +-expansion)
+  BCTX="$(cd "$CWD" 2>/dev/null && ${TO[@]+"${TO[@]}"} bash "$HERE/ledger.sh" board 2>/dev/null)" || BCTX=""
   if [ "$(jq -r '.mode // empty' <<<"$BCTX" 2>/dev/null)" = external ]; then
     LDIR="$(jq -r .ledger_dir <<<"$BCTX")"; PCFG="$(jq -r .config <<<"$BCTX")"
   fi
@@ -98,7 +99,7 @@ if [ -d "$LDIR" ]; then
   fi
 fi
 
-KEY=$(printf '%s' "$CWD" | sha1sum | cut -c1-16)
+KEY=$(printf '%s' "$CWD" | { sha1sum 2>/dev/null || shasum -a 1; } | cut -c1-16)
 CKPT="${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/progress/$KEY.md"
 if [ -f "$CKPT" ] && [ -n "$(find "$CKPT" -mtime -7 2>/dev/null)" ]; then
   echo "last checkpoint ($(sed -n 's/^- when: //p' "$CKPT" | head -1)): $CKPT — read it before resuming interrupted work"

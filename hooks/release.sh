@@ -34,8 +34,9 @@ tmp="$(mktemp)"
 jq --arg v "$V" '.version = $v' .claude-plugin/plugin.json > "$tmp" && cat "$tmp" > .claude-plugin/plugin.json
 jq --arg v "$V" '.metadata.version = $v | .plugins[0].version = $v' .claude-plugin/marketplace.json > "$tmp" && cat "$tmp" > .claude-plugin/marketplace.json
 rm -f "$tmp"
-sed -i -E "s/(\*\*Framework Version\*\*: )[0-9]+\.[0-9]+\.[0-9]+/\1$V/; s/(\*\*Last Updated\*\*: )[0-9]{4}-[0-9]{2}-[0-9]{2}/\1$DATE/" README.md
-sed -i -E "s/^# Hefesto v[0-9]+\.[0-9]+/# Hefesto v${V%.*}/" .claude/CLAUDE.md
+# -i.bak, then drop it: macOS (BSD) sed reads a bare -i's next argument as the backup suffix
+sed -i.bak -E "s/(\*\*Framework Version\*\*: )[0-9]+\.[0-9]+\.[0-9]+/\1$V/; s/(\*\*Last Updated\*\*: )[0-9]{4}-[0-9]{2}-[0-9]{2}/\1$DATE/" README.md && rm -f README.md.bak
+sed -i.bak -E "s/^# Hefesto v[0-9]+\.[0-9]+/# Hefesto v${V%.*}/" .claude/CLAUDE.md && rm -f .claude/CLAUDE.md.bak
 
 # --- the CHANGELOG scaffold ---------------------------------------------------------------
 last_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
@@ -62,7 +63,8 @@ entry+="**<one-sentence thesis of this release — written by a human, not deriv
 [ -z "$added$changed$fixed" ] && entry+="_No commits since ${last_tag:-the beginning}; write the entry by hand._"$'\n\n'
 
 # Insert before the first existing version heading.
-awk -v e="$entry" 'BEGIN{done=0} /^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ && !done {printf "%s", e; done=1} {print}' CHANGELOG.md > "$tmp.md" && cat "$tmp.md" > CHANGELOG.md && rm -f "$tmp.md"
+# Through ENVIRON, not -v: macOS awk refuses a newline inside a -v value ("newline in string").
+ENTRY="$entry" awk 'BEGIN{done=0} /^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ && !done {printf "%s", ENVIRON["ENTRY"]; done=1} {print}' CHANGELOG.md > "$tmp.md" && cat "$tmp.md" > CHANGELOG.md && rm -f "$tmp.md"
 
 echo "release.sh: $CURRENT → $V ($DATE)"
 echo "  bumped: plugin.json, marketplace.json (×2), README footer, .claude/CLAUDE.md title"
