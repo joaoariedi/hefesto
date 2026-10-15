@@ -377,9 +377,14 @@ The hooks ship with the plugin — you do not register them:
 
 `git`, `jq` (every hook reads its event with it), and the `claude` CLI.
 
+**Linux and macOS.** The hooks are written for macOS's stock `/bin/bash` 3.2 and BSD tools, so a Mac
+needs no Homebrew bash or coreutils (only `brew install jq` if `jq` is missing); where macOS has no
+`timeout`, the bundled `hooks/run-bounded.sh` stands in. A `smoke-macos` CI job runs the whole suite
+on macOS.
+
 Optional, auto-detected, silent when absent: `gitleaks` (the secrets gate), `lizard` (the
 complexity gate), `shellcheck`, `rtk` (CLI output compression), `graphify` (knowledge graph),
-`GITHUB_TOKEN` (the bundled GitHub MCP server), and `bubblewrap` + `socat` for the OS sandbox that
+`GITHUB_TOKEN` (the bundled GitHub MCP server), and on Linux `bubblewrap` + `socat` for the OS sandbox that
 [`docs/install.md`](docs/install.md) recommends as the boundary the hooks cannot be.
 
 ## 📄 License
