@@ -4461,7 +4461,7 @@ mp_fail=0
 mp_bad="$(for f in "$REPO"/hooks/*.sh "$REPO"/install.sh; do
   grep -n '' "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed -E "s/[[:space:]]#[^\"']*\$//" \
     | grep -E '\bmapfile\b|\breadarray\b|declare -[a-zA-Z]*[gAn]|local -n|\$\{[A-Za-z_]+(,,?|\^\^?)\}|readlink -f|mktemp --|grep -[a-zA-Z]*P|sort -V|sed -i( |$)|chmod --reference|date (-u )?-d |stat -c|\b(md5sum|sha1sum|sha256sum)\b' \
-    | grep -vE '\|\| (date -j|stat -f)|(md5sum|sha1sum|sha256sum) 2>/dev/null \|\| (md5 -r|shasum)' | sed "s|^|$(basename "$f"):|"
+    | grep -vE '\|\| (date -j|stat -f|resolve_link)|(md5sum|sha1sum|sha256sum) 2>/dev/null \|\| (md5 -r|shasum)' | sed "s|^|$(basename "$f"):|"
 done)"
 [ -z "$mp_bad" ] || { bad "a hook depends on bash 4 or a GNU-only flag, which macOS /bin/bash 3.2 and BSD tools lack:"; printf '       %s\n' "$mp_bad" | head -10; mp_fail=1; }
 # 2. run-bounded.sh — the timeout(1) stand-in for a Mac without coreutils.
@@ -4487,11 +4487,36 @@ mp_mut 's/^set -m$/:/'
 mp_rb "$mp_md/rb.sh" 1 bash -c 'sleep 6 & wait'; [ "$mp_s" -ge 5 ] || { bad "mutation survived: no process group of its own, yet a grandchild was stopped in ${mp_s}s"; mp_fail=1; }
 mp_o="$(printf 'from stdin\n' | "$mp_md/rb.sh" 5 cat)"; [ "$mp_o" = 'from stdin' ] && { bad "mutation survived: without job control the command still read the caller's stdin"; mp_fail=1; }
 rm -rf "$mp_md"
+# A TERM to the wrapper reaches the command, as with timeout(1) (review 2026-10-15). The command writes
+# its own pid, so the check sees whether that process outlived the wrapper.
+mp_sig() { # $1 run-bounded script → 0 when the command died with its wrapper
+  local pf; pf="$(mktemp)"; "$1" 30 bash -c 'echo $$ > "$1"; sleep 40' _ "$pf" & local w=$!
+  local i=0; while [ ! -s "$pf" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  kill -TERM "$w" 2>/dev/null; wait "$w" 2>/dev/null; sleep 1
+  if kill -0 "$(cat "$pf")" 2>/dev/null; then kill -KILL "$(cat "$pf")" 2>/dev/null; rm -f "$pf"; return 1; fi; rm -f "$pf"
+}
+mp_sig "$RB" || { bad "run-bounded must pass a TERM it receives on to the command (it outlived its wrapper)"; mp_fail=1; }
+mp_md="$(mktemp -d)"; mp_mut "/^trap 'kill -TERM -- \"-\$pid\"/d"
+mp_sig "$mp_md/rb.sh" && { bad "mutation survived: no signal forwarding, yet the command died with its wrapper"; mp_fail=1; }; rm -rf "$mp_md"
+# status-board's macOS fallbacks, run directly — on Linux the GNU forms answer first and would hide them.
+mp_fns="$(sed -n '/^epoch_of()/p; /^resolve_link()/,/^}/p' "$SB")"
+# BSD date -j fills unspecified fields with the current time: two calls a second apart must still agree.
+mp_e1="$(bash -c "$mp_fns"'; date() { [ "$1" = -d ] && return 1; command date "$@"; }; epoch_of 2026-01-05')"; sleep 1
+mp_e2="$(bash -c "$mp_fns"'; date() { [ "$1" = -d ] && return 1; command date "$@"; }; epoch_of 2026-01-05')"
+if date -j -f %Y-%m-%d 2026-01-05 +%s >/dev/null 2>&1; then
+  { [ -n "$mp_e1" ] && [ "$mp_e1" = "$mp_e2" ]; } || { bad "epoch_of's BSD form must pin midnight (two calls a second apart gave '$mp_e1' and '$mp_e2')"; mp_fail=1; }
+fi
+# resolve_link: a link through a linked folder whose target climbs with .. (a plain cd folds it lexically),
+# and a dangling link must fail rather than print a path.
+mp_rl="$(cd "$(mktemp -d)" && pwd -P)"; ( cd "$mp_rl" && mkdir -p real/tasks real/shared shared && echo real > real/shared/T.md && echo decoy > shared/T.md \
+  && ln -s ../shared/T.md real/tasks/T.md && ln -s real/tasks tl && ln -s nowhere/T.md dangling.md )
+[ "$(bash -c "$mp_fns"'; resolve_link "$1"' _ "$mp_rl/tl/T.md")" = "$mp_rl/real/shared/T.md" ] || { bad "resolve_link must follow a link through a linked folder physically (got '$(bash -c "$mp_fns"'; resolve_link "$1"' _ "$mp_rl/tl/T.md")')"; mp_fail=1; }
+bash -c "$mp_fns"'; resolve_link "$1"' _ "$mp_rl/dangling.md" >/dev/null 2>&1 && { bad "resolve_link must fail on a dangling link"; mp_fail=1; }
 # 3. The helpers fall back to it rather than refusing to run on a Mac.
 grep -qF 'command -v timeout || command -v gtimeout || echo "$HERE/run-bounded.sh"' "$REPO/hooks/pr-watch.sh" \
   && grep -qF 'command -v gtimeout || echo "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-bounded.sh"' "$REPO/hooks/arena-run.sh" \
   || { bad "pr-watch.sh and arena-run.sh must fall back to run-bounded.sh when there is no timeout/gtimeout"; mp_fail=1; }
-[ "$mp_fail" -eq 0 ] && ok "macOS portability: no bash-4 construct, GNU-only flag or GNU-only checksum tool in the hooks; run-bounded.sh passes exit codes, stops at the limit (124), keeps stdin, frees \$(…) at once, KILLs after -k, stops its children, refuses bad args; 2 mutations caught (no KILL; no job control → no group, no stdin); pr-watch and arena-run fall back to it"
+[ "$mp_fail" -eq 0 ] && ok "macOS portability: no bash-4 construct, GNU-only flag or GNU-only checksum tool in the hooks; run-bounded.sh passes exit codes, stops at the limit (124), keeps stdin, frees \$(…) at once, KILLs after -k, stops its children, forwards a TERM, refuses bad args; 3 mutations caught (no KILL; no job control; no forwarding); epoch_of pins midnight on BSD date; resolve_link follows links physically and fails on a dangling one; pr-watch and arena-run fall back to it"
 
 # --- Tier 1: the merge gate (field report 2026-10-13: advance stepped over human:merge; a deleted branch) -----
 head_ "Merge gate"

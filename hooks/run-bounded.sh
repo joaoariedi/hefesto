@@ -40,6 +40,8 @@ pid=$!
 ) </dev/null >/dev/null 2>&1 &
 watchdog=$!
 set +m
+# A signal to this wrapper reaches the command too, as with timeout(1): the caller killed, nothing left running.
+trap 'kill -TERM -- "-$pid" 2>/dev/null; kill -CONT -- "-$pid" 2>/dev/null; kill -- "-$watchdog" 2>/dev/null; exit 143' TERM INT HUP
 
 # Bash 3.2 reports a background job that ends by a signal ("Terminated", "Killed") on stderr, even in a
 # script — noise in the caller's error text. The watchdog is disowned (never waited on), and the wait's

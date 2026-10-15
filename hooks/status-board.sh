@@ -92,7 +92,9 @@ bar() { # completed total → 10-cell bar
   for ((i=0; i<10; i++)); do if [ "$i" -lt "$f" ]; then s+="█"; else s+="░"; fi; done
   printf '%s' "$s"
 }
-epoch_of() { date -d "$1" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$1" +%s 2>/dev/null; }
+# BSD date -j fills the fields a format leaves out with the CURRENT time, so the macOS form pins midnight:
+# without it, two calls a clock-second apart made days_until a day short at random.
+epoch_of() { date -d "$1" +%s 2>/dev/null || date -j -f "%Y-%m-%d %H:%M:%S" "$1 00:00:00" +%s 2>/dev/null; }
 day_before() { date -d "$1 -1 day" +%Y-%m-%d 2>/dev/null || date -j -v-1d -f "%Y-%m-%d" "$1" +%Y-%m-%d 2>/dev/null; }
 days_until() { echo $(( ( $(epoch_of "$1") - $(epoch_of "$(date +%Y-%m-%d)") ) / 86400 )); }
 rule() { echo "═══════════════════════════════════════════════════════════════"; }
@@ -227,7 +229,7 @@ mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (strip
     if [ "$col" = 'done' ]; then echo "$1 is in $COL_done — the column says it; not marked"; return 0; fi
     # Write through a symlink to its target and keep the file's mode: a symlinked column (a specs-in-repo
     # layout) must not be replaced by a private regular file (quality gate 2026-10-02).
-    f=$(resolve_link "$f") || die "status-board --mark: cannot resolve $f"
+    f=$(readlink -f "$f" 2>/dev/null || resolve_link "$f") || die "status-board --mark: cannot resolve $f"
     tmp=$(mktemp "$(dirname "$f")/.mark.XXXXXX") || die "status-board --mark: cannot write next to $f"
     chmod "$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null || echo 644)" "$tmp"   # GNU, then BSD stat
     # The marker and the set reach awk through ENVIRON, not -v: -v processes backslash escapes.
@@ -338,14 +340,16 @@ spec_epics() { # only when epics.specs is true (FR-010)
   done
 }
 
-resolve_link() { # $1 → the absolute path of its final target, following every link (readlink -f is missing before macOS 13)
-  local p="$1" n=0 t
+resolve_link() { # $1 → the absolute path of its final target, following every link — readlink -f where that is missing (macOS before 13)
+  local p="$1" n=0 t d
   while [ -L "$p" ] && [ "$n" -lt 40 ]; do
     t="$(readlink "$p")" || return 1
     case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac; n=$((n + 1))
   done
   [ -L "$p" ] && return 1
-  printf '%s/%s\n' "$(cd "$(dirname "$p")" && pwd -P)" "$(basename "$p")"
+  # cd -P: a plain cd folds "dir/.." lexically, so a link through a linked folder resolved to the wrong file
+  d=$(cd -P "$(dirname "$p")" 2>/dev/null && pwd -P) || return 1
+  printf '%s/%s\n' "$d" "$(basename "$p")"
 }
 
 col() { # $1 todo|doing|done|backlog → that column's file name
