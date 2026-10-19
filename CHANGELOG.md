@@ -51,6 +51,14 @@ running the lanes on `/loop` no longer races, loops on merged PRs, or launches t
   lanes both on `/loop`, a new item otherwise went to whichever pass ran first and could be built with no
   spec or plan.
 
+### Fixed
+
+- **Every commit was blocked as "Secrets detected" with a current gitleaks.** The pre-commit hook called
+  `gitleaks detect --staged -q`; gitleaks 8.30 refuses both (exit 126), and the hook read any non-zero exit
+  as a finding. It now uses `gitleaks git --staged` (8.19+), else `protect --staged` (older); exit 1 is a
+  finding, any other failure is reported as gitleaks itself failing, with its error. It also scans the
+  repository being committed, not the hook's starting folder.
+
 ### Changed
 
 - **The deploy stage records a merge.** On an entry waiting on `human:merge`, a deploy pass first runs

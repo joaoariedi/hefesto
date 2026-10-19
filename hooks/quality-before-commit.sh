@@ -44,10 +44,18 @@ if [ -n "$SUBJECT" ] && [[ "$COMMAND" != *"CLAUDE_ALLOW_NONCONVENTIONAL=1"* ]]; 
 fi
 
 # Universal: Secrets detection (mandatory, runs first)
+# gitleaks 8.19+ scans the index with `git --staged`, older ones with `protect --staged`. 8.30 refuses the
+# `detect --staged` and `-q` this used to pass (exit 126), which read as a finding and blocked every commit
+# (2026-10-19). Exit 1 is a finding; any other failure is gitleaks itself, said so instead of "secrets".
+# It scans the repository being committed ($CWD), not wherever the hook process happens to start.
 if command -v gitleaks &>/dev/null; then
-  if ! gitleaks detect --staged --no-banner -q 2>/dev/null; then
-    ERRORS="${ERRORS}Secrets detected in staged files! "
-  fi
+  if gitleaks git --help >/dev/null 2>&1; then GL=(gitleaks git --staged); else GL=(gitleaks protect --staged); fi
+  GL_RC=0; GL_OUT=$(cd "$CWD" && "${GL[@]}" --no-banner 2>&1) || GL_RC=$?   # `|| GL_RC=$?`: set -e must not end the hook here
+  case "$GL_RC" in
+    0) ;;
+    1) ERRORS="${ERRORS}Secrets detected in staged files! (${GL[*]} --no-banner shows them) " ;;
+    *) ERRORS="${ERRORS}gitleaks failed to run (${GL[*]}, exit $GL_RC): $(grep -m1 -iE 'error|unknown' <<<"$GL_OUT" || tail -n 1 <<<"$GL_OUT") — fix or update gitleaks, then commit again. " ;;
+  esac
 fi
 
 # --- Universal: shell + markdown, on STAGED FILES ONLY ------------------------
