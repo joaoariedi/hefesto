@@ -279,6 +279,19 @@ metrics_render() { # stdin = the JSON object; $1 since (or "")
 # external-board FR-003: one worker per REPOSITORY. An entry is skipped while another entry of its repo is
 # owned, so ops and ui run side by side. In-repo mode keeps today's `next` (no filter; /hef.orchestrate
 # step 2 still stops on any owned entry) — the existing suite pins that. Uses SEL, ORDER, STAGE, FILES.
+claim_lock() { # one claim at a time per ledger: check-then-write must not interleave. A lock older than a minute is a crashed claim's.
+  local i=0 l="$DIR/.claim.lock"
+  until mkdir "$l" 2>/dev/null; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+      [ -n "$(find "$l" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$l" 2>/dev/null && continue
+      die "ledger claim: $l is held — another claim is running; retry (remove it only if no ledger.sh is running)"
+    fi
+    sleep 0.1
+  done
+  trap 'rmdir "$DIR/.claim.lock" 2>/dev/null' EXIT
+}
+
 next_external() {
   local bad n busy
   bad=$(jq -rs "map(select($SEL) | select((.repo // \"\") == \"\") | .id) | join(\", \")" "${FILES[@]}") \
@@ -354,6 +367,13 @@ case "$SUB" in
     E=$(entry "$ID") || exit 1
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
+    # One worker per repository (report 17 §1f), enforced here under a lock: two lanes whose passes started in the
+    # same second both passed /hef.orchestrate's own check and both launched. Another owned entry in this repo → busy.
+    claim_lock
+    BUSY=$(jq -rs --arg id "$ID" --arg r "$(jq -r '.repo // ""' <<<"$E")" 'map(select(.id != $id and .owner != null and (.repo // "") == $r)) | .[0] | if . then "\(.id) (owned by \(.owner.session_name))" else empty end' "$DIR"/*.json)
+    # verify is exempt: read-only, and the second half of the SAME build pass — refusing it would strand the
+    # item in phase verify, which no stage picks up again (quickstart re-review 2026-10-19).
+    [ -z "$BUSY" ] || [ "$ROLE" = verify ] || die "ledger claim $ID: the repository is busy with $BUSY — one worker per repository; wait for it to finish"
     # An intake-blocked entry is never worked on: claim → run → claim would reach the stall below and
     # overwrite the block (security re-review 2026-10-06). human:merge stays claimable — the deploy stage
     # babysits exactly that wait.
@@ -673,7 +693,9 @@ case "$SUB" in
     STAGE=build; while [ $# -gt 0 ]; do case "$1" in --stage) STAGE="${2:-}"; shift ;; *) usage ;; esac; shift; done
     case "$STAGE" in
       plan)   SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "intake")'; ORDER="$ID_SORT" ;;
-      build)  SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "tasks" or .phase == "implement")'; ORDER="$ID_SORT" ;;
+      build)  SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "tasks" or .phase == "implement")'; ORDER="$ID_SORT"
+              # orchestrate.plan_first: a plan lane runs too, so build never takes an unplanned (queued) item from it
+              [ "$(cfgp '.orchestrate.plan_first // false')" = true ] && SEL="${SEL/.phase == \"queued\" or /}" ;;
       deploy) SEL='.owner == null and .phase == "pr" and ((.pr.url // "") != "") and (.blocked_on == null or .blocked_on.kind == "human:merge")'
               ORDER='sort_by([(if .blocked_on == null then 0 else 1 end), (([.runs[]? | select(.role == "deploy") | .at] | max) // ""), (.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])])' ;;
       *) usage ;;

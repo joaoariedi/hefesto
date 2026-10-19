@@ -25,6 +25,7 @@
 ID="hefesto@hefesto"
 OLD_ID="ai-development-framework@ai-development-framework"
 GUIDE="https://github.com/joaoariedi/hefesto/blob/main/docs/install.md"
+QUICKSTART="https://github.com/joaoariedi/hefesto/blob/main/docs/quickstart"   # .md, or .pt-BR.md in Portuguese
 
 init_globals() {
   YES=0; DRY=0; LNG=""; PROFILE_ARGS=""; VERSION_ARG=""
@@ -47,7 +48,7 @@ msg_keys() {
   q_legacy hint_yes hint_no ans_again auto_yes dry_auto skipped skipped_profile run_header dry_done
   dry_later already_current reinstall_same keep_old_mkt rules_link file_link_skip cmd_current
   mine_exists legacy_cmds legacy_stow legacy_stop verify_header col_profile col_version col_enabled
-  w_yes w_no all_good verify_failed next_header next_restart next_line next_doctor next_guide
+  w_yes w_no all_good verify_failed next_header next_restart next_line next_doctor next_sessions next_guide
   backup_note root in_claude missing_tools hint_mac hint_linux hint_claude hint_claude_local
   hint_alias gh_missing home_ro not_writable no_tty tty_eof bad_flag bad_lang bad_version
   need_value bad_profile clone_not_git clone_remote clone_dirty main_diverged no_remote no_tags
@@ -137,7 +138,8 @@ msg_en() {
     next_restart) echo "  1. Restart Claude Code (close every session and open it again)." ;;
     next_line) echo "  2. At the start of a session, look for the line: hefesto {1} hooks loaded from …" ;;
     next_doctor) echo "  3. Run /hef.doctor in a session: it checks the whole install." ;;
-    next_guide) echo "  4. Read the guide: {1}" ;;
+    next_sessions) echo "  4. Set up a project and open the four sessions: {1}" ;;
+    next_guide) echo "  5. The full guide: {1}" ;;
     backup_note) echo "Backups of the files I changed: {1}" ;;
     root) echo "Please do not run this as root (or with sudo). Run it as your normal user." ;;
     in_claude) echo "This runs inside a Claude Code session. Please run it in a normal terminal." ;;
@@ -262,7 +264,8 @@ msg_pt() {
     next_restart) echo "  1. Reinicie o Claude Code (feche todas as sessões e abra de novo)." ;;
     next_line) echo "  2. No início de uma sessão, procure a linha: hefesto {1} hooks loaded from …" ;;
     next_doctor) echo "  3. Rode /hef.doctor numa sessão: ele confere a instalação inteira." ;;
-    next_guide) echo "  4. Leia o guia: {1}" ;;
+    next_sessions) echo "  4. Prepare um projeto e abra as quatro sessões: {1}" ;;
+    next_guide) echo "  5. O guia completo (em inglês): {1}" ;;
     backup_note) echo "Backups dos arquivos que mudei: {1}" ;;
     root) echo "Não rode isto como root (nem com sudo). Rode como o seu usuário normal." ;;
     in_claude) echo "Isto está rodando dentro de uma sessão do Claude Code. Rode num terminal normal." ;;
@@ -1067,7 +1070,9 @@ verify() {
   if [ "$bad" = 0 ]; then say all_good "$want"; else say verify_failed "$want"; fi
   [ -d "$BK" ] && say backup_note "$(tilde "$BK")"
   echo; say next_header
-  say next_restart; say next_line "$want"; say next_doctor; say next_guide "$GUIDE"
+  say next_restart; say next_line "$want"; say next_doctor
+  if [ "${LNG:-en}" = pt ]; then say next_sessions "$QUICKSTART.pt-BR.md"; else say next_sessions "$QUICKSTART.md"; fi
+  say next_guide "$GUIDE"
   return "$bad"
 }
 

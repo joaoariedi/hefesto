@@ -110,8 +110,10 @@ CFGDIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 # --- the entry and the daily cap (FR-011, FR-013) ----------------------------------------------
 E="$("$LEDGER" show "$ID")" || exit 1
 TODAY_SPENT="$("$LEDGER" list --today | jq '[.[].budget.usd_spent] | add // 0')"
-awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' \
-  && die "session-launch $ROLE $ID: daily cap $DAILY_CAP USD would be exceeded (spent today $TODAY_SPENT + session cap $USD_CAP) — raise orchestrate.daily_usd_cap or wait for tomorrow"
+CAP_MSG="session-launch $ROLE $ID: daily cap $DAILY_CAP USD would be exceeded (spent today $TODAY_SPENT + session cap $USD_CAP) — raise orchestrate.daily_usd_cap or wait for tomorrow"
+CAP_HIT=0; awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' && CAP_HIT=1
+# deploy checks the cap after its merge record (below), which launches nothing and costs nothing
+[ "$CAP_HIT" = 0 ] || [ "$ROLE" = deploy ] || die "$CAP_MSG"
 PHASE="$(jq -r .phase <<<"$E")"; SPEC_DIR="$(jq -r '.spec_dir // empty' <<<"$E")"
 # The item's kind (item-kinds FR-004, FR-005; report 18 #6): an incident or vulnerability fix carries one
 # extra sentence for the worker and one REQUIRED gate for the verifier. Empty for a feature, so a feature
@@ -207,6 +209,23 @@ EOF
     # worker's sandbox root is the worktree, so /hef.babysit's own ledger calls fail inside it (it tolerates that).
     PRN="$(jq -r '.pr.number // empty' <<<"$E")"
     [ -n "$PRN" ] || die "session-launch deploy $ID: no pull request recorded on the entry (ledger.sh record $ID --pr <url>) — nothing to babysit"
+    # After a person merges, the next pass RECORDS it instead of babysitting a merged PR every pass. The evidence
+    # check decides — ledger unblock clears human:merge only with the branch in the integration branch or the
+    # PR's merge commit there — so nothing is assumed, and the merge itself stays a person's step.
+    if [ "$(jq -r '.blocked_on.kind // empty' <<<"$E")" = human:merge ]; then
+      if [ "$DRY" = 1 ]; then
+        echo "# deploy $ID: first checks whether PR #$PRN is merged (ledger.sh unblock); if so records it and launches nothing" >&2
+      else
+        git -C "$TOP" fetch -q --prune origin 2>/dev/null || true   # offline: unblock still asks gh for the PR's merge commit
+        if "$LEDGER" unblock "$ID" >/dev/null 2>&1; then
+          "$LEDGER" advance "$ID" merged >/dev/null || die "session-launch deploy $ID: the merge was recorded but advance to merged failed — run: ledger.sh advance $ID merged"
+          WTN=""; if [ -d "$WORKTREE" ] && ! git -C "$TOP" worktree remove "$WORKTREE" 2>/dev/null; then WTN=" (worktree kept: $WORKTREE — it has local changes)"; fi
+          echo "session-launch deploy $ID: PR #$PRN is merged — recorded, phase merged$WTN; nothing to babysit" >&2
+          "$LEDGER" show "$ID"; exit 0
+        fi
+      fi
+    fi
+    [ "$CAP_HIT" = 0 ] || die "$CAP_MSG"
     [ -n "$WORKTREE" ] || die "session-launch deploy $ID: no worktree recorded on the entry — the babysitter fixes in the PR's checkout"
     [ -d "$WORKTREE" ] || die "session-launch deploy $ID: recorded worktree missing: $WORKTREE"
     read -r -d '' PROMPT <<EOF || true

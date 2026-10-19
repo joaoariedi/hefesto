@@ -23,6 +23,9 @@ symlinked `rules/` or `CLAUDE.md` (dotfiles) alone. Files from an old stow insta
 the exact commands to move them, never moved for you. It ends with a table of profile → version →
 enabled, read from each profile's plugin registry. The manual steps follow.
 
+**Next:** [`quickstart.md`](quickstart.md) (in Portuguese, [`quickstart.pt-BR.md`](quickstart.pt-BR.md))
+takes you from the install to a project with its four sessions running.
+
 It runs on Linux and on macOS as shipped: `/bin/bash` 3.2 and the BSD tools, no Homebrew bash or
 coreutils. The hooks keep to the same rule, and a `smoke-macos` CI job runs the whole suite on macOS.
 
@@ -299,7 +302,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    silently. The command is refused inside a launched worker. Nothing replaces an intake block, and nothing claims
    an intake-blocked entry: the named clear is the only way out. A worker cannot replace any other
    person's block either.
-6. **After you merge**: `git fetch --prune origin` (and `git pull --ff-only`), then
+6. **After you merge**: with a deploy stage running (`/hef.orchestrate --stage deploy`), its next pass on
+   the item does this for you — it fetches, runs the same `unblock` evidence check and `advance … merged`,
+   removes a clean worktree, and launches nothing. Without one: `git fetch --prune origin` (and `git pull --ff-only`), then
    `hooks/ledger.sh unblock <id>` and `hooks/ledger.sh advance <id> merged`. The unblock accepts the
    branch inside the integration branch or, once the branch is deleted, the recorded PR's merge commit
    (read through `gh`, which must say MERGED from that branch); it records that commit as
@@ -330,6 +335,10 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    call that can block for many minutes (a deploy pass waits on CI inside the babysitter), so the
    command makes it with the tool timeout raised to 600 000 ms. `orchestrate.panes` maps block
    kinds to your pane names; the session-start line then says whose block it is.
+   With the plan and build stages each on a `/loop` (the four-session setup in
+   [`quickstart.md`](quickstart.md)), set `orchestrate.plan_first: true`: the build stage then takes
+   only planned items (phase `tasks`, or an `implement` retry), never a queued one, so a new item cannot
+   be built before it is planned. Without it, build also takes queued items, as before.
 
 9. **Hand-run items, the board and escalation** (all optional): a person who ran an item by hand runs
    `hooks/ledger.sh handoff <id> --pr <url>` on its branch — one call instead of four. Set
