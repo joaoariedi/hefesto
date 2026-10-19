@@ -1114,6 +1114,42 @@ cc_case 0 "leaves --amend --no-edit alone (no inline subject)" 'git commit --ame
 rm -rf "$cc_t"
 
 # --- Tier 2: complexity DELTA gate (FR-010) ----------------------------------------------
+head_ "Secrets gate (gitleaks generations)"
+# gitleaks 8.30 refused the `detect --staged -q` the hook passed (exit 126); the hook read every non-zero as a
+# finding, so every commit was blocked as "Secrets detected" (2026-10-19). Named fakes, one per generation, so
+# the result never depends on the gitleaks a machine happens to have. Each fake reads the index of the
+# directory it runs in: the hook must run it in the repository being committed ($CWD).
+gl_t="$(mktemp -d)"; gl_b="$(mktemp -d)"; gl_fail=0
+( cd "$gl_t" && git init -q . && echo x > a && git add a ) >/dev/null 2>&1
+gl_fake() { # $1 name: new | old | broken → $gl_b/gitleaks
+  case "$1" in
+    new) printf '#!/bin/bash\n# FakeGitleaks830: has `git`; `detect --staged` and -q are gone\n[ "$1 $2" = "git --help" ] && exit 0\nfor a in "$@"; do [ "$a" = -q ] && { echo "Error: unknown shorthand flag: q" >&2; exit 126; }; done\n[ "$1 $2" = "git --staged" ] && { git diff --cached | grep -q LEAK && exit 1; exit 0; }\necho "Error: unknown flag: --staged" >&2; exit 126\n' ;;
+    old) printf '#!/bin/bash\n# FakeGitleaksOld: no `git` subcommand; `protect --staged`\n[ "$1" = git ] && { echo "Error: unknown command" >&2; exit 1; }\n[ "$1 $2" = "protect --staged" ] && { git diff --cached | grep -q LEAK && exit 1; exit 0; }\nexit 126\n' ;;
+    broken) printf '#!/bin/bash\n# FakeGitleaksBroken: present, but every scan fails\n[ "$1 $2" = "git --help" ] && exit 0\necho "Error: config is corrupt" >&2; exit 126\n' ;;
+  esac > "$gl_b/gitleaks"; chmod +x "$gl_b/gitleaks"
+}
+gl_run() { # [hook] → $gl_out (stderr) and $gl_rc; the hook runs from $REPO, the commit from $gl_t
+  gl_out="$(jq -nc --arg d "$gl_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | (cd "$REPO" && PATH="$gl_b:$PATH" bash "${1:-$QBC}") 2>&1 >/dev/null)"; gl_rc=$?
+}
+for g in new old; do
+  gl_fake "$g"; ( cd "$gl_t" && echo x > a && git add a ) >/dev/null 2>&1; gl_run
+  [ "$gl_rc" = 0 ] || { bad "gitleaks ($g): a clean commit must pass (rc=$gl_rc: $gl_out)"; gl_fail=1; }
+  ( cd "$gl_t" && echo LEAK > a && git add a ) >/dev/null 2>&1; gl_run
+  { [ "$gl_rc" = 2 ] && grep -qF 'Secrets detected' <<<"$gl_out"; } || { bad "gitleaks ($g): a finding must block as secrets (rc=$gl_rc: $gl_out)"; gl_fail=1; }
+done
+gl_fake broken; ( cd "$gl_t" && echo x > a && git add a ) >/dev/null 2>&1; gl_run
+{ [ "$gl_rc" = 2 ] && grep -qF 'gitleaks failed to run' <<<"$gl_out" && grep -qF 'config is corrupt' <<<"$gl_out" && ! grep -qF 'Secrets detected' <<<"$gl_out"; } \
+  || { bad "a gitleaks that fails to run must block saying so, with its error — not as secrets (rc=$gl_rc: $gl_out)"; gl_fail=1; }
+# Mutations: the old call back (the field failure), and the scan run outside the committed repository.
+gl_md="$(mktemp -d)"; gl_fake new; ( cd "$gl_t" && echo x > a && git add a ) >/dev/null 2>&1
+sed 's/then GL=(gitleaks git --staged); else/then GL=(gitleaks detect --staged -q); else/' "$QBC" > "$gl_md/qbc.sh"; cmp -s "$QBC" "$gl_md/qbc.sh" && { bad "gitleaks mutation did not apply"; gl_fail=1; }
+gl_run "$gl_md/qbc.sh"; [ "$gl_rc" = 0 ] && { bad "mutation survived: the old 'detect --staged -q' call back, yet a clean commit still passed on gitleaks 8.30"; gl_fail=1; }
+( cd "$gl_t" && echo LEAK > a && git add a ) >/dev/null 2>&1
+sed 's/GL_OUT=$(cd "$CWD" \&\& /GL_OUT=$(/' "$QBC" > "$gl_md/qbc.sh"; cmp -s "$QBC" "$gl_md/qbc.sh" && { bad "gitleaks cwd mutation did not apply"; gl_fail=1; }
+gl_run "$gl_md/qbc.sh"; [ "$gl_rc" = 2 ] && { bad "mutation survived: the scan runs outside the committed repository, yet its secret was still found"; gl_fail=1; }
+rm -rf "$gl_t" "$gl_b" "$gl_md"
+[ "$gl_fail" -eq 0 ] && ok "secrets gate: gitleaks 8.30 (git --staged) and older (protect --staged) pass a clean commit and block a finding; a gitleaks that fails to run blocks with its own error, never as 'secrets'; the scan runs in the committed repo; 2 mutations caught"
+
 head_ "Complexity delta gate"
 
 # code-quality.md's limits are aggregate rules — the class agents honour least in prose. The

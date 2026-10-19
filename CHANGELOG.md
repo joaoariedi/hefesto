@@ -35,6 +35,43 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.12.0] - 2026-10-19
+
+**After the install wizard, a quick start takes you to the four sessions running on their own — and
+running the lanes on `/loop` no longer races, loops on merged PRs, or launches two workers at once.**
+
+### Added
+
+- **`docs/quickstart.md`** (and **`docs/quickstart.pt-BR.md`**): install → check → set up the project →
+  open the four sessions → start each lane with `/loop 15m /hef.orchestrate …` → day to day (what to do
+  when an item waits on a person, merging, `/compact`). The wizard's *Next steps* now link it — the
+  Portuguese one when it runs in Portuguese — and README, `docs/install.md` and `SETUP.md` point to it.
+- **`orchestrate.plan_first`** (opt-in; the `SETUP.md` config template sets it): `next --stage build` takes
+  only planned items (phase `tasks`, or an `implement` retry), never a queued one. With the plan and build
+  lanes both on `/loop`, a new item otherwise went to whichever pass ran first and could be built with no
+  spec or plan.
+
+### Fixed
+
+- **Every commit was blocked as "Secrets detected" with a current gitleaks.** The pre-commit hook called
+  `gitleaks detect --staged -q`; gitleaks 8.30 refuses both (exit 126), and the hook read any non-zero exit
+  as a finding. It now uses `gitleaks git --staged` (8.19+), else `protect --staged` (older); exit 1 is a
+  finding, any other failure is reported as gitleaks itself failing, with its error. It also scans the
+  repository being committed, not the hook's starting folder.
+
+### Changed
+
+- **The deploy stage records a merge.** On an entry waiting on `human:merge`, a deploy pass first runs
+  the `ledger.sh unblock` evidence check (the branch in the integration branch, or the PR's merge commit
+  there); if the merge is real it advances the entry to `merged`, removes a clean worktree and launches
+  nothing — even over the daily cap. Before, the lane relaunched a babysitter on the merged PR every pass
+  until someone typed the after-merge commands. Merge with **Create a merge commit**: a squash or rebase
+  merge is not recognised, and the lead records it with `ledger.sh unblock <id> --merge-sha <sha>`.
+- **One worker per repository is enforced by `ledger.sh claim`**, under a lock, not only by the model's
+  check in `/hef.orchestrate`: two lanes starting a pass in the same second could both launch. The second
+  is now refused as busy and tries again on its next pass. A `verify` claim is exempt — it is the second
+  half of the same build pass.
+
 ## [7.11.0] - 2026-10-15
 
 **Hefesto runs on macOS as shipped — stock `/bin/bash` 3.2 and BSD tools, nothing from Homebrew — and a
