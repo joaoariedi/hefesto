@@ -190,7 +190,7 @@ Also read the project's own `CLAUDE.md` and any board it already has.
    Run the last line for the default branch and for each branch where work may integrate (for
    example `dev`, if `git branch -r` shows one). It prints `true` or `false` and needs only read
    access.
-   Hefesto needs merge commits allowed and the branch where work integrates protected (a pull
+   Hefesto needs merge commits allowed (squash and rebase merges off) and the branch where work integrates protected (a pull
    request required before merging): it detects a merge by finding the branch inside that branch,
    which squash and rebase merges break. If changes integrate on a branch other than `main` (say
    `dev`, promoted to `stg` and `main`), note it (`docs/install.md` §7 step 12).
@@ -211,7 +211,7 @@ to bring back the lead's reply **together with the whole message**, then stop. P
   only from `TODO.md`; a person's items go to `BACKLOG.md`);
 - a board kept in its own repository: clone it next to this one (`docs/install.md` §7 step 13);
 - the integration branch and the promotion order, if not `main`;
-- repository settings only the lead can change: merge commits, protecting the integration branch;
+- repository settings only the lead can change: merge commits only (squash and rebase off), protecting the integration branch;
 - the test command, if you could not find it;
 - the spend limits: `usd_cap` (per worker session) and `daily_usd_cap` (per day);
 - a project rule that the sessions would break, and whether to make an exception for board items.
@@ -246,6 +246,7 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
        "usd_cap": 5,
        "daily_usd_cap": 25,
        "tiers": { "implement": "opus", "verify": "fable" },
+       "plan_first": true,
        "allowed_tools": {
          "implement": ["Read", "Edit", "Write", "Glob", "Grep", "Skill", "Agent", "Bash(git *)",
                        "Bash(gh pr create *)", "Bash(gh pr view *)", "Bash(<test command>*)"],
@@ -291,17 +292,31 @@ claude --name <repo>-build        --permission-mode default --settings '{"sandbo
 claude --name <repo>-deploy       --permission-mode default --settings '{"sandbox":{"enabled":false}}'
 ```
 
-| Session | What it does | Type |
+Then each session runs its own command once. The sessions do not take orders from each other; each
+works when its command runs, and they hand work on through the ledger. `/loop` repeats the command:
+
+| Session | Run once | What it then does |
 |---|---|---|
-| orchestrator | Shows the board, what is running and what waits on a person | `/hef.status` |
-| plan | Writes the spec, the plan and the tasks for the next item | `/hef.orchestrate --stage plan` |
-| build | Implements the next item, checks it, opens the pull request. Start it on an item only after `/hef.status` shows plan finished with it | `/hef.orchestrate` |
-| deploy | Watches the next pull request's CI until it is ready to merge | `/hef.orchestrate --stage deploy` |
+| plan | `/loop 15m /hef.orchestrate --stage plan` | The spec, plan, review and tasks of the next new item |
+| build | `/loop 15m /hef.orchestrate` | The next planned item: implemented, checked by a separate session, pull request opened |
+| deploy | `/loop 15m /hef.orchestrate --stage deploy` | The next pull request: CI watched and fixed until it is ready to merge |
+| orchestrator | `/hef.status` whenever wanted | The board and the delivery numbers (per item: `ledger.sh list --active` / `--blocked`). Not `/hef.orchestrate` |
+
+- `"plan_first": true` (Step 4c) keeps the build lane from taking an item the plan lane has not planned.
+  If the project's config lacks it, add it before starting the loops.
+- Each pass takes one item and stays within the spend limits; with nothing to do it says so. Esc stops a
+  loop; the commands can also be typed by hand.
+- The same steps, for the engineer to keep: `docs/quickstart.md` (`docs/quickstart.pt-BR.md` in
+  Portuguese) in the hefesto repository.
 
 - `--permission-mode default` keeps the permission dialogs: the human gates are those dialogs.
 - The sandbox is off for these four because they start other sessions; the sessions they start run
   sandboxed (on Linux that needs `bwrap` and `socat`, checked in Step 1).
-- If an item shows `blocked_on human:…`, it waits on a person: the engineer asks their lead.
+- If an item shows `blocked_on human:clarify` or `human:plan-review`, the engineer answers it in the item's
+  folder (`docs/quickstart.md` step 6 has the commands). Any other block: the engineer asks their lead.
+- After a person merges a pull request with **Create a merge commit**, the deploy lane records the merge on
+  its next pass: nothing to type. A squash or rebase merge it cannot see; the lead records that one with
+  `ledger.sh unblock <id> --merge-sha <sha>`.
 - Between items, each session runs its own `/compact` prompt. Fetch them with
   `curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/docs/performance.md`
   (section "Compact prompts per pane") and give the engineer the four, one per session.

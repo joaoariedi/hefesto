@@ -57,6 +57,9 @@ in each profile, copies the rules and `CLAUDE.md` (yours is kept as `CLAUDE.md.m
 the result. It never deletes, never uses `sudo`, and backs up what it changes to `~/hefesto-old/`.
 `--dry-run` shows the plan and changes nothing; `--lang pt` speaks Portuguese; `--help` lists the rest.
 
+**Then follow the [quick start](docs/quickstart.md)** ([em português](docs/quickstart.pt-BR.md)): check the
+install, set up a project, open the four sessions and start them — six short steps.
+
 To run a specific release's copy of the script instead of `main`'s, pin the tag — the release you
 want, 7.10.0 or later (earlier tags do not carry `install.sh`):
 
@@ -249,7 +252,7 @@ A board kept in its own repository can feed several code repos — a `board` poi
 
 | Pane | Owns (ledger phases) | Human gates | Launches / runs |
 |---|---|---|---|
-| 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | `human:intake` | `/hef.status`, `/hef.orchestrate`, `ledger.sh list\|next\|metrics` |
+| 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | `human:intake` | `/hef.status`, `ledger.sh list\|next\|metrics` — the three stage panes run `/hef.orchestrate` ([quick start](docs/quickstart.md)) |
 | 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | `human:clarify`, `human:plan-review` | `/hef.orchestrate --stage plan` (a fresh planner: spec → plan → fresh-context review → tasks, writes only under `.specify/`), or by hand `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks` |
 | 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | `/hef.orchestrate` (the default stage: the implement worker — continuing from the planner's tasks when there are any — then the separate verifier) |
 | 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, `human:merge`, tag/deploy | `/hef.orchestrate --stage deploy` (one headless `/hef.babysit --once` pass on the next PR), or by hand `/hef.babysit` (`/loop 25m /hef.babysit <n> --once` while a review is pending); `/hef.release`; the merge itself, by a person |

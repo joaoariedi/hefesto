@@ -20,7 +20,7 @@ the implement worker and then the separate verifier; `deploy` runs one `/hef.bab
 an item whose PR exists. `--dry-run` is the only flag forwarded to the launcher — never
 **$ARGUMENTS** as a whole, which now carries `--stage`.
 
-What it never does: merge a PR, approve a PR, push to a protected branch (`ledger.sh branches`), clear a `human:*` block, edit source,
+What it never does: merge a PR, approve a PR, push to a protected branch (`ledger.sh branches`), clear a `human:*` block (one exception: a deploy pass records a merge a person already made, through the `ledger.sh unblock` evidence check — see step 5), edit source,
 or edit a board item. Those are a person's steps; the ledger records that they happened.
 
 ## Host
@@ -80,7 +80,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    Two concurrent workers on one repository is the 41.7 % conflict configuration; sequential
    dispatch is the rule (report 14, report 17 §1f).
    - **In-repo board:** if `list --active` printed a non-empty array, **go to step 7** — the one
-     repository is busy.
+     repository is busy. `ledger.sh claim` enforces the same rule under a lock, so two stage panes that
+     start a pass in the same second cannot both launch: the second launch is refused as busy.
    - **External board:** go on to step 3. `next` enforces the rule per repository: it skips an
      entry whose repo already has an owned entry, so an `ops` worker and a `ui` worker can run side
      by side. When every candidate's repo is busy it refuses, naming each busy repo and its owner.
@@ -119,7 +120,9 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    - `plan`: `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh plan <id> [--dry-run]` — the planner
      stops at `tasks`, or blocked on `human:clarify` / `human:plan-review` for the plan pane
    - `deploy`: `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh deploy <id> [--dry-run]` — one pass;
-     the launcher sets `human:merge`, `conflict`, `ci` or `human:intake` from the babysitter's verdict
+     the launcher sets `human:merge`, `conflict`, `ci` or `human:intake` from the babysitter's verdict.
+     When the entry waits on `human:merge` and the PR is already merged, it records that instead
+     (`unblock` evidence check, `advance … merged`, a clean worktree removed) and launches nothing
    If a launch exits non-zero, show its stderr and **go to step 7** — the ledger already holds the state
    (`blocked_on`, `attempts`, cost). Two refusals are for a person, not for you:
    **changed since claim** (the item's text differs from the hash taken at registration — someone

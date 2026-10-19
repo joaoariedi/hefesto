@@ -1809,7 +1809,7 @@ sr_t="$(mktemp -d)"; sr_cfg="$(mktemp -d)"; sr_bin="$(mktemp -d)"; sr_log="$sr_b
 cat > "$sr_bin/claude" <<CLEOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$sr_log"; printf 'HEFESTO_WORKER=%s\n' "\${HEFESTO_WORKER:-}" >> "$sr_bin/worker"
-prev=""; for a in "\$@"; do if [ "\$prev" = "-w" ]; then git worktree add -q "\$PWD/.claude/worktrees/\$a" -b "\$a" >/dev/null 2>&1; fi; prev="\$a"; done
+prev=""; for a in "\$@"; do if [ "\$prev" = "-w" ]; then git worktree add -q "\$PWD/.claude/worktrees/\$a" -b "\$a" >/dev/null 2>&1 && git -C "\$PWD/.claude/worktrees/\$a" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "work \$a" >/dev/null 2>&1; fi; prev="\$a"; done   # a worker leaves a commit: a branch with none is already "in main"
 cat "$sr_res"
 CLEOF
 chmod +x "$sr_bin/claude"
@@ -1887,6 +1887,16 @@ st_init 8; st_init 9   # HEF-10 and HEF-11 are registered when their cases need 
 [ "$(lg2 next --stage build 2>/dev/null)" = HEF-4 ] && [ "$(lg2 next 2>/dev/null)" = HEF-4 ] || { bad "next --stage build (and the default) must return HEF-4"; st_fail=1; }
 [ "$(lg2 next --stage deploy 2>/dev/null)" = HEF-1 ] || { bad "next --stage deploy must return HEF-1 (pr, PR recorded, blocked human:merge), got '$(lg2 next --stage deploy 2>&1)'"; st_fail=1; }
 lg2 next --stage bogus >/dev/null 2>&1; [ $? -eq 2 ] || { bad "next --stage bogus must be a usage error (2)"; st_fail=1; }
+# orchestrate.plan_first: a plan lane and a build lane both on /loop must not race for a new item — build then
+# takes only planned work (tasks, or an implement retry): HEF-5, never queued HEF-4; plan still takes HEF-4.
+st_cfg="$sr_t/.claude/project-status.json"; cp "$st_cfg" "$st_cfg.bak"; jq '.orchestrate.plan_first = true' "$st_cfg.bak" > "$st_cfg"
+[ "$(lg2 next --stage build 2>/dev/null)" = HEF-5 ] && [ "$(lg2 next --stage plan 2>/dev/null)" = HEF-4 ] \
+  || { bad "with orchestrate.plan_first, build must skip queued HEF-4 for HEF-5 while plan still takes HEF-4 (build gave '$(lg2 next --stage build 2>&1)')"; st_fail=1; }
+st_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$st_md/$(basename "$f")"; done; rm "$st_md/ledger.sh"
+sed 's/\.orchestrate\.plan_first \/\/ false/.orchestrate.plan_first_ignored \/\/ false/' "$LG" > "$st_md/ledger.sh"; cmp -s "$LG" "$st_md/ledger.sh" && { bad "plan_first mutation did not apply"; st_fail=1; }
+[ "$(LG_BIN="$st_md/ledger.sh" lg2 next --stage build 2>/dev/null)" = HEF-4 ] || { bad "mutation survived: plan_first ignored, yet build still skipped the queued item"; st_fail=1; }
+rm -rf "$st_md"; mv "$st_cfg.bak" "$st_cfg"
+[ "$(lg2 next --stage build 2>/dev/null)" = HEF-4 ] || { bad "without plan_first, build must take queued HEF-4 as before"; st_fail=1; }
 # FR-004 FR-005 plan run: outcome tasks → phase tasks, absolute spec_dir under the worktree, route full, branch, owner released
 printf '{"session_id":"p1","total_cost_usd":0.8,"structured_output":{"summary":"planned","outcome":"tasks","spec_dir":".specify/specs/eight","blocked_on":null}}\n' > "$sr_res"
 : > "$sr_log"; sr2 plan HEF-8 >/dev/null 2>&1 || { bad "session-launch plan (fake claude) exited non-zero"; st_fail=1; }
@@ -2062,6 +2072,73 @@ lg2 block HEF-15 --kind human:merge >/dev/null 2>&1
 SL_BIN="$SL_MUT" sr2 deploy HEF-15 >/dev/null 2>&1 && { bad "mutation survived: the deploy-on-human:merge exception removed, deploy still launched"; st_mfail=1; }
 [ "$st_mfail" -eq 0 ] && ok "stage-roles mutations: plan filter, deploy ordering, questions branch, ci bound, pr.url refusal, tasks prompt, mergeable guard, hooks-rule append, plan mode, merge verbs, human-gate launch guard (clarify refused, deploy on human:merge allowed — both mutants caught) — all caught (SC-001)"
 rm -rf "$st_mutdir"
+
+# After a person merges, the next deploy pass RECORDS it (ledger unblock — the evidence check — then advance
+# merged) and launches nothing; before the merge it babysits as before. Without this the deploy lane relaunched
+# a babysitter on the merged PR every pass (quickstart review 2026-10-19).
+dm_fail=0
+dm_pr() { # $1 n → HEF-$1 at pr/human:merge, its worktree branch carrying a commit main lacks
+  st_init "$1"; git -C "$sr_t" worktree add -q "$sr_t/.claude/worktrees/HEF-$1" -b "HEF-$1" >/dev/null 2>&1
+  git -C "$sr_t/.claude/worktrees/HEF-$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "w$1" >/dev/null 2>&1
+  lg2 record "HEF-$1" --pr "https://github.com/o/r/pull/$1" --worktree "$sr_t/.claude/worktrees/HEF-$1" --branch "HEF-$1" >/dev/null 2>&1
+  lg2 advance "HEF-$1" pr >/dev/null 2>&1; lg2 block "HEF-$1" --kind human:merge >/dev/null 2>&1
+}
+dm_pr 51; printf '{"session_id":"d51","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"
+: > "$sr_log"; dm_err="$(sr2 deploy HEF-51 2>&1 >/dev/null)"
+{ grep -qF -- '--name deploy-HEF-51' "$sr_log" && srj HEF-51 '.blocked_on.kind == "human:merge" and .phase == "pr"'; } \
+  || { bad "before the merge, deploy must babysit HEF-51 and leave it at pr/human:merge: $dm_err / calls=$(head -c 160 "$sr_log") / $(jq -c "{p:.phase,b:.blocked_on.kind,w:.worktree,br:.branch}" "$sr_t/.git/hefesto/ledger/HEF-51.json")"; dm_fail=1; }
+git -C "$sr_t" -c user.email=t@t -c user.name=t merge -q --no-ff HEF-51 -m "Merge HEF-51" >/dev/null 2>&1
+: > "$sr_log"; dm_out="$(sr2 deploy HEF-51 2>/dev/null)"; dm_rc=$?
+{ [ "$dm_rc" -eq 0 ] && [ ! -s "$sr_log" ] && srj HEF-51 '.phase == "merged" and .blocked_on == null' \
+  && [ "$(jq -r .phase <<<"$dm_out" 2>/dev/null)" = merged ] && [ ! -d "$sr_t/.claude/worktrees/HEF-51" ]; } \
+  || { bad "after the merge, deploy must record HEF-51 merged, launch nothing, remove the worktree and print the entry (rc=$dm_rc, claude calls=$(wc -l < "$sr_log" | tr -d ' '), phase=$(jq -r .phase "$sr_t/.git/hefesto/ledger/HEF-51.json"))"; dm_fail=1; }
+# Mutation: without the merge check the merged PR is babysat again.
+dm_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$dm_md/$(basename "$f")"; done; rm "$dm_md/session-launch.sh"
+sed 's/<<<"\$E")" = human:merge \]; then/<<<"$E")" = never-a-kind ]; then/' "$SL" > "$dm_md/session-launch.sh"
+cmp -s "$SL" "$dm_md/session-launch.sh" && { bad "deploy merge-check mutation did not apply"; dm_fail=1; }
+dm_pr 52; git -C "$sr_t" -c user.email=t@t -c user.name=t merge -q --no-ff HEF-52 -m "Merge HEF-52" >/dev/null 2>&1
+: > "$sr_log"; SL_BIN="$dm_md/session-launch.sh" sr2 deploy HEF-52 >/dev/null 2>&1
+grep -qF -- '--name deploy-HEF-52' "$sr_log" || { bad "mutation survived: merge check removed, yet the merged HEF-52 was not babysat"; dm_fail=1; }
+rm -rf "$dm_md"
+# The daily cap: recording a merge costs nothing and passes over it; babysitting still does not.
+dm_cfg="$sr_t/.claude/project-status.json"; cp "$dm_cfg" "$dm_cfg.bak"; jq '.orchestrate.daily_usd_cap = 0' "$dm_cfg.bak" > "$dm_cfg"
+dm_pr 55; git -C "$sr_t" -c user.email=t@t -c user.name=t merge -q --no-ff HEF-55 -m "Merge HEF-55" >/dev/null 2>&1
+: > "$sr_log"; sr2 deploy HEF-55 >/dev/null 2>&1 && srj HEF-55 '.phase == "merged"' && [ ! -s "$sr_log" ] \
+  || { bad "over the daily cap, deploy must still record a merged PR (it launches nothing)"; dm_fail=1; }
+dm_pr 56; : > "$sr_log"; sr2 deploy HEF-56 >/dev/null 2>&1 && { bad "over the daily cap, deploy must refuse to babysit an unmerged PR"; dm_fail=1; }
+[ ! -s "$sr_log" ] || { bad "over the daily cap, no babysitter may be launched"; dm_fail=1; }
+mv "$dm_cfg.bak" "$dm_cfg"
+[ "$dm_fail" -eq 0 ] && ok "deploy records a merge: babysits before it; after it, unblock (evidence) + advance merged, no session launched, worktree removed, the entry printed, even over the daily cap (babysitting is not); 1 mutation caught"
+
+# One worker per repository, enforced by `ledger claim` under a lock: two lanes starting a pass in the same second
+# both passed /hef.orchestrate's model-side check (quickstart review 2026-10-19).
+cl_fail=0; cl_dir="$sr_t/.git/hefesto/ledger"
+[ -z "$(lg2 list --active 2>/dev/null | jq -r '.[]?.id' 2>/dev/null)" ] || { bad "fixture: no entry may be owned before the claim cases ($(lg2 list --active 2>&1 | head -c 200))"; cl_fail=1; }
+st_init 53; st_init 54
+lg2 claim HEF-53 --session s53 --role implement >/dev/null 2>&1 || { bad "claim HEF-53 on an idle repository must pass"; cl_fail=1; }
+cl_o="$(lg2 claim HEF-54 --session s54 --role implement 2>&1)" && { bad "a second claim in the same repository must be refused"; cl_fail=1; }
+grep -qF 'the repository is busy with HEF-53 (owned by s53)' <<<"$cl_o" || { bad "the refusal must name the busy entry and its owner, got '$cl_o'"; cl_fail=1; }
+cl_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$cl_md/$(basename "$f")"; done; rm "$cl_md/ledger.sh"
+sed 's/\[ -z "\$BUSY" \] || \[ "\$ROLE" = verify \] || die "ledger claim/true || die "ledger claim/' "$LG" > "$cl_md/ledger.sh"; cmp -s "$LG" "$cl_md/ledger.sh" && { bad "claim-guard mutation did not apply"; cl_fail=1; }
+if LG_BIN="$cl_md/ledger.sh" lg2 claim HEF-54 --session s54 --role implement >/dev/null 2>&1; then lg2 run HEF-54 --role implement --exit 0 --usd 0 >/dev/null 2>&1
+else bad "mutation survived: the busy check removed, yet the second claim was still refused"; cl_fail=1; fi
+# verify continues the SAME build pass and is read-only: refusing it while another lane holds the repo would
+# strand its item in phase verify, which no stage picks up again — so a verify claim passes while HEF-53 is owned.
+lg2 claim HEF-54 --session v54 --role verify >/dev/null 2>&1 || { bad "a verify claim must pass while another entry is owned (it would strand the item in verify)"; cl_fail=1; }
+lg2 run HEF-54 --role verify --exit 0 --usd 0 >/dev/null 2>&1
+sed 's/ || \[ "\$ROLE" = verify \] || die "ledger claim/ || die "ledger claim/' "$LG" > "$cl_md/ledger.sh"
+LG_BIN="$cl_md/ledger.sh" lg2 claim HEF-54 --session v54 --role verify >/dev/null 2>&1 && { bad "mutation survived: the verify exemption removed, yet a verify claim still passed while HEF-53 is owned"; cl_fail=1; lg2 run HEF-54 --role verify --exit 0 --usd 0 >/dev/null 2>&1; }
+rm -rf "$cl_md"
+lg2 run HEF-53 --role implement --exit 0 --usd 0 >/dev/null 2>&1
+lg2 claim HEF-54 --session s54 --role implement >/dev/null 2>&1 || { bad "once HEF-53 is released, claim HEF-54 must pass"; cl_fail=1; }
+lg2 run HEF-54 --role implement --exit 0 --usd 0 >/dev/null 2>&1
+mkdir "$cl_dir/.claim.lock"; cl_o="$(lg2 claim HEF-53 --session s53 --role implement 2>&1)" && { bad "a claim must not pass while another claim holds the lock"; cl_fail=1; }
+grep -qF 'is held — another claim is running' <<<"$cl_o" || { bad "a held lock must be named, got '$cl_o'"; cl_fail=1; }
+rmdir "$cl_dir/.claim.lock"
+[ ! -e "$cl_dir/.claim.lock" ] && lg2 claim HEF-53 --session s53 --role implement >/dev/null 2>&1 && [ ! -e "$cl_dir/.claim.lock" ] \
+  || { bad "a claim must take and release the lock"; cl_fail=1; }
+lg2 run HEF-53 --role implement --exit 0 --usd 0 >/dev/null 2>&1
+[ "$cl_fail" -eq 0 ] && ok "ledger claim keeps one worker per repository: a second owner refused naming the first, free again once released, a held lock refused, the lock released after a claim, a verify claim exempt (it continues the same build pass); 2 mutations caught"
 rm -rf "$sr_t" "$sr_cfg" "$sr_bin"
 [ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output (FR-011 FR-013 SC-007)"
 
@@ -2796,7 +2873,7 @@ ik_t="$(mktemp -d)"; ik_bin="$(mktemp -d)"; ik_cfg="$(mktemp -d)"; ik_log="$ik_b
 cat > "$ik_bin/claude" <<CLEOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$ik_log"
-prev=""; for a in "\$@"; do if [ "\$prev" = "-w" ]; then git worktree add -q "\$PWD/.claude/worktrees/\$a" -b "\$a" >/dev/null 2>&1; fi; prev="\$a"; done
+prev=""; for a in "\$@"; do if [ "\$prev" = "-w" ]; then git worktree add -q "\$PWD/.claude/worktrees/\$a" -b "\$a" >/dev/null 2>&1 && git -C "\$PWD/.claude/worktrees/\$a" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "work \$a" >/dev/null 2>&1; fi; prev="\$a"; done   # a worker leaves a commit: a branch with none is already "in main"
 cat "$ik_res"
 CLEOF
 chmod +x "$ik_bin/claude"
@@ -3556,7 +3633,7 @@ eb_o="$(ebx "$eb_wt" implement OPS-2 --dry-run)"
 cat > "$eb_bin/claude" <<CLEOF
 #!/bin/bash
 printf '%s|%s\n' "\$PWD" "\${HEFESTO_BOARD_TOP:-}" >> "$eb_bin/env"
-prev=""; for a in "\$@"; do if [ "\$prev" = "-w" ]; then git worktree add -q "\$PWD/.claude/worktrees/\$a" -b "\$a" >/dev/null 2>&1; fi; prev="\$a"; done
+prev=""; for a in "\$@"; do if [ "\$prev" = "-w" ]; then git worktree add -q "\$PWD/.claude/worktrees/\$a" -b "\$a" >/dev/null 2>&1 && git -C "\$PWD/.claude/worktrees/\$a" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "work \$a" >/dev/null 2>&1; fi; prev="\$a"; done   # a worker leaves a commit: a branch with none is already "in main"
 printf '{"session_id":"s","total_cost_usd":0.5,"structured_output":{"summary":"ok","route":"fix","outcome":"pr","pr_url":"https://github.com/o/ui/pull/5"}}\n'
 CLEOF
 chmod +x "$eb_bin/claude"
@@ -3905,7 +3982,7 @@ grep -qE 'claude-framework|backup-x|claude-tool' "$iw_log" && { bad "fresh: a de
 cmp -s "$IW_SRC_CMD" "$H/.claude/CLAUDE.md" || { bad "fresh: an absent CLAUDE.md must become hefesto's"; iw_fail=1; }
 [ "$(cat "$H/.claude-work/CLAUDE.md.mine" 2>/dev/null)" = "my notes" ] && [ "$(tail -n 1 "$H/.claude-work/CLAUDE.md")" = "@CLAUDE.md.mine" ] \
   && [ "$(head -n 3 "$H/.claude-work/CLAUDE.md")" = "$(cat "$IW_SRC_CMD")" ] || { bad "fresh: a differing CLAUDE.md must become CLAUDE.md.mine, imported from hefesto's"; iw_fail=1; }
-for w in "What I found" "The plan — " "why: " "All good: every profile runs hefesto 7.9.2." "Restart Claude Code" "hefesto 7.9.2 hooks loaded from" "/hef.doctor" "docs/install.md"; do
+for w in "What I found" "The plan — " "why: " "All good: every profile runs hefesto 7.9.2." "Restart Claude Code" "hefesto 7.9.2 hooks loaded from" "/hef.doctor" "docs/quickstart.md" "docs/install.md"; do
   grep -qF -- "$w" <<<"$iw_out" || { bad "fresh: the output lacks '$w'"; iw_fail=1; }
 done
 grep -qE '^  ~/\.claude-work +7\.9\.2 +yes$' <<<"$iw_out" || { bad "fresh: the verification table lacks '~/.claude-work 7.9.2 yes'"; iw_fail=1; }
@@ -4027,7 +4104,12 @@ grep -qF 'O que encontrei' <<<"$iw_out" && grep -qF 'O plano — ' <<<"$iw_out" 
 iw_go "$H" "$IW" --dry-run --yes --lang en; grep -qF 'What I found' <<<"$iw_out" || { bad "--lang en must override LANG=pt_BR"; iw_fail=1; }
 IW_ENV=(HEFESTO_CLONE_DIR="$H/hefesto-src" LANG=en_US.UTF-8 LC_ALL=pt_BR.UTF-8); iw_go "$H" "$IW" --dry-run --yes
 grep -qF 'O que encontrei' <<<"$iw_out" || { bad "LC_ALL=pt_BR must outrank LANG=en_US"; iw_fail=1; }
-[ "$iw_fail" -eq 0 ] && ok "install wizard speaks Portuguese under LANG=pt_BR, --lang en overrides, LC_ALL outranks LANG (FR-007)"
+# A real Portuguese run ends by pointing at the Portuguese quick start, not the English one.
+iw_fresh; H="$IW_H"; IW_ENV+=(LANG=pt_BR.UTF-8); iw_go "$H" "$IW" --yes --profile "$H/.claude-work"
+{ grep -qF 'docs/quickstart.pt-BR.md' <<<"$iw_out" && ! grep -qF 'docs/quickstart.md' <<<"$iw_out"; } \
+  || { bad "a Portuguese run must link docs/quickstart.pt-BR.md, not the English quick start: $(grep -n quickstart <<<"$iw_out")"; iw_fail=1; }
+rm -rf "$H"; IW_ENV=()
+[ "$iw_fail" -eq 0 ] && ok "install wizard speaks Portuguese under LANG=pt_BR, --lang en overrides, LC_ALL outranks LANG, and links the Portuguese quick start (FR-007)"
 rm -rf "$H"
 
 # Scripted answers through a fake tty (HEFESTO_TTY): a declined step is skipped, an unknown answer
