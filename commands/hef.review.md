@@ -51,7 +51,9 @@ pre-flight outputs (spec, plan, constitution) in full:
 > Review the PLAN below, not code — this is the read-only gate between `/hef.plan` and `/hef.tasks`.
 > You did not write it and must not look for the conversation that did; the spec, the plan and the
 > constitution are your whole input. Challenge it on six dimensions, with specific references:
-> **Scope** (too much? deferrable requirements? does every planned change map to an FR?),
+> **Scope** (too much? deferrable requirements? does every planned change map to an FR? when the spec
+> names a `Source RFC`, read that RFC: does every requirement it states map to an FR that cites it, and does
+> the spec add anything the RFC did not ask for? — a gap either way is a CONCERN),
 > **Architecture** (aligned with existing patterns? a simpler approach? does the file list fit?),
 > **Design** (data model fit, contract consistency, edge cases), **Tests** (every level accounted
 > for? untestable areas needing a design change? security paths planned for dedicated tests?),

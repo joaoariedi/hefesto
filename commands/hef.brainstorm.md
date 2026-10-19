@@ -97,7 +97,11 @@ Present distinct alternatives with explicit trade-offs:
 
 ### Step 4: Write Design Document
 
-After the user selects or refines an approach, write a design document:
+After the user selects or refines an approach, write a design document. **When the design is for a board
+item, it is that item's RFC**: save it as `docs/rfcs/<ID>.md` (or under `orchestrate.rfc_dir` from
+`.claude/project-status.json`) and add the line `rfc: <that path>` to the item on the board, so the
+pipeline's planner specs from it. An RFC written by someone else, by hand, takes the same place and line;
+the headings below are what the planner reads best.
 
 ```markdown
 # Design: <topic>
@@ -157,7 +161,7 @@ Present the design document to the user. Wait for explicit approval before proce
 
 After approval, recommend a **context reset** before the spec phase. The brainstorm transcript (questions, rejected alternatives, Socratic back-and-forth) has served its purpose; the design document is now the source of truth. A fresh context gives `/hef.spec` a tighter, less noisy starting point:
 
-> Design approved and written to the design document. Before running `/hef.spec`, run `/clear` to drop the brainstorm transcript — the design document is now the source of truth, and a fresh context yields a tighter, less noisy spec.
+> Design approved and written to the design document. Before running `/hef.spec`, run `/clear` (in a planner lane you keep for its context: its own `/compact` prompt) to drop the brainstorm transcript — the design document is now the source of truth, and a fresh context yields a tighter, less noisy spec.
 >
 > Then: `/hef.spec <feature description>` to generate the formal specification with user scenarios, functional requirements, and success criteria.
 

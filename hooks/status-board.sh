@@ -32,13 +32,14 @@ while [ $# -gt 0 ]; do
     --was) shift; WAS="${1:-}" ;;
     --item-kind) shift; MODE="item-kind"; ITEM_ID="${1:-}" ;;
     --item-repo) shift; MODE="item-repo"; ITEM_ID="${1:-}" ;;
+    --item-rfc) shift; MODE="item-rfc"; ITEM_ID="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
-    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --item-repo <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
-    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2 ;;
+    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --item-repo <id> | --item-rfc <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
+    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --item-rfc <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2 ;;
   esac
   shift
 done
-case "$MODE" in item|item-raw|mark|item-kind|item-repo)
+case "$MODE" in item|item-raw|mark|item-kind|item-repo|item-rfc)
   [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
   [ "$MODE" != mark ] || [ -n "$MARK" ] || { echo "status-board: --mark needs <id> <marker> (or - for no marker)" >&2; exit 2; }
   # A marker is ONE token with no backslash: a space would stack under the next mark, a backslash or a
@@ -275,6 +276,27 @@ item_repo() { # $1 id
   printf '%s\t%s\n' "$names" "$(jq -r --arg r "$names" '.[$r]' <<<"$repos")"
 }
 
+# The item's RFC (lanes-v2 FR-007): an `rfc:` line naming a .md file under orchestrate.rfc_dir (default
+# docs/rfcs), relative to the board's top. The line comes from untrusted item text, so the path is held to a
+# plain relative shape inside that folder before anything opens it. No line → empty output, exit 0.
+rfc_lines() { tr -d '\r' | grep -iE '^[[:space:]]*([-*][[:space:]]+)?rfc:' | sed -E 's/^[[:space:]]*([-*][[:space:]]+)?[Rr][Ff][Cc]:[[:space:]]*//; s/[[:space:]]+$//'; }
+item_rfc() { # $1 id
+  local dir rel body n re='^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$'
+  dir="$(cfg '.orchestrate.rfc_dir // "docs/rfcs"')"; dir="${dir%/}"
+  { [[ "$dir" =~ $re ]] && [[ "/$dir/" != */../* ]] && [[ "/$dir/" != */./* ]]; } \
+    || die "status-board --item-rfc $1: orchestrate.rfc_dir must be a relative folder like docs/rfcs, with no '..' (got '$(safe_name "$dir")')"
+  body="$(item_body "$1" raw)" || exit 1
+  rel="$(strip_comments <<<"$body" | rfc_lines | sed '/^$/d')" || true
+  n="$(grep -c . <<<"$rel")"
+  [ "$n" -gt 0 ] || return 0
+  [ "$n" -eq 1 ] || die "status-board --item-rfc $1: names $n RFCs — one item, one RFC"
+  rel="${rel#./}"
+  { [[ "$rel" =~ $re ]] && [[ "$rel" == *.md ]] && [[ "/$rel/" != */../* ]] && [[ "$rel" == "$dir"/* ]]; } \
+    || die "status-board --item-rfc $1: the rfc: line must name a .md file inside $dir/, as a relative path with no '..' (got '$(safe_name "$rel")')"
+  [ -f "$ROOT/$rel" ] || die "status-board --item-rfc $1: $rel not found under $ROOT — write the RFC there, or fix the rfc: line"
+  printf '%s/%s\n' "$ROOT" "$rel"
+}
+
 marker_summary() { # items → "label n · label n"
   local m n out=""
   while read -r n m; do
@@ -489,9 +511,9 @@ source_github() {
 case "$SOURCE" in
   tasks-repo)
     tasks_config
-    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
+    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
-    case "$MODE" in item|item-raw|item-kind|item-repo) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
+    case "$MODE" in item|item-raw|item-kind|item-repo|item-rfc) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
     source_github ;;
 esac

@@ -340,6 +340,19 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    only planned items (phase `tasks`, or an `implement` retry), never a queued one, so a new item cannot
    be built before it is planned. Without it, build also takes queued items, as before.
 
+8b. **RFCs, plan approval and the lanes** (lanes v2; [`quickstart.md`](quickstart.md) steps 5–8). An
+   item names its RFC with a line `rfc: docs/rfcs/<ID>.md` (folder: `orchestrate.rfc_dir`); the plan stage
+   hands the RFC to the planner as comment-stripped, delimited data, pins its path and sha256 on the entry,
+   and the planner specs from it, citing it. With `orchestrate.plan_review: "human"` (`"agent"` = the
+   reviewer's verdict suffices; anything else is refused) a finished plan stops at phase `plan-review` on
+   `human:plan-approval`: only `ledger.sh unblock <id> --reviewed-by-human --by <name>` clears it (refused in a
+   launched worker; recorded with the RFC's hash), nothing replaces that block, and leaving `plan-review`
+   needs the approval on record. An RFC that changes after approval stops the build and re-blocks the item
+   until a person aligns the plan, re-pins (`ledger.sh record <id> --rfc`) and approves again. Open each
+   lane with `hooks/lane-launch.sh <lane>` (default permission mode, a narrow allowlist of hefesto's helpers,
+   `ask` for the commands that clear a person's decision, the context gauge); `context.compact_at` sets each
+   lane's compaction nudge.
+
 9. **Hand-run items, the board and escalation** (all optional): a person who ran an item by hand runs
    `hooks/ledger.sh handoff <id> --pr <url>` on its branch — one call instead of four. Set
    `orchestrate.publish: true` and every orchestrator pass writes the item's state as the first token

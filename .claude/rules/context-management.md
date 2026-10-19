@@ -16,12 +16,20 @@ signal:
 | Context usage | State | Action |
 |---------------|-------|--------|
 | 0–40% | **Smart Zone** | Work normally. |
-| 40–60% | **Transition** | Finish the current coherent unit of work, then `/checkpoint` + `/compact` + `/clear`. Do not start a new phase here. |
-| 60%+ | **Dumb Zone** | Stop. Write a progress file, `/clear`, and resume from the checkpoint. Continuing past this point costs more than the reset. |
+| 40–60% | **Transition** | Finish the current coherent unit of work, then suggest the session's own `/compact` prompt (a pipeline lane: its pane prompt in `docs/performance.md`; any other session: the general one). Do not start a new phase here. |
+| 60%+ | **Dumb Zone** | Stop. Write a progress file, then suggest `/compact` naming that file as what to keep — or `/clear` and resume from the file when the conversation itself went wrong. |
 
-**Cache-cost caveat.** Aggressive `/clear` cycles invalidate the prompt cache. Prefer
-**one decisive reset at ~40%** over many partial compactions. Target 1–2 resets per long
-session, not 5+.
+**40% is the default, not a constant.** A project sets its own threshold, per lane, with
+`context.compact_at` in `.claude/project-status.json` (a number, or `{"orchestrator": 40, "plan": 50,
+"build": 0, "deploy": 0}`; 0 = never prompt); `hooks/context-gauge.sh` shows it in the status line, the
+only place Claude Code exposes context usage.
+
+**`/compact` over `/clear`.** `/compact` keeps the system prompt and project context cached and costs one
+summary request; `/clear` rebuilds everything on the next turn. Prefer **one decisive `/compact` at a
+natural break** over many partial ones, and over `/clear` — which is for switching to unrelated work, or a
+conversation that went wrong. A fixed-interval `/loop` survives both, and expires 7 days after it was
+started. A session on `/loop` that holds nothing beyond what is on disk (a pipeline stage lane) can be left
+to Claude Code's own auto-compaction.
 
 **Reduce the rate at which you reach 40%.** The fastest way to stay in the Smart Zone
 is to emit less token output per command. Use `rtk` (CLI output compression) when it is
@@ -38,7 +46,8 @@ project's PreToolUse nudge hooks; when absent, explore normally.
 
 ## Document & Clear Pattern
 
-Proactively externalize session state to prevent context degradation on long-running tasks.
+Proactively externalize session state to prevent context degradation on long-running tasks. The reset
+that follows is the session's own `/compact` by default; `/clear` only in the cases listed below.
 
 ### When to Checkpoint
 - At the 40% context-usage signal (primary trigger — see the Dumb Zone table above)
@@ -58,11 +67,12 @@ Write a progress file (`.claude/progress.md` or project-specific location) conta
 - **Next steps** — ordered, specific, actionable items
 - **Environment state** — branch name, uncommitted changes, pending PRs
 
-### When to Suggest /clear
-- After writing a progress file
-- When conversation exceeds ~50 turns on complex implementation
-- After completing a multi-step implementation phase
-- When switching between unrelated tasks in the same session
+### When to suggest `/compact`, and when `/clear`
+- `/compact` (the session's own prompt): after writing a progress file; after a multi-step phase; when
+  the conversation exceeds ~50 turns on one piece of work; at the threshold above
+- `/clear`: when switching to an unrelated task; when the conversation went wrong and a progress file
+  holds what matters; or when the next phase's whole input is on disk (a design document, `research.md`)
+  and a fresh context gives a tighter result
 
 ### How to Resume from a Progress File
 1. Read the progress file first

@@ -67,7 +67,7 @@ The goal of this phase is to compress verifiable truth about the codebase into a
    - If questions can be answered from code, resolve them inline in research.md
    - If questions require user input, use AskUserQuestion and record the resolution
 
-**Why this matters:** research.md is the input agents should read before Phase 1. After it is written, the user can `/clear` and resume with research.md as the sole source of truth — no re-exploration, no context pollution from intermediate search results. Every claim in the Truth Map MUST carry a `file:line` citation so downstream agents can verify it without re-grepping the repo.
+**Why this matters:** research.md is the input agents should read before Phase 1. After it is written, the user can `/clear` (or run the session's own `/compact` prompt) and resume with research.md as the sole source of truth — no re-exploration, no context pollution from intermediate search results. Every claim in the Truth Map MUST carry a `file:line` citation so downstream agents can verify it without re-grepping the repo.
 
 #### Arena — only when `--arena` is in **$ARGUMENTS** (board item HEF-8; report 18 #4 and addendum A4)
 
