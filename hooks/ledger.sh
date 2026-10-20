@@ -467,6 +467,11 @@ case "$SUB" in
     # clear-that-kind was a route around the named clear, behind dialogs that never mention intake.
     [ "$CURK" != human:intake ] || [ "$KIND" = human:intake ] \
       || die "ledger block $ID: it is blocked on human:intake — nothing replaces it; a person clears it with ledger.sh unblock $ID --reviewed-by-human --by <name>"
+    # An approval block needs a plan to approve: without spec_dir/tasks.md nothing could ever clear it.
+    if [ "$KIND" = human:plan-approval ]; then
+      SDA=$(jq -r '.spec_dir // empty' <<<"$E")
+      { [ -n "$SDA" ] && [ -f "$SDA/tasks.md" ]; } || die "ledger block $ID: human:plan-approval needs a plan to approve (spec_dir with tasks.md; got '${SDA:-none}')"
+    fi
     # Nor is human:plan-approval: swapping it for `ci` and clearing that would build an unapproved plan.
     [ "$CURK" != human:plan-approval ] || [ "$KIND" = human:plan-approval ] \
       || die "ledger block $ID: it waits on a person's plan approval — nothing replaces it; a person clears it with ledger.sh unblock $ID --reviewed-by-human --by <name>"
@@ -554,6 +559,7 @@ case "$SUB" in
       --spec-dir) setf '.spec_dir = $v' "${2:-}"; shift ;;
       --item-kind) in_list "${2:-}" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '${2:-}')"; setf '.item_kind = $v' "$2"; shift ;;
       --rfc) rfc_pin ;;
+      --rfc-snapshot) [ -f "${2:-}" ] || die "ledger record $ID: --rfc-snapshot needs the launcher's copy of the RFC"; rfc_pin "$2"; shift ;;
       *) usage ;; esac; shift; done
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 

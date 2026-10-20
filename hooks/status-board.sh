@@ -294,6 +294,12 @@ item_rfc() { # $1 id
   { [[ "$rel" =~ $re ]] && [[ "$rel" == *.md ]] && [[ "/$rel/" != */../* ]] && [[ "$rel" == "$dir"/* ]]; } \
     || die "status-board --item-rfc $1: the rfc: line must name a .md file inside $dir/, as a relative path with no '..' (got '$(safe_name "$rel")')"
   [ -f "$ROOT/$rel" ] || die "status-board --item-rfc $1: $rel not found under $ROOT — write the RFC there, or fix the rfc: line"
+  # The path text is checked above; the file itself must also BE inside the folder: no symlink, and its real
+  # folder under the real rfc_dir (a link in docs/rfcs could otherwise hand the planner any file).
+  local real base
+  [ ! -L "$ROOT/$rel" ] || die "status-board --item-rfc $1: $rel is a symlink — an RFC is a plain file inside $dir/"
+  real="$(cd "$(dirname "$ROOT/$rel")" && pwd -P)"; base="$(cd "$ROOT/$dir" 2>/dev/null && pwd -P)"
+  [ -n "$base" ] && [[ "$real/" == "$base/"* ]] || die "status-board --item-rfc $1: $rel resolves outside $dir/ — an RFC is a plain file inside it"
   printf '%s/%s\n' "$ROOT" "$rel"
 }
 

@@ -102,8 +102,10 @@ bash ~/.claude-framework/hooks/lane-launch.sh deploy
 (Use the folder where hefesto is installed if it is not `~/.claude-framework`.) Each lane opens as
 `<repo>-<lane>`, in the default permission mode, with the sandbox off (lanes start background sessions,
 which run sandboxed) and an allowlist of hefesto's own helpers only: routine work runs without prompts,
-while anything that clears or rewrites a person's decision — and anything unexpected — still asks you. The
-status line shows the context gauge; `--keep-statusline` keeps yours.
+while anything that clears or rewrites a person's decision — and anything unexpected — still asks you. A
+lane itself is not sandboxed, and it reads item and RFC text that others wrote: the allowlist limits what
+it runs without asking to hefesto's own helpers, so read each dialog before you answer it. The status line
+shows the context gauge; `--keep-statusline` keeps yours.
 
 Then, once in each:
 

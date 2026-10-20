@@ -319,7 +319,10 @@ bash <clone>/hooks/lane-launch.sh deploy
 The launcher names the session `<repo>-<lane>`, sets `HEFESTO_LANE`, the default permission mode, the
 sandbox off (a lane starts background sessions, which run sandboxed — on Linux that needs `bwrap` and
 `socat`, checked in Step 1), the context gauge as status line, and an allowlist of hefesto's own helpers
-only, with the commands that clear or rewrite a person's decision kept in `ask`. Then, once in each:
+only, with the commands that clear or rewrite a person's decision kept in `ask`. Tell the lead what that
+leaves: a lane itself is not sandboxed, and it reads item and RFC text written by others. The allowlist
+limits what it runs without a dialog to hefesto's own helpers, and the clears always ask, so a person
+reads each dialog before answering it. Then, once in each:
 
 | Lane | Run once | What it then does |
 |---|---|---|

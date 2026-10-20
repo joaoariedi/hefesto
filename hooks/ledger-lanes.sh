@@ -62,10 +62,13 @@ plan_approval_clear() {
   echo "$ID plan approved by $RBY — phase $(jq -r 'if .phase == "plan-review" then "tasks" else .phase end' <<<"$E")"
 }
 
-# record --rfc (FR-007): pin the item's RFC — its path and the hash of what the plan is made from.
-rfc_pin() {
-  local p
-  p=$("$HERE/status-board.sh" --item-rfc "$ID" 2>&1) || die "$p"
+# record --rfc (FR-007): pin the item's RFC — its path and the hash of what the plan is made from. With
+# $1 (the launcher's --rfc-snapshot) the hash is of that copy: exactly the text the planner received.
+rfc_pin() { # [$1 snapshot file]
+  local p err
+  err=$(mktemp) || die "ledger record $ID --rfc: mktemp failed"
+  p=$("$HERE/status-board.sh" --item-rfc "$ID" 2>"$err") || { local m; m=$(cat "$err"); rm -f "$err"; die "$m"; }
+  rm -f "$err"
   [ -n "$p" ] || die "ledger record $ID --rfc: the item has no rfc: line"
-  E=$(jq --arg p "$p" --arg s "$(lanes_sha256 "$p")" '.source.rfc = {path: $p, sha256: $s}' <<<"$E") || die "ledger record $ID --rfc: cannot write the pin"
+  E=$(jq --arg p "$p" --arg s "$(lanes_sha256 "${1:-$p}")" '.source.rfc = {path: $p, sha256: $s}' <<<"$E") || die "ledger record $ID --rfc: cannot write the pin"
 }

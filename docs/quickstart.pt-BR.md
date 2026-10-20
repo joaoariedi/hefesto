@@ -104,8 +104,10 @@ bash ~/.claude-framework/hooks/lane-launch.sh deploy
 `<repo>-<etapa>`, no modo de permissão padrão, com o sandbox desligado (as etapas abrem sessões em segundo
 plano, que rodam com sandbox) e uma lista de permissões só com os ajudantes do próprio hefesto: o trabalho
 de rotina roda sem perguntas, enquanto qualquer coisa que libere ou reescreva uma decisão de uma pessoa — e
-qualquer coisa inesperada — continua perguntando a você. A linha de status mostra o medidor de contexto;
-`--keep-statusline` mantém a sua.
+qualquer coisa inesperada — continua perguntando a você. A etapa em si não roda com sandbox e lê textos de
+itens e RFCs escritos por outras pessoas: a lista de permissões limita o que ela roda sem perguntar aos
+ajudantes do próprio hefesto, então leia cada pedido de permissão antes de responder. A linha de status
+mostra o medidor de contexto; `--keep-statusline` mantém a sua.
 
 Depois, uma vez em cada:
 

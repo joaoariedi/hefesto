@@ -15,7 +15,7 @@
 command -v jq >/dev/null 2>&1 || exit 0
 in="$(cat)"
 pct="$(jq -r '.context_window.used_percentage // empty | if type == "number" then floor else empty end' <<<"$in" 2>/dev/null)"
-[[ "$pct" =~ ^[0-9]+$ ]] || exit 0
+[[ "$pct" =~ ^[0-9]{1,5}$ ]] || exit 0   # bounded: [ -ge ] errors on a number past 2^63
 lane="${HEFESTO_LANE:-general}"
 dir="$(jq -r '.workspace.current_dir // .cwd // empty' <<<"$in" 2>/dev/null)"
 at=""
@@ -24,6 +24,6 @@ if [ -n "$dir" ] && [ -f "$dir/.claude/project-status.json" ]; then
     | if type == "number" then . elif type == "object" then (.[$l] // .general // empty) else empty end
     | if type == "number" and . >= 0 then floor else empty end' "$dir/.claude/project-status.json" 2>/dev/null)"
 fi
-[[ "$at" =~ ^[0-9]+$ ]] || at=40
+[[ "$at" =~ ^[0-9]{1,5}$ ]] || at=40
 if [ "$at" -gt 0 ] && [ "$pct" -ge "$at" ]; then echo "ctx ${pct}% · /compact (${lane})"; else echo "ctx ${pct}%"; fi
 exit 0

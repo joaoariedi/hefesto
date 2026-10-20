@@ -7,7 +7,7 @@
 # The session is named <repo>-<lane> and gets HEFESTO_LANE=<lane>, the default permission mode, the sandbox
 # off (a lane starts background sessions, which run sandboxed), and an allowlist of hefesto's own helpers only:
 # the read-only and registering calls /hef.status and /hef.orchestrate make. The commands that clear or rewrite
-# a person's state — ledger.sh unblock, record, claim, advance, handoff — are in `ask`, which beats any broader
+# a person's state — ledger.sh unblock, record, claim, advance, handoff, block — are in `ask`, which beats any broader
 # allow rule inherited from user or project settings: their dialog always appears. Rules are written for both
 # plugin roots (the clone this script runs from, and the profile's installed copy), with single and doubled
 # slash, because a permission rule must match the command string exactly.
@@ -38,9 +38,10 @@ allow=(); ask=()
 for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
   allow+=("Bash($h/status-board.sh)" "Bash($h/status-board.sh --detailed:*)" "Bash($h/status-board.sh --check:*)" "Bash($h/status-board.sh --item:*)"
           "Bash($h/ledger.sh board:*)" "Bash($h/ledger.sh list:*)" "Bash($h/ledger.sh next:*)" "Bash($h/ledger.sh show:*)" "Bash($h/ledger.sh metrics:*)"
-          "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh block:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)"
+          "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)"
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)")
-  ask+=("Bash($h/ledger.sh unblock:*)" "Bash($h/ledger.sh record:*)" "Bash($h/ledger.sh claim:*)" "Bash($h/ledger.sh advance:*)" "Bash($h/ledger.sh handoff:*)")
+  # block too: replacing a person's block with another kind and relaunching was a route around the gate
+  ask+=("Bash($h/ledger.sh unblock:*)" "Bash($h/ledger.sh record:*)" "Bash($h/ledger.sh claim:*)" "Bash($h/ledger.sh advance:*)" "Bash($h/ledger.sh handoff:*)" "Bash($h/ledger.sh block:*)")
 done; done
 
 SETTINGS="$(jq -nc --argjson allow "$(printf '%s\n' "${allow[@]}" | jq -R . | jq -sc .)" --argjson ask "$(printf '%s\n' "${ask[@]}" | jq -R . | jq -sc .)" \

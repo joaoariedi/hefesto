@@ -350,7 +350,8 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    needs the approval on record. An RFC that changes after approval stops the build and re-blocks the item
    until a person aligns the plan, re-pins (`ledger.sh record <id> --rfc`) and approves again. Open each
    lane with `hooks/lane-launch.sh <lane>` (default permission mode, a narrow allowlist of hefesto's helpers,
-   `ask` for the commands that clear a person's decision, the context gauge); `context.compact_at` sets each
+   `ask` for the commands that clear a person's decision, the context gauge — the lane itself is unsandboxed
+   and reads untrusted item and RFC text, so the allowlist is what bounds its dialog-free calls); `context.compact_at` sets each
    lane's compaction nudge.
 
 9. **Hand-run items, the board and escalation** (all optional): a person who ran an item by hand runs
