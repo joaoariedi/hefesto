@@ -35,6 +35,52 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [7.13.0] - 2026-10-20
+
+**Pick the mode that fits — one session for experiments, four lanes for an RFC backlog — and in the
+pipeline every plan is made from its RFC, approved by a named person, and refused at build if the RFC
+moved since; the orchestrator starts the stages, and routine lane work runs without prompts.**
+
+### Added
+
+- **Two modes in the guides.** `docs/quickstart.md` / `.pt-BR.md`, `SETUP.md`, README and
+  `docs/install.md` open with the choice: *Simple* (`/hef.agent` in one session) for experiments and small
+  projects; *Pipeline* (the four lanes on `/loop`) for a backlog of RFCs. The wizard's next steps say so.
+- **RFC-driven planning.** An item names its design with `rfc: docs/rfcs/<ID>.md` (`orchestrate.rfc_dir`
+  for another folder). The plan stage hands the RFC to the planner as delimited, comment-stripped data
+  (100 KB cap) — spec from it, no new design choices, its open questions back as questions — and pins its
+  sha256 on the entry. `/hef.brainstorm <idea> for <ID>` writes a framework-made RFC; the plan review
+  checks RFC coverage. `status-board.sh --item-rfc` holds the path to a plain `.md` file inside the folder
+  (no `..`, no symlink, nothing that resolves outside it).
+- **A person approves every plan** with `orchestrate.plan_review: "human"`. The plan stage stops on
+  `human:plan-approval`; only `ledger.sh unblock <id> --reviewed-by-human --by <name>` clears it — never
+  from a launched worker, never replaced by another block kind, and required on record to leave
+  plan-review. The name and the RFC's hash are recorded. An RFC that changes after approval blocks the
+  build until a person aligns the plan, re-pins it (`ledger.sh record <id> --rfc`) and approves again.
+- **`hooks/lane-launch.sh orchestrator|plan|build|deploy`** opens a lane as `<repo>-<lane>`: the default
+  permission mode, the sandbox off (its background sessions run sandboxed), and an allowlist of hefesto's
+  own helpers only, so routine passes run without prompts. `ledger.sh unblock|record|claim|advance|handoff|block`
+  stay in `ask`, so a person's decision is never cleared without a dialog. A lane is not itself sandboxed
+  and reads item and RFC text written by others; the guides say so.
+- **The orchestrator starts stages itself:** `/hef.orchestrate --stage plan|build|deploy|all` (`all` is one
+  catch-up pass of each). Registering an item is one `ledger.sh register <id> --ref …` call, which never
+  re-hashes an existing entry.
+- **Per-lane compaction:** `context.compact_at` (a number, or per lane; 0 = never; default 40) and
+  `hooks/context-gauge.sh`, a status-line segment that shows context use and says when to run the lane's
+  own `/compact` prompt.
+
+### Changed
+
+- **`/compact` over `/clear`** in `rules/context-management.md`, the guides and the commands: `/compact`
+  with the session's own prompt at a natural break; `/clear` only for unrelated work, a conversation that
+  went wrong, or a phase whose whole input is on disk.
+
+### Upgrading
+
+Update with the wizard, close every lane, and reopen each with `hooks/lane-launch.sh <lane>`. To use the
+new gates, add `"plan_review": "human"` (and `"rfc_dir"` if not `docs/rfcs`) under `orchestrate`, and a
+`context.compact_at` block, to `.claude/project-status.json` — the template is in `SETUP.md`, Step 4c.
+
 ## [7.12.0] - 2026-10-19
 
 **After the install wizard, a quick start takes you to the four sessions running on their own — and
