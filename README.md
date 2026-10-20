@@ -247,6 +247,9 @@ under `branches` in `.claude/project-status.json` — PR base, verifier diff bas
 protected heads and the promotion chain all follow ([install §7, step 12](docs/install.md)).
 Each long-lived pane has a `/compact` prompt shaped to what it owns — orchestrator, planner, builder,
 deployer — in [Performance → Compact prompts per pane](docs/performance.md#-compact-prompts-per-pane).
+Open each with `hooks/lane-launch.sh <lane>`; plan from RFCs (`rfc:` on the item) and approve each plan by
+name (`orchestrate.plan_review: "human"`) — the [quick start](docs/quickstart.md) has the whole flow, and
+when a single session (`/hef.agent`) is the better fit.
 A board kept in its own repository can feed several code repos — a `board` pointer in each, a
 `repos` map in the board, one central ledger, one worker per repo ([install §7, step 13](docs/install.md)).
 

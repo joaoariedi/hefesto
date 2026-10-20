@@ -36,10 +36,11 @@ Effort levels: `max` (via `/model` only) > `high` (ultrathink) > `medium` (defau
 For long-running sessions, the framework uses the **Document & Clear** pattern:
 
 1. 💾 **Checkpoint** — write session state to a progress file (decisions, files changed, next steps)
-2. 🧹 **Clear** — run `/clear` to reset the context window
+2. 🗜 **Compact** — run the session's own `/compact` prompt (a pipeline lane: its prompt below; any other
+   session: the general one). `/clear` only for unrelated work, or when the progress file holds everything
 3. ▶️ **Resume** — read the progress file and continue from "Next steps"
 
-See `.claude/rules/context-management.md` (the 40 % "Dumb Zone" checkpoint threshold) for detailed guidance and project scaling strategies (small/medium/large).
+See `.claude/rules/context-management.md` (the 40 % "Dumb Zone" default — per lane with `context.compact_at`, shown by `hooks/context-gauge.sh`) for detailed guidance and project scaling strategies (small/medium/large).
 
 ### 🧾 Compact prompts per pane
 

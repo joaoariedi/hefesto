@@ -74,7 +74,7 @@ if [ -d "$LDIR" ]; then
   # pane takes it over. A malformed map must never cost the line: `panes` that is not an object → {}
   # (select() would yield EMPTY output at exit 0 and an || would not fire); a pane value that is not an
   # array breaks `.value[]` → the fallback below; an empty result is caught before --argjson.
-  PANES_DEFAULT='{"orchestrator":["human:intake"],"plan":["human:clarify","human:plan-review"],"build":["verdict","stall","budget","conflict"],"deploy":["ci","human:merge"]}'
+  PANES_DEFAULT='{"orchestrator":["human:intake","human:plan-approval"],"plan":["human:clarify","human:plan-review"],"build":["verdict","stall","budget","conflict"],"deploy":["ci","human:merge"]}'
   CFG_PANES="$(jq -c '(.orchestrate.panes // {}) | if type == "object" then . else {} end' "$PCFG" 2>/dev/null)"; [ -n "$CFG_PANES" ] || CFG_PANES='{}'
   KIND2PANE="$(jq -nc --argjson d "$PANES_DEFAULT" --argjson c "$CFG_PANES" '[$d, $c] | map(to_entries[]) | map(.key as $p | .value[] | select(type == "string") | {key: ., value: $p}) | from_entries' 2>/dev/null)"
   [ -n "$KIND2PANE" ] || KIND2PANE="$(jq -nc --argjson d "$PANES_DEFAULT" '$d | to_entries | map(.key as $p | .value[] | {key: ., value: $p}) | from_entries')"
@@ -87,10 +87,13 @@ if [ -d "$LDIR" ]; then
   # an OPEN intake block only — `.reviewed[]` history also contains the string (re-review S1')
   # An OPEN human:merge block too (user decision 2026-10-13): its clear, `--merge-sha` above all, is a
   # person's assertion that no dialog would surface in those modes either.
-  if jq -e -s 'any(.[]; .blocked_on.kind? == "human:intake" or .blocked_on.kind? == "human:merge")' "$LDIR"/*.json >/dev/null 2>&1; then
-    GKINDS="$(jq -r -s '[.[] | .blocked_on.kind? | select(. == "human:intake" or . == "human:merge")] | unique | join(" and ")' "$LDIR"/*.json 2>/dev/null)"
-    PMODE=""
-    for sf in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$CWD/.claude/settings.json" "$CWD/.claude/settings.local.json"; do
+  # human:plan-approval as well (lanes-v2): approving a plan is the same kind of named, person-only clear.
+  if jq -e -s 'any(.[]; .blocked_on.kind? == "human:intake" or .blocked_on.kind? == "human:merge" or .blocked_on.kind? == "human:plan-approval")' "$LDIR"/*.json >/dev/null 2>&1; then
+    GKINDS="$(jq -r -s '[.[] | .blocked_on.kind? | select(. == "human:intake" or . == "human:merge" or . == "human:plan-approval")] | unique | join(" and ")' "$LDIR"/*.json 2>/dev/null)"
+    # The session's own mode first (the hook input's permission_mode — a --permission-mode flag or the
+    # built-in default, which the settings files never show); the settings files only when it is absent.
+    PMODE="$(jq -r '.permission_mode // empty' <<<"$INPUT" 2>/dev/null)"
+    [ -n "$PMODE" ] || for sf in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$CWD/.claude/settings.json" "$CWD/.claude/settings.local.json"; do
       m="$(jq -r '.permissions.defaultMode // empty' "$sf" 2>/dev/null)"; [ -n "$m" ] && PMODE="$m"
     done
     case "$PMODE" in auto|bypassPermissions|dontAsk)

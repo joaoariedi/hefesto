@@ -31,9 +31,10 @@ usage: ledger.sh <subcommand> …
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
-  unblock <id> [--reviewed-by-human --by <name>] [--merge-sha <sha>]   human:* kinds need artifact evidence (intake: a person's name; merge: the branch, or the PR's merge commit once the branch is deleted)
+  unblock <id> [--reviewed-by-human --by <name>] [--merge-sha <sha>]   human:* kinds need artifact evidence (intake and plan-approval: a person's name; merge: the branch, or the PR's merge commit once the branch is deleted)
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
-  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k]   (--body-file re-hashes the item)
+  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k] [--rfc]   (--body-file re-hashes the item; --rfc pins its RFC)
+  register <id> --ref <column>#<id>                     route, detect the kind and init in one call; an existing entry is left untouched
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
@@ -50,7 +51,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # The kind → pane map (stage-roles FR-010) — byte-identical to session-start-context.sh's copy; the smoke
 # suite compares the two strings (ledger-surfaces FR-005). Config `orchestrate.panes` wins per pane.
-PANES_DEFAULT='{"orchestrator":["human:intake"],"plan":["human:clarify","human:plan-review"],"build":["verdict","stall","budget","conflict"],"deploy":["ci","human:merge"]}'
+PANES_DEFAULT='{"orchestrator":["human:intake","human:plan-approval"],"plan":["human:clarify","human:plan-review"],"build":["verdict","stall","budget","conflict"],"deploy":["ci","human:merge"]}'
 # The publish state markers (ledger-surfaces FR-003) — byte-identical to status-board.sh's copy, which
 # `--mark` uses to know which leading heading tokens are ITS markers (replace, never stack).
 PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build":"🔨","pr":"🔀","done":"✅"}'
@@ -60,6 +61,10 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 [ -f "$HERE/board-lib.sh" ] || die "ledger: $HERE/board-lib.sh not found — the plugin install is incomplete (reinstall it, or copy board-lib.sh beside ledger.sh)"
 # shellcheck source=hooks/board-lib.sh
 . "$HERE/board-lib.sh"
+# register, the person-only plan approval and the RFC pin (lanes-v2) — sourced for the same size reason.
+[ -f "$HERE/ledger-lanes.sh" ] || die "ledger: $HERE/ledger-lanes.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/ledger-lanes.sh
+. "$HERE/ledger-lanes.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -180,7 +185,7 @@ is_protected() { # $1 branch, $2 model JSON — glob match over the effective pr
 # Sort ids by prefix then NUMERIC suffix: lexical order would dispatch HEF-10 before HEF-9 (review 2026-09-27).
 ID_SORT='sort_by(.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])'
 PHASES=(queued intake spec plan plan-review tasks implement verify quality security pr merged released)
-KINDS="human:clarify human:plan-review human:merge human:intake ci conflict budget stall verdict"
+KINDS="human:clarify human:plan-review human:plan-approval human:merge human:intake ci conflict budget stall verdict"
 GATES="verify review quality scan mutate incident vulnerability"   # the last two: item-kinds FR-002
 
 ledger_dir() {
@@ -403,6 +408,9 @@ case "$SUB" in
     # `unblock` refused human:merge). Every launcher path advances BEFORE it blocks, so none is affected.
     BK=$(jq -r '.blocked_on.kind // empty' <<<"$E")
     [[ "$BK" != human:* ]] || die "ledger advance $ID: blocked on $BK — clear it first with ledger.sh unblock $ID (the human gate is never stepped over)"
+    # Leaving plan-review needs a person's approval on record, whatever cleared the block (lanes-v2 FR-006).
+    [ "$CUR" != plan-review ] || jq -e '(.reviewed // []) | any(.kind == "human:plan-approval")' <<<"$E" >/dev/null \
+      || die "ledger advance $ID: a plan at plan-review moves on only once a person approves it (ledger.sh unblock $ID --reviewed-by-human --by <name>)"
     # Reaching merged needs the merge itself, however the entry got here — re-blocking with ci and clearing
     # that, or skipping pr → released, must not walk around the human:merge gate (code review 2026-10-13).
     MI=$(phase_index merged) || exit 1
@@ -459,6 +467,14 @@ case "$SUB" in
     # clear-that-kind was a route around the named clear, behind dialogs that never mention intake.
     [ "$CURK" != human:intake ] || [ "$KIND" = human:intake ] \
       || die "ledger block $ID: it is blocked on human:intake — nothing replaces it; a person clears it with ledger.sh unblock $ID --reviewed-by-human --by <name>"
+    # An approval block needs a plan to approve: without spec_dir/tasks.md nothing could ever clear it.
+    if [ "$KIND" = human:plan-approval ]; then
+      SDA=$(jq -r '.spec_dir // empty' <<<"$E")
+      { [ -n "$SDA" ] && [ -f "$SDA/tasks.md" ]; } || die "ledger block $ID: human:plan-approval needs a plan to approve (spec_dir with tasks.md; got '${SDA:-none}')"
+    fi
+    # Nor is human:plan-approval: swapping it for `ci` and clearing that would build an unapproved plan.
+    [ "$CURK" != human:plan-approval ] || [ "$KIND" = human:plan-approval ] \
+      || die "ledger block $ID: it waits on a person's plan approval — nothing replaces it; a person clears it with ledger.sh unblock $ID --reviewed-by-human --by <name>"
     if [ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ] && [[ "$CURK" == human:* ]] && [ "$KIND" != "$CURK" ]; then
       die "ledger block $ID: it is blocked on $CURK — a launched worker never replaces a person's block (only the person's own command clears it)"
     fi
@@ -471,8 +487,8 @@ case "$SUB" in
     E=$(entry "$ID") || exit 1
     KIND=$(jq -r '.blocked_on.kind // empty' <<<"$E"); [ -n "$KIND" ] || die "ledger unblock $ID: not blocked"
     [ -z "$MSHA" ] || [ "$KIND" = human:merge ] || die "ledger unblock $ID: --merge-sha applies to human:merge only — this entry is blocked on $KIND"
-    [ "$KIND" = human:intake ] || { [ "$REVIEWED" = 0 ] && [ -z "$RBY" ]; } \
-      || die "ledger unblock $ID: --reviewed-by-human / --by apply to human:intake only — this entry is blocked on $KIND (a reviewer would not be recorded)"
+    [ "$KIND" = human:intake ] || [ "$KIND" = human:plan-approval ] || { [ "$REVIEWED" = 0 ] && [ -z "$RBY" ]; } \
+      || die "ledger unblock $ID: --reviewed-by-human / --by apply to human:intake and human:plan-approval only — this entry is blocked on $KIND (a reviewer would not be recorded)"
     SPEC_DIR=$(jq -r '.spec_dir // empty' <<<"$E")
     case "$KIND" in
       human:plan-review)
@@ -482,6 +498,7 @@ case "$SUB" in
         [ -n "$SPEC_DIR" ] || die "ledger unblock $ID: $KIND needs spec_dir recorded"
         [ -f "$SPEC_DIR/spec.md" ] || die "ledger unblock $ID: $KIND needs $SPEC_DIR/spec.md"
         ! grep -q 'NEEDS CLARIFICATION' "$SPEC_DIR/spec.md" || die "ledger unblock $ID: $KIND — [NEEDS CLARIFICATION] markers remain in $SPEC_DIR/spec.md (run /hef.clarify)" ;;
+      human:plan-approval) plan_approval_clear; exit 0 ;;
       human:merge)
         VIA=$(merge_evidence "$E" "$MSHA" flag) || exit 1
         case "$VIA" in "commit "*) read -r _ MERGED_VIA MERGED_VER MERGED_WHY <<<"$VIA" ;; esac ;;
@@ -541,9 +558,16 @@ case "$SUB" in
       --pr)       setf '.pr = {url: $v, number: (($v | capture("/(?<n>[0-9]+)$").n | tonumber)? // null)}' "${2:-}"; shift ;;
       --spec-dir) setf '.spec_dir = $v' "${2:-}"; shift ;;
       --item-kind) in_list "${2:-}" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '${2:-}')"; setf '.item_kind = $v' "$2"; shift ;;
+      --rfc) rfc_pin ;;
+      --rfc-snapshot) [ -f "${2:-}" ] || die "ledger record $ID: --rfc-snapshot needs the launcher's copy of the RFC"; rfc_pin "$2"; shift ;;
       *) usage ;; esac; shift; done
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 
+  register)
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; REF=""
+    while [ $# -gt 0 ]; do case "$1" in --ref) REF="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    valid_id "$ID" || exit 1
+    register_item "$ID" "$REF" ;;
   show) ID="${1:-}"; [ -n "$ID" ] || usage; entry "$ID" ;;
   where)   # branch-model FR-006 — computed from git, never stored
     ID="${1:-}"; [ -n "$ID" ] || usage
@@ -665,7 +689,7 @@ case "$SUB" in
                  and ((.escalated.since // \"\") != .blocked_on.since))) | $ID_SORT | .[]
       | (\$k[.blocked_on.kind] // \"orchestrator\") as \$p
       | (if .blocked_on.kind == \"human:merge\" then (.pr.url // \"-\")
-         elif .blocked_on.kind == \"human:clarify\" or .blocked_on.kind == \"human:plan-review\" then (.blocked_on.question_path // .spec_dir // \"-\")
+         elif .blocked_on.kind == \"human:clarify\" or .blocked_on.kind == \"human:plan-review\" or .blocked_on.kind == \"human:plan-approval\" then (.blocked_on.question_path // .spec_dir // \"-\")
          elif .blocked_on.kind == \"human:intake\" then (.source.ref // \"-\")
          else \"-\" end) as \$path
       | (\"ledger \(.id) blocked_on \(.blocked_on.kind) \(\$path)\") as \$msg
