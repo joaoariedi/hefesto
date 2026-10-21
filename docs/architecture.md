@@ -119,6 +119,12 @@ sequenceDiagram
 `.claude/worktrees/<id>` with a tier, a budget cap and a tool allowlist per role (`plan` /
 `implement` / `verify` / `deploy`). A **separate verifier** that never sees the author's transcript
 judges the result; its tier must rank at least the author's. Only the launcher writes the ledger.
+Planning can run from an **RFC** per item (`rfc:` on the item, under `orchestrate.rfc_dir`): the plan role
+hands it to the planner as data and pins its sha256; with `orchestrate.plan_review: "human"` every plan
+waits on `human:plan-approval`, which only a named person clears, and an RFC that moves after approval
+blocks the build until the plan is re-aligned and approved again. The four long-lived lanes open through
+`hooks/lane-launch.sh` (default permission mode, an allowlist of hefesto's helpers, the person's clears in
+`ask`, `hooks/context-gauge.sh` as status line, its threshold per lane from `context.compact_at`).
 Blocks (`human:*`, `verdict`, `stall`, `budget`, `conflict`, `ci`) are announced at session start to
 the pane that owns them (`orchestrate.panes`); opt-in `orchestrate.publish` writes each item's state
 onto the board and `escalate_after_hours` sends one pointer for a stale human block. `/hef.babysit`
