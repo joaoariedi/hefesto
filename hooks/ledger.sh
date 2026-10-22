@@ -27,7 +27,7 @@ usage: ledger.sh <subcommand> …
   dir                                                   print the ledger directory
   board                                                 the resolved board as JSON: mode (in-repo|external), board_top, config, ledger_dir, repos, repo
   init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability] [--repo <name>]   (--repo: required on an external board)
-  claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; attempts > 2 → stall; a claim whose --pid process is gone is released
+  claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; attempts > 2 → stall; releases claims whose lease (<id>.lease, renewed by the launcher) is over 2 min old
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
@@ -373,11 +373,10 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; --pid) CPID="${2:-}"; shift ;; *) usage ;; esac; shift; done
     [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
-    # A claim whose launcher is gone is released here, under the lock, and only when this process can see its own
-    # caller (--pid alive): a sandboxed call runs in its own pid namespace, where every launcher looks dead
-    # (code review 2026-10-22: a sandboxed `ledger.sh list` used to release live claims).
+    # A claim whose launcher stopped renewing its lease is released here, under the lock (ledger-lanes.sh) —
+    # never by list or next, which stay read-only (code review 2026-10-22).
     claim_lock
-    if [ -n "$CPID" ] && kill -0 "$CPID" 2>/dev/null; then reap_dead_owners; fi
+    reap_dead_owners
     E=$(entry "$ID") || exit 1
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
@@ -557,8 +556,10 @@ case "$SUB" in
     jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" --arg p "$RPID" \
       '.runs += [{role: $r, session_name: (.owner.session_name // null), session_id: (if $sid == "" then null else $sid end), exit: $rc, usd: $usd, at: (now | todate)}]
        | .budget.usd_spent += $usd
-       # with --pid, release only the claim this launcher made — never a later claim that replaced a released one
-       | (if $p == "" or (.owner.pid // null) == null or ((.owner.pid | tostring) == $p) then .owner = null else . end)' <<<"$E" | write_entry "$ID" || exit 1
+       # a claim made by a launcher (it has a pid) is released only by that launcher (--pid) — never by a worker or a
+       # later run without one; a claim made without a pid, by hand, releases as before (review 2026-10-22)
+       | (if (.owner.pid // null) == null or ((.owner.pid | tostring) == $p) then .owner = null else . end)' <<<"$E" | write_entry "$ID" || exit 1
+    [ "$(jq -r '.owner == null' "$DIR/$ID.json")" = true ] && rm -f "$DIR/$ID.lease"
     echo "$ID run recorded ($ROLE exit $RC, $USD USD); owner released" ;;
 
   record)

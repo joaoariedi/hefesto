@@ -213,7 +213,9 @@ while IFS= read -r d; do
   DOK=0
   if [[ "$d" =~ ^(\*\.)?([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(:([0-9]{1,5}))?$ ]]; then
     DPORT="${BASH_REMATCH[5]}"   # read before the next match overwrites BASH_REMATCH
-    if [[ ! "$d" =~ (^|\.)localhost(:|$) ]]; then
+    # names that resolve inside a network by convention: the cloud metadata service (metadata.google.internal),
+    # the container host (host.docker.internal), mDNS, home routers — a text check cannot stop DNS beyond these
+    if [[ ! "$d" =~ (^|\.)(localhost|internal|local|localdomain|lan|home|intranet|corp)(:|$) ]]; then
       if [ -z "$DPORT" ] || { [ "$DPORT" -ge 1 ] && [ "$DPORT" -le 65535 ]; }; then DOK=1; fi
     fi
   fi
@@ -430,11 +432,16 @@ esac
 OUT="$(mktemp "${TMPDIR:-/tmp}/hefesto-launch.XXXXXX")"
 # The worker runs as our child; if this launcher is stopped (a closed session, a kill), it stops the worker
 # and records the run first — a released claim must never leave an orphaned worker behind (review 2026-10-22).
+# The lease: renewed every 20 s while this launcher lives, so a later claim can tell a cut-off run from a
+# running one without seeing this process (ledger-lanes.sh, lease_stale).
+LEASE="$("$LEDGER" dir)/$ID.lease"; : > "$LEASE" 2>/dev/null || true
+( while kill -0 "$$" 2>/dev/null; do : > "$LEASE" 2>/dev/null; sleep 20; done ) >/dev/null 2>&1 &
+HB=$!
 "${CMD[@]}" > "$OUT" 2>"$OUT.err" &
 CHILD=$!
-trap 'kill "$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; "$LEDGER" run "$ID" --role "$ROLE" --exit 143 --usd 0 --pid "$$" >/dev/null 2>&1; exit 143' TERM INT HUP
+trap 'kill "$CHILD" "$HB" 2>/dev/null; wait "$CHILD" 2>/dev/null; "$LEDGER" run "$ID" --role "$ROLE" --exit 143 --usd 0 --pid "$$" >/dev/null 2>&1; exit 143' TERM INT HUP
 wait "$CHILD"; RC=$?
-trap - TERM INT HUP
+trap - TERM INT HUP; kill "$HB" 2>/dev/null
 USD="$(jq -r '.total_cost_usd // 0' "$OUT" 2>/dev/null || echo 0)"; SID="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || echo "")"
 "$LEDGER" run "$ID" --role "$ROLE" --exit "$RC" --usd "${USD:-0}" --session-id "$SID" --pid "$$" >/dev/null || exit 1
 # FR-011: a session that hit --max-budget-usd is a `budget` block for a person to split or raise the

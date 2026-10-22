@@ -120,21 +120,29 @@ revise_item() { # $1 file|-
   echo "$ID sent back to the planner by $RBY — it revises spec, plan and tasks to the notes, then waits for approval again"
 }
 
-# --- a claim whose process is gone (lanes-v3 trial 2026-10-22) -----------------------------------------
-# A launch cut off mid-run (a tool time-out, a closed terminal, a crash) never reaches `ledger run`, so its
-# owner stayed forever: the item looked owned and the whole repository busy. The owner's pid is the
-# launcher's (claim records its parent); when that process no longer exists the claim is released and the
-# run recorded as failed (exit 125), so the next pass resumes from what the run left on disk. A pid that a
-# new process reuses still reads as alive — the safe side.
-reap_dead_owners() { # every entry in $DIR whose owner's process is gone → owner released
-  local f pid e
+# --- a claim whose launcher is gone (lanes-v3 trial 2026-10-22, reviews round 5-6) -----------------------
+# A launch cut off mid-run (a crash, a closed terminal) never reaches `ledger run`, so its owner stayed forever:
+# the item looked owned and the whole repository busy. The launcher keeps a LEASE while it runs — it touches
+# <ledger>/<id>.lease every 20 s — and a claim is released when that lease is older than two minutes (or, past
+# a two-minute grace after the claim, missing). A file's age reads the same inside and outside a sandbox, where
+# a pid check does not: a sandboxed process lives in its own pid namespace and sees every launcher as dead.
+# Never from a launched worker. The released run is recorded as failed (exit 125).
+lease_stale() { # $1 entry file → 0 when its owner's lease (or the grace after the claim) has run out
+  local id lease
+  id=$(basename "$1" .json); lease="$DIR/$id.lease"
+  if [ -f "$lease" ]; then [ -n "$(find "$lease" -mmin +2 2>/dev/null)" ]; return; fi
+  # the claim's age, computed by jq (fromdateiso8601): no GNU/BSD date parsing to keep apart
+  [ "$(jq -r '((.owner.started // "") | try (now - fromdateiso8601) catch -1) > 120' "$1" 2>/dev/null)" = true ]
+}
+reap_dead_owners() { # every owned entry whose lease ran out → owner released (call under claim_lock)
+  local f e
+  [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || return 0
   for f in "$DIR"/*.json; do
     [ -f "$f" ] || continue
-    pid=$(jq -r '.owner.pid // empty' "$f" 2>/dev/null)
-    [[ "$pid" =~ ^[0-9]+$ ]] && [ "$pid" -gt 1 ] || continue
-    kill -0 "$pid" 2>/dev/null && continue
-    ps -p "$pid" >/dev/null 2>&1 && continue          # alive under another user: kill -0 says EPERM
-    e=$(jq '.runs = ((.runs // []) + [{role: .owner.role, session_name: .owner.session_name, session_id: "", exit: 125, usd: 0, at: (now | todate), note: "owner process gone — the run was cut off"}]) | .owner = null' "$f") || continue
-    write_entry "$(basename "$f" .json)" <<<"$e" && echo "ledger: released $(basename "$f" .json) — its launcher (pid $pid) is gone; the run is recorded as failed (exit 125)" >&2
+    [ "$(jq -r '.owner != null' "$f" 2>/dev/null)" = true ] || continue
+    lease_stale "$f" || continue
+    e=$(jq '.runs = ((.runs // []) + [{role: .owner.role, session_name: .owner.session_name, session_id: "", exit: 125, usd: 0, at: (now | todate), note: "the launcher stopped renewing its lease — the run was cut off"}]) | .owner = null' "$f") || continue
+    write_entry "$(basename "$f" .json)" <<<"$e" && rm -f "$DIR/$(basename "$f" .json).lease" \
+      && echo "ledger: released $(basename "$f" .json) — its launcher stopped renewing the lease over two minutes ago; the run is recorded as failed (exit 125)" >&2
   done
 }

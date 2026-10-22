@@ -4948,31 +4948,35 @@ l3_mut ledger-lanes.sh 's/^  person_gate "$k" answer$/  true/'
 printf 'x\n' | l3l answer LT-2 --reviewed-by-human >/dev/null 2>&1 || { bad "mutation survived: the person gate on answer removed, yet a nameless answer was refused"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
 
 l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
-# trial 2026-10-22 + review: a claim whose launcher died is released only by a later claim, under its lock,
-# and only when that claim sees its own caller (a sandboxed process sees no launcher and must release nothing);
-# list stays read-only; run --pid releases only its own claim; a stopped launcher stops its worker first
+# trial 2026-10-22 + reviews: a claim whose launcher stopped renewing its lease is released by a later claim,
+# under its lock — never by list or next, never from a launched worker; a fresh lease, or a claim still in its
+# two-minute grace, stays. A file's age reads the same inside a sandbox, where a pid check cannot see the launcher.
 l3l init LT-9 --kind tasks-repo --ref t >/dev/null 2>&1; l3l init LT-11 --kind tasks-repo --ref t >/dev/null 2>&1
-sleep 0 & l3_dead=$!; wait "$l3_dead" 2>/dev/null
-l3_own() { l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: $1, started: \"2026-01-01T00:00:00Z\"}"; }
-l3_own "$l3_dead"; l3l list --active >/dev/null 2>&1; l3l next --stage plan >/dev/null 2>&1
-l3j LT-9 ".owner.pid == $l3_dead" || { bad "list and next must stay read-only: a dead claim is released only by a claim"; l3_fail=1; }
-l3l claim LT-11 --session s --role plan --pid "$l3_dead" >/dev/null 2>&1
-l3j LT-9 ".owner.pid == $l3_dead" || { bad "a claim that cannot see its own caller (a sandboxed process) must release nothing"; l3_fail=1; }
-l3set LT-11 '.owner = null'
-l3_o="$(l3l claim LT-11 --session s --role plan --pid $$ 2>&1)"
-{ l3j LT-9 '.owner == null and .runs[-1].exit == 125' && grep -qF 'released LT-9' <<<"$l3_o"; } || { bad "a claim that sees its caller must release a claim whose launcher is gone: $l3_o"; l3_fail=1; }
-l3set LT-11 '.owner = null'; l3_own $$; l3l claim LT-11 --session s --role plan --pid $$ >/dev/null 2>&1
-l3j LT-9 ".owner.pid == $$" || { bad "a claim whose launcher is alive must stay"; l3_fail=1; }
-l3set LT-11 '.owner = null'; l3_own "$l3_dead"
-L3_LG="$l3_md/ledger.sh"; l3_mut ledger.sh 's/^    if \[ -n "$CPID" \] \&\& kill -0 "$CPID" 2>\/dev\/null; then reap_dead_owners; fi$/    reap_dead_owners/'
-l3l claim LT-11 --session s --role plan --pid "$l3_dead" >/dev/null 2>&1; l3j LT-9 '.owner == null' || { bad "mutation survived: the caller-visibility gate removed, yet a blind claim released nothing"; l3_fail=1; }; l3_restore ledger.sh; L3_LG=""
-l3set LT-11 '.owner = null'; l3_own "$l3_dead"
-l3_mut ledger-lanes.sh 's/^    kill -0 "$pid" 2>\/dev\/null \&\& continue$/    continue/'
-L3_LG="$l3_md/ledger.sh"; l3l claim LT-11 --session s --role plan --pid $$ >/dev/null 2>&1; l3j LT-9 '.owner == null' && { bad "mutation survived: the liveness check skipped, yet the dead claim was released"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
+L3LD="$l3_t/.git/hefesto/ledger"
+l3_own() { l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: 1, started: \"$1\"}"; }
+l3_claim11() { l3set LT-11 '.owner = null'; (cd "$l3_t" && ${1:+env "$1"} bash "${L3_LG:-$LG}" claim LT-11 --session s --role plan --pid $$) 2>&1; }
+l3_own 2026-01-01T00:00:00Z; rm -f "$L3LD/LT-9.lease"; l3l list --active >/dev/null 2>&1; l3l next --stage plan >/dev/null 2>&1
+l3j LT-9 '.owner != null' || { bad "list and next must stay read-only: only a claim releases a claim"; l3_fail=1; }
+l3_o="$(l3_claim11)"; { l3j LT-9 '.owner == null and .runs[-1].exit == 125' && grep -qF 'released LT-9' <<<"$l3_o"; } \
+  || { bad "a claim with no lease, past its grace, must be released by the next claim: $l3_o"; l3_fail=1; }
+l3_own 2026-01-01T00:00:00Z; : > "$L3LD/LT-9.lease"; l3_claim11 >/dev/null
+l3j LT-9 '.owner != null' || { bad "a claim whose lease is fresh must stay"; l3_fail=1; }
+touch -t 202601010000 "$L3LD/LT-9.lease"; l3_claim11 >/dev/null; l3j LT-9 '.owner == null' || { bad "a claim whose lease is over two minutes old must be released"; l3_fail=1; }
+l3_own "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; rm -f "$L3LD/LT-9.lease"; l3_claim11 >/dev/null
+l3j LT-9 '.owner != null' || { bad "a claim still in its two-minute grace (no lease yet) must stay"; l3_fail=1; }
+l3_own 2026-01-01T00:00:00Z; rm -f "$L3LD/LT-9.lease"; l3_claim11 HEFESTO_WORKER=1 >/dev/null
+l3j LT-9 '.owner != null' || { bad "a launched worker's claim must release nothing"; l3_fail=1; }
+L3_LG="$l3_md/ledger.sh"; l3_mut ledger-lanes.sh 's/^  \[ -z "${HEFESTO_WORKER:-}" \] || \[ "$HEFESTO_WORKER" = 0 \] || return 0$/  :/'
+l3_claim11 HEFESTO_WORKER=1 >/dev/null; l3j LT-9 '.owner == null' || { bad "mutation survived: the worker guard removed, yet the worker released nothing"; l3_fail=1; }; l3_restore ledger-lanes.sh
+l3_own 2026-01-01T00:00:00Z; : > "$L3LD/LT-9.lease"
+l3_mut ledger-lanes.sh 's/^  if \[ -f "$lease" \]; then \[ -n "$(find "$lease" -mmin +2 2>\/dev\/null)" \]; return; fi$/  return 0/'
+l3_claim11 >/dev/null; l3j LT-9 '.owner != null' && { bad "mutation survived: the lease age ignored, yet a fresh lease kept its claim"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
+rm -f "$L3LD/LT-9.lease"
 l3set LT-11 '.owner = null'; l3set LT-9 '.owner = null'
 l3l claim LT-9 --session s --role plan --pid $$ >/dev/null 2>&1
 l3j LT-9 ".owner.pid == $$" || { bad "claim --pid must record the launcher's pid"; l3_fail=1; }
 l3l run LT-9 --role plan --exit 0 --usd 0 --pid 1 >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "run --pid of another launcher must not release this claim"; l3_fail=1; }
+l3l run LT-9 --role plan --exit 0 --usd 0 >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "run without --pid (a worker, a stray call) must not release a launcher's claim"; l3_fail=1; }
 l3_mut ledger.sh 's/ or ((.owner.pid | tostring) == $p) then/ or true then/'
 L3_LG="$l3_md/ledger.sh"; l3l run LT-9 --role plan --exit 0 --usd 0 --pid 1 >/dev/null 2>&1; l3j LT-9 '.owner == null' || { bad "mutation survived: run releases any claim, yet the other launcher's claim stayed"; l3_fail=1; }; l3_restore ledger.sh; L3_LG=""
 l3set LT-9 '.owner = null'; l3l claim LT-9 --session s --role plan >/dev/null 2>&1
@@ -4997,7 +5001,7 @@ grep -qF '"network":{"allowedDomains":["registry.npmjs.org","*.pythonhosted.org:
 jq '.orchestrate.allowed_domains = ["https://evil.example/x"]' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
 l3_o="$(l3s implement LT-1 --dry-run 2>&1)" && { bad "a domain with a scheme or path must be refused"; l3_fail=1; }
 grep -qF 'is not a public hostname' <<<"$l3_o" || { bad "the domain refusal must say why: $l3_o"; l3_fail=1; }
-for bd in 169.254.169.254 127.0.0.1:22 localhost a.com:99999; do
+for bd in 169.254.169.254 127.0.0.1:22 localhost a.com:99999 metadata.google.internal host.docker.internal printer.local; do
   jq --arg d "$bd" '.orchestrate.allowed_domains = [$d]' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
   l3s implement LT-1 --dry-run >/dev/null 2>&1 && { bad "allowed_domains must refuse '$bd' (an IP literal, localhost, or a port out of range)"; l3_fail=1; }
 done
@@ -5077,7 +5081,7 @@ for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
   { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
     || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
 done
-[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), dead claims released, the launcher's --pid recorded, allowed_domains (no IP, no localhost), --detect, a stopped launcher stops its worker; 26 mutations caught"
+[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), stale leases released by claim only, allowed_domains (no IP, no localhost), --detect, a stopped launcher stops its worker, claims released by lease age only; 26 mutations caught"
 
 # --- Tier 1: macOS portability (field report 2026-10-15: /hef.status and /hef.babysit broke on a Mac) -----
 head_ "macOS portability"
