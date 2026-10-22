@@ -70,6 +70,7 @@ for sf in "$F" "$TOP/.claude/settings.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}
       S:/*) ;;                                       # sandbox paths: /abs
       *) w="$TOP/$w" ;;
     esac
+    [ -d "$w" ] && w="$(cd "$w" 2>/dev/null && pwd -P)"   # resolve .. and links, as the roots are
     writable+=("$w")
   done < <(grant_paths < "$sf")
 done

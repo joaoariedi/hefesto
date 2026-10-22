@@ -4857,7 +4857,7 @@ l3_o="$(l3u --print 2>&1)" && { bad "a clone granted writable in user settings m
 grep -qF 'no usable hefesto folder' <<<"$l3_o" || { bad "the refusal must say no hefesto folder is usable: $l3_o"; l3_fail=1; }
 l3_su_mut 's/^  done < <(grant_paths < "$sf")$/  done < \/dev\/null/'
 l3u --print >/dev/null 2>&1 || { bad "mutation survived: grants no longer read, yet the granted clone was still refused"; l3_fail=1; }; l3_su_restore
-for g in '/' '//' "$REPO/hooks"; do
+for g in '/' '//' "$REPO/hooks" "$REPO/hooks/../hooks"; do
   printf '{"sandbox":{"filesystem":{"allowWrite":["%s"]}}}\n' "$g" > "$l3_home/.claude/settings.json"
   l3u --print >/dev/null 2>&1 && { bad "a grant of '$g' must leave the clone untrusted (everything, or a folder inside it, is writable)"; l3_fail=1; }
 done
