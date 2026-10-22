@@ -348,11 +348,15 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    `human:plan-approval`: only `ledger.sh unblock <id> --reviewed-by-human --by <name>` clears it (refused in a
    launched worker; recorded with the RFC's hash), nothing replaces that block, and leaving `plan-review`
    needs the approval on record. An RFC that changes after approval stops the build and re-blocks the item
-   until a person aligns the plan, re-pins (`ledger.sh record <id> --rfc`) and approves again. Open each
-   lane with `hooks/lane-launch.sh <lane>` (default permission mode, a narrow allowlist of hefesto's helpers,
-   `ask` for the commands that clear a person's decision, the context gauge — the lane itself is unsandboxed
-   and reads untrusted item and RFC text, so the allowlist is what bounds its dialog-free calls); `context.compact_at` sets each
-   lane's compaction nudge.
+   until a person aligns the plan, re-pins (`ledger.sh record <id> --rfc`) and approves again. Set the
+   project up once with `hooks/hefesto-setup.sh` (`--lanes` for four lanes), in a terminal: it writes
+   `.claude/settings.local.json` — hefesto's helper allowlist, the person's clears (`unblock`, `record`,
+   `answer`, `revise`, …) in `ask`, the launcher alone in `sandbox.excludedCommands`,
+   `autoAllowBashIfSandboxed: false` (every other unlisted command asks, so a sandboxed call cannot rewrite
+   the ledger silently), the trusted project folder, the context gauge, and with `--lanes`
+   `crossSessionInbound: "accept"`. Lanes open with `claude --name <repo>-<lane>`; the name is the lane.
+   In the orchestrator, `/hef.orchestrate` asks every decision as a form and rings the stage lanes;
+   `/hef.ship` starts new work. `context.compact_at` sets each lane's compaction nudge.
 
 9. **Hand-run items, the board and escalation** (all optional): a person who ran an item by hand runs
    `hooks/ledger.sh handoff <id> --pr <url>` on its branch — one call instead of four. Set

@@ -7,7 +7,8 @@
 #   stdin: Claude Code's status-line JSON (context_window.used_percentage, workspace.current_dir)
 #   threshold: .context.compact_at in <current_dir>/.claude/project-status.json — a number, or an object of
 #     lane → number (orchestrator, plan, build, deploy, general); 0 = never nudge; missing or invalid → 40
-#   lane: HEFESTO_LANE (set by lane-launch.sh); unset → "general"
+#   lane: HEFESTO_LANE when set; else the session name's suffix (session_name: `claude --name <repo>-<lane>` or
+#     /rename) — orchestrator, plan|planner, build|builder, deploy|deployer; anything else → "general"
 #
 # A status line runs on every refresh and must never fail: bad input, no usage yet, or no jq → no output, exit 0.
 # No ledger, board-lib or git call, for the same reason. To keep your own status line, print this segment from
@@ -16,7 +17,9 @@ command -v jq >/dev/null 2>&1 || exit 0
 in="$(cat)"
 pct="$(jq -r '.context_window.used_percentage // empty | if type == "number" then floor else empty end' <<<"$in" 2>/dev/null)"
 [[ "$pct" =~ ^[0-9]{1,5}$ ]] || exit 0   # bounded: [ -ge ] errors on a number past 2^63
-lane="${HEFESTO_LANE:-general}"
+name="$(jq -r '.session_name // empty' <<<"$in" 2>/dev/null)"
+case "${name##*-}" in orchestrator) nl=orchestrator ;; plan|planner) nl=plan ;; build|builder) nl=build ;; deploy|deployer) nl=deploy ;; *) nl=general ;; esac
+lane="${HEFESTO_LANE:-$nl}"
 dir="$(jq -r '.workspace.current_dir // .cwd // empty' <<<"$in" 2>/dev/null)"
 at=""
 if [ -n "$dir" ] && [ -f "$dir/.claude/project-status.json" ]; then

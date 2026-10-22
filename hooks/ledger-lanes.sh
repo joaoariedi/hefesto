@@ -33,13 +33,14 @@ register_item() { # $1 id, $2 ref
 }
 
 # The intake gate's rules for any person-only clear: never from inside a launched worker, and a name. The
-# dialog is the gate — this command is never allowlisted (lane-launch.sh puts it in `ask`).
-person_gate() { # $1 kind
+# dialog is the gate — this command is never allowlisted (hefesto-setup.sh puts it in `ask`).
+person_gate() { # $1 kind, $2 verb (default unblock)
+  local v="${2:-unblock}"
   [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] \
-    || die "ledger unblock $ID: $1 is never cleared from inside a launched worker — a person runs it from their own session"
+    || die "ledger $v $ID: $1 is never cleared from inside a launched worker — a person runs it from their own session"
   [ -z "$RBY" ] && [ "$REVIEWED" = 1 ] && [ -t 0 ] && RBY="${USER:-$(id -un 2>/dev/null)}"
   [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
-    || die "ledger unblock $ID: $1 needs --reviewed-by-human --by <your name> — a person read it and answers the permission prompt for this command; never allowlist it"
+    || die "ledger $v $ID: $1 needs --reviewed-by-human --by <your name> — a person read it and answers the permission prompt for this command; never allowlist it"
 }
 
 # human:plan-approval (FR-006): a person approves a background plan. The planner's own /hef.review writes
@@ -71,4 +72,50 @@ rfc_pin() { # [$1 snapshot file]
   rm -f "$err"
   [ -n "$p" ] || die "ledger record $ID --rfc: the item has no rfc: line"
   E=$(jq --arg p "$p" --arg s "$(lanes_sha256 "${1:-$p}")" '.source.rfc = {path: $p, sha256: $s}' <<<"$E") || die "ledger record $ID --rfc: cannot write the pin"
+}
+
+# --- lanes-v3: the decisions the orchestrator lane asks as forms (FR-012..014) ---------------------------
+# The planner's questions go to the person as data; the person's answers and change notes come back as files
+# copied into the ledger dir with their hash, so the planner gets exactly what was recorded. The dialog of
+# `answer` / `revise` (both in the lanes' `ask` rules) is the consent; --by is a record of who gave it.
+lanes_strip() { sed -E 's/<!--([^-]|-[^-])*-->//g' | sed '/<!--/,/-->/d'; }
+questions_item() {
+  local k sd qp body="" nonce
+  k=$(jq -r '.blocked_on.kind // empty' <<<"$E")
+  case "$k" in human:clarify|human:plan-review) ;; *) die "ledger questions $ID: it waits on ${k:-nothing} — questions come with human:clarify or human:plan-review" ;; esac
+  sd=$(jq -r '.spec_dir // empty' <<<"$E"); qp=$(jq -r '.blocked_on.question_path // empty' <<<"$E")
+  [ -n "$sd" ] && [ -f "$sd/spec.md" ] && body="$(lanes_strip < "$sd/spec.md" | grep -n 'NEEDS CLARIFICATION' | head -40)"
+  [ -n "$qp" ] && [ -f "$qp" ] && body="$body${body:+$'\n'}$(lanes_strip < "$qp" | head -c 8000)"
+  [ -n "$body" ] || die "ledger questions $ID: no open question found (spec_dir '${sd:-none}', question file '${qp:-none}') — read the item's folder"
+  nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
+  printf '<<<untrusted-questions-begin %s %s\n%s\nuntrusted-questions-end %s>>>\n' "$ID" "$nonce" "$body" "$nonce"
+}
+lanes_take_text() { # $1 file, or "" / "-" for stdin; $2 destination; $3 verb
+  if [ -n "$1" ] && [ "$1" != - ]; then [ -f "$1" ] || die "ledger $3 $ID: file not found: '$1'"; cat -- "$1" > "$2"
+  else cat > "$2"; fi || { rm -f "$2"; die "ledger $3 $ID: cannot store the text"; }
+  [ -s "$2" ] || { rm -f "$2"; die "ledger $3 $ID: the text is empty — pass it on stdin (a heredoc inside the command) or with --file"; }
+  [ "$(wc -c < "$2" | tr -d ' ')" -le 32768 ] || { rm -f "$2"; die "ledger $3 $ID: over 32 KB — keep it to the answers"; }
+}
+answer_item() { # $1 file|-
+  local k n dst
+  k=$(jq -r '.blocked_on.kind // empty' <<<"$E")
+  case "$k" in human:clarify|human:plan-review) ;; *) die "ledger answer $ID: it waits on ${k:-nothing} — answers clear human:clarify or human:plan-review only" ;; esac
+  person_gate "$k" answer
+  n=$(( $(jq '.answers // [] | length' <<<"$E") + 1 )); dst="$DIR/$ID.answers-$n.md"
+  lanes_take_text "$1" "$dst" answer
+  jq --arg p "$dst" --arg s "$(lanes_sha256 "$dst")" --arg by "$RBY" --arg k "$k" \
+    '.blocked_on = null | .answers = ((.answers // []) + [{path: $p, sha256: $s, by: $by, kind: $k, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
+  echo "$ID answered by $RBY ($k cleared) — the planner resumes with the answers on its next pass"
+}
+revise_item() { # $1 file|-
+  local k ph n dst
+  k=$(jq -r '.blocked_on.kind // empty' <<<"$E"); ph=$(jq -r '.phase' <<<"$E")
+  [ "$k" = human:plan-approval ] || die "ledger revise $ID: it waits on ${k:-nothing} — revise answers a plan waiting on human:plan-approval"
+  case "$ph" in plan-review|tasks) ;; *) die "ledger revise $ID: phase $ph — a build has started; revise applies before it (plan-review or tasks)" ;; esac
+  person_gate "$k" revise
+  n=$(( $(jq '.revisions // [] | length' <<<"$E") + 1 )); dst="$DIR/$ID.notes-$n.md"
+  lanes_take_text "$1" "$dst" revise
+  jq --arg p "$dst" --arg s "$(lanes_sha256 "$dst")" --arg by "$RBY" \
+    '.blocked_on = null | .phase = "intake" | .revisions = ((.revisions // []) + [{path: $p, sha256: $s, by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
+  echo "$ID sent back to the planner by $RBY — it revises spec, plan and tasks to the notes, then waits for approval again"
 }

@@ -21,7 +21,7 @@ set -uo pipefail
 
 die() { echo "$*" >&2; exit 1; }
 
-MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""
+MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""; ADD_TITLE=""; ADD_INC=0; ADD_RFC=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check|-c) MODE="check" ;;
@@ -34,6 +34,10 @@ while [ $# -gt 0 ]; do
     --item-repo) shift; MODE="item-repo"; ITEM_ID="${1:-}" ;;
     --item-rfc) shift; MODE="item-rfc"; ITEM_ID="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
+    --init) MODE="init" ;;
+    --add) shift; MODE="add"; ADD_TITLE="${1:-}" ;;
+    --incident) ADD_INC=1 ;;
+    --rfc) ADD_RFC=1 ;;
     --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --item-repo <id> | --item-rfc <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
     *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --item-rfc <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2 ;;
   esac
@@ -61,6 +65,28 @@ if [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; then
   ROOT="$(jq -r .board_top <<<"$BCTX")"; [ -n "$CONFIG" ] || CONFIG="$(jq -r .config <<<"$BCTX")"
 fi
 [ -n "$CONFIG" ] || CONFIG="$ROOT/.claude/project-status.json"
+
+# lanes-v3 FR-024: --init creates what a board needs and is missing — never overwriting a file — so a single
+# lane can start on a project with no board: the default config asks a person to approve every plan.
+if [ "$MODE" = init ]; then
+  { [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; } && { echo "status-board --init: the board is external ($ROOT) — set it up there" >&2; exit 1; }
+  made=""; troot="$ROOT/tasks"
+  if [ ! -f "$CONFIG" ]; then
+    mkdir -p "$(dirname "$CONFIG")" && jq -n '{source: "tasks-repo", root: "tasks", orchestrate: {usd_cap: 5, daily_usd_cap: 25, plan_review: "human", plan_first: true, rfc_dir: "docs/rfcs"}}' > "$CONFIG" \
+      || { echo "status-board --init: cannot write $CONFIG" >&2; exit 1; }
+    made="$made ${CONFIG#"$ROOT"/}"
+  else
+    jq -e '.source == "tasks-repo"' "$CONFIG" >/dev/null 2>&1 || { echo "status-board --init: $CONFIG is not a tasks-repo board — nothing to create" >&2; exit 1; }
+    troot="$ROOT/$(jq -r '.root // "tasks"' "$CONFIG")"
+  fi
+  for c in todo:TODO doing:DOING done:DONE backlog:BACKLOG; do
+    f="$troot/$(jq -r --arg k "${c%%:*}" --arg d "${c#*:}.md" '.columns[$k] // $d' "$CONFIG")"
+    [ -f "$f" ] || { mkdir -p "$(dirname "$f")" && printf '# %s\n' "${c#*:}" > "$f" && made="$made ${f#"$ROOT"/}"; }
+  done
+  rd="$ROOT/$(jq -r '.orchestrate.rfc_dir // "docs/rfcs"' "$CONFIG")"; [ -d "$rd" ] || { mkdir -p "$rd" && made="$made ${rd#"$ROOT"/}/"; }
+  if [ -n "$made" ]; then echo "created:$made"; else echo "nothing to create: the board is in place"; fi
+  exit 0
+fi
 
 # --- config (FR-001, FR-002) -----------------------------------------------------------------
 if [ ! -f "$CONFIG" ]; then
@@ -514,12 +540,35 @@ source_github() {
   rule
 }
 
+# lanes-v3 FR-016: one new item in the todo column, with the next free id; never touches an existing item.
+add_item() {
+  local f ids prefix n
+  [[ "$ADD_TITLE" =~ ^[^#$'\r\n']{3,120}$ ]] || die "status-board --add: the title must be one line of 3–120 characters with no '#' (got '$(safe_name "$ADD_TITLE")')"
+  ! grep -qE "$ID_PATTERN" <<<"$ADD_TITLE" || die "status-board --add: the title names an item id ($(grep -oE "$ID_PATTERN" <<<"$ADD_TITLE" | head -1)) — that would make two items answer to it; reword it"
+  # ids on the board AND in the ledger: an entry outlives its board item (merged, pruned), and reusing its id
+  # would leave the new item behind the old entry, never run (code review 2026-10-22)
+  local ld; ld="$( [ -f "$HERE/ledger.sh" ] && bash "$HERE/ledger.sh" dir 2>/dev/null)" || ld=""
+  ids="$( { for f in todo doing "done" backlog; do grep -hE "$ITEM_HEADING" "$TROOT/$(col "$f")" 2>/dev/null; done | grep -oE "$ID_PATTERN"
+            [ -n "$ld" ] && for f in "$ld"/*.json; do [ -f "$f" ] && basename "$f" .json; done; } | grep -E -- '-[0-9]+$')" || true
+  if [ -n "$ids" ]; then prefix="$(sed -E 's/-[0-9]+$//' <<<"$ids" | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')"
+  else prefix="$(cfg '.id_prefix // empty')"
+    [ -n "$prefix" ] || prefix="$(basename "$ROOT" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9' | cut -c1-3)"
+    [[ "$prefix" =~ ^[A-Z][A-Z0-9]+$ ]] || prefix="IT"
+  fi
+  n="$( { grep -E "^$prefix-[0-9]+$" <<<"$ids" || true; } | sed -E 's/.*-//' | sort -n | tail -1)"; n=$(( ${n:-0} + 1 ))
+  f="$TROOT/$(col todo)"; [ -f "$f" ] || die "status-board --add: no todo column at $f — run status-board.sh --init"
+  { printf '\n## %s%s — %s\n' "$([ "$ADD_INC" = 1 ] && printf '🐞 ')" "$prefix-$n" "$ADD_TITLE"
+    if [ "$ADD_RFC" = 1 ]; then printf 'rfc: %s/%s.md\n' "$(cfg '.orchestrate.rfc_dir // "docs/rfcs"' | sed 's:/*$::')" "$prefix-$n"; fi; } >> "$f" || die "status-board --add: cannot write $f"
+  echo "$prefix-$n"
+}
+
 case "$SOURCE" in
   tasks-repo)
     tasks_config
+    [ "$MODE" = add ] && { add_item; exit $?; }
     case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
-    case "$MODE" in item|item-raw|item-kind|item-repo|item-rfc) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
+    case "$MODE" in item|item-raw|item-kind|item-repo|item-rfc|add) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
     source_github ;;
 esac
