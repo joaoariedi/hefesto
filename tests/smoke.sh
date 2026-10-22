@@ -4947,26 +4947,47 @@ l3set LT-2 '.phase = "intake" | .blocked_on = {kind: "human:clarify", since: "20
 l3_mut ledger-lanes.sh 's/^  person_gate "$k" answer$/  true/'
 printf 'x\n' | l3l answer LT-2 --reviewed-by-human >/dev/null 2>&1 || { bad "mutation survived: the person gate on answer removed, yet a nameless answer was refused"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
 
-# trial 2026-10-22: a claim whose launcher died is released (and recorded as a failed run); a live one stays;
-# claim records the launcher (its parent), not its own short-lived pid
-l3l init LT-9 --kind tasks-repo --ref t >/dev/null 2>&1
+l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
+# trial 2026-10-22 + review: a claim whose launcher died is released only by a later claim, under its lock,
+# and only when that claim sees its own caller (a sandboxed process sees no launcher and must release nothing);
+# list stays read-only; run --pid releases only its own claim; a stopped launcher stops its worker first
+l3l init LT-9 --kind tasks-repo --ref t >/dev/null 2>&1; l3l init LT-11 --kind tasks-repo --ref t >/dev/null 2>&1
 sleep 0 & l3_dead=$!; wait "$l3_dead" 2>/dev/null
-l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: $l3_dead, started: \"2026-01-01T00:00:00Z\"}"
-l3_o="$(l3l list --active 2>&1 >/dev/null)"
-{ l3j LT-9 '.owner == null and .runs[-1].exit == 125' && grep -qF 'released LT-9' <<<"$l3_o"; } || { bad "a claim whose launcher is gone must be released and recorded as a failed run: $l3_o"; l3_fail=1; }
-l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: $$, started: \"2026-01-01T00:00:00Z\"}"
-l3l list --active >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "a claim whose launcher is alive must stay"; l3_fail=1; }
-l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: $l3_dead, started: \"2026-01-01T00:00:00Z\"}"
-L3_LG="$l3_md/ledger.sh"; l3_mut ledger-lanes.sh 's/^    kill -0 "$pid" 2>\/dev\/null \&\& continue$/    continue/'
-l3l list --active >/dev/null 2>&1; l3j LT-9 '.owner == null' && { bad "mutation survived: the liveness check skipped, yet the dead claim was released"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
-l3set LT-9 '.owner = null'
+l3_own() { l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: $1, started: \"2026-01-01T00:00:00Z\"}"; }
+l3_own "$l3_dead"; l3l list --active >/dev/null 2>&1; l3l next --stage plan >/dev/null 2>&1
+l3j LT-9 ".owner.pid == $l3_dead" || { bad "list and next must stay read-only: a dead claim is released only by a claim"; l3_fail=1; }
+l3l claim LT-11 --session s --role plan --pid "$l3_dead" >/dev/null 2>&1
+l3j LT-9 ".owner.pid == $l3_dead" || { bad "a claim that cannot see its own caller (a sandboxed process) must release nothing"; l3_fail=1; }
+l3set LT-11 '.owner = null'
+l3_o="$(l3l claim LT-11 --session s --role plan --pid $$ 2>&1)"
+{ l3j LT-9 '.owner == null and .runs[-1].exit == 125' && grep -qF 'released LT-9' <<<"$l3_o"; } || { bad "a claim that sees its caller must release a claim whose launcher is gone: $l3_o"; l3_fail=1; }
+l3set LT-11 '.owner = null'; l3_own $$; l3l claim LT-11 --session s --role plan --pid $$ >/dev/null 2>&1
+l3j LT-9 ".owner.pid == $$" || { bad "a claim whose launcher is alive must stay"; l3_fail=1; }
+l3set LT-11 '.owner = null'; l3_own "$l3_dead"
+L3_LG="$l3_md/ledger.sh"; l3_mut ledger.sh 's/^    if \[ -n "$CPID" \] \&\& kill -0 "$CPID" 2>\/dev\/null; then reap_dead_owners; fi$/    reap_dead_owners/'
+l3l claim LT-11 --session s --role plan --pid "$l3_dead" >/dev/null 2>&1; l3j LT-9 '.owner == null' || { bad "mutation survived: the caller-visibility gate removed, yet a blind claim released nothing"; l3_fail=1; }; l3_restore ledger.sh; L3_LG=""
+l3set LT-11 '.owner = null'; l3_own "$l3_dead"
+l3_mut ledger-lanes.sh 's/^    kill -0 "$pid" 2>\/dev\/null \&\& continue$/    continue/'
+L3_LG="$l3_md/ledger.sh"; l3l claim LT-11 --session s --role plan --pid $$ >/dev/null 2>&1; l3j LT-9 '.owner == null' && { bad "mutation survived: the liveness check skipped, yet the dead claim was released"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
+l3set LT-11 '.owner = null'; l3set LT-9 '.owner = null'
 l3l claim LT-9 --session s --role plan --pid $$ >/dev/null 2>&1
-l3j LT-9 ".owner.pid == $$" || { bad "claim --pid must record the launcher's pid, got $(jq -r .owner.pid "$l3_t/.git/hefesto/ledger/LT-9.json"), want $$"; l3_fail=1; }
+l3j LT-9 ".owner.pid == $$" || { bad "claim --pid must record the launcher's pid"; l3_fail=1; }
+l3l run LT-9 --role plan --exit 0 --usd 0 --pid 1 >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "run --pid of another launcher must not release this claim"; l3_fail=1; }
+l3_mut ledger.sh 's/ or ((.owner.pid | tostring) == $p) then/ or true then/'
+L3_LG="$l3_md/ledger.sh"; l3l run LT-9 --role plan --exit 0 --usd 0 --pid 1 >/dev/null 2>&1; l3j LT-9 '.owner == null' || { bad "mutation survived: run releases any claim, yet the other launcher's claim stayed"; l3_fail=1; }; l3_restore ledger.sh; L3_LG=""
 l3set LT-9 '.owner = null'; l3l claim LT-9 --session s --role plan >/dev/null 2>&1
-l3j LT-9 '.owner.pid == null and .owner.session_name == "s"' || { bad "claim without --pid must record no pid (never released by liveness)"; l3_fail=1; }
+l3j LT-9 '.owner.pid == null and .owner.session_name == "s"' || { bad "claim without --pid must record no pid"; l3_fail=1; }
 l3set LT-9 '.owner = null'; l3l claim LT-9 --session s --role plan --pid x1 >/dev/null 2>&1 && { bad "claim --pid must refuse a non-number"; l3_fail=1; }
-grep -qF 'claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$"' "$SL" || { bad "the launcher must pass its own pid to claim"; l3_fail=1; }
 l3set LT-9 '.owner = null'
+# a stopped launcher stops its worker and records the run (FakeClaudeSlow sleeps, writing its pid)
+l3_slow="$(mktemp -d)"; printf '#!/bin/bash\necho $$ > "%s/pid"; sleep 30\n' "$l3_slow" > "$l3_slow/claude"; chmod +x "$l3_slow/claude"
+(cd "$l3_t" && PATH="$l3_slow:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" exec bash "$SL" implement LT-1) >/dev/null 2>&1 &
+l3_lp=$!; for _ in $(seq 1 50); do [ -s "$l3_slow/pid" ] && break; sleep 0.1; done
+kill -TERM "$l3_lp" 2>/dev/null; wait "$l3_lp" 2>/dev/null; sleep 0.3
+l3_wp="$(cat "$l3_slow/pid" 2>/dev/null)"
+{ [ -n "$l3_wp" ] && ! kill -0 "$l3_wp" 2>/dev/null && l3j LT-1 '.owner == null and .runs[-1].exit == 143'; } \
+  || { bad "a stopped launcher must stop its worker (pid ${l3_wp:-none}) and record the run (exit 143): $(jq -c '{owner, last: .runs[-1].exit}' "$l3_t/.git/hefesto/ledger/LT-1.json")"; l3_fail=1; kill "$l3_wp" 2>/dev/null; }
+rm -rf -- "${l3_slow:?}"
 
 # trial 2026-10-22: orchestrate.allowed_domains reaches the worker's sandbox, validated; --detect finds the board
 l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
@@ -4975,8 +4996,13 @@ grep -qF '"network":{"allowedDomains":["registry.npmjs.org","*.pythonhosted.org:
   || { bad "orchestrate.allowed_domains must reach the worker's sandbox.network.allowedDomains"; l3_fail=1; }
 jq '.orchestrate.allowed_domains = ["https://evil.example/x"]' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
 l3_o="$(l3s implement LT-1 --dry-run 2>&1)" && { bad "a domain with a scheme or path must be refused"; l3_fail=1; }
-grep -qF 'is not a hostname' <<<"$l3_o" || { bad "the domain refusal must say why: $l3_o"; l3_fail=1; }
-L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^  \[ -z "$d" \] || \[\[ "$d" =~ /  true || [[ "$d" =~ /'
+grep -qF 'is not a public hostname' <<<"$l3_o" || { bad "the domain refusal must say why: $l3_o"; l3_fail=1; }
+for bd in 169.254.169.254 127.0.0.1:22 localhost a.com:99999; do
+  jq --arg d "$bd" '.orchestrate.allowed_domains = [$d]' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+  l3s implement LT-1 --dry-run >/dev/null 2>&1 && { bad "allowed_domains must refuse '$bd' (an IP literal, localhost, or a port out of range)"; l3_fail=1; }
+done
+jq '.orchestrate.allowed_domains = ["https://evil.example/x"]' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^  \[ "$DOK" = 1 \] || die/  true || die/'
 l3s implement LT-1 --dry-run >/dev/null 2>&1 || { bad "mutation survived: the hostname check removed, yet the bad domain was refused"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
 l3_o="$(cd "$l3_t" && bash "$SB" --detect 2>&1)"
@@ -4989,7 +5015,7 @@ l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
 l3l init LT-7 --kind tasks-repo --ref t >/dev/null 2>&1
 l3_mut status-board.sh 's/\[ -n "$ld" \] \&\& for f in "$ld"\/\*.json; do \[ -f "$f" \] \&\& basename "$f" .json; done;/:;/'
 [ "$( (cd "$l3_t" && bash "$l3_md/status-board.sh" --add "Export orders once more") 2>&1)" = LT-4 ] || { bad "mutation survived: ledger ids no longer counted, yet --add did not fall back to the board's next id"; l3_fail=1; }; l3_restore status-board.sh
-[ "$( (cd "$l3_t" && bash "$SB" --add "Export orders again") 2>&1)" = LT-10 ] || { bad "--add must skip ids the ledger holds (LT-5, LT-7 and LT-9 are entries, not on the board): expected LT-10"; l3_fail=1; }
+[ "$( (cd "$l3_t" && bash "$SB" --add "Export orders again") 2>&1)" = LT-12 ] || { bad "--add must skip ids the ledger holds (LT-5, LT-7, LT-9 and LT-11 are entries, not on the board): expected LT-12"; l3_fail=1; }
 l3set LT-1 '.source.body_sha256 = "0"'; l3l record LT-1 --body-from-board >/dev/null 2>&1
 l3j LT-1 "(.source.body_sha256 | length) == 64" || { bad "record --body-from-board must re-hash the item from the board"; l3_fail=1; }
 grep -qF '"deny":["SendMessage","ListAgents"]' <<<"$(l3s implement LT-1 --dry-run 2>&1)" || { bad "every worker's settings must deny SendMessage and ListAgents"; l3_fail=1; }
@@ -5051,7 +5077,7 @@ for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
   { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
     || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
 done
-[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), dead claims released, the launcher's --pid recorded, allowed_domains, --detect; 24 mutations caught"
+[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), dead claims released, the launcher's --pid recorded, allowed_domains (no IP, no localhost), --detect, a stopped launcher stops its worker; 26 mutations caught"
 
 # --- Tier 1: macOS portability (field report 2026-10-15: /hef.status and /hef.babysit broke on a Mac) -----
 head_ "macOS portability"

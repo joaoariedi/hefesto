@@ -141,8 +141,11 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
 
 3. **Send each stage its work.** For `plan`, `build`, `deploy` in that order:
    `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh next --stage <stage>`. No item → skip the stage. An item, and
-   `list --active` shows the repository busy (on an external board: that item's repo) → skip it; the lane that
-   is running rings back when it is done. Otherwise:
+   `list --active` shows the repository busy (on an external board: that item's repo) with a claim started
+   less than an hour ago → skip it; the lane that is running rings back when it is done. A claim older than an
+   hour may be one whose launcher died: dispatch anyway — the launcher's own claim releases it if its launcher
+   is gone, or refuses as busy if it is still running (this session cannot tell: its view of processes is
+   sandboxed). Otherwise:
    - **The stage's lane is open** (see Finding a lane) → ring it once: `<repo>-orchestrator: <stage> pass`. Do
      not ring a lane whose last doorbell back was `done idle` until the ledger has changed since.
    - **No such lane** → run the stage pass here (below), then come back to step 2 — a stage run here can end
@@ -177,8 +180,9 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    A launch that exits non-zero is reported with its stderr; the ledger already holds the state. A
    **changed since claim** refusal (someone edited the item after it was registered) and **blocked_on:
    budget** are decisions for the person: the orchestrator asks them (the first as an intake form). If no exit
-   notice ever comes (the session closed, the machine slept), the next pass reads the ledger: a claim whose
-   launcher is gone is released there, recorded as a failed run, and the stage resumes from what is on disk.
+   notice ever comes (the session closed, the machine slept), the next launch's claim releases a claim whose
+   launcher is gone, records it as a failed run, and the stage resumes from what is on disk. A launcher that is
+   stopped stops its worker first, so a released claim never leaves a worker running.
    Each worker's sandbox reaches only the hosts in `orchestrate.allowed_domains` (e.g.
    `["registry.npmjs.org"]` for a dependency upgrade) — a headless worker cannot approve one.
 3. **Ring back** the orchestrator lane (if open): `<repo>-<stage>: done launched <id>`. Then a one-line brief.

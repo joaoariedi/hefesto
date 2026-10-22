@@ -373,13 +373,17 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; --pid) CPID="${2:-}"; shift ;; *) usage ;; esac; shift; done
     [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
-    reap_dead_owners
+    # A claim whose launcher is gone is released here, under the lock, and only when this process can see its own
+    # caller (--pid alive): a sandboxed call runs in its own pid namespace, where every launcher looks dead
+    # (code review 2026-10-22: a sandboxed `ledger.sh list` used to release live claims).
+    claim_lock
+    if [ -n "$CPID" ] && kill -0 "$CPID" 2>/dev/null; then reap_dead_owners; fi
     E=$(entry "$ID") || exit 1
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
-    # One worker per repository (report 17 §1f), enforced here under a lock: two lanes whose passes started in the
-    # same second both passed /hef.orchestrate's own check and both launched. Another owned entry in this repo → busy.
-    claim_lock
+    # One worker per repository (report 17 §1f), enforced here under the lock taken above: two lanes whose passes
+    # started in the same second both passed /hef.orchestrate's own check and both launched. Another owned
+    # entry in this repo → busy.
     BUSY=$(jq -rs --arg id "$ID" --arg r "$(jq -r '.repo // ""' <<<"$E")" 'map(select(.id != $id and .owner != null and (.repo // "") == $r)) | .[0] | if . then "\(.id) (owned by \(.owner.session_name))" else empty end' "$DIR"/*.json)
     # verify is exempt: read-only, and the second half of the SAME build pass — refusing it would strand the
     # item in phase verify, which no stage picks up again (quickstart re-review 2026-10-19).
@@ -542,16 +546,19 @@ case "$SUB" in
     fi ;;
 
   run)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; ROLE=""; RC=""; USD=""; SID=""
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; ROLE=""; RC=""; USD=""; SID=""; RPID=""
     while [ $# -gt 0 ]; do case "$1" in
       --role) ROLE="${2:-}"; shift ;; --exit) RC="${2:-}"; shift ;; --usd) USD="${2:-}"; shift ;; --session-id) SID="${2:-}"; shift ;;
+      --pid) RPID="${2:-}"; shift ;;
       *) usage ;; esac; shift; done
     [ -n "$ROLE" ] && [ -n "$RC" ] && [ -n "$USD" ] || die "ledger run $ID: --role, --exit and --usd are required"
     E=$(entry "$ID") || exit 1
     [[ "$RC" =~ ^-?[0-9]+$ ]] && [[ "$USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "ledger run $ID: --exit must be an integer and --usd a non-negative number (got '$RC', '$USD')"
-    jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" \
+    jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" --arg p "$RPID" \
       '.runs += [{role: $r, session_name: (.owner.session_name // null), session_id: (if $sid == "" then null else $sid end), exit: $rc, usd: $usd, at: (now | todate)}]
-       | .budget.usd_spent += $usd | .owner = null' <<<"$E" | write_entry "$ID" || exit 1
+       | .budget.usd_spent += $usd
+       # with --pid, release only the claim this launcher made — never a later claim that replaced a released one
+       | (if $p == "" or (.owner.pid // null) == null or ((.owner.pid | tostring) == $p) then .owner = null else . end)' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID run recorded ($ROLE exit $RC, $USD USD); owner released" ;;
 
   record)
@@ -713,7 +720,6 @@ case "$SUB" in
       || die "ledger escalate: an entry in $DIR is not valid JSON — repair or remove it" ;;
 
   list)
-    reap_dead_owners
     PH=""; BLOCKED=0; ACTIVE=0; TODAY=0
     while [ $# -gt 0 ]; do case "$1" in
       --phase) PH="${2:-}"; shift ;; --blocked) BLOCKED=1 ;; --active) ACTIVE=1 ;; --today) TODAY=1 ;; *) usage ;; esac; shift; done
@@ -726,7 +732,6 @@ case "$SUB" in
       || die "ledger list: an entry in $DIR is not valid JSON — repair or remove it (jq . $DIR/*.json names it)" ;;
 
   next)
-    reap_dead_owners
     # --stage (feature stage-roles FR-001): plan picks what has no spec yet (queued, or intake after a failed
     # or unblocked plan run); build picks queued (no plan stage), tasks (planned) or implement (a retry);
     # deploy picks a pr entry with a PR — even while blocked on human:merge, since that wait is what the

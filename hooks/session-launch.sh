@@ -207,8 +207,17 @@ fi
 DOMAINS="$(cfg '.orchestrate.allowed_domains // [] | if type == "array" then .[] else error("not a list") end' 2>/dev/null)" \
   || die "session-launch: orchestrate.allowed_domains must be a list of hostnames like [\"registry.npmjs.org\", \"*.pythonhosted.org\"]"
 while IFS= read -r d; do
-  [ -z "$d" ] || [[ "$d" =~ ^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+(:[0-9]{1,5})?$ ]] \
-    || die "session-launch: orchestrate.allowed_domains: '$d' is not a hostname (expected e.g. registry.npmjs.org or *.npmjs.org, optionally :port — no scheme, no path)"
+  [ -z "$d" ] && continue
+  # a public hostname only: the last label is letters (no IP literal — 169.254.169.254, 10.x, 127.x), no
+  # localhost, a port in 1..65535. This field moves the worker sandbox's own network boundary.
+  DOK=0
+  if [[ "$d" =~ ^(\*\.)?([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(:([0-9]{1,5}))?$ ]]; then
+    DPORT="${BASH_REMATCH[5]}"   # read before the next match overwrites BASH_REMATCH
+    if [[ ! "$d" =~ (^|\.)localhost(:|$) ]]; then
+      if [ -z "$DPORT" ] || { [ "$DPORT" -ge 1 ] && [ "$DPORT" -le 65535 ]; }; then DOK=1; fi
+    fi
+  fi
+  [ "$DOK" = 1 ] || die "session-launch: orchestrate.allowed_domains: '$d' is not a public hostname (expected e.g. registry.npmjs.org or *.npmjs.org, optionally :port 1-65535 — no IP address, no localhost, no scheme, no path)"
 done <<<"$DOMAINS"
 DOMJ="$(printf '%s\n' "$DOMAINS" | sed '/^$/d' | jq -R . | jq -sc .)"
 SETTINGS="$(jq -nc --argjson d "$DOMJ" '{sandbox: ({enabled: true, failIfUnavailable: true} + (if ($d | length) > 0 then {network: {allowedDomains: $d}} else {} end)), crossSessionInbound: "refuse", permissions: {deny: ["SendMessage", "ListAgents"]}}')"
@@ -419,9 +428,15 @@ case "$ROLE:$PHASE" in
   plan:queued)                      "$LEDGER" advance "$ID" intake >/dev/null || exit 1 ;;
 esac
 OUT="$(mktemp "${TMPDIR:-/tmp}/hefesto-launch.XXXXXX")"
-"${CMD[@]}" > "$OUT" 2>"$OUT.err"; RC=$?
+# The worker runs as our child; if this launcher is stopped (a closed session, a kill), it stops the worker
+# and records the run first — a released claim must never leave an orphaned worker behind (review 2026-10-22).
+"${CMD[@]}" > "$OUT" 2>"$OUT.err" &
+CHILD=$!
+trap 'kill "$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; "$LEDGER" run "$ID" --role "$ROLE" --exit 143 --usd 0 --pid "$$" >/dev/null 2>&1; exit 143' TERM INT HUP
+wait "$CHILD"; RC=$?
+trap - TERM INT HUP
 USD="$(jq -r '.total_cost_usd // 0' "$OUT" 2>/dev/null || echo 0)"; SID="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || echo "")"
-"$LEDGER" run "$ID" --role "$ROLE" --exit "$RC" --usd "${USD:-0}" --session-id "$SID" >/dev/null || exit 1
+"$LEDGER" run "$ID" --role "$ROLE" --exit "$RC" --usd "${USD:-0}" --session-id "$SID" --pid "$$" >/dev/null || exit 1
 # FR-011: a session that hit --max-budget-usd is a `budget` block for a person to split or raise the
 # cap, not a retry (three retries would spend 3× the cap on one item — review 2026-09-27).
 if jq -e '(.subtype // "") | test("budget")' "$OUT" >/dev/null 2>&1; then
