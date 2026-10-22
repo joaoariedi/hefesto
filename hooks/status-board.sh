@@ -545,7 +545,11 @@ add_item() {
   local f ids prefix n
   [[ "$ADD_TITLE" =~ ^[^#$'\r\n']{3,120}$ ]] || die "status-board --add: the title must be one line of 3–120 characters with no '#' (got '$(safe_name "$ADD_TITLE")')"
   ! grep -qE "$ID_PATTERN" <<<"$ADD_TITLE" || die "status-board --add: the title names an item id ($(grep -oE "$ID_PATTERN" <<<"$ADD_TITLE" | head -1)) — that would make two items answer to it; reword it"
-  ids="$(for f in todo doing "done" backlog; do grep -hE "$ITEM_HEADING" "$TROOT/$(col "$f")" 2>/dev/null; done | grep -oE "$ID_PATTERN" | grep -E -- '-[0-9]+$')" || true
+  # ids on the board AND in the ledger: an entry outlives its board item (merged, pruned), and reusing its id
+  # would leave the new item behind the old entry, never run (code review 2026-10-22)
+  local ld; ld="$( [ -f "$HERE/ledger.sh" ] && bash "$HERE/ledger.sh" dir 2>/dev/null)" || ld=""
+  ids="$( { for f in todo doing "done" backlog; do grep -hE "$ITEM_HEADING" "$TROOT/$(col "$f")" 2>/dev/null; done | grep -oE "$ID_PATTERN"
+            [ -n "$ld" ] && for f in "$ld"/*.json; do [ -f "$f" ] && basename "$f" .json; done; } | grep -E -- '-[0-9]+$')" || true
   if [ -n "$ids" ]; then prefix="$(sed -E 's/-[0-9]+$//' <<<"$ids" | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')"
   else prefix="$(cfg '.id_prefix // empty')"
     [ -n "$prefix" ] || prefix="$(basename "$ROOT" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9' | cut -c1-3)"

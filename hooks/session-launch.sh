@@ -117,8 +117,10 @@ fi
 same_dir() { [ -n "$1" ] && [ -n "$2" ] && [ "$(cd "$1" 2>/dev/null && pwd -P)" = "$(cd "$2" 2>/dev/null && pwd -P)" ]; }
 if [ -n "${HEFESTO_TRUSTED_TOP:-}" ]; then
   HERE_CD="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
-  same_dir "$HERE_CD" "$HEFESTO_TRUSTED_TOP/.git" \
-    || die "session-launch: this folder's repository (${HERE_CD:-none}) is not the one hefesto-setup.sh trusted ($HEFESTO_TRUSTED_TOP) — run it from the project's main folder"
+  # the common dir alone would accept an item worktree, whose config files a worker writes: the folder itself
+  # must be the trusted main checkout
+  same_dir "$HERE_CD" "$HEFESTO_TRUSTED_TOP/.git" && same_dir "$(git rev-parse --show-toplevel 2>/dev/null)" "$HEFESTO_TRUSTED_TOP" \
+    || die "session-launch: this folder ($(git rev-parse --show-toplevel 2>/dev/null || pwd)) is not the main checkout hefesto-setup.sh trusted ($HEFESTO_TRUSTED_TOP) — run it from the project's main folder"
   [ "$EXT" = 0 ] || same_dir "$HEFESTO_BOARD_TOP" "${HEFESTO_TRUSTED_BOARD:-}" \
     || die "session-launch: the board resolves to $HEFESTO_BOARD_TOP, not the board hefesto-setup.sh trusted (${HEFESTO_TRUSTED_BOARD:-none}) — re-run hefesto-setup.sh if the board moved"
 fi
@@ -347,7 +349,11 @@ EOF
         git -C "$TOP" fetch -q --prune origin 2>/dev/null || true   # offline: unblock still asks gh for the PR's merge commit
         if "$LEDGER" unblock "$ID" >/dev/null 2>&1; then
           "$LEDGER" advance "$ID" merged >/dev/null || die "session-launch deploy $ID: the merge was recorded but advance to merged failed — run: ledger.sh advance $ID merged"
-          WTN=""; if [ -d "$WORKTREE" ] && { { [ "$LANE_MODE" = 1 ] && ! wt_branch "$WORKTREE" >/dev/null; } || ! git -C "$TOP" worktree remove "$WORKTREE" 2>/dev/null; }; then WTN=" (worktree kept: $WORKTREE — it has local changes, or its git pointer was changed)"; fi
+          # A worktree with its own config.worktree (read under extensions.worktreeConfig) could carry a filter
+          # driver that `worktree remove` would run; keep such a worktree for the person (code review 2026-10-22).
+          WCFG=""; [ "$LANE_MODE" = 1 ] && [ "$(git -C "$TOP" config --bool extensions.worktreeConfig 2>/dev/null)" = true ] \
+            && [ -f "$(git -C "$TOP" rev-parse --path-format=absolute --git-common-dir)/worktrees/$(basename "$WORKTREE")/config.worktree" ] && WCFG=1
+          WTN=""; if [ -d "$WORKTREE" ] && { [ -n "$WCFG" ] || { [ "$LANE_MODE" = 1 ] && ! wt_branch "$WORKTREE" >/dev/null; } || ! git -C "$TOP" worktree remove "$WORKTREE" 2>/dev/null; }; then WTN=" (worktree kept: $WORKTREE — it has local changes, or its git pointer was changed)"; fi
           echo "session-launch deploy $ID: PR #$PRN is merged — recorded, phase merged$WTN; nothing to babysit" >&2
           "$LEDGER" show "$ID"; exit 0
         fi

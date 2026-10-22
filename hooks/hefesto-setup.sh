@@ -38,6 +38,7 @@ while [ $# -gt 0 ]; do case "$1" in
   -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) die "unknown option '$1' (expected --lanes, --keep-statusline, --check, --remove or --print)" ;;
 esac; shift; done
+[ "$LANES" = 0 ] || [ "$MODE" = write ] || [ "$MODE" = print ] || die "--lanes goes with a write or --print, not --$MODE (--remove takes every hefesto entry out, the lane ones included)"
 command -v jq >/dev/null 2>&1 || die "jq not found — install jq: https://jqlang.org"
 CDIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || die "not inside a git repository — run it from the project's main folder"
 case "$CDIR" in */.git) TOP="${CDIR%/.git}" ;; *) die "no main checkout for $CDIR (a bare repository?) — run it from the project's main folder" ;; esac
@@ -46,10 +47,28 @@ F="$TOP/.claude/settings.local.json"
 CUR='{}'
 if [ -f "$F" ]; then CUR="$(jq -c . "$F" 2>/dev/null)" && jq -e 'type == "object"' <<<"$CUR" >/dev/null 2>&1 \
   || die "$F is not a JSON object — fix or move it, then run this again (nothing was written)"; fi
-# Everything a sandboxed session can write: the project, the temp folders, and the paths the person allowed.
+# Everything a sandboxed session can write: the project, the temp folders, and every path a settings file that
+# can apply to a lane here grants — sandbox.filesystem.allowWrite, permissions.additionalDirectories, and the
+# folders of Edit allow rules (they widen the sandbox too) — in every profile's user settings and the project's.
 writable=("$TOP" "${TMPDIR:-/tmp}" /tmp /private/tmp /var/folders /private/var/folders)
-while IFS= read -r w; do case "$w" in \~/*) w="$HOME/${w#\~/}" ;; esac; [ -n "$w" ] && writable+=("$w"); done \
-  < <(jq -r '.sandbox.filesystem.allowWrite // [] | .[] | strings' <<<"$CUR")
+grant_paths() { # stdin: one settings JSON → "S<TAB>path" (sandbox syntax: /abs, ~/) or "E<TAB>path" (Edit rule: //abs, /project)
+  jq -r '(((.sandbox.filesystem.allowWrite // []) + (.permissions.additionalDirectories // [])) | .[] | strings | "S\t" + .),
+         ((.permissions.allow // [])[] | strings | capture("^Edit\\((?<p>[^)]*)\\)$").p | "E\t" + .)' 2>/dev/null
+}
+for sf in "$F" "$TOP/.claude/settings.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
+  [ -f "$sf" ] || continue
+  while IFS="$(printf '\t')" read -r kind w; do
+    w="${w%%\**}"                                   # a glob grants from its fixed part down
+    case "$kind:$w" in
+      *:) continue ;;
+      *:\~/*) w="$HOME/${w#\~/}" ;;
+      E://*) w="${w#/}" ;; E:/*) w="$TOP$w" ;;      # Edit rules: //abs, /relative to the project
+      S:/*) ;;                                       # sandbox paths: /abs
+      *) w="$TOP/$w" ;;
+    esac
+    writable+=("$w")
+  done < <(grant_paths < "$sf")
+done
 # A root a sandboxed session can write is never trusted: the launcher there would run outside the sandbox.
 unsafe_root() { # $1 path → 0 when it lies under a sandbox-writable path
   local p="$1/" t
@@ -73,7 +92,7 @@ prefixes=("$CLONE"); for c in ${cfgs[@]+"${cfgs[@]}"}; do prefixes+=("$c/plugins
 allow=(); ask=(); excl=()
 for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
   allow+=("Bash($h/status-board.sh)" "Bash($h/status-board.sh --detailed:*)" "Bash($h/status-board.sh --check:*)" "Bash($h/status-board.sh --item:*)"
-          "Bash($h/status-board.sh --add:*)" "Bash($h/hefesto-setup.sh --check)"
+          "Bash($h/status-board.sh --add:*)" "Bash($h/status-board.sh --init)" "Bash($h/status-board.sh --item-raw:*)" "Bash($h/hefesto-setup.sh --check)"
           "Bash($h/ledger.sh board:*)" "Bash($h/ledger.sh list:*)" "Bash($h/ledger.sh next:*)" "Bash($h/ledger.sh show:*)" "Bash($h/ledger.sh metrics:*)"
           "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)" "Bash($h/ledger.sh questions:*)"
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)")
@@ -99,9 +118,8 @@ done < <(jq -r '.sandbox.excludedCommands // [] | .[] | strings' <<<"$CUR")
 jarr() { if [ $# -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq -sc .; fi; }
 RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@]}")" --argjson x "$(jarr "${excl[@]}")" \
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
-  --arg g "$CLONE/hooks/context-gauge.sh" --argjson lanes "$LANES" --argjson keep "$KEEP" \
+  --arg g "${roots[0]}/hooks/context-gauge.sh" --argjson lanes "$LANES" --argjson keep "$KEEP" \
   '{allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep}')" || die "could not build the rules"
-
 
 if [ "$MODE" = check ]; then
   me="${CLAUDE_PLUGIN_ROOT:-$CLONE}"; me="${me%/}"
@@ -127,24 +145,28 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
     and ($s[($p | length):] | test("^/([^/ ]+/)*/?hooks/(status-board|ledger|session-launch|speckit-helper|hefesto-setup)\\.sh( |:|\\)|$)")));
   def addu($xs): (. // []) as $a | $a + [$xs[] | select(. as $x | $a | index([$x]) | not)];
   def strip: (. // []) | map(select((type == "string" and ours) | not));
-  def gaugeours: (.statusLine.command? // "") as $c | ($c | type == "string") and ($c | endswith("/hooks/context-gauge.sh")) and ($c | ours);
+  def gaugeours: (.statusLine.command? // "") as $c | ($c | type == "string") and ($c | endswith("/hooks/context-gauge.sh"))
+    and any($r.prefixes[]; . as $p | $c | startswith($p + "/"));
   def keep_own_empty($o): with_entries(.key as $k | select((.value != [] and .value != {}) or (($o | type) == "object" and ($o | has($k)) and $o[$k] == .value)));
   . as $old
   | (if .permissions then .permissions.allow |= strip | .permissions.ask |= strip else . end)
   | (if .sandbox then .sandbox.excludedCommands |= (strip | map(select(. as $x | $r.bad | index([$x]) | not)))
        | (if .sandbox.filesystem then .sandbox.filesystem.allowWrite |= ((. // []) - $r.write) else . end) else . end)
   | (if gaugeours then del(.statusLine) else . end)
-  | (if $mode == "remove" and .crossSessionInbound == "accept" then del(.crossSessionInbound) else . end)
-  | (if $mode == "remove" and .sandbox.autoAllowBashIfSandboxed == false then del(.sandbox.autoAllowBashIfSandboxed) else . end)
-  | (if $mode == "remove" and .env then .env |= (del(.HEFESTO_TRUSTED_TOP, .HEFESTO_TRUSTED_BOARD)) else . end)
+  # The two keys a person may have set themselves are removed only when setup set them (env.HEFESTO_SETUP_SET).
+  | (($old.env.HEFESTO_SETUP_SET? // "") | split(",") | map(select(. != ""))) as $mk
+  | (if $mode == "remove" and ($mk | index(["inbound"])) and .crossSessionInbound == "accept" then del(.crossSessionInbound) else . end)
+  | (if $mode == "remove" and ($mk | index(["autoallow"])) then del(.sandbox.autoAllowBashIfSandboxed) else . end)
+  | (if $mode == "remove" and .env then .env |= (del(.HEFESTO_TRUSTED_TOP, .HEFESTO_TRUSTED_BOARD, .HEFESTO_SETUP_SET)) else . end)
   | (if $mode == "remove" then .
      else .permissions.allow |= addu($r.allow) | .permissions.ask |= addu($r.ask)
        | .sandbox.excludedCommands |= addu($r.exclude)
        | (if ($r.write | length) > 0 then .sandbox.filesystem.allowWrite |= addu($r.write) else . end)
        | (if $r.keep == 0 and .statusLine == null then .statusLine = $r.gauge else . end)
-       | (if $r.lanes == 1 then .crossSessionInbound = "accept" else . end)
-       | .sandbox.autoAllowBashIfSandboxed = false
-       | .env = ((.env // {}) + $r.env) end)
+       | (if $r.lanes == 1 and .crossSessionInbound == null then .crossSessionInbound = "accept" | .__m += ["inbound"] else . end)
+       | (if .sandbox.autoAllowBashIfSandboxed == false then . else .sandbox.autoAllowBashIfSandboxed = false | .__m += ["autoallow"] end)
+       | (($mk + (.__m // [])) | unique) as $m | del(.__m)
+       | .env = ((.env // {}) + $r.env + (if ($m | length) > 0 then {HEFESTO_SETUP_SET: ($m | join(","))} else {} end)) end)
   | (if .env then .env |= . else . end)
   | (if .permissions then .permissions |= keep_own_empty($old.permissions) else . end)
   | (if .sandbox.filesystem then .sandbox.filesystem |= keep_own_empty($old.sandbox.filesystem) else . end)
@@ -152,12 +174,11 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   | with_entries(select((.key != "permissions" and .key != "sandbox" and .key != "env") or .value != {} or ($old[.key] == {})))' <<<"$CUR")" || die "could not merge into $F (nothing was written)"
 
 if [ "$MODE" = print ]; then jq . <<<"$NEW"; exit 0; fi
-for s in ${skipped[@]+"${skipped[@]}"}; do echo "skipped $s: inside this project or a temp folder, where a sandboxed session could rewrite the launcher"; done
+for s in ${skipped[@]+"${skipped[@]}"}; do echo "skipped $s: a sandboxed session can write there (the project, a temp folder, or a granted path), so it could rewrite the launcher"; done
 if [ "$(jq -S . <<<"$NEW")" = "$(jq -S . <<<"$CUR")" ] && { [ -f "$F" ] || [ "$NEW" = '{}' ]; }; then
   echo "unchanged: $F already holds hefesto's lane settings$([ "$MODE" = remove ] && echo ' — none of them, rather')"
 else
   mkdir -p "$TOP/.claude" || die "cannot create $TOP/.claude"
-  # Write through a symlink (a stowed file stays a link); a plain file is replaced atomically.
   TMP="$(mktemp "$TOP/.claude/.settings.local.XXXXXX")" || die "mktemp failed in $TOP/.claude"
   jq . <<<"$NEW" > "$TMP" && jq -e 'type == "object"' "$TMP" >/dev/null || { rm -f "$TMP"; die "could not prepare $F"; }
   # Write through a symlink (a stowed file stays a link) only from the validated copy; a plain file is replaced.
@@ -166,10 +187,13 @@ else
   if [ "$MODE" = remove ]; then echo "removed hefesto's lane settings from $F"
   else echo "wrote hefesto's lane settings to $F (${#roots[@]} plugin folder(s)$([ "$LANES" = 1 ] && echo ', four-lane doorbells on')$([ "${#wr[@]}" -gt 0 ] && echo ", the board's ledger folder writable"))"; fi
 fi
-if ! git -C "$TOP" check-ignore -q .claude/settings.local.json 2>/dev/null; then
+if [ "$MODE" != remove ] && ! git -C "$TOP" check-ignore -q .claude/settings.local.json 2>/dev/null; then
   printf '/.claude/settings.local.json\n' >> "$CDIR/info/exclude" && echo "kept out of git: added .claude/settings.local.json to $CDIR/info/exclude"
 fi
 [ "$MODE" = remove ] && exit 0
+if [ "$LANES" = 1 ] && [ "$(jq -r '.crossSessionInbound // ""' <<<"$NEW")" != accept ]; then
+  echo "note: crossSessionInbound is '$(jq -r '.crossSessionInbound' <<<"$NEW")' in $F (your setting, kept) — the stage lanes will not receive the orchestrator's doorbells until it is \"accept\""
+fi
 if [ "$KEEP" = 0 ] && [ "$(jq -c '.statusLine' <<<"$NEW")" != "$(jq -c '.gauge' <<<"$RULES")" ]; then
   echo "your own status line is kept; to show the context gauge in it, print: \"\$(printf '%s' \"\$INPUT\" | $CLONE/hooks/context-gauge.sh)\""
 fi

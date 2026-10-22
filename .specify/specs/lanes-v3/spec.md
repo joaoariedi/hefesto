@@ -124,6 +124,7 @@ other is not documented.
 | FR-020 | `hooks/lane-launch.sh` is replaced by a message naming `hefesto-setup.sh` and `claude --name …`, exit 2 | P2 | US2 |
 | FR-022 | The launcher (the one command outside the sandbox) treats sandbox-writable inputs as hostile: its git calls, and every process it starts but the worker, run with `core.fsmonitor=false` and `core.hooksPath=/dev/null` (`GIT_CONFIG_*` environment, unset for the worker); it refuses a worktree whose `.git` file points anywhere but `<git-common-dir>/worktrees/`; on an external board it refuses a `.repos` path inside the project or a temp folder | P1 | US4 |
 | FR-023 | An orchestrator-lane session start warns when its permission mode is `auto`, `bypassPermissions` or `dontAsk` (dontAsk denies every clear; the others approve any spelling the `ask` rules miss) | P1 | US5 |
+| FR-024 | `status-board.sh --init` creates a missing board (the four columns, the RFC folder) and a default config with `plan_review: "human"` and `plan_first: true`, never overwriting a file; refused on an external board | P1 | US3 |
 | FR-021 | `docs/quickstart.md` and `.pt-BR.md` are rewritten as install + two tracks (Single lane ≤5 steps, Four lanes ≤5 steps) + day to day; `SETUP.md`, README §5, `docs/install.md`, `docs/hooks.md`, `docs/architecture.md` and the wizard's next steps follow | P1 | US6 |
 
 ## Success Criteria

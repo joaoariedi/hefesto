@@ -4798,6 +4798,11 @@ l3_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$l3_md/$(basen
 l3_mut() { rm -f -- "${l3_md:?}/${1:?}"; sed "$2" "$REPO/hooks/$1" > "$l3_md/$1"; cmp -s "$REPO/hooks/$1" "$l3_md/$1" && { bad "lanes-v3 mutation did not apply ($1): $2"; l3_fail=1; }; }
 l3_restore() { rm -f -- "${l3_md:?}/${1:?}"; ln -s "$REPO/hooks/$1" "$l3_md/$1"; }
 L3F="$l3_t/.claude/settings.local.json"
+# A setup mutant must sit beside the real script: from a temp folder the script (rightly) trusts no root and
+# refuses before the mutated line runs — which would make every setup mutation pass vacuously.
+L3_SUM="$REPO/hooks/.smoke-mut-setup.sh"
+l3_su_mut() { sed "$1" "$SU" > "$L3_SUM"; cmp -s "$SU" "$L3_SUM" && { bad "lanes-v3 setup mutation did not apply: $1"; l3_fail=1; }; L3_SU="$L3_SUM"; }
+l3_su_restore() { rm -f -- "${L3_SUM:?}"; L3_SU=""; }
 
 # FR-001..005 setup: the keys, the person's own entries kept, stale ones dropped, idempotent, reversible
 printf '{"env":{"FOO":"1"},"permissions":{"allow":["Bash(ls)","Bash(%s/scripts/mine.sh)","Bash(%s/.claude/plugins/cache/hefesto/hefesto/1.0.0/hooks/ledger.sh board:*)"],"deny":[]},"sandbox":{"excludedCommands":["docker *","/gone/hooks/session-launch.sh *"]},"statusLine":{"type":"command","command":"/my/sl"}}\n' "$REPO" "$l3_home" > "$L3F"
@@ -4821,19 +4826,36 @@ l3u --lanes >/dev/null 2>&1
 l3u --remove >/dev/null 2>&1; [ "$(jq -S 'del(.sandbox.excludedCommands) | .permissions.allow -= [.permissions.allow[] | select(test("1.0.0"))]' "$l3_t/own.json")" = "$(jq -S 'del(.sandbox.excludedCommands)' "$L3F")" ] \
   || { bad "--remove must give back the person's own file (less the stale entries): $(jq -c . "$L3F" | head -c 300)"; l3_fail=1; }
 cp "$l3_t/own.json" "$L3F"
-L3_SU="$l3_md/hefesto-setup.sh"
-l3_mut hefesto-setup.sh 's/| map(select(. as $x | $r.bad | index(\[$x\]) | not))//'
-l3u >/dev/null 2>&1; grep -qF '/gone/hooks/' "$L3F" || { bad "mutation survived: the stale-exclusion filter removed, yet /gone was still dropped"; l3_fail=1; }; l3_restore hefesto-setup.sh; cp "$l3_t/own.json" "$L3F"
-l3_mut hefesto-setup.sh 's/       | .sandbox.autoAllowBashIfSandboxed = false/       | ./'
-l3u >/dev/null 2>&1; jq -e '.sandbox.autoAllowBashIfSandboxed == false' "$L3F" >/dev/null 2>&1 && { bad "mutation survived: autoAllowBashIfSandboxed no longer written, yet the file has it"; l3_fail=1; }; l3_restore hefesto-setup.sh; cp "$l3_t/own.json" "$L3F"
-l3_mut hefesto-setup.sh 's/^  for t in "${writable\[@\]}"; do t=/  return 1; for t in "${writable[@]}"; do t=/'
-l3u >/dev/null 2>&1; grep -qF '9.9.9' "$L3F" || { bad "mutation survived: unsafe roots no longer skipped, yet the temp-folder root has no rule"; l3_fail=1; }; l3_restore hefesto-setup.sh
-L3_SU=""
+l3_su_mut 's/| map(select(. as $x | $r.bad | index(\[$x\]) | not))//'
+l3u >/dev/null 2>&1; grep -qF '/gone/hooks/' "$L3F" || { bad "mutation survived: the stale-exclusion filter removed, yet /gone was still dropped"; l3_fail=1; }; l3_su_restore; cp "$l3_t/own.json" "$L3F"
+l3_su_mut 's/else .sandbox.autoAllowBashIfSandboxed = false | .__m += \["autoallow"\] end/else . end/'
+l3u >/dev/null 2>&1; jq -e '.sandbox.autoAllowBashIfSandboxed == false' "$L3F" >/dev/null 2>&1 && { bad "mutation survived: autoAllowBashIfSandboxed no longer written, yet the file has it"; l3_fail=1; }; l3_su_restore; cp "$l3_t/own.json" "$L3F"
+l3_su_mut 's/^  for t in "${writable\[@\]}"; do t=/  return 1; for t in "${writable[@]}"; do t=/'
+l3u >/dev/null 2>&1; grep -qF '9.9.9' "$L3F" || { bad "mutation survived: unsafe roots no longer skipped, yet the temp-folder root has no rule"; l3_fail=1; }; l3_su_restore
 # a symlinked settings file is written through; a file that is not JSON is refused and left alone
 rm -f "$L3F"; printf '{}\n' > "$l3_t/real.json"; ln -s ../real.json "$L3F"; l3u >/dev/null 2>&1
 { [ -L "$L3F" ] && jq -e '.permissions.ask | length > 0' "$l3_t/real.json" >/dev/null 2>&1; } || { bad "setup must write through a symlinked settings file, keeping the link"; l3_fail=1; }
 rm -f "$L3F"; printf '[1\n' > "$L3F"; l3u >/dev/null 2>&1 && { bad "setup must refuse a settings file that is not JSON"; l3_fail=1; }; [ "$(cat "$L3F")" = "[1" ] || { bad "a refused setup must write nothing"; l3_fail=1; }
 rm -f "$L3F"; l3u >/dev/null 2>&1
+# code review 2026-10-22: the gauge is ours to remove and to replace; the person's own keys stay; grants in user
+# settings make a root unsafe; --lanes with --remove is refused
+printf '{}\n' > "$L3F"; l3u --lanes >/dev/null 2>&1; l3u --remove >/dev/null 2>&1
+[ "$(jq -c . "$L3F")" = '{}' ] || { bad "setup then --remove on an empty file must leave {} (the gauge and the owned keys gone): $(jq -c . "$L3F")"; l3_fail=1; }
+printf '{"statusLine":{"type":"command","command":"%s/.claude/plugins/cache/hefesto/hefesto/1.0.0/hooks/context-gauge.sh"}}\n' "$l3_home" > "$L3F"; l3u >/dev/null 2>&1
+[ "$(jq -r .statusLine.command "$L3F")" = "$REPO/hooks/context-gauge.sh" ] || { bad "an old version's gauge must be replaced by the current one: $(jq -r .statusLine.command "$L3F")"; l3_fail=1; }
+l3_su_mut 's/^  def gaugeours: .*/  def gaugeours: false;/'
+printf '{"statusLine":{"type":"command","command":"%s/.claude/plugins/cache/hefesto/hefesto/1.0.0/hooks/context-gauge.sh"}}\n' "$l3_home" > "$L3F"; l3u >/dev/null 2>&1
+[ "$(jq -r .statusLine.command "$L3F")" = "$REPO/hooks/context-gauge.sh" ] && { bad "mutation survived: gaugeours false, yet the old gauge was replaced"; l3_fail=1; }; l3_su_restore
+printf '{"crossSessionInbound":"refuse","sandbox":{"autoAllowBashIfSandboxed":false}}\n' > "$L3F"; l3_o="$(l3u --lanes 2>&1)"; l3u --remove >/dev/null 2>&1
+{ grep -qF "crossSessionInbound is 'refuse'" <<<"$l3_o" && [ "$(jq -cS . "$L3F")" = '{"crossSessionInbound":"refuse","sandbox":{"autoAllowBashIfSandboxed":false}}' ]; } \
+  || { bad "the person's own crossSessionInbound and autoAllowBashIfSandboxed must survive setup and --remove: $(jq -c . "$L3F")"; l3_fail=1; }
+l3u --lanes --remove >/dev/null 2>&1 && { bad "--lanes with --remove must be refused"; l3_fail=1; }
+mkdir -p "$l3_home/.claude"; printf '{"sandbox":{"filesystem":{"allowWrite":["%s"]}}}\n' "$REPO" > "$l3_home/.claude/settings.json"
+l3_o="$(l3u --print 2>&1)" && { bad "a clone granted writable in user settings must not be trusted (no usable root left): $(head -c 200 <<<"$l3_o")"; l3_fail=1; }
+grep -qF 'no usable hefesto folder' <<<"$l3_o" || { bad "the refusal must say no hefesto folder is usable: $l3_o"; l3_fail=1; }
+l3_su_mut 's/^  done < <(grant_paths < "$sf")$/  done < \/dev\/null/'
+l3u --print >/dev/null 2>&1 || { bad "mutation survived: grants no longer read, yet the granted clone was still refused"; l3_fail=1; }; l3_su_restore
+rm -f "$l3_home/.claude/settings.json"; rm -f "$L3F"; l3u >/dev/null 2>&1
 
 # FR-006/007/023 lanes by name: the gauge and the session start read the name; the orchestrator warns in auto
 l3_g() { printf '{"context_window":{"used_percentage":45},"workspace":{"current_dir":"%s"},"session_name":"%s"}' "$l3_t" "$1" | bash "${L3_G:-$REPO/hooks/context-gauge.sh}" 2>/dev/null; }
@@ -4868,6 +4890,9 @@ l3l register LT-3 --ref TODO.md#LT-3 >/dev/null 2>&1; jq '.orchestrate.plan_firs
 l3_mut ledger.sh 's/(.phase == \\"queued\\" and .item_kind == \\"incident\\") or //'
 [ "$(L3_LG="$l3_md/ledger.sh" l3l next --stage build 2>/dev/null)" = LT-3 ] && { bad "mutation survived: the incident exemption removed, yet build still took LT-3"; l3_fail=1; }; l3_restore ledger.sh
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
+l3_o="$(l3l next --stage plan 2>&1)"; [ "$l3_o" = LT-3 ] && { bad "without plan_first too, a queued 🐞 fix must never go to the planner"; l3_fail=1; }
+l3_mut ledger.sh 's/ and (.phase != "queued" or .item_kind != "incident")//'
+[ "$(L3_LG="$l3_md/ledger.sh" l3l next --stage plan 2>/dev/null)" = LT-3 ] || { bad "mutation survived: the planner exclusion removed, yet LT-3 was not planned"; l3_fail=1; }; l3_restore ledger.sh
 
 # FR-012..014 decisions as data: the planner's question, the person's answers and change notes
 printf '{"session_id":"q1","total_cost_usd":0.5,"structured_output":{"summary":"Should the export be CSV or TSV?","outcome":"blocked","spec_dir":".specify/specs/l3","blocked_on":"human:clarify"}}\n' > "$l3_res"
@@ -4914,6 +4939,13 @@ printf 'x\n' | l3l answer LT-2 --reviewed-by-human >/dev/null 2>&1 || { bad "mut
 
 # FR-018 workers never ring a lane
 l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
+# --add never reuses an id the ledger holds (an entry outlives its board item); --body-from-board re-hashes
+l3l init LT-7 --kind tasks-repo --ref t >/dev/null 2>&1
+l3_mut status-board.sh 's/\[ -n "$ld" \] \&\& for f in "$ld"\/\*.json; do \[ -f "$f" \] \&\& basename "$f" .json; done;/:;/'
+[ "$( (cd "$l3_t" && bash "$l3_md/status-board.sh" --add "Export orders once more") 2>&1)" = LT-4 ] || { bad "mutation survived: ledger ids no longer counted, yet --add did not fall back to the board's next id"; l3_fail=1; }; l3_restore status-board.sh
+[ "$( (cd "$l3_t" && bash "$SB" --add "Export orders again") 2>&1)" = LT-8 ] || { bad "--add must skip ids the ledger holds (LT-5 and LT-7 are entries, not on the board): expected LT-8"; l3_fail=1; }
+l3set LT-1 '.source.body_sha256 = "0"'; l3l record LT-1 --body-from-board >/dev/null 2>&1
+l3j LT-1 "(.source.body_sha256 | length) == 64" || { bad "record --body-from-board must re-hash the item from the board"; l3_fail=1; }
 grep -qF '"deny":["SendMessage","ListAgents"]' <<<"$(l3s implement LT-1 --dry-run 2>&1)" || { bad "every worker's settings must deny SendMessage and ListAgents"; l3_fail=1; }
 
 # FR-022 the launcher in lane mode: the trusted folder, the derived worktree, its git pointer, its branch;
@@ -4922,9 +4954,14 @@ l3l register LT-5 --ref TODO.md#LT-1 >/dev/null 2>&1 || l3l init LT-5 --kind tas
 git -C "$l3_t" worktree add -q "$l3_t/.claude/worktrees/LT-5" -b LT-5 >/dev/null 2>&1; l3l record LT-5 --worktree "$l3_t/.claude/worktrees/LT-5" --branch LT-5 >/dev/null 2>&1
 l3v() { (cd "$l3_t" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" HEFESTO_TRUSTED_TOP="${L3_TT:-$l3_t}" bash "${L3_SL:-$SL}" verify LT-5 --dry-run 2>&1); }
 l3v | grep -qF -- '--name verify-LT-5' || { bad "lane mode: a verify dry run over a sound worktree must print its line: $(l3v | head -c 300)"; l3_fail=1; }
-grep -qF 'not the one hefesto-setup.sh trusted' <<<"$(L3_TT=/elsewhere l3v)" || { bad "lane mode: a launch outside the trusted folder must be refused"; l3_fail=1; }
-L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^  same_dir "$HERE_CD" "$HEFESTO_TRUSTED_TOP\/.git" \\$/  true \\/'
-grep -qF 'not the one hefesto-setup.sh trusted' <<<"$(L3_TT=/elsewhere l3v)" && { bad "mutation survived: the trusted-folder check removed, yet the launch was refused"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
+grep -qF 'not the main checkout hefesto-setup.sh trusted' <<<"$(L3_TT=/elsewhere l3v)" || { bad "lane mode: a launch outside the trusted folder must be refused"; l3_fail=1; }
+l3_o="$(cd "$l3_t/.claude/worktrees/LT-5" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" HEFESTO_TRUSTED_TOP="$l3_t" bash "$SL" implement LT-1 --dry-run 2>&1)"
+grep -qF 'is not the main checkout hefesto-setup.sh trusted' <<<"$l3_o" || { bad "lane mode: a launch from an item worktree (its config is a worker's) must be refused: $(head -c 200 <<<"$l3_o")"; l3_fail=1; }
+L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/ \&\& same_dir "$(git rev-parse --show-toplevel 2>\/dev\/null)" "$HEFESTO_TRUSTED_TOP"//'
+grep -qF 'is not the main checkout' <<<"$(cd "$l3_t/.claude/worktrees/LT-5" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" HEFESTO_TRUSTED_TOP="$l3_t" bash "$l3_md/session-launch.sh" implement LT-1 --dry-run 2>&1)" \
+  && { bad "mutation survived: the main-checkout check removed, yet the worktree launch was refused"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
+L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^  same_dir "$HERE_CD" .* \\$/  true \\/'
+grep -qF 'not the main checkout hefesto-setup.sh trusted' <<<"$(L3_TT=/elsewhere l3v)" && { bad "mutation survived: the trusted-folder check removed, yet the launch was refused"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
 l3_gd="$(sed -n 's/^gitdir: //p' "$l3_t/.claude/worktrees/LT-5/.git")"; cp "$l3_t/.claude/worktrees/LT-5/.git" "$l3_t/wtgit.bak"
 # a convincing fake git dir outside <common>/worktrees/ (valid commondir and HEAD): only the location check stops it
 mkdir -p "$l3_t/fakegit"; printf '%s/.git\n' "$l3_t" > "$l3_t/fakegit/commondir"; printf 'ref: refs/heads/LT-5\n' > "$l3_t/fakegit/HEAD"
@@ -4950,7 +4987,7 @@ L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^CMD=(env "${WORKE
 grep -qF -- '-u GIT_CONFIG_KEY_1 ' <<<"$(cd "$l3_t" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" GIT_CONFIG_COUNT=1 bash "$l3_md/session-launch.sh" implement LT-1 --dry-run 2>&1)" \
   && { bad "mutation survived: the worker env restore removed, yet the dry run still unsets our keys"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
 git -C "$l3_t" worktree remove --force "$l3_t/.claude/worktrees/LT-5" >/dev/null 2>&1
-rm -rf -- "${l3_t:?}" "${l3_home:?}" "${l3_bin:?}" "${l3_cfg:?}" "${l3_md:?}"
+rm -rf -- "${l3_t:?}" "${l3_home:?}" "${l3_bin:?}" "${l3_cfg:?}" "${l3_md:?}"; rm -f -- "${L3_SUM:?}"
 
 # FR-008..011, FR-015, FR-021 / SC-005 the commands and the guides
 l3_oc="$REPO/commands/hef.orchestrate.md"; l3_sh="$REPO/commands/hef.ship.md"
@@ -4967,7 +5004,7 @@ for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
   { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
     || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
 done
-[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored; 16 mutations caught"
+[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused); 21 mutations caught"
 
 # --- Tier 1: macOS portability (field report 2026-10-15: /hef.status and /hef.babysit broke on a Mac) -----
 head_ "macOS portability"
