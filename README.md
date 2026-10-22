@@ -24,7 +24,7 @@ by building the wrong thing well.
 Hefesto is a Claude Code plugin that adds the missing middle: a **workflow** (idea → spec → plan →
 tasks → code → verification, with a human gate at each seam), **seven specialist agents** the workflow
 dispatches, **fifteen hooks** that enforce the gates, **skills** the agents reason with, and a set
-of **rules** that load into every session. It is one namespace of 26 `hef.*` commands; you pick the
+of **rules** that load into every session. It is one namespace of 27 `hef.*` commands; you pick the
 path that fits the change, from a one-line fix to a full specification pipeline.
 
 The parts that matter are the ones you cannot talk your way past:
@@ -125,7 +125,7 @@ says what each release changed.
 
 | Directory | What lives there |
 |---|---|
-| 🛠️ `commands/` | The 26 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
+| 🛠️ `commands/` | The 27 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Seven specialist subagents — testing, quality, review, security, PR coordination, two one-shot readers (another repo; this one, for the arena). |
 | ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (46 subcommands) for live git data, requirement traceability, the mutation ratchet and dependency diffs; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `pr-watch.sh` for `/hef.babysit`; `arena-run.sh` for foreign-provider readers; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
@@ -247,18 +247,19 @@ under `branches` in `.claude/project-status.json` — PR base, verifier diff bas
 protected heads and the promotion chain all follow ([install §7, step 12](docs/install.md)).
 Each long-lived pane has a `/compact` prompt shaped to what it owns — orchestrator, planner, builder,
 deployer — in [Performance → Compact prompts per pane](docs/performance.md#-compact-prompts-per-pane).
-Open each with `hooks/lane-launch.sh <lane>`; plan from RFCs (`rfc:` on the item) and approve each plan by
-name (`orchestrate.plan_review: "human"`) — the [quick start](docs/quickstart.md) has the whole flow, and
-when a single session (`/hef.agent`) is the better fit.
+Set a project up once with `hooks/hefesto-setup.sh` (`--lanes` for four), then open each lane with plain
+`claude --name <repo>-<lane>` — any wrapper that passes claude's arguments on works. `/hef.ship "<idea>"` in
+the orchestrator takes work to a PR; every decision is a form there, and the orchestrator rings the stage
+lanes (or, in a single lane, runs the stages itself) — the [quick start](docs/quickstart.md) has both flows.
 A board kept in its own repository can feed several code repos — a `board` pointer in each, a
 `repos` map in the board, one central ledger, one worker per repo ([install §7, step 13](docs/install.md)).
 
 | Pane | Owns (ledger phases) | Human gates | Launches / runs |
 |---|---|---|---|
-| 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | `human:intake`, `human:plan-approval` | `/hef.status`, `ledger.sh list\|next\|metrics`, the plan approvals (`ledger.sh unblock <id> --reviewed-by-human --by <name>`); it may start any stage itself, `/hef.orchestrate --stage plan\|build\|deploy\|all`, while the three stage panes run theirs on `/loop` ([quick start](docs/quickstart.md)) |
-| 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | `human:clarify`, `human:plan-review` | `/hef.orchestrate --stage plan` (a fresh planner: spec from the item's RFC → plan → fresh-context review → tasks, writes only under `.specify/`; with `plan_review: "human"` it then waits on `human:plan-approval`), or by hand `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks` |
-| 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | `/hef.orchestrate` (the default stage: the implement worker — continuing from the planner's tasks when there are any — then the separate verifier) |
-| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, `human:merge`, tag/deploy | `/hef.orchestrate --stage deploy` (one headless `/hef.babysit --once` pass on the next PR), or by hand `/hef.babysit` (`/loop 25m /hef.babysit <n> --once` while a review is pending); `/hef.release`; the merge itself, by a person |
+| 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | every `human:*` gate — intake, clarify, plan review, plan approval, merge | `/hef.ship` (new work), `/hef.orchestrate` (asks each decision as a form and runs its command, then rings each stage lane — or runs the stage itself when no lane is open), `/hef.status` ([quick start](docs/quickstart.md)) |
+| 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | — (its questions go to the orchestrator) | `/hef.orchestrate --stage plan` (a fresh planner: spec from the item's RFC → plan → fresh-context review → tasks, writes only under `.specify/`; with `plan_review: "human"` it then waits on `human:plan-approval`), or by hand `/hef.brainstorm` → `/hef.spec` → `/hef.clarify` → `/hef.plan` → `/hef.review` → `/hef.tasks` |
+| 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | `/hef.orchestrate --stage build` (the implement worker — continuing from the planner's tasks when there are any — then the separate verifier) |
+| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, tag/deploy | `/hef.orchestrate --stage deploy` (one headless `/hef.babysit --once` pass on the next PR), or by hand `/hef.babysit` (`/loop 25m /hef.babysit <n> --once` while a review is pending); `/hef.release`; the merge itself, by a person |
 
 Choose by object when one person runs the repository and a feature should stay in one pane end to
 end; by stage when more than one person attends, when the panes sit on different hosts (CI and the
@@ -299,15 +300,15 @@ holds everything the line points at.
    (tiers, never model ids; the reviewer tier must rank at or above the author's).
 2. Protect `main`: require a pull request before merging, administrators included. Merge with merge
    commits — the `human:merge` gate is cleared by branch ancestry, which a squash never satisfies.
-3. Open the project pane **with its own sandbox off**, in the main checkout, on the host that holds
-   GitHub access and nothing else: `claude --name <repo>-project --settings '{"sandbox":{"enabled":false}}'`.
-   The launcher spawns `claude -p` as a child of the shell; the workers get their sandbox from the
-   settings it passes them.
-4. `/hef.orchestrate --dry-run` prints the exact launch line for the next item and claims nothing.
-5. `/hef.orchestrate` — one item: a worker in `.claude/worktrees/<id>`, then a separate verifier,
-   then a PR and an entry blocked on `human:merge`. Run it again for the next item.
-6. After you merge: `git pull --ff-only`, `hooks/ledger.sh unblock <id>`,
-   `hooks/ledger.sh advance <id> merged`, `git worktree remove .claude/worktrees/<id>`.
+3. Set the project up once, in a terminal: `bash ~/.claude-framework/hooks/hefesto-setup.sh` — the
+   launcher is the one command that runs outside the sandbox (it spawns `claude -p`); the workers get
+   their sandbox from the settings it passes them.
+4. `claude --name <repo>-orchestrator`, then `/hef.orchestrate --stage build --dry-run` prints the exact
+   launch line for the next item and claims nothing.
+5. `/hef.orchestrate` — the orchestrator pass: it runs each stage here (no stage lane open), asks every
+   decision as a form, and stops when the item waits on CI or your merge.
+6. Merge on GitHub with a merge commit, then `/hef.orchestrate` once: the deploy pass records the merge and
+   removes the worktree.
 
 A hand-run item in `feature` reaches the same release queue in one call from its branch:
 `hooks/ledger.sh handoff <id> --pr <url>` (it records the run, the PR, the branch and the worktree,
@@ -315,9 +316,9 @@ advances to `pr` and blocks on `human:merge`; it refuses an owned or blocked ent
 `orchestrate.publish` on, every orchestrator pass writes the item's state on the board heading
 (`⏸ 🔀 🔨 📐 ⛔ ✅`); with `orchestrate.escalate_after_hours` set, a `human:*` block older than that is
 sent once, as a one-line pointer, to the pane that owns it. A 🐞 or 🛡 before an item's id makes it an
-incident or vulnerability fix, with one extra verifier gate it cannot skip. Two rules keep the panes honest: the `project` pane that runs
-`/hef.orchestrate` has **its own sandbox off** (the workers it launches get theirs), see
-[`docs/install.md`](docs/install.md) §7; and no pane ever merges, approves or pushes `main` for a
+incident or vulnerability fix, with one extra verifier gate it cannot skip. Two rules keep the panes honest: every person-only command runs in the
+orchestrator behind its permission dialog (`hefesto-setup.sh` keeps them in `ask`, and makes any other
+unlisted command ask too), see [`docs/install.md`](docs/install.md) §7; and no pane ever merges, approves or pushes `main` for a
 worker — branch protection on `main` is the backstop, not the prompt.
 
 ### 🧰 Also available, any time

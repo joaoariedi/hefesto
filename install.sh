@@ -138,7 +138,7 @@ msg_en() {
     next_restart) echo "  1. Restart Claude Code (close every session and open it again)." ;;
     next_line) echo "  2. At the start of a session, look for the line: hefesto {1} hooks loaded from …" ;;
     next_doctor) echo "  3. Run /hef.doctor in a session: it checks the whole install." ;;
-    next_sessions) echo "  4. Choose how to work — one session, or the four-session pipeline: {1}" ;;
+    next_sessions) echo "  4. Set each project up once (hooks/hefesto-setup.sh), then open a lane with claude --name <repo>-orchestrator — one lane, or four: {1}" ;;
     next_guide) echo "  5. The full guide: {1}" ;;
     backup_note) echo "Backups of the files I changed: {1}" ;;
     root) echo "Please do not run this as root (or with sudo). Run it as your normal user." ;;
@@ -264,7 +264,7 @@ msg_pt() {
     next_restart) echo "  1. Reinicie o Claude Code (feche todas as sessões e abra de novo)." ;;
     next_line) echo "  2. No início de uma sessão, procure a linha: hefesto {1} hooks loaded from …" ;;
     next_doctor) echo "  3. Rode /hef.doctor numa sessão: ele confere a instalação inteira." ;;
-    next_sessions) echo "  4. Escolha como trabalhar — uma sessão, ou o pipeline de quatro sessões: {1}" ;;
+    next_sessions) echo "  4. Prepare cada projeto uma vez (hooks/hefesto-setup.sh) e abra uma sessão com claude --name <repo>-orchestrator — uma sessão, ou quatro: {1}" ;;
     next_guide) echo "  5. O guia completo (em inglês): {1}" ;;
     backup_note) echo "Backups dos arquivos que mudei: {1}" ;;
     root) echo "Não rode isto como root (nem com sudo). Rode como o seu usuário normal." ;;

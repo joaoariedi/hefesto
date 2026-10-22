@@ -15,7 +15,7 @@ hefesto/
 │   └── marketplace.json        # makes the repo installable (`claude plugin install`)
 ├── .mcp.json                   # GitHub MCP server (project scope)
 ├── agents/                     # 7 agents (5 pipeline + repo-scout and truth-scout one-shot)
-├── commands/                   # 26 slash commands, all hef.*
+├── commands/                   # 27 slash commands, all hef.*
 ├── hooks/                      # 15 hooks + hooks.json; helpers: release.sh, speckit-helper.sh (46 subcommands), status-board.sh, ledger.sh, session-launch.sh, pr-watch.sh, arena-run.sh; board-lib.sh (sourced by ledger.sh: board resolution)
 ├── skills/                     # 7 skills, each a <name>/SKILL.md directory
 ├── workflows/                  # workflow.js — the deterministic task-list executor
@@ -122,9 +122,13 @@ judges the result; its tier must rank at least the author's. Only the launcher w
 Planning can run from an **RFC** per item (`rfc:` on the item, under `orchestrate.rfc_dir`): the plan role
 hands it to the planner as data and pins its sha256; with `orchestrate.plan_review: "human"` every plan
 waits on `human:plan-approval`, which only a named person clears, and an RFC that moves after approval
-blocks the build until the plan is re-aligned and approved again. The four long-lived lanes open through
-`hooks/lane-launch.sh` (default permission mode, an allowlist of hefesto's helpers, the person's clears in
-`ask`, `hooks/context-gauge.sh` as status line, its threshold per lane from `context.compact_at`).
+blocks the build until the plan is re-aligned and approved again. Lanes open with plain `claude --name <repo>-<lane>` after a one-time
+`hooks/hefesto-setup.sh`, which writes the lane permissions into `.claude/settings.local.json` (a plugin
+cannot ship them): the helper allowlist, the person's clears in `ask`, only the launcher outside the sandbox,
+`autoAllowBashIfSandboxed: false`, the trusted folder, the gauge. The orchestrator lane is the one place a
+person decides — every blocked entry becomes a form whose command it then runs behind its dialog — and it
+reaches the stage lanes with one-line cross-session doorbells; a lane reads its work from the ledger, never
+from the message, and launched workers cannot message at all.
 Blocks (`human:*`, `verdict`, `stall`, `budget`, `conflict`, `ci`) are announced at session start to
 the pane that owns them (`orchestrate.panes`); opt-in `orchestrate.publish` writes each item's state
 onto the board and `escalate_after_hours` sends one pointer for a stale human block. `/hef.babysit`

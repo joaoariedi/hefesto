@@ -35,6 +35,9 @@ usage: ledger.sh <subcommand> …
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
   record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k] [--rfc]   (--body-file re-hashes the item; --rfc pins its RFC)
   register <id> --ref <column>#<id>                     route, detect the kind and init in one call; an existing entry is left untouched
+  questions <id>                                        the planner's open questions (human:clarify, human:plan-review), delimited as data
+  answer <id> --reviewed-by-human --by <name> [--file f]  the person's answers (stdin or --file) → copied, hashed; clears clarify / plan-review
+  revise <id> --reviewed-by-human --by <name> [--notes-file f]  a plan waiting on approval goes back to the planner with the person's notes
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
@@ -51,7 +54,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # The kind → pane map (stage-roles FR-010) — byte-identical to session-start-context.sh's copy; the smoke
 # suite compares the two strings (ledger-surfaces FR-005). Config `orchestrate.panes` wins per pane.
-PANES_DEFAULT='{"orchestrator":["human:intake","human:plan-approval"],"plan":["human:clarify","human:plan-review"],"build":["verdict","stall","budget","conflict"],"deploy":["ci","human:merge"]}'
+PANES_DEFAULT='{"orchestrator":["human:intake","human:plan-approval","human:clarify","human:plan-review","human:merge"],"plan":[],"build":["verdict","stall","budget","conflict"],"deploy":["ci"]}'
 # The publish state markers (ledger-surfaces FR-003) — byte-identical to status-board.sh's copy, which
 # `--mark` uses to know which leading heading tokens are ITS markers (replace, never stack).
 PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build":"🔨","pr":"🔀","done":"✅"}'
@@ -563,6 +566,12 @@ case "$SUB" in
       *) usage ;; esac; shift; done
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 
+  questions) ID="${1:-}"; [ -n "$ID" ] || usage; E=$(entry "$ID") || exit 1; questions_item ;;
+  answer|revise)   # lanes-v3 FR-013/014 — person-only, in the lanes' ask rules
+    VERB="$SUB"; ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0; RBY=""; TXT=""
+    while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; --file|--notes-file) TXT="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    E=$(entry "$ID") || exit 1
+    if [ "$VERB" = answer ]; then answer_item "$TXT"; else revise_item "$TXT"; fi ;;
   register)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; REF=""
     while [ $# -gt 0 ]; do case "$1" in --ref) REF="${2:-}"; shift ;; *) usage ;; esac; shift; done
@@ -716,10 +725,13 @@ case "$SUB" in
     # gate never monopolises the stage.
     STAGE=build; while [ $# -gt 0 ]; do case "$1" in --stage) STAGE="${2:-}"; shift ;; *) usage ;; esac; shift; done
     case "$STAGE" in
-      plan)   SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "intake")'; ORDER="$ID_SORT" ;;
+      plan)   SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "intake")'; ORDER="$ID_SORT"
+              # lanes-v3 FR-017: with plan_first a queued 🐞 fix is the build stage's, never planned
+              [ "$(cfgp '.orchestrate.plan_first // false')" = true ] && SEL="$SEL"' and (.phase != "queued" or .item_kind != "incident")' ;;
       build)  SEL='.owner == null and .blocked_on == null and (.phase == "queued" or .phase == "tasks" or .phase == "implement")'; ORDER="$ID_SORT"
-              # orchestrate.plan_first: a plan lane runs too, so build never takes an unplanned (queued) item from it
-              [ "$(cfgp '.orchestrate.plan_first // false')" = true ] && SEL="${SEL/.phase == \"queued\" or /}" ;;
+              # orchestrate.plan_first: a plan lane runs too, so build never takes an unplanned (queued) item from it —
+              # except a 🐞 incident, which is a fix and is not planned (lanes-v3 FR-017)
+              [ "$(cfgp '.orchestrate.plan_first // false')" = true ] && SEL="${SEL/.phase == \"queued\" or /(.phase == \"queued\" and .item_kind == \"incident\") or }" ;;
       deploy) SEL='.owner == null and .phase == "pr" and ((.pr.url // "") != "") and (.blocked_on == null or .blocked_on.kind == "human:merge")'
               ORDER='sort_by([(if .blocked_on == null then 0 else 1 end), (([.runs[]? | select(.role == "deploy") | .at] | max) // ""), (.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])])' ;;
       *) usage ;;

@@ -155,13 +155,14 @@ Ask which project. It must be a git repository with a GitHub remote, and `gh aut
 pass. Work in its main folder, on its default branch (or the branch where work integrates, once
 known), with a clean `git status`.
 
-**First, the mode** (`docs/quickstart.md` step 3). **Simple** — one session with `/hef.agent` — fits
-experiments, prototypes, small projects and one person: then Step 4 is only `/hef.init` (4c item 1), and
-Step 5 is the Simple handover. **Pipeline** — the four lanes — fits a backlog of RFCs and a steady train of
-features. Ask the engineer which; if they do not know, it is the first decision in the lead's message (4b),
-recommending Simple unless the project already has such a backlog.
+**First, the mode** (`docs/quickstart.md`). **Single lane** — one orchestrator session that starts the
+planner, builder and deployer as background sessions — fits experiments, small projects and one feature at a
+time: then Step 4 is only `/hef.init` (4c item 1) — `/hef.orchestrate` creates a default board itself — and
+Step 5 is the single-lane handover. **Four lanes** — the orchestrator plus a planner, a builder and a
+deployer session — fits a steady stream of RFCs. Ask the engineer which; if they do not know, it is the first
+decision in the lead's message (4b), recommending the single lane unless the project already has such a stream.
 
-For the Pipeline, Step 4 runs in three passes: **look** at everything (read-only), send **one message** with every
+For four lanes, Step 4 runs in three passes: **look** at everything (read-only), send **one message** with every
 decision the lead must make, then **write** what was decided. Some of these choices belong to the
 engineer's lead, not to the engineer. Never ask the engineer to make them; that is what the message
 is for.
@@ -221,7 +222,7 @@ to bring back the lead's reply **together with the whole message**, then stop. P
 - the test command, if you could not find it;
 - the spend limits: `usd_cap` (per worker session) and `daily_usd_cap` (per day);
 - a project rule that the sessions would break, and whether to make an exception for board items;
-- the mode, if the engineer did not know (Simple or Pipeline);
+- the mode, if the engineer did not know (single lane or four lanes);
 - whether a person approves every background plan (`plan_review: "human"`, recommended — the cheapest place
   to stop drift between an RFC and the code) and where RFCs live (`docs/rfcs/`, recommended);
 - each lane's compaction threshold (recommended: orchestrator 40, plan 50, build and deploy 0).
@@ -297,53 +298,45 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
 
 ## Step 5 — Hand over
 
-### Simple
-
-Tell the engineer: in Claude Code, inside the project, `/hef.agent <what you want>` for each change — it
-sizes the work and takes the shortest safe path, stopping when it needs them — then `/hef.pr`, and they
-merge. `/compact` at a natural break inside a long task; `/clear` between unrelated tasks. Steps 3–4 of
-`docs/quickstart.md` (`docs/quickstart.pt-BR.md` in Portuguese) are the same, to keep.
-
-### Pipeline
-
-Each lane runs in its own terminal, inside the project's main folder (with `<clone>` the hefesto folder
-Step 1 printed):
+Both modes start with one command the engineer runs **in a normal terminal**, in the project's main folder —
+you cannot run it: it writes `.claude/settings.local.json`, which no sandboxed session may write (with
+`<clone>` the hefesto folder Step 1 printed):
 
 ```bash
-bash <clone>/hooks/lane-launch.sh orchestrator
-bash <clone>/hooks/lane-launch.sh plan
-bash <clone>/hooks/lane-launch.sh build
-bash <clone>/hooks/lane-launch.sh deploy
+bash <clone>/hooks/hefesto-setup.sh            # four lanes: add --lanes
 ```
 
-The launcher names the session `<repo>-<lane>`, sets `HEFESTO_LANE`, the default permission mode, the
-sandbox off (a lane starts background sessions, which run sandboxed — on Linux that needs `bwrap` and
-`socat`, checked in Step 1), the context gauge as status line, and an allowlist of hefesto's own helpers
-only, with the commands that clear or rewrite a person's decision kept in `ask`. Tell the lead what that
-leaves: a lane itself is not sandboxed, and it reads item and RFC text written by others. The allowlist
-limits what it runs without a dialog to hefesto's own helpers, and the clears always ask, so a person
-reads each dialog before answering it. Then, once in each:
+It writes hefesto's helper allowlist, keeps the commands that record a person's decision behind a dialog,
+runs only the launcher outside the sandbox, makes every other unlisted command ask
+(`autoAllowBashIfSandboxed: false`), and pins the folder the launcher may work in. Tell the lead what that
+leaves: a lane reads item and RFC text written by others, and a person reads each dialog before answering
+it. After each hefesto update the engineer runs it again (a lane's first lines say when).
 
-| Lane | Run once | What it then does |
-|---|---|---|
-| orchestrator | `/hef.status` whenever wanted | The board and delivery numbers; plan approvals and merges happen here. It may start any stage itself: `/hef.orchestrate --stage plan\|build\|deploy\|all` |
-| plan | `/loop 15m /hef.orchestrate --stage plan` | The next new item, from its RFC: spec, plan, review, tasks — then it waits on `human:plan-approval` |
-| build | `/loop 15m /hef.orchestrate` | The next approved item: implemented, checked by a separate session, pull request opened |
-| deploy | `/loop 15m /hef.orchestrate --stage deploy` | The next pull request: CI watched and fixed until it is ready; after the merge, the merge recorded |
+### Single lane
 
-- **Plan approval** (`human:plan-approval`): the engineer — or whoever the lead names — reads the spec, plan
-  and tasks in `.claude/worktrees/<ID>`, rewrites them there if needed, and runs
-  `ledger.sh unblock <ID> --reviewed-by-human --by "<name>"` in the orchestrator. It always asks; never
-  allowlist it.
-- `human:clarify` or `human:plan-review`: answered in the item's folder (`docs/quickstart.md` step 8 has
-  the commands). Any other block: the engineer asks their lead.
-- Merges: **Create a merge commit**; the deploy lane records it on its next pass. A squash or rebase merge
-  it cannot see; the lead records that one with `ledger.sh unblock <id> --merge-sha <sha>`.
-- Compaction: when a lane's status line says so, that lane's own `/compact` prompt — fetch them with
-  `curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/docs/performance.md`
-  (section "Compact prompts per pane") and give the engineer the four, one per lane.
-- A loop expires after 7 days: start it again each week. Only a person merges. When in doubt, stop and ask
-  the lead. The same steps, to keep: `docs/quickstart.md` steps 5–8.
+Tell the engineer:
+1. `claude --name <repo>-orchestrator` — any wrapper that passes claude's arguments on works
+   (`claude-profile <p> --name …`).
+2. `/hef.orchestrate` once: it checks the setup and creates the board if there is none.
+3. `/hef.ship "<what you want>"` for each change (or `/hef.ship <ID>` for a board item). Every decision is a
+   form in that session; they merge the pull request on GitHub with **Create a merge commit**, then run
+   `/hef.orchestrate` once to record it.
+
+### Four lanes
+
+Tell the engineer:
+1. Open four sessions, each in its own terminal, all with the same profile: `claude --name <repo>-orchestrator`,
+   `<repo>-planner`, `<repo>-builder`, `<repo>-deployer`.
+2. Once in each stage lane: `/hef.orchestrate --stage plan`, `--stage build`, `--stage deploy`. They then
+   wait for the orchestrator's doorbell — no `/loop`.
+3. In the orchestrator: `/hef.orchestrate`, then `/hef.ship <ID>` (or `"<idea>"`) for each RFC'd item.
+   Approvals, answers and change requests are forms there; merges are on GitHub (**Create a merge commit**;
+   a squash or rebase merge the lead records with `ledger.sh unblock <id> --merge-sha <sha>`).
+4. Compaction: when a lane's status line says so, that lane's own `/compact` prompt — fetch them with
+   `curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/docs/performance.md`
+   (section "Compact prompts per pane").
+
+Only a person merges. When in doubt, stop and ask the lead. The same steps, to keep: `docs/quickstart.md`.
 
 ## Report back
 

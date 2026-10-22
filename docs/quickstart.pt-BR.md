@@ -1,148 +1,83 @@
 # Guia rápido
 
-Do zero até trabalhar com o hefesto: instale, confira e escolha uma de duas formas de trabalhar. Linux e
-macOS, como vêm de fábrica. O guia completo, em inglês, é o [`install.md`](install.md). Para o Claude te
-guiar pelos mesmos passos, abra o Claude Code num projeto e digite:
-``Rode `curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/SETUP.md` e siga as instruções.``
+Instale o hefesto e escolha uma de duas formas de trabalhar. Toda decisão — aprovar um plano, responder
+uma pergunta, pedir mudanças — é um formulário numa sessão só, a orchestrator; nada é copiado entre
+sessões. Linux e macOS. O guia completo, em inglês, é o [`install.md`](install.md).
 
 *In English: [`quickstart.md`](quickstart.md).*
 
-## 1. Instalar ou atualizar
+## 1. Instalar
 
-Feche todas as janelas do Claude Code. Num terminal normal (fora do Claude Code), rode:
+Feche todas as janelas do Claude Code. Num terminal normal:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh) --lang pt
 ```
 
-Aperte Enter em cada pergunta para aceitar a recomendação. No fim aparece
-`Tudo certo: todos os perfis rodam o hefesto <versão>`. Ele nunca apaga nada; as cópias ficam em
-`~/hefesto-old/`.
+Aperte Enter em cada pergunta. No fim aparece `Tudo certo: todos os perfis rodam o hefesto <versão>`.
 
-## 2. Conferir
-
-1. Abra o Claude Code dentro de um projeto git, não na sua pasta pessoal: `cd ~/seu-projeto && claude`.
-2. Nas primeiras linhas aparece `hefesto <versão> hooks loaded from …`. Versão antiga quer dizer que a
-   janela estava aberta durante a atualização: feche todas e abra de novo.
-3. Digite `/hef.doctor`. Ele deve mostrar `status: RUNNING_MATCHES_CLONE`.
-
-## 3. Escolher como trabalhar
-
-| | **Simples** — uma sessão | **Pipeline** — quatro sessões |
+|  | **Uma sessão** | **Quatro sessões** |
 |---|---|---|
-| Serve para | experimentos, protótipos, projetos pequenos, uma pessoa | uma fila de RFCs esperando para virar código, um trem contínuo de features, várias pessoas |
-| Você roda | `/hef.agent <o que você quer>` numa sessão | quatro etapas que passam os itens adiante por um ledger |
-| Preparar | `/hef.init` uma vez | um quadro, uma pasta de RFCs, uma configuração, ajustes no GitHub (passo 5) |
+| Para | experimentos, projetos pequenos, uma feature por vez | um fluxo contínuo de RFCs |
+| Sessões | uma: a orchestrator | a orchestrator + planner, builder e deployer |
+| Quem roda as etapas | sessões em segundo plano que a orchestrator abre | as três sessões de etapa, chamadas pela orchestrator |
 
-Na dúvida, comece pelo Simples; o projeto pode passar para o Pipeline depois.
+Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois.
 
-## 4. Simples: uma sessão
+## 2. Uma sessão
 
-1. No Claude Code, dentro do projeto: `/hef.init` (uma vez).
-2. Para cada mudança: `/hef.agent <o que você quer>`. Ele mede o trabalho e escolhe o caminho mais curto e
-   seguro — um ajuste rápido, uma especificação leve, ou a cadeia completa especificação → plano → revisão →
-   tarefas → implementação → verificação — e para sempre que precisa da sua resposta.
-3. `/hef.pr` abre o pull request; você faz o merge.
-4. Compactação: numa pausa natural dentro de uma tarefa longa, `/compact` (o prompt geral do
-   [`performance.md`](performance.md)); entre tarefas sem relação, `/clear`.
-
-É só isso no modo Simples. O resto deste guia é o Pipeline.
-
-## 5. Pipeline: preparar o projeto (uma vez por repositório)
-
-O jeito fácil é o pedido do `SETUP.md` acima: o Claude confere o projeto, junta numa mensagem só as
-decisões do seu líder e depois escreve a configuração num pull request. O que ele prepara:
-
-1. `/hef.init`, que cria a pasta `.specify/` das especificações e planos.
-2. O quadro: `tasks/TODO.md`, `DOING.md`, `DONE.md`, `BACKLOG.md`. Cada item é um título com um código e um
-   nome (`## ABC-12 — Exportar pedidos em CSV`), seguido de umas linhas — e, para trabalho planejado, a sua
-   RFC (passo 6). O prefixo do código tem duas ou mais letras maiúsculas ou dígitos, começando por uma
-   letra. As etapas só pegam trabalho do `TODO.md`; o que só uma pessoa pode fazer vai para o `BACKLOG.md`.
-3. `.claude/project-status.json` — o quadro, os limites de gasto, o comando dos testes e três ajustes de
-   que as quatro etapas dependem (o modelo completo está no [`SETUP.md`](../SETUP.md), passo 4c):
-   - `"plan_first": true` — a etapa build nunca pega um item que a etapa plan ainda não planejou;
-   - `"plan_review": "human"` — todo plano espera a aprovação de uma pessoa (passo 8);
-   - `"context": {"compact_at": {"orchestrator": 40, "plan": 50, "build": 0, "deploy": 0}}` — quando a
-     linha de status de cada etapa avisa para compactar (0 = nunca).
-4. No GitHub: merge commit permitido e squash e rebase desligados, e a branch onde o trabalho se integra
-   protegida (pull request obrigatório). Uma branch que não seja a `main` (por exemplo `dev`) é declarada
-   em `branches` ([`install.md`](install.md) §7, passo 12).
-
-Faça o merge do pull request de setup e depois `git pull` na pasta principal do projeto antes de seguir.
-
-## 6. Pipeline: RFCs
-
-Uma RFC é o desenho de onde uma feature é construída: um arquivo por item do quadro, `docs/rfcs/<ID>.md`
-(outra pasta com `orchestrate.rfc_dir`). O item aponta para ela com uma linha abaixo do título:
-
-```markdown
-## ABC-12 — Exportar pedidos em CSV
-rfc: docs/rfcs/ABC-12.md
-```
-
-- **Escrita por outra pessoa:** ela coloca a RFC pronta ali e cria o item.
-- **Escrita com o hefesto:** na etapa plan, `/hef.brainstorm <a ideia> para ABC-12` — ele salva o desenho
-  aprovado como a RFC desse item e acrescenta a linha `rfc:`.
-
-O planejador em segundo plano da etapa plan especifica a partir da RFC — sem novas decisões de desenho,
-cada requisito da RFC vira um requisito da especificação que cita a sua seção, as perguntas em aberto da
-RFC voltam para você como perguntas — e planeja e escreve as tarefas. Se a RFC mudar depois que o plano
-foi aprovado, a etapa build recusa o item até uma pessoa alinhar o plano e aprovar de novo.
-
-## 7. Pipeline: abrir as quatro etapas
-
-Cada uma no seu terminal, dentro da pasta principal do projeto:
-
-```bash
-bash ~/.claude-framework/hooks/lane-launch.sh orchestrator
-bash ~/.claude-framework/hooks/lane-launch.sh plan
-bash ~/.claude-framework/hooks/lane-launch.sh build
-bash ~/.claude-framework/hooks/lane-launch.sh deploy
-```
-
-(Use a pasta onde o hefesto está instalado, se não for `~/.claude-framework`.) Cada etapa abre como
-`<repo>-<etapa>`, no modo de permissão padrão, com o sandbox desligado (as etapas abrem sessões em segundo
-plano, que rodam com sandbox) e uma lista de permissões só com os ajudantes do próprio hefesto: o trabalho
-de rotina roda sem perguntas, enquanto qualquer coisa que libere ou reescreva uma decisão de uma pessoa — e
-qualquer coisa inesperada — continua perguntando a você. A etapa em si não roda com sandbox e lê textos de
-itens e RFCs escritos por outras pessoas: a lista de permissões limita o que ela roda sem perguntar aos
-ajudantes do próprio hefesto, então leia cada pedido de permissão antes de responder. A linha de status
-mostra o medidor de contexto; `--keep-statusline` mantém a sua.
-
-Depois, uma vez em cada:
-
-| Etapa | Rode uma vez | O que ela faz depois |
-|---|---|---|
-| orchestrator | `/hef.status` quando quiser | O quadro e os números de entrega; suas aprovações e merges acontecem aqui. Ela pode iniciar qualquer etapa: `/hef.orchestrate --stage plan\|build\|deploy`, ou `--stage all` para uma volta de recuperação de cada (a sessão fica ocupada enquanto rodam) |
-| plan | `/loop 15m /hef.orchestrate --stage plan` | O próximo item novo: especificação a partir da RFC, plano, revisão, tarefas — e então espera a sua aprovação |
-| build | `/loop 15m /hef.orchestrate` | O próximo item aprovado: implementado, conferido por outra sessão, pull request aberto |
-| deploy | `/loop 15m /hef.orchestrate --stage deploy` | O próximo pull request: a CI acompanhada e corrigida até ficar pronto; depois do seu merge, o merge registrado |
-
-- Roda uma sessão em segundo plano por repositório de cada vez: uma etapa que encontra o repositório
-  ocupado avisa e tenta na próxima volta. Cada volta respeita o `usd_cap` e o `daily_usd_cap`.
-- Um loop expira 7 dias depois de começar: inicie de novo toda semana. Aperte Esc para parar um.
-- Estado de cada item, na orchestrator: `bash ~/.claude-framework/hooks/ledger.sh list --active` (rodando)
-  e `… list --blocked` (esperando).
-
-## 8. Pipeline: no dia a dia
-
-1. Coloque os itens (e as suas RFCs) no quadro.
-2. **Aprove cada plano.** Um item esperando `human:plan-approval` tem a especificação, o plano e as tarefas
-   na própria pasta, `.claude/worktrees/<ID>`. Leia — reescreva ali se quiser diferente — e então, na
-   orchestrator:
+1. **Prepare o projeto uma vez** — num terminal, na pasta principal do projeto:
    ```bash
-   bash ~/.claude-framework/hooks/ledger.sh unblock ABC-12 --reviewed-by-human --by "Seu Nome"
+   bash ~/.claude-framework/hooks/hefesto-setup.sh
    ```
-   Ele pede permissão toda vez, e o seu nome fica registrado no item.
-3. **Responda às perguntas do planejador.** `human:clarify` ou `human:plan-review` num item: abra o Claude
-   Code na pasta dele (`cd .claude/worktrees/ABC-12 && claude`), rode `/hef.clarify` (perguntas) ou
-   `/hef.review` (um plano que o revisor não fechou), depois `ledger.sh unblock ABC-12`. Qualquer outro
-   bloqueio: fale com o seu líder.
-4. **Faça o merge** de cada pull request você mesmo, com **Create a merge commit**. A etapa deploy registra
-   o merge na volta seguinte. Depois de um merge com squash ou rebase ela não enxerga o merge: o seu líder
-   registra com `ledger.sh unblock <id> --merge-sha <sha>`.
-5. **Compacte** quando a linha de status de uma etapa avisar, com o prompt próprio dela
-   ([`performance.md`](performance.md), "Compact prompts per pane"). As etapas em loop guardam pouco além
-   do que está em disco: deixe-as em 0 e a compactação automática do Claude Code cuida delas. `/clear` só
-   para trabalho sem relação ou uma conversa que deu errado.
-6. Se algo parecer errado, rode `/hef.doctor`, copie a mensagem exata e mande para o seu líder.
+2. **Abra a sessão** — com `claude`, ou qualquer wrapper que repasse os argumentos do claude:
+   ```bash
+   claude --name meurepo-orchestrator          # ou: claude-profile trabalho --name meurepo-orchestrator
+   ```
+3. **Confira:** `/hef.orchestrate` — ele mostra a preparação e cria o quadro se não houver um.
+4. **Entregue algo:** `/hef.ship "exportar pedidos em CSV"` (ou `/hef.ship ABC-12` para um item que já está
+   no quadro). Uma feature passa por um brainstorm com você, vira uma RFC e é planejada em segundo plano;
+   você aprova o plano num formulário; ela é construída, conferida por outra sessão, e o pull request é
+   acompanhado até a CI ficar verde. Uma correção de bug vai direto para o builder.
+5. **Faça o merge** do pull request no GitHub com **Create a merge commit** e rode `/hef.orchestrate` uma
+   vez: ele registra o merge.
+
+## 3. Quatro sessões
+
+1. **Prepare o projeto uma vez** — num terminal, na pasta principal do projeto:
+   ```bash
+   bash ~/.claude-framework/hooks/hefesto-setup.sh --lanes
+   ```
+2. **Abra e dê nome às quatro sessões**, cada uma no seu terminal, todas com o mesmo perfil:
+   ```bash
+   claude --name meurepo-orchestrator
+   claude --name meurepo-planner
+   claude --name meurepo-builder
+   claude --name meurepo-deployer
+   ```
+3. **Inicie cada sessão de etapa uma vez:** `/hef.orchestrate --stage plan` na planner, `--stage build` na
+   builder, `--stage deploy` na deployer. Daí em diante elas esperam a campainha da orchestrator.
+4. **Na orchestrator:** `/hef.orchestrate` — ele confere a preparação e encontra as três sessões.
+5. **Mande as RFCs:** `/hef.ship ABC-12` para um item com a sua RFC no quadro (`rfc: docs/rfcs/ABC-12.md`
+   abaixo do título), ou `/hef.ship "<ideia>"`. A orchestrator chama a planner; quando um plano fica pronto
+   ela pede a sua aprovação, depois chama a builder, depois a deployer. Aprovações, respostas e pedidos de
+   mudança acontecem todos na orchestrator; o merge você faz no GitHub.
+
+## No dia a dia
+
+- **Decisões** chegam como formulários na orchestrator. Responder um roda o comando certo, e o Claude
+  Code mostra o pedido de permissão dele — confirme. Esse pedido é a sua assinatura; rode a orchestrator no
+  modo de permissão padrão (ela avisa se não estiver).
+- **RFCs** ficam em `docs/rfcs/<ID>.md`, uma por item, ligadas por uma linha `rfc:`. Se uma RFC muda depois
+  que o plano foi aprovado, a builder para e a orchestrator pede que você alinhe o plano.
+- **Compacte** quando a linha de status de uma sessão disser `/compact`, com o prompt próprio dela
+  ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` só para trabalho sem relação.
+- **Depois de atualizar o hefesto**, rode o comando de preparação de novo (as primeiras linhas de uma
+  sessão avisam quando for preciso).
+- **Se algo parecer errado**, rode `/hef.doctor`, copie a mensagem exata e mande para o seu líder.
+
+**Segurança num parágrafo.** As sessões mantêm o sandbox do Claude Code; só o lançador do hefesto roda fora
+dele (ele abre as sessões em segundo plano, cada uma com sandbox). A preparação faz todo comando fora dos
+ajudantes do hefesto pedir permissão antes, mantém atrás de um pedido os comandos que registram as suas
+decisões e fixa a pasta onde o lançador pode trabalhar. Uma sessão lê textos de itens e RFCs escritos por
+outras pessoas — então leia cada pedido antes de responder.
