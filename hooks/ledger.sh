@@ -27,7 +27,7 @@ usage: ledger.sh <subcommand> …
   dir                                                   print the ledger directory
   board                                                 the resolved board as JSON: mode (in-repo|external), board_top, config, ledger_dir, repos, repo
   init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability] [--repo <name>]   (--repo: required on an external board)
-  claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; attempts > 2 → stall; releases claims whose lease (<id>.lease, renewed by the launcher) is over 2 min old
+  claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; attempts > 2 → stall; releases claims whose lease (<id>.lease, renewed by the launcher) is over 5 min old
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
@@ -551,6 +551,8 @@ case "$SUB" in
       --pid) RPID="${2:-}"; shift ;;
       *) usage ;; esac; shift; done
     [ -n "$ROLE" ] && [ -n "$RC" ] && [ -n "$USD" ] || die "ledger run $ID: --role, --exit and --usd are required"
+    # only the launcher records a run: a worker that read a pid from `show` must not release a claim with it
+    [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "ledger run $ID: never from inside a launched worker — the launcher records the run from the worker's structured output"
     E=$(entry "$ID") || exit 1
     [[ "$RC" =~ ^-?[0-9]+$ ]] && [[ "$USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "ledger run $ID: --exit must be an integer and --usd a non-negative number (got '$RC', '$USD')"
     jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" --arg p "$RPID" \

@@ -4950,7 +4950,7 @@ printf 'x\n' | l3l answer LT-2 --reviewed-by-human >/dev/null 2>&1 || { bad "mut
 l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
 # trial 2026-10-22 + reviews: a claim whose launcher stopped renewing its lease is released by a later claim,
 # under its lock — never by list or next, never from a launched worker; a fresh lease, or a claim still in its
-# two-minute grace, stays. A file's age reads the same inside a sandbox, where a pid check cannot see the launcher.
+# five-minute grace, stays. A file's age reads the same inside a sandbox, where a pid check cannot see the launcher.
 l3l init LT-9 --kind tasks-repo --ref t >/dev/null 2>&1; l3l init LT-11 --kind tasks-repo --ref t >/dev/null 2>&1
 L3LD="$l3_t/.git/hefesto/ledger"
 l3_own() { l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: 1, started: \"$1\"}"; }
@@ -4961,15 +4961,15 @@ l3_o="$(l3_claim11)"; { l3j LT-9 '.owner == null and .runs[-1].exit == 125' && g
   || { bad "a claim with no lease, past its grace, must be released by the next claim: $l3_o"; l3_fail=1; }
 l3_own 2026-01-01T00:00:00Z; : > "$L3LD/LT-9.lease"; l3_claim11 >/dev/null
 l3j LT-9 '.owner != null' || { bad "a claim whose lease is fresh must stay"; l3_fail=1; }
-touch -t 202601010000 "$L3LD/LT-9.lease"; l3_claim11 >/dev/null; l3j LT-9 '.owner == null' || { bad "a claim whose lease is over two minutes old must be released"; l3_fail=1; }
+touch -t 202601010000 "$L3LD/LT-9.lease"; l3_claim11 >/dev/null; l3j LT-9 '.owner == null' || { bad "a claim whose lease is over five minutes old must be released"; l3_fail=1; }
 l3_own "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; rm -f "$L3LD/LT-9.lease"; l3_claim11 >/dev/null
-l3j LT-9 '.owner != null' || { bad "a claim still in its two-minute grace (no lease yet) must stay"; l3_fail=1; }
+l3j LT-9 '.owner != null' || { bad "a claim still in its five-minute grace (no lease yet) must stay"; l3_fail=1; }
 l3_own 2026-01-01T00:00:00Z; rm -f "$L3LD/LT-9.lease"; l3_claim11 HEFESTO_WORKER=1 >/dev/null
 l3j LT-9 '.owner != null' || { bad "a launched worker's claim must release nothing"; l3_fail=1; }
 L3_LG="$l3_md/ledger.sh"; l3_mut ledger-lanes.sh 's/^  \[ -z "${HEFESTO_WORKER:-}" \] || \[ "$HEFESTO_WORKER" = 0 \] || return 0$/  :/'
 l3_claim11 HEFESTO_WORKER=1 >/dev/null; l3j LT-9 '.owner == null' || { bad "mutation survived: the worker guard removed, yet the worker released nothing"; l3_fail=1; }; l3_restore ledger-lanes.sh
 l3_own 2026-01-01T00:00:00Z; : > "$L3LD/LT-9.lease"
-l3_mut ledger-lanes.sh 's/^  if \[ -f "$lease" \]; then \[ -n "$(find "$lease" -mmin +2 2>\/dev\/null)" \]; return; fi$/  return 0/'
+l3_mut ledger-lanes.sh 's/^  if \[ -f "$lease" \]; then \[ -n "$(find "$lease" -mmin +5 2>\/dev\/null)" \]; return; fi$/  return 0/'
 l3_claim11 >/dev/null; l3j LT-9 '.owner != null' && { bad "mutation survived: the lease age ignored, yet a fresh lease kept its claim"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
 rm -f "$L3LD/LT-9.lease"
 l3set LT-11 '.owner = null'; l3set LT-9 '.owner = null'
@@ -4977,6 +4977,8 @@ l3l claim LT-9 --session s --role plan --pid $$ >/dev/null 2>&1
 l3j LT-9 ".owner.pid == $$" || { bad "claim --pid must record the launcher's pid"; l3_fail=1; }
 l3l run LT-9 --role plan --exit 0 --usd 0 --pid 1 >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "run --pid of another launcher must not release this claim"; l3_fail=1; }
 l3l run LT-9 --role plan --exit 0 --usd 0 >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "run without --pid (a worker, a stray call) must not release a launcher's claim"; l3_fail=1; }
+(cd "$l3_t" && HEFESTO_WORKER=1 bash "$LG" run LT-9 --role plan --exit 0 --usd 0 --pid $$) >/dev/null 2>&1 && { bad "run must be refused inside a launched worker, even with the right pid"; l3_fail=1; }
+l3j LT-9 ".owner.pid == $$" || { bad "a worker's run must leave the claim"; l3_fail=1; }
 l3_mut ledger.sh 's/ or ((.owner.pid | tostring) == $p) then/ or true then/'
 L3_LG="$l3_md/ledger.sh"; l3l run LT-9 --role plan --exit 0 --usd 0 --pid 1 >/dev/null 2>&1; l3j LT-9 '.owner == null' || { bad "mutation survived: run releases any claim, yet the other launcher's claim stayed"; l3_fail=1; }; l3_restore ledger.sh; L3_LG=""
 l3set LT-9 '.owner = null'; l3l claim LT-9 --session s --role plan >/dev/null 2>&1

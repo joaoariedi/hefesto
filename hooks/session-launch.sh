@@ -434,11 +434,13 @@ OUT="$(mktemp "${TMPDIR:-/tmp}/hefesto-launch.XXXXXX")"
 # and records the run first — a released claim must never leave an orphaned worker behind (review 2026-10-22).
 # The lease: renewed every 20 s while this launcher lives, so a later claim can tell a cut-off run from a
 # running one without seeing this process (ledger-lanes.sh, lease_stale).
-LEASE="$("$LEDGER" dir)/$ID.lease"; : > "$LEASE" 2>/dev/null || true
-( while kill -0 "$$" 2>/dev/null; do : > "$LEASE" 2>/dev/null; sleep 20; done ) >/dev/null 2>&1 &
-HB=$!
+LEASE="$("$LEDGER" dir)/$ID.lease"; touch "$LEASE" 2>/dev/null || true
 "${CMD[@]}" > "$OUT" 2>"$OUT.err" &
 CHILD=$!
+# renewed while the launcher OR its worker lives: a SIGKILL of the launcher cannot be trapped, and its worker
+# must keep its claim while it runs (review 2026-10-22). touch, not ": >", moves the mtime on every filesystem.
+( while kill -0 "$$" 2>/dev/null || kill -0 "$CHILD" 2>/dev/null; do touch "$LEASE" 2>/dev/null; sleep 20; done ) >/dev/null 2>&1 &
+HB=$!
 trap 'kill "$CHILD" "$HB" 2>/dev/null; wait "$CHILD" 2>/dev/null; "$LEDGER" run "$ID" --role "$ROLE" --exit 143 --usd 0 --pid "$$" >/dev/null 2>&1; exit 143' TERM INT HUP
 wait "$CHILD"; RC=$?
 trap - TERM INT HUP; kill "$HB" 2>/dev/null
