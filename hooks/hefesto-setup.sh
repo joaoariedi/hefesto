@@ -38,7 +38,7 @@ while [ $# -gt 0 ]; do case "$1" in
   -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) die "unknown option '$1' (expected --lanes, --keep-statusline, --check, --remove or --print)" ;;
 esac; shift; done
-[ "$LANES" = 0 ] || [ "$MODE" = write ] || [ "$MODE" = print ] || die "--lanes goes with a write or --print, not --$MODE (--remove takes every hefesto entry out, the lane ones included)"
+[ "$LANES" = 0 ] || [ "$MODE" != remove ] || die "--lanes does not go with --remove (it takes every hefesto entry out, the lane ones included)"
 command -v jq >/dev/null 2>&1 || die "jq not found — install jq: https://jqlang.org"
 CDIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || die "not inside a git repository — run it from the project's main folder"
 case "$CDIR" in */.git) TOP="${CDIR%/.git}" ;; *) die "no main checkout for $CDIR (a bare repository?) — run it from the project's main folder" ;; esac
@@ -61,8 +61,12 @@ for sf in "$F" "$TOP/.claude/settings.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}
     w="${w%%\**}"                                   # a glob grants from its fixed part down
     case "$kind:$w" in
       *:) continue ;;
+      *:\~|*:\~/) w="$HOME" ;;
       *:\~/*) w="$HOME/${w#\~/}" ;;
-      E://*) w="${w#/}" ;; E:/*) w="$TOP$w" ;;      # Edit rules: //abs, /relative to the project
+      E://*) w="${w#/}" ;;
+      # an Edit rule's /path is relative to the settings file's base — the project for a project file,
+      # unclear for a user file: count both, the safe side
+      E:/*) writable+=("$(dirname "$(dirname "$sf")")$w"); w="$TOP$w" ;;
       S:/*) ;;                                       # sandbox paths: /abs
       *) w="$TOP/$w" ;;
     esac
@@ -70,9 +74,14 @@ for sf in "$F" "$TOP/.claude/settings.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}
   done < <(grant_paths < "$sf")
 done
 # A root a sandboxed session can write is never trusted: the launcher there would run outside the sandbox.
-unsafe_root() { # $1 path → 0 when it lies under a sandbox-writable path
-  local p="$1/" t
-  for t in "${writable[@]}"; do t="${t%/}"; [ -n "$t" ] && case "$p" in "$t"/*) return 0 ;; esac; done; return 1
+unsafe_root() { # $1 path → 0 when it lies under a sandbox-writable path, or a writable path lies inside it
+  local p t
+  p="$(printf '%s/' "$1" | tr -s /)"
+  for t in "${writable[@]}"; do
+    t="$(printf '%s/' "$t" | tr -s /)"
+    case "$p" in "$t"*) return 0 ;; esac             # the root is inside a writable path (a grant of /, //**: everything)
+    case "$t" in "$p"*) return 0 ;; esac             # a writable path is inside the root (its hooks/, say)
+  done; return 1
 }
 roots=(); skipped=(); cfgs=()
 add_root() { local p="${1%/}"; [ -n "$p" ] || return 0
@@ -152,7 +161,7 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   | (if .permissions then .permissions.allow |= strip | .permissions.ask |= strip else . end)
   | (if .sandbox then .sandbox.excludedCommands |= (strip | map(select(. as $x | $r.bad | index([$x]) | not)))
        | (if .sandbox.filesystem then .sandbox.filesystem.allowWrite |= ((. // []) - $r.write) else . end) else . end)
-  | (if gaugeours then del(.statusLine) else . end)
+  | (if gaugeours and ($r.keep == 0 or $mode == "remove") then del(.statusLine) else . end)
   # The two keys a person may have set themselves are removed only when setup set them (env.HEFESTO_SETUP_SET).
   | (($old.env.HEFESTO_SETUP_SET? // "") | split(",") | map(select(. != ""))) as $mk
   | (if $mode == "remove" and ($mk | index(["inbound"])) and .crossSessionInbound == "accept" then del(.crossSessionInbound) else . end)
@@ -195,6 +204,6 @@ if [ "$LANES" = 1 ] && [ "$(jq -r '.crossSessionInbound // ""' <<<"$NEW")" != ac
   echo "note: crossSessionInbound is '$(jq -r '.crossSessionInbound' <<<"$NEW")' in $F (your setting, kept) — the stage lanes will not receive the orchestrator's doorbells until it is \"accept\""
 fi
 if [ "$KEEP" = 0 ] && [ "$(jq -c '.statusLine' <<<"$NEW")" != "$(jq -c '.gauge' <<<"$RULES")" ]; then
-  echo "your own status line is kept; to show the context gauge in it, print: \"\$(printf '%s' \"\$INPUT\" | $CLONE/hooks/context-gauge.sh)\""
+  echo "your own status line is kept; to show the context gauge in it, print: \"\$(printf '%s' \"\$INPUT\" | ${roots[0]}/hooks/context-gauge.sh)\""
 fi
 echo "next: open each lane with  claude --name $(basename "$TOP")-<orchestrator|plan|build|deploy>  (any wrapper that forwards claude's arguments works)"

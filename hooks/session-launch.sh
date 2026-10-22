@@ -352,7 +352,7 @@ EOF
           # A worktree with its own config.worktree (read under extensions.worktreeConfig) could carry a filter
           # driver that `worktree remove` would run; keep such a worktree for the person (code review 2026-10-22).
           WCFG=""; [ "$LANE_MODE" = 1 ] && [ "$(git -C "$TOP" config --bool extensions.worktreeConfig 2>/dev/null)" = true ] \
-            && [ -f "$(git -C "$TOP" rev-parse --path-format=absolute --git-common-dir)/worktrees/$(basename "$WORKTREE")/config.worktree" ] && WCFG=1
+            && [ -f "$(sed -n 's/^gitdir: //p' "$WORKTREE/.git" 2>/dev/null | head -1)/config.worktree" ] && WCFG=1   # git may name the admin dir PB-11, not the worktree's basename
           WTN=""; if [ -d "$WORKTREE" ] && { [ -n "$WCFG" ] || { [ "$LANE_MODE" = 1 ] && ! wt_branch "$WORKTREE" >/dev/null; } || ! git -C "$TOP" worktree remove "$WORKTREE" 2>/dev/null; }; then WTN=" (worktree kept: $WORKTREE — it has local changes, or its git pointer was changed)"; fi
           echo "session-launch deploy $ID: PR #$PRN is merged — recorded, phase merged$WTN; nothing to babysit" >&2
           "$LEDGER" show "$ID"; exit 0

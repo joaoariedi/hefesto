@@ -4830,7 +4830,7 @@ l3_su_mut 's/| map(select(. as $x | $r.bad | index(\[$x\]) | not))//'
 l3u >/dev/null 2>&1; grep -qF '/gone/hooks/' "$L3F" || { bad "mutation survived: the stale-exclusion filter removed, yet /gone was still dropped"; l3_fail=1; }; l3_su_restore; cp "$l3_t/own.json" "$L3F"
 l3_su_mut 's/else .sandbox.autoAllowBashIfSandboxed = false | .__m += \["autoallow"\] end/else . end/'
 l3u >/dev/null 2>&1; jq -e '.sandbox.autoAllowBashIfSandboxed == false' "$L3F" >/dev/null 2>&1 && { bad "mutation survived: autoAllowBashIfSandboxed no longer written, yet the file has it"; l3_fail=1; }; l3_su_restore; cp "$l3_t/own.json" "$L3F"
-l3_su_mut 's/^  for t in "${writable\[@\]}"; do t=/  return 1; for t in "${writable[@]}"; do t=/'
+l3_su_mut 's/^  local p t$/  return 1; local p t/'
 l3u >/dev/null 2>&1; grep -qF '9.9.9' "$L3F" || { bad "mutation survived: unsafe roots no longer skipped, yet the temp-folder root has no rule"; l3_fail=1; }; l3_su_restore
 # a symlinked settings file is written through; a file that is not JSON is refused and left alone
 rm -f "$L3F"; printf '{}\n' > "$l3_t/real.json"; ln -s ../real.json "$L3F"; l3u >/dev/null 2>&1
@@ -4843,9 +4843,11 @@ printf '{}\n' > "$L3F"; l3u --lanes >/dev/null 2>&1; l3u --remove >/dev/null 2>&
 [ "$(jq -c . "$L3F")" = '{}' ] || { bad "setup then --remove on an empty file must leave {} (the gauge and the owned keys gone): $(jq -c . "$L3F")"; l3_fail=1; }
 printf '{"statusLine":{"type":"command","command":"%s/.claude/plugins/cache/hefesto/hefesto/1.0.0/hooks/context-gauge.sh"}}\n' "$l3_home" > "$L3F"; l3u >/dev/null 2>&1
 [ "$(jq -r .statusLine.command "$L3F")" = "$REPO/hooks/context-gauge.sh" ] || { bad "an old version's gauge must be replaced by the current one: $(jq -r .statusLine.command "$L3F")"; l3_fail=1; }
-l3_su_mut 's/^  def gaugeours: .*/  def gaugeours: false;/'
-printf '{"statusLine":{"type":"command","command":"%s/.claude/plugins/cache/hefesto/hefesto/1.0.0/hooks/context-gauge.sh"}}\n' "$l3_home" > "$L3F"; l3u >/dev/null 2>&1
-[ "$(jq -r .statusLine.command "$L3F")" = "$REPO/hooks/context-gauge.sh" ] && { bad "mutation survived: gaugeours false, yet the old gauge was replaced"; l3_fail=1; }; l3_su_restore
+l3_su_mut 's/^  def gaugeours: (/  def gaugeours: false and (/'
+printf '{"statusLine":{"type":"command","command":"%s/.claude/plugins/cache/hefesto/hefesto/1.0.0/hooks/context-gauge.sh"}}\n' "$l3_home" > "$L3F"; l3u >/dev/null 2>&1; l3_rc=$?
+{ [ "$l3_rc" -eq 0 ] && [ "$(jq -r .statusLine.command "$L3F")" != "$REPO/hooks/context-gauge.sh" ]; } || { bad "mutation survived (or did not run, rc=$l3_rc): gaugeours false, yet the old gauge was replaced"; l3_fail=1; }; l3_su_restore
+printf '{"statusLine":{"type":"command","command":"%s/hooks/context-gauge.sh"}}\n' "$REPO" > "$L3F"; l3u --keep-statusline >/dev/null 2>&1
+[ "$(jq -r .statusLine.command "$L3F")" = "$REPO/hooks/context-gauge.sh" ] || { bad "--keep-statusline must never touch the status line, hefesto's gauge included"; l3_fail=1; }
 printf '{"crossSessionInbound":"refuse","sandbox":{"autoAllowBashIfSandboxed":false}}\n' > "$L3F"; l3_o="$(l3u --lanes 2>&1)"; l3u --remove >/dev/null 2>&1
 { grep -qF "crossSessionInbound is 'refuse'" <<<"$l3_o" && [ "$(jq -cS . "$L3F")" = '{"crossSessionInbound":"refuse","sandbox":{"autoAllowBashIfSandboxed":false}}' ]; } \
   || { bad "the person's own crossSessionInbound and autoAllowBashIfSandboxed must survive setup and --remove: $(jq -c . "$L3F")"; l3_fail=1; }
@@ -4855,6 +4857,14 @@ l3_o="$(l3u --print 2>&1)" && { bad "a clone granted writable in user settings m
 grep -qF 'no usable hefesto folder' <<<"$l3_o" || { bad "the refusal must say no hefesto folder is usable: $l3_o"; l3_fail=1; }
 l3_su_mut 's/^  done < <(grant_paths < "$sf")$/  done < \/dev\/null/'
 l3u --print >/dev/null 2>&1 || { bad "mutation survived: grants no longer read, yet the granted clone was still refused"; l3_fail=1; }; l3_su_restore
+for g in '/' '//' "$REPO/hooks"; do
+  printf '{"sandbox":{"filesystem":{"allowWrite":["%s"]}}}\n' "$g" > "$l3_home/.claude/settings.json"
+  l3u --print >/dev/null 2>&1 && { bad "a grant of '$g' must leave the clone untrusted (everything, or a folder inside it, is writable)"; l3_fail=1; }
+done
+printf '{"permissions":{"allow":["Edit(//**)"]}}\n' > "$l3_home/.claude/settings.json"; l3u --print >/dev/null 2>&1 && { bad "an Edit(//**) grant must leave the clone untrusted"; l3_fail=1; }
+printf '{"sandbox":{"filesystem":{"allowWrite":["%s/hooks"]}}}\n' "$REPO" > "$l3_home/.claude/settings.json"
+l3_su_mut 's/^    case "$t" in "$p"\*) return 0 ;; esac .*$/    :/'
+l3u --print >/dev/null 2>&1 || { bad "mutation survived: the grant-inside-the-root rule removed, yet the clone was still untrusted"; l3_fail=1; }; l3_su_restore
 rm -f "$l3_home/.claude/settings.json"; rm -f "$L3F"; l3u >/dev/null 2>&1
 
 # FR-006/007/023 lanes by name: the gauge and the session start read the name; the orchestrator warns in auto
@@ -5004,7 +5014,7 @@ for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
   { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
     || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
 done
-[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused); 21 mutations caught"
+[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline); 22 mutations caught"
 
 # --- Tier 1: macOS portability (field report 2026-10-15: /hef.status and /hef.babysit broke on a Mac) -----
 head_ "macOS portability"
