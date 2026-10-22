@@ -27,7 +27,7 @@ usage: ledger.sh <subcommand> …
   dir                                                   print the ledger directory
   board                                                 the resolved board as JSON: mode (in-repo|external), board_top, config, ledger_dir, repos, repo
   init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability] [--repo <name>]   (--repo: required on an external board)
-  claim <id> --session <name> --role <role>             exclusive; attempts > 2 → stall
+  claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; attempts > 2 → stall; a claim whose --pid process is gone is released
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
@@ -369,9 +369,11 @@ case "$SUB" in
     echo "$DIR/$ID.json" ;;
 
   claim)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; SESSION=""; ROLE=""
-    while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; SESSION=""; ROLE=""; CPID=""
+    while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; --pid) CPID="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
+    reap_dead_owners
     E=$(entry "$ID") || exit 1
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
@@ -398,8 +400,10 @@ case "$SUB" in
       if [[ "$K2" == human:* ]]; then die "ledger claim $ID: attempt $N exceeds 2 — it stays blocked on $K2 (a person's block is never overwritten by a stall)"; fi
       die "ledger claim $ID: attempt $N exceeds 2 — blocked_on: stall (a human decides whether to split or drop it)"
     fi
-    jq --arg s "$SESSION" --arg r "$ROLE" --argjson p "$$" --argjson i "$INC" \
-      '.owner = {session_name: $s, role: $r, pid: $p, started: (now | todate)} | .attempts += $i' <<<"$E" | write_entry "$ID" || exit 1
+    # --pid: the launcher's own process, so a claim it never closed (a crash) can be released; without it no
+    # pid is recorded and the claim is released only by `ledger run` (this process's own pid dies at once)
+    jq --arg s "$SESSION" --arg r "$ROLE" --arg p "$CPID" --argjson i "$INC" \
+      '.owner = ({session_name: $s, role: $r, started: (now | todate)} + (if $p != "" then {pid: ($p | tonumber)} else {} end)) | .attempts += $i' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID claimed by $SESSION (attempt $N)" ;;
 
   advance)
@@ -709,6 +713,7 @@ case "$SUB" in
       || die "ledger escalate: an entry in $DIR is not valid JSON — repair or remove it" ;;
 
   list)
+    reap_dead_owners
     PH=""; BLOCKED=0; ACTIVE=0; TODAY=0
     while [ $# -gt 0 ]; do case "$1" in
       --phase) PH="${2:-}"; shift ;; --blocked) BLOCKED=1 ;; --active) ACTIVE=1 ;; --today) TODAY=1 ;; *) usage ;; esac; shift; done
@@ -721,6 +726,7 @@ case "$SUB" in
       || die "ledger list: an entry in $DIR is not valid JSON — repair or remove it (jq . $DIR/*.json names it)" ;;
 
   next)
+    reap_dead_owners
     # --stage (feature stage-roles FR-001): plan picks what has no spec yet (queued, or intake after a failed
     # or unblocked plan run); build picks queued (no plan stage), tasks (planned) or implement (a retry);
     # deploy picks a pr entry with a PR — even while blocked on human:merge, since that wait is what the

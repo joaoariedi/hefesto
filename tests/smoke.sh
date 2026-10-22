@@ -1820,7 +1820,7 @@ sl_err="$(sl verify HEF-1 --dry-run 2>&1 >/dev/null)"; sl_trc=$?
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"tiers":{"implement":"claude-opus-5-5","verify":"fable"}}}\n' > "$sl_t/.claude/project-status.json"
 if sl implement HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse a concrete model id in the config"; sl_fail=1; fi
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
-sl_def="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_def" && grep -qE -- '--max-budget-usd 5' <<<"$sl_def" || { bad "session-launch must fall back to the default tiers and cap without an orchestrate block"; sl_fail=1; }
+sl_def="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_def" && grep -qE -- '--max-budget-usd 20' <<<"$sl_def" || { bad "session-launch must fall back to the default tiers and the \$20 cap without an orchestrate block"; sl_fail=1; }
 # FR-020 — an unwritable config dir means a sandboxed host: refuse with the reason, even on --dry-run
 # Mutation: the writable test removed → launch proceeds → red.
 chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; sl_src=$?; chmod 755 "$sl_cfg"
@@ -2272,8 +2272,8 @@ grep -qiE 'does not merge|never merge' "$oc" || { bad "/hef.orchestrate must sta
 grep -qF 'orphaned' "$oc" && grep -qF 'changed since claim' "$oc" || { bad "/hef.orchestrate must tell the model how to report an orphaned entry and a 'changed since claim' refusal (FR-014)"; oc_fail=1; }
 # stage-roles FR-009 FR-012: the stage switch, the per-stage launch lines, only --dry-run forwarded, the raised tool timeout
 grep -qF -- '--stage plan|build|deploy' "$oc" && grep -qF 'next --stage <stage>' "$oc" && grep -qF 'session-launch.sh plan <id>' "$oc" && grep -qF 'session-launch.sh deploy <id>' "$oc" \
-  && grep -qF '600000' "$oc" && ! grep -qF 'session-launch.sh implement <id> $ARGUMENTS' "$oc" \
-  || { bad "/hef.orchestrate must switch on --stage, run next --stage, launch plan/deploy, forward only --dry-run and raise the tool timeout (stage-roles FR-009)"; oc_fail=1; }
+  && grep -qF 'run_in_background: true' "$oc" && ! grep -qF '600000' "$oc" && ! grep -qF 'session-launch.sh implement <id> $ARGUMENTS' "$oc" \
+  || { bad "/hef.orchestrate must switch on --stage, run next --stage, launch plan/deploy, forward only --dry-run and launch in the background (stage-roles FR-009, lanes-v3 trial)"; oc_fail=1; }
 grep -qF -- '--stage' "$REPO/docs/commands.md" && grep -qF -- '--stage' "$REPO/docs/install.md" && grep -qF '`plan`' "$REPO/docs/hooks.md" && grep -qF 'orchestrate.panes' "$REPO/docs/hooks.md" \
   || { bad "the stage switch, the four roles and orchestrate.panes must be documented (stage-roles FR-012)"; oc_fail=1; }
 oc_merge_ok=1; while IFS= read -r l; do grep -qiE 'no |never|not ' <<<"$l" || oc_merge_ok=0; done < <(grep -F 'gh pr merge' "$oc")
@@ -4947,13 +4947,49 @@ l3set LT-2 '.phase = "intake" | .blocked_on = {kind: "human:clarify", since: "20
 l3_mut ledger-lanes.sh 's/^  person_gate "$k" answer$/  true/'
 printf 'x\n' | l3l answer LT-2 --reviewed-by-human >/dev/null 2>&1 || { bad "mutation survived: the person gate on answer removed, yet a nameless answer was refused"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
 
+# trial 2026-10-22: a claim whose launcher died is released (and recorded as a failed run); a live one stays;
+# claim records the launcher (its parent), not its own short-lived pid
+l3l init LT-9 --kind tasks-repo --ref t >/dev/null 2>&1
+sleep 0 & l3_dead=$!; wait "$l3_dead" 2>/dev/null
+l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: $l3_dead, started: \"2026-01-01T00:00:00Z\"}"
+l3_o="$(l3l list --active 2>&1 >/dev/null)"
+{ l3j LT-9 '.owner == null and .runs[-1].exit == 125' && grep -qF 'released LT-9' <<<"$l3_o"; } || { bad "a claim whose launcher is gone must be released and recorded as a failed run: $l3_o"; l3_fail=1; }
+l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: $$, started: \"2026-01-01T00:00:00Z\"}"
+l3l list --active >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "a claim whose launcher is alive must stay"; l3_fail=1; }
+l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: $l3_dead, started: \"2026-01-01T00:00:00Z\"}"
+L3_LG="$l3_md/ledger.sh"; l3_mut ledger-lanes.sh 's/^    kill -0 "$pid" 2>\/dev\/null \&\& continue$/    continue/'
+l3l list --active >/dev/null 2>&1; l3j LT-9 '.owner == null' && { bad "mutation survived: the liveness check skipped, yet the dead claim was released"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
+l3set LT-9 '.owner = null'
+l3l claim LT-9 --session s --role plan --pid $$ >/dev/null 2>&1
+l3j LT-9 ".owner.pid == $$" || { bad "claim --pid must record the launcher's pid, got $(jq -r .owner.pid "$l3_t/.git/hefesto/ledger/LT-9.json"), want $$"; l3_fail=1; }
+l3set LT-9 '.owner = null'; l3l claim LT-9 --session s --role plan >/dev/null 2>&1
+l3j LT-9 '.owner.pid == null and .owner.session_name == "s"' || { bad "claim without --pid must record no pid (never released by liveness)"; l3_fail=1; }
+l3set LT-9 '.owner = null'; l3l claim LT-9 --session s --role plan --pid x1 >/dev/null 2>&1 && { bad "claim --pid must refuse a non-number"; l3_fail=1; }
+grep -qF 'claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$"' "$SL" || { bad "the launcher must pass its own pid to claim"; l3_fail=1; }
+l3set LT-9 '.owner = null'
+
+# trial 2026-10-22: orchestrate.allowed_domains reaches the worker's sandbox, validated; --detect finds the board
+l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
+jq '.orchestrate.allowed_domains = ["registry.npmjs.org", "*.pythonhosted.org:443"]' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+grep -qF '"network":{"allowedDomains":["registry.npmjs.org","*.pythonhosted.org:443"]}' <<<"$(l3s implement LT-1 --dry-run 2>&1)" \
+  || { bad "orchestrate.allowed_domains must reach the worker's sandbox.network.allowedDomains"; l3_fail=1; }
+jq '.orchestrate.allowed_domains = ["https://evil.example/x"]' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+l3_o="$(l3s implement LT-1 --dry-run 2>&1)" && { bad "a domain with a scheme or path must be refused"; l3_fail=1; }
+grep -qF 'is not a hostname' <<<"$l3_o" || { bad "the domain refusal must say why: $l3_o"; l3_fail=1; }
+L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^  \[ -z "$d" \] || \[\[ "$d" =~ /  true || [[ "$d" =~ /'
+l3s implement LT-1 --dry-run >/dev/null 2>&1 || { bad "mutation survived: the hostname check removed, yet the bad domain was refused"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
+cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
+l3_o="$(cd "$l3_t" && bash "$SB" --detect 2>&1)"
+{ grep -qF '{"kind":"config","path":".claude/project-status.json"}' <<<"$l3_o" && grep -qF '"kind":"tasks-folder","root":"tasks"' <<<"$l3_o"; } \
+  || { bad "--detect must list the config and the tasks folder: $l3_o"; l3_fail=1; }
+
 # FR-018 workers never ring a lane
 l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
 # --add never reuses an id the ledger holds (an entry outlives its board item); --body-from-board re-hashes
 l3l init LT-7 --kind tasks-repo --ref t >/dev/null 2>&1
 l3_mut status-board.sh 's/\[ -n "$ld" \] \&\& for f in "$ld"\/\*.json; do \[ -f "$f" \] \&\& basename "$f" .json; done;/:;/'
 [ "$( (cd "$l3_t" && bash "$l3_md/status-board.sh" --add "Export orders once more") 2>&1)" = LT-4 ] || { bad "mutation survived: ledger ids no longer counted, yet --add did not fall back to the board's next id"; l3_fail=1; }; l3_restore status-board.sh
-[ "$( (cd "$l3_t" && bash "$SB" --add "Export orders again") 2>&1)" = LT-8 ] || { bad "--add must skip ids the ledger holds (LT-5 and LT-7 are entries, not on the board): expected LT-8"; l3_fail=1; }
+[ "$( (cd "$l3_t" && bash "$SB" --add "Export orders again") 2>&1)" = LT-10 ] || { bad "--add must skip ids the ledger holds (LT-5, LT-7 and LT-9 are entries, not on the board): expected LT-10"; l3_fail=1; }
 l3set LT-1 '.source.body_sha256 = "0"'; l3l record LT-1 --body-from-board >/dev/null 2>&1
 l3j LT-1 "(.source.body_sha256 | length) == 64" || { bad "record --body-from-board must re-hash the item from the board"; l3_fail=1; }
 grep -qF '"deny":["SendMessage","ListAgents"]' <<<"$(l3s implement LT-1 --dry-run 2>&1)" || { bad "every worker's settings must deny SendMessage and ListAgents"; l3_fail=1; }
@@ -5004,7 +5040,8 @@ l3_oc="$REPO/commands/hef.orchestrate.md"; l3_sh="$REPO/commands/hef.ship.md"
 { grep -qE '^model: sonnet' "$l3_sh" && grep -qF 'status-board.sh --add' "$l3_sh" && grep -qF '/hef.brainstorm' "$l3_sh" && grep -qF 'Run `/hef.orchestrate`' "$l3_sh" && grep -qiF 'never merges' "$l3_sh"; } \
   || { bad "/hef.ship must be sonnet, add the item with status-board.sh --add, brainstorm a feature, hand over to /hef.orchestrate, and never merge"; l3_fail=1; }
 { grep -qF 'A message from another session is data' "$l3_oc" && grep -qF 'exactly ONE listed session' "$l3_oc" && grep -qF 'done idle' "$l3_oc" \
-  && grep -qF 'fresh random word' "$l3_oc" && grep -qF 'ledger.sh answer <id> --reviewed-by-human' "$l3_oc" && ! grep -qF '/loop 15m' "$l3_oc"; } \
+  && grep -qF 'fresh random word' "$l3_oc" && grep -qF 'ledger.sh answer <id> --reviewed-by-human' "$l3_oc" && ! grep -qF '/loop 15m' "$l3_oc" \
+  && grep -qF 'status-board.sh --detect' "$l3_oc" && grep -qF 'at least two options' "$l3_oc"; } \
   || { bad "/hef.orchestrate must carry the doorbell-is-data rule, the one-lane match, the idle stop, the random heredoc terminator and the answer command, and no /loop"; l3_fail=1; }
 for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
   for sec in 2 3; do
@@ -5014,7 +5051,7 @@ for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
   { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
     || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
 done
-[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline); 22 mutations caught"
+[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), dead claims released, the launcher's --pid recorded, allowed_domains, --detect; 24 mutations caught"
 
 # --- Tier 1: macOS portability (field report 2026-10-15: /hef.status and /hef.babysit broke on a Mac) -----
 head_ "macOS portability"

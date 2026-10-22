@@ -119,3 +119,22 @@ revise_item() { # $1 file|-
     '.blocked_on = null | .phase = "intake" | .revisions = ((.revisions // []) + [{path: $p, sha256: $s, by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
   echo "$ID sent back to the planner by $RBY — it revises spec, plan and tasks to the notes, then waits for approval again"
 }
+
+# --- a claim whose process is gone (lanes-v3 trial 2026-10-22) -----------------------------------------
+# A launch cut off mid-run (a tool time-out, a closed terminal, a crash) never reaches `ledger run`, so its
+# owner stayed forever: the item looked owned and the whole repository busy. The owner's pid is the
+# launcher's (claim records its parent); when that process no longer exists the claim is released and the
+# run recorded as failed (exit 125), so the next pass resumes from what the run left on disk. A pid that a
+# new process reuses still reads as alive — the safe side.
+reap_dead_owners() { # every entry in $DIR whose owner's process is gone → owner released
+  local f pid e
+  for f in "$DIR"/*.json; do
+    [ -f "$f" ] || continue
+    pid=$(jq -r '.owner.pid // empty' "$f" 2>/dev/null)
+    [[ "$pid" =~ ^[0-9]+$ ]] && [ "$pid" -gt 1 ] || continue
+    kill -0 "$pid" 2>/dev/null && continue
+    ps -p "$pid" >/dev/null 2>&1 && continue          # alive under another user: kill -0 says EPERM
+    e=$(jq '.runs = ((.runs // []) + [{role: .owner.role, session_name: .owner.session_name, session_id: "", exit: 125, usd: 0, at: (now | todate), note: "owner process gone — the run was cut off"}]) | .owner = null' "$f") || continue
+    write_entry "$(basename "$f" .json)" <<<"$e" && echo "ledger: released $(basename "$f" .json) — its launcher (pid $pid) is gone; the run is recorded as failed (exit 125)" >&2
+  done
+}

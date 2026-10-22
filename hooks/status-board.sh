@@ -35,6 +35,7 @@ while [ $# -gt 0 ]; do
     --item-rfc) shift; MODE="item-rfc"; ITEM_ID="${1:-}" ;;
     --config) shift; CONFIG="${1:-}" ;;
     --init) MODE="init" ;;
+    --detect) MODE="detect" ;;
     --add) shift; MODE="add"; ADD_TITLE="${1:-}" ;;
     --incident) ADD_INC=1 ;;
     --rfc) ADD_RFC=1 ;;
@@ -66,13 +67,31 @@ if [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; then
 fi
 [ -n "$CONFIG" ] || CONFIG="$ROOT/.claude/project-status.json"
 
+# lanes-v3 trial 2026-10-22: --detect lists the boards a project already seems to use, one JSON object per
+# line, so the orchestrator can ask which to adopt instead of creating its own. Read-only; never the network.
+if [ "$MODE" = detect ]; then
+  command -v jq >/dev/null 2>&1 || { echo "status-board --detect: jq not found" >&2; exit 1; }
+  [ -f "$CONFIG" ] && jq -cn --arg c "${CONFIG#"$ROOT"/}" '{kind: "config", path: $c}'
+  for d in tasks board kanban; do
+    n=0; for c in TODO DOING DONE BACKLOG; do [ -f "$ROOT/$d/$c.md" ] && n=$((n + 1)); done
+    [ "$n" -gt 0 ] && jq -cn --arg r "$d" --argjson n "$n" '{kind: "tasks-folder", root: $r, columns_found: $n}'
+  done
+  while IFS= read -r f; do
+    n=$(grep -cE '^#{2,3} .*[A-Z][A-Z0-9]+-[0-9]+' "$f" 2>/dev/null || true)
+    [ "${n:-0}" -ge 2 ] && jq -cn --arg p "${f#"$ROOT"/}" --argjson n "$n" '{kind: "items-file", path: $p, items: $n}'
+  done < <(find "$ROOT" -maxdepth 2 -name '*.md' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path "$ROOT/tasks/*" 2>/dev/null | sort)
+  u="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+  case "$u" in *github.com[:/]*) r="${u#*github.com[:/]}"; r="${r%.git}"; jq -cn --arg r "$r" '{kind: "github", repo: $r, note: "a GitHub Project can back /hef.status; dispatch needs a tasks board"}' ;; esac
+  exit 0
+fi
+
 # lanes-v3 FR-024: --init creates what a board needs and is missing — never overwriting a file — so a single
 # lane can start on a project with no board: the default config asks a person to approve every plan.
 if [ "$MODE" = init ]; then
   { [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; } && { echo "status-board --init: the board is external ($ROOT) — set it up there" >&2; exit 1; }
   made=""; troot="$ROOT/tasks"
   if [ ! -f "$CONFIG" ]; then
-    mkdir -p "$(dirname "$CONFIG")" && jq -n '{source: "tasks-repo", root: "tasks", orchestrate: {usd_cap: 5, daily_usd_cap: 25, plan_review: "human", plan_first: true, rfc_dir: "docs/rfcs"}}' > "$CONFIG" \
+    mkdir -p "$(dirname "$CONFIG")" && jq -n '{source: "tasks-repo", root: "tasks", orchestrate: {usd_cap: 20, daily_usd_cap: 100, plan_review: "human", plan_first: true, rfc_dir: "docs/rfcs"}}' > "$CONFIG" \
       || { echo "status-board --init: cannot write $CONFIG" >&2; exit 1; }
     made="$made ${CONFIG#"$ROOT"/}"
   else
@@ -569,6 +588,6 @@ case "$SOURCE" in
     case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
-    case "$MODE" in item|item-raw|item-kind|item-repo|item-rfc|add) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
+    case "$MODE" in item|item-raw|item-kind|item-repo|item-rfc|add|detect) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
     source_github ;;
 esac

@@ -271,7 +271,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
 
 1. **Declare the board** in `.claude/project-status.json` (the same file `/hef.status` reads; only
    `source: tasks-repo` is dispatchable in Phase 1) and add the `orchestrate` block:
-   `{"usd_cap": 5, "daily_usd_cap": 25, "tiers": {"implement": "opus", "verify": "fable"}}` — tiers,
+   `{"usd_cap": 20, "daily_usd_cap": 100, "tiers": {"implement": "opus", "verify": "fable"}}` — tiers,
    never model ids; the reviewer tier must rank at or above the author's.
 2. **Protect `main`**: require a pull request before merging (0 approvals is enough on a solo repo,
    include administrators). No launched session can then push `main`, whatever its prompt says.

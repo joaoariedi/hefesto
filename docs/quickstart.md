@@ -72,6 +72,12 @@ Start with the single lane; the same project can add the three stage lanes later
   plan was approved, the builder stops and the orchestrator asks you to bring the plan in line.
 - **Compact** when a lane's status line says `/compact`, with that lane's own prompt
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` only for unrelated work.
+- **Spend and network.** Each background run may spend up to `orchestrate.usd_cap` ($20 by default), and a
+  repository up to `daily_usd_cap` ($100) a day. A background run reaches no network host unless it is listed:
+  for dependency work add `"allowed_domains": ["registry.npmjs.org"]` under `orchestrate` in
+  `.claude/project-status.json`.
+- **A board you already have** is adopted, not replaced: with no config yet, `/hef.orchestrate` lists what the
+  project uses (a `tasks/` folder, a backlog file, a GitHub repo) and asks which one.
 - **After a hefesto update**, run the setup command again (a lane's first lines say so when it is due).
 - **When something looks wrong**, run `/hef.doctor`, copy the exact message, and ask your lead.
 
