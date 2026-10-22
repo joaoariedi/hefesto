@@ -296,7 +296,7 @@ holds everything the line points at.
 
 1. Put the board in `tasks/` — one heading per item, `## HEF-1 — title`, then the body a worker
    receives as data — and declare it in `.claude/project-status.json`:
-   `{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":25,"tiers":{"implement":"opus","verify":"fable"}}}`
+   `{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":20,"daily_usd_cap":100,"tiers":{"implement":"opus","verify":"fable"}}}`
    (tiers, never model ids; the reviewer tier must rank at or above the author's).
 2. Protect `main`: require a pull request before merging, administrators included. Merge with merge
    commits — the `human:merge` gate is cleared by branch ancestry, which a squash never satisfies.

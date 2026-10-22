@@ -27,7 +27,7 @@ usage: ledger.sh <subcommand> …
   dir                                                   print the ledger directory
   board                                                 the resolved board as JSON: mode (in-repo|external), board_top, config, ledger_dir, repos, repo
   init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability] [--repo <name>]   (--repo: required on an external board)
-  claim <id> --session <name> --role <role>             exclusive; attempts > 2 → stall
+  claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; attempts > 2 → stall; releases claims whose lease (<id>.lease, renewed by the launcher) is over 5 min old
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
@@ -369,15 +369,20 @@ case "$SUB" in
     echo "$DIR/$ID.json" ;;
 
   claim)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; SESSION=""; ROLE=""
-    while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; SESSION=""; ROLE=""; CPID=""
+    while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; --pid) CPID="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
+    # A claim whose launcher stopped renewing its lease is released here, under the lock (ledger-lanes.sh) —
+    # never by list or next, which stay read-only (code review 2026-10-22).
+    claim_lock
+    reap_dead_owners
     E=$(entry "$ID") || exit 1
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
-    # One worker per repository (report 17 §1f), enforced here under a lock: two lanes whose passes started in the
-    # same second both passed /hef.orchestrate's own check and both launched. Another owned entry in this repo → busy.
-    claim_lock
+    # One worker per repository (report 17 §1f), enforced here under the lock taken above: two lanes whose passes
+    # started in the same second both passed /hef.orchestrate's own check and both launched. Another owned
+    # entry in this repo → busy.
     BUSY=$(jq -rs --arg id "$ID" --arg r "$(jq -r '.repo // ""' <<<"$E")" 'map(select(.id != $id and .owner != null and (.repo // "") == $r)) | .[0] | if . then "\(.id) (owned by \(.owner.session_name))" else empty end' "$DIR"/*.json)
     # verify is exempt: read-only, and the second half of the SAME build pass — refusing it would strand the
     # item in phase verify, which no stage picks up again (quickstart re-review 2026-10-19).
@@ -398,8 +403,10 @@ case "$SUB" in
       if [[ "$K2" == human:* ]]; then die "ledger claim $ID: attempt $N exceeds 2 — it stays blocked on $K2 (a person's block is never overwritten by a stall)"; fi
       die "ledger claim $ID: attempt $N exceeds 2 — blocked_on: stall (a human decides whether to split or drop it)"
     fi
-    jq --arg s "$SESSION" --arg r "$ROLE" --argjson p "$$" --argjson i "$INC" \
-      '.owner = {session_name: $s, role: $r, pid: $p, started: (now | todate)} | .attempts += $i' <<<"$E" | write_entry "$ID" || exit 1
+    # --pid: the launcher's own process, so a claim it never closed (a crash) can be released; without it no
+    # pid is recorded and the claim is released only by `ledger run` (this process's own pid dies at once)
+    jq --arg s "$SESSION" --arg r "$ROLE" --arg p "$CPID" --argjson i "$INC" \
+      '.owner = ({session_name: $s, role: $r, started: (now | todate)} + (if $p != "" then {pid: ($p | tonumber)} else {} end)) | .attempts += $i' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID claimed by $SESSION (attempt $N)" ;;
 
   advance)
@@ -538,16 +545,23 @@ case "$SUB" in
     fi ;;
 
   run)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; ROLE=""; RC=""; USD=""; SID=""
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; ROLE=""; RC=""; USD=""; SID=""; RPID=""
     while [ $# -gt 0 ]; do case "$1" in
       --role) ROLE="${2:-}"; shift ;; --exit) RC="${2:-}"; shift ;; --usd) USD="${2:-}"; shift ;; --session-id) SID="${2:-}"; shift ;;
+      --pid) RPID="${2:-}"; shift ;;
       *) usage ;; esac; shift; done
     [ -n "$ROLE" ] && [ -n "$RC" ] && [ -n "$USD" ] || die "ledger run $ID: --role, --exit and --usd are required"
+    # only the launcher records a run: a worker that read a pid from `show` must not release a claim with it
+    [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "ledger run $ID: never from inside a launched worker — the launcher records the run from the worker's structured output"
     E=$(entry "$ID") || exit 1
     [[ "$RC" =~ ^-?[0-9]+$ ]] && [[ "$USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "ledger run $ID: --exit must be an integer and --usd a non-negative number (got '$RC', '$USD')"
-    jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" \
+    jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" --arg p "$RPID" \
       '.runs += [{role: $r, session_name: (.owner.session_name // null), session_id: (if $sid == "" then null else $sid end), exit: $rc, usd: $usd, at: (now | todate)}]
-       | .budget.usd_spent += $usd | .owner = null' <<<"$E" | write_entry "$ID" || exit 1
+       | .budget.usd_spent += $usd
+       # a claim made by a launcher (it has a pid) is released only by that launcher (--pid) — never by a worker or a
+       # later run without one; a claim made without a pid, by hand, releases as before (review 2026-10-22)
+       | (if (.owner.pid // null) == null or ((.owner.pid | tostring) == $p) then .owner = null else . end)' <<<"$E" | write_entry "$ID" || exit 1
+    [ "$(jq -r '.owner == null' "$DIR/$ID.json")" = true ] && rm -f "$DIR/$ID.lease"
     echo "$ID run recorded ($ROLE exit $RC, $USD USD); owner released" ;;
 
   record)

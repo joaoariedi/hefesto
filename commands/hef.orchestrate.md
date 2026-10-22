@@ -65,9 +65,23 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/hefesto-setup.sh --check`
 
 `setup: ok` → go on. Anything else → show its line and **stop**: the person runs, in a normal terminal in the
 project's main folder, `bash ${CLAUDE_PLUGIN_ROOT}/hooks/hefesto-setup.sh` (`--lanes` for four lanes), then
-reopens this session. A missing board (the next check fails with no config) is created with
-`${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --init` — it creates only what is missing, with a config that
-asks a person to approve every plan.
+reopens this session.
+
+### The board this project already uses
+When `.claude/project-status.json` is missing, adopt what the project has before creating anything. Run with
+the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --detect` — one line per candidate:
+`tasks-folder` (column files already there), `items-file` (a Markdown file whose headings carry item ids, such
+as a backlog), `github` (the repo's remote). Ask the person in one form which to use, the found ones first and
+**New tasks/ board** last, then write the config for the answer:
+- `tasks-folder` → `{"source":"tasks-repo","root":"<root>"}`; `items-file` → `{"source":"tasks-repo","root":"<its
+  folder>","columns":{"todo":"<its file>"}}` (warn: every item heading in it is treated as open work, so resolved
+  sections must move out first); **New tasks/ board** → nothing to write, `--init` writes it;
+- `github` → the board can only be *read* (`/hef.status`); dispatch needs a tasks board — say so, and offer a
+  tasks folder beside it.
+Add `"orchestrate":{"usd_cap":20,"daily_usd_cap":100,"plan_review":"human","plan_first":true}` and, when the
+repository integrates on a branch other than its default (`git symbolic-ref refs/remotes/origin/HEAD`), a
+`"branches"` block naming it. Then run `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --init`: it creates only
+the board files that are missing, never overwriting one — also when the config exists but its columns do not.
 
 ### Which board
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh board`
@@ -102,7 +116,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
    (its dialog shows here) — and it comes back in step 2 as a decision.
 
 2. **Ask every decision.** For each entry `list --blocked` printed, one form (AskUserQuestion; at most four
-   questions per form). Ask the person's name once per session — offer `git config user.name` first, then
+   questions per form, and **every question with at least two options** — "Later" is always one: a
+   one-option question is rejected unseen). Ask the person's name once per session — offer `git config user.name` first, then
    "Other" — and use it as `--by` from then on: it is a record of who decided, not proof; the proof is the
    permission dialog the command raises. Then run exactly the command for the answer, spelled as shown:
 
@@ -126,8 +141,11 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
 
 3. **Send each stage its work.** For `plan`, `build`, `deploy` in that order:
    `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh next --stage <stage>`. No item → skip the stage. An item, and
-   `list --active` shows the repository busy (on an external board: that item's repo) → skip it; the lane that
-   is running rings back when it is done. Otherwise:
+   `list --active` shows the repository busy (on an external board: that item's repo) with a claim started
+   less than an hour ago → skip it; the lane that is running rings back when it is done. A claim older than an
+   hour may be one whose launcher died: dispatch anyway — the launcher's own claim releases it if its launcher
+   is gone, or refuses as busy if it is still running (this session cannot tell: its view of processes is
+   sandboxed). Otherwise:
    - **The stage's lane is open** (see Finding a lane) → ring it once: `<repo>-orchestrator: <stage> pass`. Do
      not ring a lane whose last doorbell back was `done idle` until the ledger has changed since.
    - **No such lane** → run the stage pass here (below), then come back to step 2 — a stage run here can end
@@ -148,8 +166,11 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
 
 1. `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh next --stage <stage>`. Non-zero → nothing to do: ring the
    orchestrator `<repo>-<stage>: done idle` (if its lane is open) and stop.
-2. **Launch** — ONE Bash call with the tool's `timeout` raised to `600000`; add `--dry-run` only when
-   **$ARGUMENTS** has it:
+2. **Launch** — ONE Bash call **with `run_in_background: true`**: a plan or a build runs for many minutes, and
+   a call that outlives its tool limit is moved to the background anyway, unwatched. Started in the background,
+   it is watched: when it exits, read its output and go on from here (a `done` doorbell, or the orchestrator's
+   next step). Add `--dry-run` only when **$ARGUMENTS** has it — a dry run returns at once, so run it in the
+   foreground:
    - `build`: `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh implement <id>`, then, if it exits zero,
      `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh verify <id>`
    - `plan`: `${CLAUDE_PLUGIN_ROOT}/hooks/session-launch.sh plan <id>` — the planner stops at tasks, or on a
@@ -158,8 +179,12 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh list --blocked`
      person already merged it records the merge and launches nothing
    A launch that exits non-zero is reported with its stderr; the ledger already holds the state. A
    **changed since claim** refusal (someone edited the item after it was registered) and **blocked_on:
-   budget** are decisions for the person: the orchestrator asks them (the first as an intake form). A launch cut
-   off at the 600 s tool limit leaves the ledger as it was last written; the next pass resumes from it.
+   budget** are decisions for the person: the orchestrator asks them (the first as an intake form). If no exit
+   notice ever comes (the session closed, the machine slept), the next launch's claim releases a claim whose
+   launcher is gone, records it as a failed run, and the stage resumes from what is on disk. A launcher that is
+   stopped stops its worker first, so a released claim never leaves a worker running.
+   Each worker's sandbox reaches only the hosts in `orchestrate.allowed_domains` (e.g.
+   `["registry.npmjs.org"]` for a dependency upgrade) — a headless worker cannot approve one.
 3. **Ring back** the orchestrator lane (if open): `<repo>-<stage>: done launched <id>`. Then a one-line brief.
 
 A stage pass registers nothing, screens no item text, and clears no block: those are the orchestrator's,

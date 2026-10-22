@@ -254,8 +254,8 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
      "source": "tasks-repo",
      "root": "tasks",
      "orchestrate": {
-       "usd_cap": 5,
-       "daily_usd_cap": 25,
+       "usd_cap": 20,
+       "daily_usd_cap": 100,
        "tiers": { "implement": "opus", "verify": "fable" },
        "plan_first": true,
        "plan_review": "human",

@@ -72,6 +72,12 @@ Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois.
   que o plano foi aprovado, a builder para e a orchestrator pede que você alinhe o plano.
 - **Compacte** quando a linha de status de uma sessão disser `/compact`, com o prompt próprio dela
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` só para trabalho sem relação.
+- **Gasto e rede.** Cada execução em segundo plano pode gastar até `orchestrate.usd_cap` (US$ 20 por padrão), e
+  um repositório até `daily_usd_cap` (US$ 100) por dia. Uma execução em segundo plano não acessa nenhum
+  endereço da rede que não esteja listado: para trabalho com dependências, acrescente
+  `"allowed_domains": ["registry.npmjs.org"]` em `orchestrate` no `.claude/project-status.json`.
+- **Um quadro que você já tem** é adotado, não substituído: sem configuração ainda, o `/hef.orchestrate` lista o
+  que o projeto usa (uma pasta `tasks/`, um arquivo de backlog, um repositório no GitHub) e pergunta qual usar.
 - **Depois de atualizar o hefesto**, rode o comando de preparação de novo (as primeiras linhas de uma
   sessão avisam quando for preciso).
 - **Se algo parecer errado**, rode `/hef.doctor`, copie a mensagem exata e mande para o seu líder.

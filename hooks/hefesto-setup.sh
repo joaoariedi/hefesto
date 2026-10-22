@@ -102,7 +102,7 @@ prefixes=("$CLONE"); for c in ${cfgs[@]+"${cfgs[@]}"}; do prefixes+=("$c/plugins
 allow=(); ask=(); excl=()
 for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
   allow+=("Bash($h/status-board.sh)" "Bash($h/status-board.sh --detailed:*)" "Bash($h/status-board.sh --check:*)" "Bash($h/status-board.sh --item:*)"
-          "Bash($h/status-board.sh --add:*)" "Bash($h/status-board.sh --init)" "Bash($h/status-board.sh --item-raw:*)" "Bash($h/hefesto-setup.sh --check)"
+          "Bash($h/status-board.sh --add:*)" "Bash($h/status-board.sh --init)" "Bash($h/status-board.sh --detect)" "Bash($h/status-board.sh --item-raw:*)" "Bash($h/hefesto-setup.sh --check)"
           "Bash($h/ledger.sh board:*)" "Bash($h/ledger.sh list:*)" "Bash($h/ledger.sh next:*)" "Bash($h/ledger.sh show:*)" "Bash($h/ledger.sh metrics:*)"
           "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)" "Bash($h/ledger.sh questions:*)"
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)")

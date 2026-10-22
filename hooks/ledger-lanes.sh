@@ -119,3 +119,31 @@ revise_item() { # $1 file|-
     '.blocked_on = null | .phase = "intake" | .revisions = ((.revisions // []) + [{path: $p, sha256: $s, by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
   echo "$ID sent back to the planner by $RBY — it revises spec, plan and tasks to the notes, then waits for approval again"
 }
+
+# --- a claim whose launcher is gone (lanes-v3 trial 2026-10-22, reviews round 5-6) -----------------------
+# A launch cut off mid-run (a crash, a closed terminal) never reaches `ledger run`, so its owner stayed forever:
+# the item looked owned and the whole repository busy. The launcher keeps a LEASE while it runs — it touches
+# <ledger>/<id>.lease every 20 s, while it or its worker lives — and a claim is released when that lease is older
+# than five minutes (or, past a five-minute grace after the claim, missing): long against the renewal, so a
+# laptop waking from sleep does not lose a live claim before the next renewal. A file's age reads the same inside and outside a sandbox, where
+# a pid check does not: a sandboxed process lives in its own pid namespace and sees every launcher as dead.
+# Never from a launched worker. The released run is recorded as failed (exit 125).
+lease_stale() { # $1 entry file → 0 when its owner's lease (or the grace after the claim) has run out
+  local id lease
+  id=$(basename "$1" .json); lease="$DIR/$id.lease"
+  if [ -f "$lease" ]; then [ -n "$(find "$lease" -mmin +5 2>/dev/null)" ]; return; fi
+  # the claim's age, computed by jq (fromdateiso8601): no GNU/BSD date parsing to keep apart
+  [ "$(jq -r '((.owner.started // "") | try (now - fromdateiso8601) catch -1) > 300' "$1" 2>/dev/null)" = true ]
+}
+reap_dead_owners() { # every owned entry whose lease ran out → owner released (call under claim_lock)
+  local f e
+  [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || return 0
+  for f in "$DIR"/*.json; do
+    [ -f "$f" ] || continue
+    [ "$(jq -r '.owner != null' "$f" 2>/dev/null)" = true ] || continue
+    lease_stale "$f" || continue
+    e=$(jq '.runs = ((.runs // []) + [{role: .owner.role, session_name: .owner.session_name, session_id: "", exit: 125, usd: 0, at: (now | todate), note: "the launcher stopped renewing its lease — the run was cut off"}]) | .owner = null' "$f") || continue
+    write_entry "$(basename "$f" .json)" <<<"$e" && rm -f "$DIR/$(basename "$f" .json).lease" \
+      && echo "ledger: released $(basename "$f" .json) — its launcher stopped renewing the lease over five minutes ago; the run is recorded as failed (exit 125)" >&2
+  done
+}
