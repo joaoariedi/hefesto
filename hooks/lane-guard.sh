@@ -72,7 +72,8 @@ while IFS= read -r e; do
   # the word anywhere, quoted or escaped too — not only after an operator: `if :; then gh …; fi`, `! gh …`, `"gh" …`
   # and `\gh …` start with something else, so they run INSIDE the sandbox, auto-allowed (code review of PR A)
   re="(^|[^A-Za-z0-9_./-])[\\\\\"']*${q}[\"']*([^A-Za-z0-9_./-]|\$)"
-  [[ "$CMD" =~ $re ]] && { EXCL_HIT="$w"; break; }
+  # also with every backslash removed: `g\h` is gh to the shell
+  { [[ "$CMD" =~ $re ]] || [[ "${CMD//\\/}" =~ $re ]]; } && { EXCL_HIT="$w"; break; }
 done < <(jq -r '.excluded[]? // empty' <<<"$REC")
 
 # The orchestrator's person-only heredoc: `<ledger.sh> answer|revise|direct … <<'WORD'`, the body, then WORD alone.
