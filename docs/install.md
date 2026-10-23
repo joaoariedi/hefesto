@@ -349,13 +349,23 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    launched worker; recorded with the RFC's hash), nothing replaces that block, and leaving `plan-review`
    needs the approval on record. An RFC that changes after approval stops the build and re-blocks the item
    until a person aligns the plan, re-pins (`ledger.sh record <id> --rfc`) and approves again. Set the
-   project up once with `hooks/hefesto-setup.sh` (`--lanes` for four lanes), in a terminal: it writes
-   `.claude/settings.local.json` — hefesto's helper allowlist, the person's clears (`unblock`, `record`,
-   `answer`, `revise`, …) in `ask`, the launcher alone in `sandbox.excludedCommands`,
-   `autoAllowBashIfSandboxed: false` (every other unlisted command asks, so a sandboxed call cannot rewrite
-   the ledger silently), the trusted project folder, the context gauge, and with `--lanes`
-   `crossSessionInbound: "accept"`. Lanes open with `claude --name <repo>-<lane>`; the name is the lane.
-   In the orchestrator, `/hef.orchestrate` asks every decision as a form and rings the stage lanes;
+   project up once with `hooks/hefesto-setup.sh` (`--lanes` for four lanes), in a terminal. It writes
+   `.claude/settings.local.json`:
+   - hefesto's helper allowlist;
+   - a person's decisions (`approve`, `unblock`, `record`, `answer`, `revise`, `release`, …) in `ask`;
+   - outside the sandbox (`sandbox.excludedCommands`): the launcher, `ledger.sh` (hefesto 9 keeps the ledger outside
+     the project) and `gh` (so a merge is decided by the permission rules, never by the sandbox). Only gh's read
+     forms and `gh pr create` are allowed; `gh pr merge`, `gh pr review` and `gh api` always need an approved
+     action or your dialog;
+   - `Edit` denied on hefesto's own state (`~/.cache/hefesto/{ledger,approvals,sessions}`);
+   - the sandbox on (`enabled`, `failIfUnavailable`), and sandboxed commands running without a dialog
+     (`--strict` keeps 8.0's every-command-asks);
+   - the trusted project folder, the context gauge;
+   - with `--lanes`: `crossSessionInbound: "accept"`, `HEFESTO_LANES` and the lane map (`HEFESTO_LANE_MAP`, from
+     `orchestrate.lanes`, `orchestrate.lane_prefix` or the folder name).
+
+   Lanes open with `claude --name <a name in the map>`; the name is the lane, and a session whose name is not in the
+   map is no lane. In the orchestrator, `/hef.orchestrate` asks every decision as a form and rings the stage lanes;
    `/hef.ship` starts new work. `context.compact_at` sets each lane's compaction nudge.
    **What a background worker can reach.** Its sandbox writes only its worktree and a cache of its own
    (`~/.cache/hefesto/worker-cache/<repo>`, which `XDG_CACHE_HOME`, `GOCACHE` and npm's cache point at — never
@@ -365,6 +375,48 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    HTTPS only), so for workers that push, add `"github.com"` and `"api.github.com"` and, in the repository,
    `git config url."https://github.com/".pushInsteadOf git@github.com:` — pushes then go over HTTPS with the
    `gh` credential helper.
+
+8c. **Lane actions, and what protects them** (hefesto 9; [`quickstart.md`](quickstart.md), "Lane actions"). Any
+   action a stage lane carries out for you — a merge with its head SHA, a release cut, a deploy, a backfill, a
+   server command — is a **request** the orchestrator writes (`ledger.sh request <id> --to <lane> --scope-file <f>`;
+   `ledger.sh op new` for one that belongs to no item):
+   - the steps;
+   - the heads as full SHAs;
+   - the stop checks;
+   - what is not covered;
+   - whether it is irreversible;
+   - the exact commands it needs.
+
+   You answer it as a form in the orchestrator. **Approve** runs `ledger.sh approve` behind its permission dialog
+   there, naming the hash, the lane and the title. The lane then takes it, checks the heads live, follows the steps,
+   and records done or stopped-at-step-N. While the action is open, its commands run without a dialog in the lane's
+   pane (`hooks/lane-guard.sh`). One approval, one use; a changed scope or head stops the lane and comes back as a
+   new form. Directives (`ledger.sh direct`) route a precise instruction to a lane inside an item's scope; they
+   approve nothing.
+
+   The trust model:
+   - **The approval store, the ledger and the session records** live in `~/.cache/hefesto/`, outside every
+     sandbox's write set. Only hefesto's helpers write them; file edits there are denied, through a symlink too.
+   - **The lane** is the session's name, recorded by the session-start hook outside the sandbox.
+   - **A person's decision is recorded only from the orchestrator lane**: lane-guard and `ledger.sh` both check.
+   - **A command hefesto runs outside the sandbox** must be one plain word list: no pipe, redirect or chain.
+   - **A command that stays inside the sandbox runs without approval.** The sandbox's network allowlist is part of the
+     trust model: keep it to what the lanes need.
+   - **Hefesto's hooks that run a project's own commands** (tests after an edit, the formatter, the task-completion
+     gate, the commit gate's linters) stand down in a `--lanes` project. A hook runs outside the sandbox, so those
+     would be a way out of it.
+   - **In auto mode** a command no rule matches is the classifier's call, with no dialog; every lane says so at start.
+   - **Optional lists:** `orchestrate.readonly_commands` is written as allow rules (e.g. `gh run view *`).
+     `orchestrate.unsandboxed_commands` (absolute paths only, e.g. `/usr/bin/ssh debian@vm-apps *`) is added to the
+     sandbox exclusions, for the steps an approved scope needs; each still needs the grant or your dialog.
+
+   **The ledger moved.** Hefesto 9 keeps it in `~/.cache/hefesto/ledger/<key>`. The first `ledger.sh` call that can
+   write there moves an 8.x ledger itself:
+   - once, under a lock, only while no 8.x run renews a lease;
+   - it leaves `.git/hefesto/MOVED` and keeps the old folder, renamed.
+
+   A sandboxed session without setup cannot write there: run `hefesto-setup.sh` before the first `/hef.orchestrate`
+   or `/hef.ship`. `run-follow.sh` shows nothing for runs started before the upgrade.
 
 9. **Hand-run items, the board and escalation** (all optional): a person who ran an item by hand runs
    `hooks/ledger.sh handoff <id> --pr <url>` on its branch — one call instead of four. Set

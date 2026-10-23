@@ -76,6 +76,15 @@ Start with the single lane; the same project can add the three stage lanes later
 - **The status line** keeps your own (profile, model, folder…) and adds `ctx 45% · 90k/200k` (context used,
   tokens in context over the window); below it, one row per background run (`▶ implement FAB-1 · 4m`) and per
   decision waiting on you (`⏸ FAB-3 · plan approval`).
+- **Lane actions.** Anything a lane should do for you (merge PR #726 at its head SHA, cut a release, deploy to stg,
+  run a backfill, restart a container) is a form in the orchestrator. Ask the orchestrator for it in your words. It
+  writes the steps, the exact heads, the stop checks and the commands, and shows them. You answer **Approve**, then
+  confirm the dialog. The lane does exactly that, with no dialog in its own pane, and reports done or where it
+  stopped. A head that moved, or anything the scope didn't cover, comes back to you as a new form. The status line
+  shows each one waiting on you (`⏸ DET-7-A2 · action: merge PR #726`).
+- **Lane names** come from the project: `"lane_prefix": "myproduct"` under `orchestrate` (lanes
+  `myproduct-orchestrator`, `-planner`, `-builder`, `-deployer`), or an explicit `"lanes": {"orchestrator": "…",
+  "plan": "…", "build": ["…", "…"], "deploy": "…"}`. Run the setup again after changing them.
 - **Compact** when a lane's status line says `/compact`, with that lane's own prompt
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` only for unrelated work.
 - **Spend and network.** Each background run may spend up to `orchestrate.usd_cap` ($20 by default), and a
@@ -87,8 +96,9 @@ Start with the single lane; the same project can add the three stage lanes later
 - **After a hefesto update**, run the setup command again (a lane's first lines say so when it is due).
 - **When something looks wrong**, run `/hef.doctor`, copy the exact message, and ask your lead.
 
-**Security in one paragraph.** The lanes keep Claude Code's sandbox; only hefesto's launcher runs outside it
-(it starts the background sessions, each sandboxed in turn). The setup makes every command outside hefesto's
-own helpers ask you first, keeps the commands that record your decisions behind a dialog, and pins the folder
-the launcher may work in. A lane reads item and RFC text that others wrote — so read each dialog before you
-answer it.
+**Security in one paragraph.** The lanes keep Claude Code's sandbox, and commands inside it run without asking.
+Outside it run only hefesto's own helpers and `gh`, each called as one plain command. The ledger, your approvals and
+the record of which session is which lane live in `~/.cache/hefesto`, where no sandboxed command and no file edit
+can reach them. The commands that record your decisions run only in the orchestrator, behind a dialog, and
+`gh pr merge` never runs without an approved action or your dialog. A lane reads item and RFC text that others
+wrote, so read each form and dialog before you answer it.
