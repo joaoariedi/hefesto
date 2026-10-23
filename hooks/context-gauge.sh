@@ -35,32 +35,45 @@ user_line() { # the profile's own status line, first line only; nothing on any f
   printf '%s' "$in" | bash -c "$cmd" 2>/dev/null | head -1
 }
 U=""; [ "$WITH_USER" = 1 ] && U="$(user_line)"
-ledger_dir() { # $1 project folder → its ledger folder, or nothing
-  local d="$1" g c b
+ledger_dir() { # $1 project folder → its ledger folder, or nothing — git-free (the status line must stay fast)
+  # The key is board-lib's ledger_key: the sha256 of the board's physical git common dir (hefesto 9 keeps the
+  # ledger in ~/.cache/hefesto/ledger/<key>). Kept in step with board-lib.sh by a smoke equality check.
+  local d="$1" g c="" b
   if [ -f "$d/.claude/project-status.json" ]; then   # an external board: the board's own ledger
     b="$(jq -r '.board // empty' "$d/.claude/project-status.json" 2>/dev/null)"
-    if [ -n "$b" ]; then case "$b" in /*) ;; *) b="$d/$b" ;; esac; [ -d "$b/.git" ] && { printf '%s\n' "$b/.git/hefesto/ledger"; return; }; fi
+    if [ -n "$b" ]; then case "$b" in /*) ;; *) b="$d/$b" ;; esac; [ -d "$b/.git" ] && c="$b/.git"; fi
   fi
-  if [ -d "$d/.git" ]; then printf '%s\n' "$d/.git/hefesto/ledger"
-  elif [ -f "$d/.git" ]; then                        # a linked worktree: .git names its admin dir, commondir the rest
+  if [ -z "$c" ] && [ -d "$d/.git" ]; then c="$d/.git"
+  elif [ -z "$c" ] && [ -f "$d/.git" ]; then          # a linked worktree: .git names its admin dir, commondir the rest
     g="$(sed -n 's/^gitdir: //p' "$d/.git" | head -1)"; [ -n "$g" ] || return 0
     c="$(head -1 "$g/commondir" 2>/dev/null)"; [ -n "$c" ] || return 0
     case "$c" in /*) ;; *) c="$g/$c" ;; esac
-    printf '%s\n' "$c/hefesto/ledger"
   fi
+  [ -n "$c" ] || return 0
+  c="$(cd -P "$c" 2>/dev/null && pwd -P)" || return 0
+  printf '%s\n' "$HOME/.cache/hefesto/ledger/$(printf '%s' "$c" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-32)"
 }
-runs_rows() { # $1 project folder → one row per run and per decision waiting on a person, or nothing
-  local ld
+runs_rows() { # $1 project folder → one row per run, per decision waiting on a person and per lane action, or nothing
+  local ld rows acts
   ld="$(ledger_dir "$1")"; [ -n "$ld" ] && [ -d "$ld" ] || return 0
-  set -- "$ld"/*.json; [ -f "$1" ] || return 0
-  jq -rs 'def age: (try (now - (.owner.started | fromdateiso8601)) catch 0) / 60 | floor
+  set -- "$ld"/*.json
+  if [ -f "$1" ]; then
+    rows="$(jq -rs 'def age: (try (now - (.owner.started | fromdateiso8601)) catch 0) / 60 | floor
              | if . >= 60 then "\(. / 60 | floor)h\(. % 60 | tostring | if length < 2 then "0" + . else . end)m" else "\(.)m" end;
           def what: {"human:plan-approval": "plan approval", "human:clarify": "questions", "human:plan-review": "plan question",
                      "human:intake": "item check", "human:merge": "merge on GitHub"}[.] // .;
-          ([.[] | objects | select(.owner != null) | "▶ \(.owner.role // "run") \(.id) · \(age)"]
-           + [.[] | objects | select((.blocked_on.kind? // "") | startswith("human:")) | "⏸ \(.id) · \(.blocked_on.kind | what)"]) as $rows
-          | ($rows[0:6][]), (if ($rows | length) > 6 then "… +\(($rows | length) - 6) more" else empty end)' \
-    "$@" 2>/dev/null
+          [.[] | objects | select(.owner != null) | "▶ \(.owner.role // "run") \(.id) · \(age)"][],
+          [.[] | objects | select((.blocked_on.kind? // "") | startswith("human:")) | "⏸ \(.id) · \(.blocked_on.kind | what)"][]' "$@" 2>/dev/null)"
+  fi
+  # lanes-interactive FR-027: an action being carried out, and one waiting on the person (to approve, or stopped)
+  set -- "$ld"/actions/*.json
+  if [ -f "$1" ]; then
+    acts="$(jq -rs 'def t: (.scope.title // "" | gsub("[\u0000-\u001f]"; " ") | if length > 40 then .[0:40] + "…" else . end);
+          [.[] | objects | select(.status == "taken") | "▶ \(.to) \(.aid) · action"][],
+          [.[] | objects | select(.status == "pending") | "⏸ \(.aid) · action: \(t)"][],
+          [.[] | objects | select(.status == "stopped") | "⏸ \(.aid) · action stopped at step \(.outcome.step // "?")"][]' "$@" 2>/dev/null)"
+  fi
+  printf '%s\n%s\n' "${rows:-}" "${acts:-}" | awk 'NF { n++; if (n <= 6) print } END { if (n > 6) printf "… +%d more\n", n - 6 }'
 }
 emit() { if [ -n "$U" ]; then printf '%s \033[2m·\033[0m %s\n' "$U" "$1"; else printf '%s\n' "$1"; fi; }
 pct="$(jq -r '.context_window.used_percentage // empty | if type == "number" then floor else empty end' <<<"$in" 2>/dev/null)"

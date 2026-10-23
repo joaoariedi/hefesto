@@ -23,7 +23,7 @@ by building the wrong thing well.
 
 Hefesto is a Claude Code plugin that adds the missing middle: a **workflow** (idea → spec → plan →
 tasks → code → verification, with a human gate at each seam), **seven specialist agents** the workflow
-dispatches, **fifteen hooks** that enforce the gates, **skills** the agents reason with, and a set
+dispatches, **sixteen hooks** that enforce the gates, **skills** the agents reason with, and a set
 of **rules** that load into every session. It is one namespace of 27 `hef.*` commands; you pick the
 path that fits the change, from a one-line fix to a full specification pipeline.
 
@@ -127,7 +127,7 @@ says what each release changed.
 |---|---|
 | 🛠️ `commands/` | The 27 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Seven specialist subagents — testing, quality, review, security, PR coordination, two one-shot readers (another repo; this one, for the arena). |
-| ⚙️ `hooks/` | Fifteen hooks, plus the helpers the commands call: `speckit-helper.sh` (46 subcommands) for live git data, requirement traceability, the mutation ratchet and dependency diffs; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `pr-watch.sh` for `/hef.babysit`; `arena-run.sh` for foreign-provider readers; `release.sh`. |
+| ⚙️ `hooks/` | Sixteen hooks, plus the helpers the commands call: `speckit-helper.sh` (46 subcommands) for live git data, requirement traceability, the mutation ratchet and dependency diffs; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `pr-watch.sh` for `/hef.babysit`; `arena-run.sh` for foreign-provider readers; `release.sh`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |

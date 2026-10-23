@@ -12,6 +12,11 @@
 # The probe is advisory (exit 0, stderr) — it cannot see UNCOMMITTED edits, so it reports the
 # committed picture plus the drift, which is the part a working agent otherwise never sees.
 set -uo pipefail
+HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"   # git here ignores core.fsmonitor/hooksPath (lane-lib.sh)
+if [ -f "$HEF_LL" ]; then
+  # shellcheck source=hooks/lane-lib.sh
+  . "$HEF_LL"; hef_git_neutral
+fi
 
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')

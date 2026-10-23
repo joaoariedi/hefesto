@@ -9,6 +9,11 @@
 # Written OUTSIDE the repo (XDG cache), keyed by cwd, so a hook never dirties a working tree.
 # session-start-context.sh reads it back. Never blocks; never spends a model call.
 set -uo pipefail
+HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"   # git here ignores core.fsmonitor/hooksPath (lane-lib.sh)
+if [ -f "$HEF_LL" ]; then
+  # shellcheck source=hooks/lane-lib.sh
+  . "$HEF_LL"; hef_git_neutral
+fi
 
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')

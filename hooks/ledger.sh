@@ -68,6 +68,12 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 [ -f "$HERE/ledger-lanes.sh" ] || die "ledger: $HERE/ledger-lanes.sh not found — the plugin install is incomplete (reinstall it)"
 # shellcheck source=hooks/ledger-lanes.sh
 . "$HERE/ledger-lanes.sh"
+# shellcheck source=hooks/lane-lib.sh
+. "$HERE/lane-lib.sh"
+# shellcheck source=hooks/ledger-actions.sh
+. "$HERE/ledger-actions.sh"
+# shellcheck source=hooks/ledger-notes.sh
+. "$HERE/ledger-notes.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -191,23 +197,46 @@ PHASES=(queued intake spec plan plan-review tasks implement verify quality secur
 KINDS="human:clarify human:plan-review human:plan-approval human:merge human:intake ci conflict budget stall verdict"
 GATES="verify review quality scan mutate incident vulnerability"   # the last two: item-kinds FR-002
 
-ledger_dir() {
-  if [ -n "${HEFESTO_LEDGER_DIR:-}" ]; then mkdir -p "$HEFESTO_LEDGER_DIR" || die "ledger: cannot create $HEFESTO_LEDGER_DIR"; echo "$HEFESTO_LEDGER_DIR"; return; fi
-  # external-board: ONE central ledger in the board repo's git common dir, so ownership, list, metrics and
-  # escalation see every repo the board feeds.
-  if is_external; then
-    local central; central=$(jq -r .ledger_dir <<<"$BCTX")
-    mkdir -p "$central" || die "ledger: cannot create $central"; echo "$central"; return
-  fi
-  local common
-  # The plugin-eval sandbox denies the git binary while the workspace is still a git repository
-  # (evals/README.md): fall back to the checkout's own .git so the evals can read the ledger.
-  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-    || { [ -d "$PWD/.git" ] && common="$PWD/.git"; } \
-    || die "ledger: not inside a git repository (cwd: $PWD)"
-  mkdir -p "$common/hefesto/ledger" || die "ledger: cannot create $common/hefesto/ledger"
-  echo "$common/hefesto/ledger"
+ledger_dir() { # the folder, computed (board-lib) — never created here: a read must work where nothing can write
+  local l; l=$(jq -r '.ledger_dir // empty' <<<"$BCTX")
+  [ -n "$l" ] || die "ledger: not inside a git repository (cwd: $PWD)"
+  printf '%s\n' "$l"
 }
+ledger_mkdir() { # the first write: create the folder, or say why this shell cannot
+  [ -d "$DIR" ] && return 0
+  mkdir -p "$DIR" 2>/dev/null || die "ledger: cannot create the ledger folder $DIR — hefesto 9 keeps it outside the project, and a sandboxed shell cannot write there; $SETUP_HINT"
+}
+# A set-up project (HEFESTO_TRUSTED_TOP from its settings) runs this helper outside the sandbox
+# (sandbox.excludedCommands), so what a sandboxed session can write is hostile input here — the launcher's rule
+# (lanes-v3 FR-022), now this helper's too: git ignores the two keys that run a program on a plain read, and
+# the board this call resolved must be the trusted one.
+trusted_check() {
+  [ -n "${HEFESTO_TRUSTED_TOP:-}" ] || return 0
+  local want got
+  if is_external; then
+    [ -n "${HEFESTO_TRUSTED_BOARD:-}" ] || die "ledger: this project points at an external board, but its setup did not record one — run hefesto-setup.sh again"
+    want=$(cd -P "$HEFESTO_TRUSTED_BOARD" 2>/dev/null && pwd -P); got=$(jq -r .board_top <<<"$BCTX")
+  else
+    want=$(cd -P "$HEFESTO_TRUSTED_TOP/.git" 2>/dev/null && pwd -P); got=$(cd -P "$(jq -r '.git_common // empty' <<<"$BCTX")" 2>/dev/null && pwd -P)
+  fi
+  [ -n "$want" ] && [ "$want" = "$got" ] || die "ledger: this call resolved the board at '$got', not the project's trusted one '$want' (its settings) — run it from the project's folder; a changed .board or git dir is refused"
+}
+# The second gate (lanes-interactive): the hook that guards these calls fails open if it errors, so this helper
+# checks the caller itself. Claude Code sets CLAUDE_CODE_SESSION_ID in every Bash command (documented; lane-guard
+# denies a command line that sets it), and the session's record says which lane it is. No record (a terminal, a
+# project without --lanes) → 8.0's rule: the permission dialog of the ask rule is the gate.
+caller_gate() {
+  local sid="${CLAUDE_CODE_SESSION_ID:-}" f
+  valid_sid "$sid" || return 0; f=$(session_file "$sid"); [ -f "$f" ] || return 0
+  [ "$(jq -r '.lanes' "$f" 2>/dev/null)" = true ] || return 0
+  if is_person_sub "$SUB" "$@" && [ "$(jq -r '.role // empty' "$f")" != orchestrator ]; then
+    die "ledger $SUB: this records a person's decision, so it runs only in the orchestrator lane (this session is '$(jq -r 'if .name != "" then .name else .title end' "$f")')"
+  fi
+  return 0
+}
+GC0="${GIT_CONFIG_COUNT:-}"; case "$GC0" in ''|*[!0-9]*) GCN=0 ;; *) GCN="$GC0" ;; esac
+export "GIT_CONFIG_KEY_$GCN=core.fsmonitor" "GIT_CONFIG_VALUE_$GCN=false" \
+       "GIT_CONFIG_KEY_$((GCN + 1))=core.hooksPath" "GIT_CONFIG_VALUE_$((GCN + 1))=/dev/null" "GIT_CONFIG_COUNT=$((GCN + 2))"
 
 phase_index() { # name → index, or die
   local i; for i in "${!PHASES[@]}"; do [ "${PHASES[$i]}" = "$1" ] && { echo "$i"; return; }; done
@@ -332,7 +361,11 @@ fi
 # side-effect free, and in-repo it never dies where status-board does not (outside git, no config).
 BCTX=$(board_ctx) || exit 1
 if [ "$SUB" = board ]; then [ $# -eq 0 ] || usage; echo "$BCTX"; exit 0; fi
+trusted_check
+caller_gate "$@"
 DIR=$(ledger_dir) || exit 1
+ledger_settle "$DIR" "$(jq -r '.git_common // empty' <<<"$BCTX")" || exit 1
+case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|park|-h|--help) ;; *) ledger_mkdir ;; esac
 
 case "$SUB" in
   dir) echo "$DIR" ;;
@@ -374,6 +407,7 @@ case "$SUB" in
     [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
     in_list "$ROLE" "plan implement verify deploy" || die "ledger claim $ID: --role must be plan, implement, verify or deploy (got '$ROLE') — each stage has its own limit"
+    [ "$(jq -r '.item_kind // empty' "$DIR/$ID.json" 2>/dev/null)" != op ] || die "ledger claim $ID: an op entry holds approved actions only — no stage claims it"
     # A claim whose launcher stopped renewing its lease is released here, under the lock (ledger-lanes.sh) —
     # never by list or next, which stay read-only (code review 2026-10-22).
     claim_lock
@@ -607,12 +641,49 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; --file|--notes-file) TXT="${2:-}"; shift ;; *) usage ;; esac; shift; done
     E=$(entry "$ID") || exit 1
     if [ "$VERB" = answer ]; then answer_item "$TXT"; else revise_item "$TXT"; fi ;;
+  request)   # lanes-interactive FR-003 — the orchestrator's proposal; ledger-actions.sh
+    # shellcheck disable=SC2034 # read by ledger-actions.sh
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; TO=""; SCOPE=""; SUP=""
+    # shellcheck disable=SC2034 # read by ledger-actions.sh (a directive covers one command: this loop assigns them)
+    while [ $# -gt 0 ]; do case "$1" in --to) TO="${2:-}"; shift ;; --scope-file) SCOPE="${2:-}"; shift ;; --supersedes) SUP="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    request_action ;;
+  approve)   # FR-005 — person-only, in the ask rules: its dialog is the person's signature
+    # shellcheck disable=SC2034 # read by ledger-actions.sh
+    AID="${1:-}"; [ -n "$AID" ] || usage; shift; SHA=""; ATO=""; ATITLE=""; IRREV=0; REVIEWED=0; RBY=""
+    # shellcheck disable=SC2034 # read by ledger-actions.sh (a directive covers one command: this loop assigns them)
+    while [ $# -gt 0 ]; do case "$1" in --sha) SHA="${2:-}"; shift ;; --to) ATO="${2:-}"; shift ;; --title) ATITLE="${2:-}"; shift ;;
+      --irreversible-confirmed) IRREV=1 ;; --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    approve_action ;;
+  action) [ $# -ge 2 ] || usage; VERB="$1"; AID="$2"; shift 2; action_cmd "$VERB" "$@" ;;
+  actions) actions_list "$@" ;;
+  op) [ "${1:-}" = new ] || usage; shift
+    # shellcheck disable=SC2034 # read by ledger-actions.sh
+    OTITLE=""
+    # shellcheck disable=SC2034 # read by ledger-actions.sh (a directive covers one command: this loop assigns them)
+    while [ $# -gt 0 ]; do case "$1" in --title) OTITLE="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    op_new ;;
+  direct)    # FR-012 — the orchestrator's directive; ledger-notes.sh
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; TO=""; TXT=""
+    while [ $# -gt 0 ]; do case "$1" in --to) TO="${2:-}"; shift ;; --file) TXT="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    E=$(entry "$ID") || exit 1; direct_item "$TXT" ;;
+  directives) directives_list "$@" ;;
+  directive) ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1; directive_close "$@" ;;
+  note) ID="${1:-}"; [ -n "$ID" ] || usage; shift; F=""
+    while [ $# -gt 0 ]; do case "$1" in --file) F="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    E=$(entry "$ID") || exit 1; note_item "$F" ;;
+  park) [ "${1:-}" = --all ] || usage; park_all ;;
+  release) ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0; RBY=""
+    while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    E=$(entry "$ID") || exit 1; release_item ;;
+  lanes) lanes_print ;;
   register)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; REF=""
     while [ $# -gt 0 ]; do case "$1" in --ref) REF="${2:-}"; shift ;; *) usage ;; esac; shift; done
     valid_id "$ID" || exit 1
     register_item "$ID" "$REF" ;;
-  show) ID="${1:-}"; [ -n "$ID" ] || usage; entry "$ID" ;;
+  show) ID="${1:-}"; [ -n "$ID" ] || usage; E=$(entry "$ID") || exit 1
+    set -- "$DIR"/actions/"$ID"-A*.json
+    if [ -f "$1" ]; then jq -s --argjson e "$E" '$e + {actions: [sort_by(.at)[] | {aid, status, to, sha256, title: .scope.title, approved_by, at, outcome}]}' "$@"; else printf '%s\n' "$E"; fi ;;
   where)   # branch-model FR-006 — computed from git, never stored
     ID="${1:-}"; [ -n "$ID" ] || usage
     E=$(entry "$ID") || exit 1; BR=$(jq -r '.branch // empty' <<<"$E")
@@ -770,6 +841,7 @@ case "$SUB" in
               ORDER='sort_by([(if .blocked_on == null then 0 else 1 end), (([.runs[]? | select(.role == "deploy") | .at] | max) // ""), (.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])])' ;;
       *) usage ;;
     esac
+    SEL="($SEL) and (.item_kind != \"op\")"   # lanes-interactive FR-004: an op entry holds actions; no stage takes it
     shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
     [ "${#FILES[@]}" -gt 0 ] || die "ledger next: no entries in $DIR (run: ledger.sh init <id> …)"
     if is_external; then next_external; exit $?; fi

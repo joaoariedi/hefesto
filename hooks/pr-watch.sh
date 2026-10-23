@@ -27,6 +27,11 @@
 # bash, jq, git, coreutils `timeout` (or `gtimeout`, else the bundled run-bounded.sh); `gh` and `gitleaks` detected, never installed.
 # HEFESTO_GH_BIN overrides the gh binary (the test seam, like HEFESTO_LEDGER_DIR).
 set -uo pipefail
+HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"   # git here ignores core.fsmonitor/hooksPath (lane-lib.sh)
+if [ -f "$HEF_LL" ]; then
+  # shellcheck source=hooks/lane-lib.sh
+  . "$HEF_LL"; hef_git_neutral
+fi
 
 die() { echo "$*" >&2; exit 1; }
 usage() { sed -n '/^#   --check/,/^#   fixes/p' "$0" | sed 's/^#   /  /' >&2; echo "usage: pr-watch.sh <subcommand> …" >&2; exit 2; }

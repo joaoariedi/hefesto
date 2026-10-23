@@ -12,6 +12,11 @@
 #
 # Escape hatch: CLAUDE_SKIP_VERIFY_GATE=1 disables the gate entirely.
 set -uo pipefail
+HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"   # git here ignores core.fsmonitor/hooksPath (lane-lib.sh)
+if [ -f "$HEF_LL" ]; then
+  # shellcheck source=hooks/lane-lib.sh
+  . "$HEF_LL"; hef_git_neutral
+fi
 
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
@@ -20,6 +25,12 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 [ -z "$CWD" ] && exit 0
 [ "$CWD" = "$HOME" ] || [ "$CWD" = "/" ] && exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+
+# lanes-interactive: a hook runs outside the sandbox, and this one runs what project files name — in a --lanes
+# project a lane can edit those files, so the hook stands down there (the lane runs the suite itself, sandboxed).
+LL="$(cd "$(dirname "$0")" && pwd)/lane-lib.sh"
+# shellcheck source=hooks/lane-lib.sh
+if [ -f "$LL" ] && . "$LL" && lanes_project "$CWD"; then echo "hefesto: the task-completion test gate stands down in a --lanes project (it would run project-defined commands outside the sandbox) — run the tests yourself" >&2; exit 0; fi
 
 # --- Detect the test runner. No runner means nothing to prove; never block. ----
 #

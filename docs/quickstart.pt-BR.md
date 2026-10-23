@@ -76,6 +76,16 @@ Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois.
 - **A linha de status** mantém a sua (perfil, modelo, pasta…) e acrescenta `ctx 45% · 90k/200k` (o contexto
   usado, os tokens no contexto sobre o tamanho da janela); abaixo, uma linha por execução em segundo plano
   (`▶ implement FAB-1 · 4m`) e por decisão que espera por você (`⏸ FAB-3 · plan approval`).
+- **Ações das sessões.** Qualquer coisa que uma sessão deva fazer por você (fazer o merge do PR #726 no SHA certo,
+  cortar uma release, publicar em stg, rodar um backfill, reiniciar um container) é um formulário na orchestrator.
+  Peça à orchestrator com as suas palavras. Ela escreve os passos, os heads exatos, as verificações de parada e os
+  comandos, e mostra tudo. Você responde **Approve** e confirma o pedido de permissão. A sessão faz exatamente isso,
+  sem nenhum pedido na tela dela, e avisa quando terminou ou onde parou. Um head que mudou, ou qualquer coisa fora do
+  combinado, volta para você como um novo formulário. A linha de status mostra cada uma que espera por você
+  (`⏸ DET-7-A2 · action: merge PR #726`).
+- **Os nomes das sessões** vêm do projeto: `"lane_prefix": "meuproduto"` em `orchestrate` (sessões
+  `meuproduto-orchestrator`, `-planner`, `-builder`, `-deployer`), ou um mapa explícito `"lanes": {"orchestrator":
+  "…", "plan": "…", "build": ["…", "…"], "deploy": "…"}`. Rode a preparação de novo depois de mudar.
 - **Compacte** quando a linha de status de uma sessão disser `/compact`, com o prompt próprio dela
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` só para trabalho sem relação.
 - **Gasto e rede.** Cada execução em segundo plano pode gastar até `orchestrate.usd_cap` (US$ 20 por padrão), e
@@ -88,8 +98,9 @@ Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois.
   sessão avisam quando for preciso).
 - **Se algo parecer errado**, rode `/hef.doctor`, copie a mensagem exata e mande para o seu líder.
 
-**Segurança num parágrafo.** As sessões mantêm o sandbox do Claude Code; só o lançador do hefesto roda fora
-dele (ele abre as sessões em segundo plano, cada uma com sandbox). A preparação faz todo comando fora dos
-ajudantes do hefesto pedir permissão antes, mantém atrás de um pedido os comandos que registram as suas
-decisões e fixa a pasta onde o lançador pode trabalhar. Uma sessão lê textos de itens e RFCs escritos por
-outras pessoas — então leia cada pedido antes de responder.
+**Segurança num parágrafo.** As sessões mantêm o sandbox do Claude Code, e os comandos dentro dele rodam sem
+perguntar. Fora dele rodam só os ajudantes do próprio hefesto e o `gh`, cada um chamado como um comando simples. O
+ledger, as suas aprovações e o registro de qual sessão é qual ficam em `~/.cache/hefesto`, onde nenhum comando com
+sandbox e nenhuma edição de arquivo chega. Os comandos que registram as suas decisões rodam só na orchestrator, atrás
+de um pedido de permissão, e um `gh pr merge` nunca roda sem uma ação aprovada ou sem o seu pedido. Uma sessão lê
+textos de itens e RFCs escritos por outras pessoas, então leia cada formulário e cada pedido antes de responder.
