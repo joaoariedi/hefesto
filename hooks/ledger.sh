@@ -191,23 +191,33 @@ PHASES=(queued intake spec plan plan-review tasks implement verify quality secur
 KINDS="human:clarify human:plan-review human:plan-approval human:merge human:intake ci conflict budget stall verdict"
 GATES="verify review quality scan mutate incident vulnerability"   # the last two: item-kinds FR-002
 
-ledger_dir() {
-  if [ -n "${HEFESTO_LEDGER_DIR:-}" ]; then mkdir -p "$HEFESTO_LEDGER_DIR" || die "ledger: cannot create $HEFESTO_LEDGER_DIR"; echo "$HEFESTO_LEDGER_DIR"; return; fi
-  # external-board: ONE central ledger in the board repo's git common dir, so ownership, list, metrics and
-  # escalation see every repo the board feeds.
-  if is_external; then
-    local central; central=$(jq -r .ledger_dir <<<"$BCTX")
-    mkdir -p "$central" || die "ledger: cannot create $central"; echo "$central"; return
-  fi
-  local common
-  # The plugin-eval sandbox denies the git binary while the workspace is still a git repository
-  # (evals/README.md): fall back to the checkout's own .git so the evals can read the ledger.
-  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-    || { [ -d "$PWD/.git" ] && common="$PWD/.git"; } \
-    || die "ledger: not inside a git repository (cwd: $PWD)"
-  mkdir -p "$common/hefesto/ledger" || die "ledger: cannot create $common/hefesto/ledger"
-  echo "$common/hefesto/ledger"
+ledger_dir() { # the folder, computed (board-lib) — never created here: a read must work where nothing can write
+  local l; l=$(jq -r '.ledger_dir // empty' <<<"$BCTX")
+  [ -n "$l" ] || die "ledger: not inside a git repository (cwd: $PWD)"
+  printf '%s\n' "$l"
 }
+ledger_mkdir() { # the first write: create the folder, or say why this shell cannot
+  [ -d "$DIR" ] && return 0
+  mkdir -p "$DIR" 2>/dev/null || die "ledger: cannot create the ledger folder $DIR — hefesto 9 keeps it outside the project, and a sandboxed shell cannot write there; $SETUP_HINT"
+}
+# A set-up project (HEFESTO_TRUSTED_TOP from its settings) runs this helper outside the sandbox
+# (sandbox.excludedCommands), so what a sandboxed session can write is hostile input here — the launcher's rule
+# (lanes-v3 FR-022), now this helper's too: git ignores the two keys that run a program on a plain read, and
+# the board this call resolved must be the trusted one.
+trusted_check() {
+  [ -n "${HEFESTO_TRUSTED_TOP:-}" ] || return 0
+  local want got
+  if is_external; then
+    [ -n "${HEFESTO_TRUSTED_BOARD:-}" ] || die "ledger: this project points at an external board, but its setup did not record one — run hefesto-setup.sh again"
+    want=$(cd -P "$HEFESTO_TRUSTED_BOARD" 2>/dev/null && pwd -P); got=$(jq -r .board_top <<<"$BCTX")
+  else
+    want=$(cd -P "$HEFESTO_TRUSTED_TOP/.git" 2>/dev/null && pwd -P); got=$(cd -P "$(jq -r '.git_common // empty' <<<"$BCTX")" 2>/dev/null && pwd -P)
+  fi
+  [ -n "$want" ] && [ "$want" = "$got" ] || die "ledger: this call resolved the board at '$got', not the project's trusted one '$want' (its settings) — run it from the project's folder; a changed .board or git dir is refused"
+}
+GC0="${GIT_CONFIG_COUNT:-}"; case "$GC0" in ''|*[!0-9]*) GCN=0 ;; *) GCN="$GC0" ;; esac
+export "GIT_CONFIG_KEY_$GCN=core.fsmonitor" "GIT_CONFIG_VALUE_$GCN=false" \
+       "GIT_CONFIG_KEY_$((GCN + 1))=core.hooksPath" "GIT_CONFIG_VALUE_$((GCN + 1))=/dev/null" "GIT_CONFIG_COUNT=$((GCN + 2))"
 
 phase_index() { # name → index, or die
   local i; for i in "${!PHASES[@]}"; do [ "${PHASES[$i]}" = "$1" ] && { echo "$i"; return; }; done
@@ -332,7 +342,10 @@ fi
 # side-effect free, and in-repo it never dies where status-board does not (outside git, no config).
 BCTX=$(board_ctx) || exit 1
 if [ "$SUB" = board ]; then [ $# -eq 0 ] || usage; echo "$BCTX"; exit 0; fi
+trusted_check
 DIR=$(ledger_dir) || exit 1
+ledger_settle "$DIR" "$(jq -r '.git_common // empty' <<<"$BCTX")" || exit 1
+case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|-h|--help) ;; *) ledger_mkdir ;; esac
 
 case "$SUB" in
   dir) echo "$DIR" ;;

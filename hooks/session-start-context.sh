@@ -69,19 +69,18 @@ done
 # Blocked ledger entries (session-orchestration FR-015): one line per entry waiting on a human or a
 # failed gate, read from the repository's COMMON git dir so every worktree sees the same list. A
 # blocked item that nobody can see is the escalation gap no vendor documents (report 17 §5d).
-LDIR="${HEFESTO_LEDGER_DIR:-$(git -C "$CWD" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/hefesto/ledger}"
+LDIR=""
 PCFG="$CWD/.claude/project-status.json"
-# external-board: a pane in a code repo sees the CENTRAL ledger and the board's panes, as `ledger.sh board`
-# resolves them. Fail open — a missing, slow or failing resolution keeps the in-repo reading above and never
-# fails the session start.
+# The ledger folder and the board's config come from `ledger.sh board` (hefesto 9 keeps the ledger outside the
+# project; external-board: a pane in a code repo sees the CENTRAL ledger and the board's panes). Fail open — a
+# missing, slow or failing resolution shows no ledger lines and never fails the session start.
 HERE="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 if [ -f "$HERE/ledger.sh" ]; then
   TO=(); command -v timeout >/dev/null 2>&1 && TO=(timeout 5)   # coreutils; macOS may lack it — then unbounded
   # (TO is empty then, and an empty array is "unbound" under set -u on bash 3.2: hence the +-expansion)
   BCTX="$(cd "$CWD" 2>/dev/null && ${TO[@]+"${TO[@]}"} bash "$HERE/ledger.sh" board 2>/dev/null)" || BCTX=""
-  if [ "$(jq -r '.mode // empty' <<<"$BCTX" 2>/dev/null)" = external ]; then
-    LDIR="$(jq -r .ledger_dir <<<"$BCTX")"; PCFG="$(jq -r .config <<<"$BCTX")"
-  fi
+  LDIR="$(jq -r '.ledger_dir // empty' <<<"$BCTX" 2>/dev/null)"
+  if [ "$(jq -r '.mode // empty' <<<"$BCTX" 2>/dev/null)" = external ]; then PCFG="$(jq -r .config <<<"$BCTX")"; fi
 fi
 if [ -d "$LDIR" ]; then
   # Every blocked line names the pane that owns the kind (stage-roles FR-010; report 18 addendum A3), from

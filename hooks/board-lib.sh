@@ -64,14 +64,30 @@ board_top_check() { # $1 board top → the board config path, validated (exists,
   jq -e '.board == null' "$c" >/dev/null || die "ledger board: the board config $c has a board pointer of its own ($(jq -c .board "$c")) — pointers do not chain; point at the board repo directly"
   echo "$c"
 }
-inrepo_ledger_dir() { # today's location, computed without creating it (the board arm is side-effect free)
-  if [ -n "${HEFESTO_LEDGER_DIR:-}" ]; then echo "$HEFESTO_LEDGER_DIR"; return; fi
-  local common; common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { [ -d "$PWD/.git" ] && common="$PWD/.git"; } || return 0
-  echo "$common/hefesto/ledger"
+# lanes-interactive (9.0, plan Revision 2): the ledger lives in $HOME/.cache/hefesto/ledger/<key>, beside the
+# approval store, outside every sandbox's write set — every writer (ledger.sh, the launcher, the hooks) runs
+# unsandboxed. Inside the project a lane could rename the ledger folder and rebuild a forged one (plan review
+# round 2). XDG_CACHE_HOME is deliberately NOT honoured: a worker's sandbox may write its own XDG cache.
+# <key> is one function of the board's git common dir, so a worktree, a symlinked cwd and the trusted root agree.
+hef_sha256() { { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64; }   # stdin → 64 hex (GNU or BSD)
+ledger_home() { printf '%s\n' "$HOME/.cache/hefesto/ledger"; }
+ledger_key() { # $1 git common dir → 32 hex, or fail
+  local p; p=$(cd -P "$1" 2>/dev/null && pwd -P) || return 1
+  printf '%s' "$p" | hef_sha256 | cut -c1-32
 }
-board_inrepo_json() { # $1 top → the in-repo answer: today's config and ledger dir, nothing created
-  local c=""; [ -f "$1/.claude/project-status.json" ] && c="$1/.claude/project-status.json"
-  jq -nc --arg t "$1" --arg c "$c" --arg l "$(inrepo_ledger_dir)" '{mode: "in-repo", board_top: $t, config: (if $c == "" then null else $c end), ledger_dir: (if $l == "" then null else $l end), repos: null, repo: null}'
+ledger_override() { [ -n "${HEFESTO_LEDGER_DIR:-}" ] && [ -z "${HEFESTO_TRUSTED_TOP:-}" ]; }   # tests only: never in a set-up project
+inrepo_common() { # the in-repo board's git common dir, or nothing
+  local c; c=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { [ -d "$PWD/.git" ] && c="$PWD/.git"; } || return 0
+  printf '%s\n' "$c"
+}
+ledger_of_common() { # $1 git common dir → the ledger folder (computed, never created)
+  if ledger_override; then printf '%s\n' "$HEFESTO_LEDGER_DIR"; return; fi
+  local k; k=$(ledger_key "$1") || return 1; printf '%s\n' "$(ledger_home)/$k"
+}
+board_inrepo_json() { # $1 top → the in-repo answer: the config and the ledger dir, nothing created
+  local c="" g l=""; [ -f "$1/.claude/project-status.json" ] && c="$1/.claude/project-status.json"
+  g=$(inrepo_common); [ -n "$g" ] && l=$(ledger_of_common "$g")
+  jq -nc --arg t "$1" --arg c "$c" --arg l "$l" --arg g "$g" '{mode: "in-repo", board_top: $t, config: (if $c == "" then null else $c end), ledger_dir: (if $l == "" then null else $l end), git_common: (if $g == "" then null else $g end), repos: null, repo: null}'
 }
 board_top_of() { # $1 role (board | pointer<TAB>path), $2 top, $3 main → the board's top (physical path), or die
   local ptr
@@ -89,10 +105,10 @@ board_external_json() { # $1 board top, $2 main worktree top (or "") → the ext
   repos=$(board_repos "$1" "$bcfg") || exit 1
   common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
     || die "ledger board: the board $1 is not a git repository (or git is unavailable) — the central ledger lives in its git dir"
-  ldir="${HEFESTO_LEDGER_DIR:-$common/hefesto/ledger}"
+  ldir=$(ledger_of_common "$common") || die "ledger board: cannot resolve the board's git dir $common"
   [ -n "$2" ] && me=$(cd "$2" && pwd -P)
-  jq -nc --arg t "$1" --arg c "$bcfg" --arg l "$ldir" --argjson r "$repos" --arg me "$me" \
-    '{mode: "external", board_top: $t, config: $c, ledger_dir: $l, repos: $r, repo: ([$r | to_entries[] | select(.value == $me) | .key][0] // null)}'
+  jq -nc --arg t "$1" --arg c "$bcfg" --arg l "$ldir" --arg g "$common" --argjson r "$repos" --arg me "$me" \
+    '{mode: "external", board_top: $t, config: $c, ledger_dir: $l, git_common: $g, repos: $r, repo: ([$r | to_entries[] | select(.value == $me) | .key][0] // null)}'
 }
 board_ctx() { # → {"mode","board_top","config","ledger_dir","repos","repo"} as one JSON line, or die naming the field
   local top main role btop
@@ -114,4 +130,40 @@ cd_entry_repo() { # $1 entry JSON: git checks for an entry run in ITS repo (exte
   [ -n "$p" ] || die "ledger: the entry records repo '$r', which the board does not feed ($(repo_names))"
   DIR=$(cd "$DIR" && pwd -P) || die "ledger: cannot resolve $DIR"   # writes stay put after the cd
   cd "$p" || die "ledger: cannot enter the entry's repo $p"
+}
+
+# The move from <git common dir>/hefesto/ledger (hefesto ≤ 8) to ledger_home, once, by the first call that can
+# write there (plan review round 3, condition 2): locked, copied to a partial folder, counted, renamed into
+# place; refused while an old lease is live (an 8.x launcher still renews it); the old folder is kept, renamed.
+SETUP_HINT="run once, in a terminal in the project's main folder: bash \$HOME/.claude-framework/hooks/hefesto-setup.sh (or the copy in your profile's plugin folder) — it lets ledger.sh write there — then reopen the session"
+ledger_settle() { # $1 the ledger folder, $2 the git common dir (or "") → 0 when $1 may be used; migrates once
+  local new="$1" old moved lock part i live n1 n2
+  [ -n "$2" ] || return 0; ledger_override && return 0
+  old="$2/hefesto/ledger"; moved="$2/hefesto/MOVED"
+  if [ -f "$moved" ] && [ -d "$old" ]; then
+    die "ledger: $old reappeared after the ledger moved to $(head -1 "$moved") — an older hefesto (a launcher still running, or a profile not updated) wrote it. Stop it, update every profile, copy any entry in $old that $new lacks, then remove $old"
+  fi
+  [ -d "$new" ] && return 0
+  [ -d "$old" ] || return 0                       # a fresh project: the first write creates $new
+  mkdir -p "$(dirname "$new")" 2>/dev/null && [ -w "$(dirname "$new")" ] \
+    || die "ledger: hefesto 9 keeps the ledger in $new and this shell cannot write there (it runs inside a sandbox), so the ledger in $old has not moved yet — $SETUP_HINT"
+  live=$(find "$old" -name '*.lease' -mmin -5 2>/dev/null | head -1)
+  [ -z "$live" ] || die "ledger: cannot move the ledger while a run is going ($(basename "$live" .lease) renewed its lease in the last 5 minutes) — wait for it to finish, then run the command again"
+  lock="$new.lock"; i=0
+  until mkdir "$lock" 2>/dev/null; do
+    [ -d "$new" ] && return 0                     # another call finished the move meanwhile
+    i=$((i + 1)); [ "$i" -le 20 ] || die "ledger: another call is moving the ledger to $new (lock $lock) — run again in a moment; if no hefesto command is running, remove $lock"
+    sleep 0.5
+  done
+  [ -d "$new" ] && { rmdir "$lock"; return 0; }
+  part="$new.partial-$$"
+  if cp -Rp "$old" "$part" 2>/dev/null && n1=$(find "$old" -type f | wc -l) && n2=$(find "$part" -type f | wc -l) && [ "$n1" = "$n2" ] && mv "$part" "$new"; then
+    printf '%s\n' "$new" > "$moved" && mv "$old" "$old.moved-$(date +%Y%m%d%H%M%S)" \
+      || { rmdir "$lock"; die "ledger: the ledger was copied to $new but $old could not be marked as moved — rename $old yourself, then run the command again"; }
+    rmdir "$lock"
+    echo "ledger: moved the ledger ($(echo $n1) files) from $old to $new; the old folder is kept beside it, renamed" >&2
+  else
+    rm -rf -- "${part:?}"; rmdir "$lock"
+    die "ledger: could not copy $old to $new — nothing was changed; fix the reason (disk space, permissions) and run the command again"
+  fi
 }

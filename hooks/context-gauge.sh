@@ -35,19 +35,23 @@ user_line() { # the profile's own status line, first line only; nothing on any f
   printf '%s' "$in" | bash -c "$cmd" 2>/dev/null | head -1
 }
 U=""; [ "$WITH_USER" = 1 ] && U="$(user_line)"
-ledger_dir() { # $1 project folder → its ledger folder, or nothing
-  local d="$1" g c b
+ledger_dir() { # $1 project folder → its ledger folder, or nothing — git-free (the status line must stay fast)
+  # The key is board-lib's ledger_key: the sha256 of the board's physical git common dir (hefesto 9 keeps the
+  # ledger in ~/.cache/hefesto/ledger/<key>). Kept in step with board-lib.sh by a smoke equality check.
+  local d="$1" g c="" b
   if [ -f "$d/.claude/project-status.json" ]; then   # an external board: the board's own ledger
     b="$(jq -r '.board // empty' "$d/.claude/project-status.json" 2>/dev/null)"
-    if [ -n "$b" ]; then case "$b" in /*) ;; *) b="$d/$b" ;; esac; [ -d "$b/.git" ] && { printf '%s\n' "$b/.git/hefesto/ledger"; return; }; fi
+    if [ -n "$b" ]; then case "$b" in /*) ;; *) b="$d/$b" ;; esac; [ -d "$b/.git" ] && c="$b/.git"; fi
   fi
-  if [ -d "$d/.git" ]; then printf '%s\n' "$d/.git/hefesto/ledger"
-  elif [ -f "$d/.git" ]; then                        # a linked worktree: .git names its admin dir, commondir the rest
+  if [ -z "$c" ] && [ -d "$d/.git" ]; then c="$d/.git"
+  elif [ -z "$c" ] && [ -f "$d/.git" ]; then          # a linked worktree: .git names its admin dir, commondir the rest
     g="$(sed -n 's/^gitdir: //p' "$d/.git" | head -1)"; [ -n "$g" ] || return 0
     c="$(head -1 "$g/commondir" 2>/dev/null)"; [ -n "$c" ] || return 0
     case "$c" in /*) ;; *) c="$g/$c" ;; esac
-    printf '%s\n' "$c/hefesto/ledger"
   fi
+  [ -n "$c" ] || return 0
+  c="$(cd -P "$c" 2>/dev/null && pwd -P)" || return 0
+  printf '%s\n' "$HOME/.cache/hefesto/ledger/$(printf '%s' "$c" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-32)"
 }
 runs_rows() { # $1 project folder → one row per run and per decision waiting on a person, or nothing
   local ld
