@@ -85,3 +85,13 @@ resolve_lane_map() { # $1 board config (may not exist), $2 the main folder → t
       | [["orchestrator","orchestrator"],["plan","plan"],["build","build"],["deploy","deploy"]]
       | map(. as [$k,$r] | $s[$k] | select(nm) | {(.): $r}) | add // {} end' <<<"$cfg"
 }
+
+# Every hefesto hook runs outside the sandbox, in a repository a lane can write: its git calls ignore the two config
+# keys that run a program on a plain read (core.fsmonitor, core.hooksPath) — plan Revision 1 #1, code review of PR A.
+# Appended after any GIT_CONFIG_* the person set. (Claude Code's sandbox also mounts .git/config read-only, and
+# block-sensitive-files.sh blocks edits under .git/ — this is the line that holds if either is ever off.)
+hef_git_neutral() {
+  local c="${GIT_CONFIG_COUNT:-}"; case "$c" in ''|*[!0-9]*) c=0 ;; esac
+  export "GIT_CONFIG_KEY_$c=core.fsmonitor" "GIT_CONFIG_VALUE_$c=false" \
+         "GIT_CONFIG_KEY_$((c + 1))=core.hooksPath" "GIT_CONFIG_VALUE_$((c + 1))=/dev/null" "GIT_CONFIG_COUNT=$((c + 2))"
+}

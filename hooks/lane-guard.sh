@@ -69,8 +69,9 @@ EXCL_HIT=""
 while IFS= read -r e; do
   [ -n "$e" ] || continue
   w="${e%% *}"; q="$(re_quote "$w")"
-  wrap='(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|env|exec|command|builtin|nohup|sudo|xargs|nice|time|timeout[[:space:]]+[0-9]+[smhd]?)[[:space:]]+)*'
-  re="(^|[;&|({\`]|\\\$\\(|"$'\n'")[[:space:]]*${wrap}${q}([[:space:]]|\$|[;&|)<>])"
+  # the word anywhere, quoted or escaped too — not only after an operator: `if :; then gh …; fi`, `! gh …`, `"gh" …`
+  # and `\gh …` start with something else, so they run INSIDE the sandbox, auto-allowed (code review of PR A)
+  re="(^|[^A-Za-z0-9_./-])[\\\\\"']*${q}[\"']*([^A-Za-z0-9_./-]|\$)"
   [[ "$CMD" =~ $re ]] && { EXCL_HIT="$w"; break; }
 done < <(jq -r '.excluded[]? // empty' <<<"$REC")
 
@@ -81,7 +82,7 @@ heredoc_ok() {
   [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:space:]]*$ ]] || return 1
   word="${BASH_REMATCH[1]}"; [ "$last" = "$word" ] || return 1
   head="${first%<<*}"; plain_words "$head" || return 1
-  [ "$(first_word "$head")" = "$EXCL_HIT" ] || return 1
+  starts_bare "$head" || return 1
   case "$EXCL_HIT" in */ledger.sh) ;; *) return 1 ;; esac
   case "$(words "$head" | sed -n 2p)" in answer|revise|direct) ;; *) return 1 ;; esac   # all person-only: the
   # --lanes rule below then lets only the orchestrator through
@@ -89,9 +90,11 @@ heredoc_ok() {
 words() { printf '%s' "$1" | xargs printf '%s\n' 2>/dev/null; }   # split quoted words without a shell
 
 if [ -n "$EXCL_HIT" ]; then
-  if ! { plain_words "$CMD" && [ "$(first_word "$CMD")" = "$EXCL_HIT" ]; } && ! heredoc_ok; then
+  # the bare word first, exactly as the sandbox exclusion matches it: `"gh" …` or `\gh …` would run inside the sandbox
+  starts_bare() { local q; q="$(re_quote "$EXCL_HIT")"; [[ "$1" =~ ^[[:space:]]*${q}([[:space:]]|$) ]]; }
+  if ! { plain_words "$CMD" && starts_bare "$CMD"; } && ! heredoc_ok; then
     case "$EXCL_HIT" in
-      gh) deny "gh runs outside the sandbox in this project, so its command must be one plain word list — no pipe, redirect, chain, \$(…) or wrapper. Use gh's own --jq/-q to filter, and the Write tool to save output" ;;
+      gh) deny "gh runs outside the sandbox in this project, so a command naming it must be exactly one plain gh command — no pipe, redirect, chain, \$(…), keyword or wrapper around it. Use gh's own --jq/-q to filter, the Write tool to save output, and the Grep tool to search for the word" ;;
       *) deny "$EXCL_HIT runs outside the sandbox in this project, so the call must be one plain word list exactly as the guide writes it — no pipe, redirect, chain, \$(…), wrapper or leading assignment (pass text with a file argument)" ;;
     esac
   fi
@@ -136,7 +139,7 @@ set -- "$LD"/actions/*.json; [ -f "$1" ] || exit 0
 glob_re() { # $1 pattern → an anchored ERE
   local out="" ch i
   for ((i = 0; i < ${#1}; i++)); do ch="${1:i:1}"
-    case "$ch" in '*') out+='[^;&|`$()<>{}]*' ;; [][\.^\$+?\(\)\{\}\|]) out+="\\$ch" ;; *) out+="$ch" ;; esac
+    case "$ch" in '*') out+='[^;&|`$()<>{}]*' ;; [][\\.^\$+?\(\)\{\}\|]) out+="\\$ch" ;; *) out+="$ch" ;; esac
   done; printf '^%s$' "$out"
 }
 while IFS= read -r a; do

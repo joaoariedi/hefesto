@@ -14,6 +14,11 @@
 #
 # Prints nothing outside a git repo, so it costs zero context where it has nothing to say.
 set -uo pipefail
+HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"   # git here ignores core.fsmonitor/hooksPath (lane-lib.sh)
+if [ -f "$HEF_LL" ]; then
+  # shellcheck source=hooks/lane-lib.sh
+  . "$HEF_LL"; hef_git_neutral
+fi
 
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
@@ -105,7 +110,8 @@ if [ -n "$SET_TOP" ] && valid_sid "$SID"; then
     find "$SDIR" -name '*.json' -mtime +30 -exec rm -f {} + 2>/dev/null
     jq -n --arg title "$TITLE" --arg role "$LANE" --argjson lanes "$LANES_ON" --arg worker "${HEFESTO_WORKER:-}" \
       --arg top "$SET_TOP" --arg board "$(jq -r '.env.HEFESTO_TRUSTED_BOARD // empty' <<<"$SETS")" --arg ledger "$LDIR" \
-      --argjson excl "$(jq -c '[.sandbox.excludedCommands // [] | .[] | strings]' <<<"$SETS")" \
+      --argjson excl "$( { printf '%s\n' "$SETS"; for sf in "$SET_TOP/.claude/settings.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"; do
+          [ -f "$sf" ] && jq -c . "$sf" 2>/dev/null; done; } | jq -sc '[.[] | objects | .sandbox.excludedCommands // [] | .[] | strings] | unique')" \
       '{title: $title, role: $role, name: (if $role == "" then "" else $title end), lanes: ($lanes == 1), worker: ($worker != ""),
         top: $top, board: $board, ledger: $ledger, excluded: $excl, at: (now | todate)}' > "$SDIR/.$SID.tmp" 2>/dev/null \
       && mv "$SDIR/.$SID.tmp" "$SDIR/$SID.json"
