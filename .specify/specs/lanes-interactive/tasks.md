@@ -30,17 +30,17 @@
 - [x] T018 [FR-012] [FR-029] orchestrator and stage pass read directives and actions as data `commands/hef.orchestrate.md`
 
 ## Phase 5: Interactive mode (PR B)
-- [ ] T019 [FR-013] [FR-014] `--prepare` (gate refusal before any write) `hooks/session-launch.sh`
-- [ ] T020 [FR-015] [FR-018] `--finish` for plan/implement/verify/deploy, shared transcription `hooks/session-launch.sh`
-- [ ] T021 [FR-016] interactive claims: no lease, not reaped, `release` by a person `hooks/ledger.sh` `hooks/ledger-lanes.sh`
-- [ ] T022 [FR-017] [FR-019] the interactive stage pass `commands/hef.orchestrate.md`
-- [ ] T023 [FR-025] resume context at session start `hooks/session-start-context.sh`
-- [ ] T024 [FR-020] lane finding by the map `commands/hef.orchestrate.md`
+- [x] T019 [FR-013] [FR-014] `--prepare` (gate refusal before any write) `hooks/session-launch.sh`
+- [x] T020 [FR-015] [FR-018] `--finish` for plan/implement/verify/deploy, shared transcription `hooks/session-launch.sh`
+- [x] T021 [FR-016] interactive claims: no lease, not reaped, `release` by a person `hooks/ledger.sh` `hooks/ledger-lanes.sh`
+- [x] T022 [FR-017] [FR-019] the interactive stage pass `commands/hef.orchestrate.md`
+- [x] T023 [FR-025] resume context at session start `hooks/session-start-context.sh`
+- [x] T024 [FR-020] lane finding by the map `commands/hef.orchestrate.md`
 
 ## Phase 6: Polish
-- [ ] T025 [SC-001..008] [SC-010] smoke: `head_ "Lane guard (security)"` refusal block + feature blocks, mutation-checked `tests/smoke.sh`
-- [ ] T026 [SC-009] eval `action-text-is-data` `evals/action-text-is-data/`
-- [ ] T027 [FR-028] docs en/pt-BR, install, hooks, commands, README, CHANGELOG `docs/`
+- [x] T025 [SC-001..008] [SC-010] smoke: `head_ "Lane guard (security)"` refusal block + feature blocks, mutation-checked `tests/smoke.sh`
+- [x] T026 [SC-009] eval `action-text-is-data` `evals/action-text-is-data/`
+- [x] T027 [FR-028] docs en/pt-BR, install, hooks, commands, README, CHANGELOG `docs/`
 
 ---
 **Legend**: `[P]` = parallelizable | `[US#]` = user scenario | `[FR-NNN]` = functional requirement

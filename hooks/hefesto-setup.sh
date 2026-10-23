@@ -112,7 +112,7 @@ for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
           "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)" "Bash($h/ledger.sh questions:*)"
           "Bash($h/ledger.sh request:*)" "Bash($h/ledger.sh actions:*)" "Bash($h/ledger.sh action:*)" "Bash($h/ledger.sh op new:*)"
           "Bash($h/ledger.sh direct:*)" "Bash($h/ledger.sh directives:*)" "Bash($h/ledger.sh directive:*)" "Bash($h/ledger.sh note:*)"
-          "Bash($h/ledger.sh park --all)" "Bash($h/ledger.sh lanes)" "Bash($h/ledger.sh dir)"
+          "Bash($h/ledger.sh park --all)" "Bash($h/ledger.sh lanes:*)" "Bash($h/ledger.sh dir)"
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/run-follow.sh:*)")
   for c in unblock record claim advance handoff block revise answer approve release; do
     ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
@@ -143,9 +143,21 @@ envj="$(jq -nc --arg t "$TOP" --arg b "${BTOP:-}" --argjson lanes "$LANES" --arg
 # hefesto's own state, by every spelling of the path.
 x_allow=("Bash(gh pr view:*)" "Bash(gh pr list:*)" "Bash(gh pr checks:*)" "Bash(gh pr diff:*)" "Bash(gh pr create:*)"
          "Bash(gh run list:*)" "Bash(gh run view:*)" "Bash(gh repo view:*)" "Bash(gh auth status)")
-x_excl=("gh *"); x_deny=(); x_net=("api.github.com")
+x_excl=("gh *"); x_deny=(); x_dirs=(); x_net=("api.github.com")
 # the GitHub API is out of the lanes' sandbox: only the unsandboxed gh, decided by the permission rules, reaches it —
 # a sandboxed `if :; then gh pr merge …; fi`, or a script that runs gh, gets no network for it (code review of PR A)
+# An external board's code repos sit beside it, outside this project: with --lanes the lanes edit and build in their
+# worktrees, so they are added to permissions.additionalDirectories (which also widens the lanes' sandbox to them).
+if [ "$LANES" = 1 ] && [ -n "${BTOP:-}" ]; then
+  while IFS= read -r d; do
+    [ -n "$d" ] && [ -d "$d" ] || continue; d="$(cd "$d" && pwd -P)"
+    # the repos map is in the board config, a file a lane can edit (code review of PR B, B6): never a grant that
+    # contains hefesto's state, $HOME or / (a temp folder or one inside the project is writable already)
+    case "$(printf '%s/' "$HOME/.cache/hefesto" | tr -s /)" in "$(printf '%s/' "$d" | tr -s /)"*) die "the board's repos map names $d, which contains $HOME/.cache/hefesto — refusing to grant it to the lanes' sandbox (nothing was written)" ;; esac
+    { [ "$d" = / ] || [ "$d" = "$(cd "$HOME" && pwd -P)" ]; } && die "the board's repos map names $d — / and your home are never granted to the lanes (nothing was written)"
+    x_dirs+=("$d")
+  done < <(jq -r '.repos // {} | .[]' <<<"$BCTX")
+fi
 HC="$HOME/.cache/hefesto"; HCP="$(mkdir -p "$HC" 2>/dev/null; cd -P "$HC" 2>/dev/null && pwd -P)"
 for b in "$HC" ${HCP:+"$HCP"}; do for sub in ledger approvals sessions; do r="Edit(/$b/$sub/**)"; case " ${x_deny[*]-} " in *" $r "*) ;; *) x_deny+=("$r") ;; esac; done; done
 cmd_ok() { # $1 a command pattern → 0 when safe to write as a rule (review round 1 #6, code review of PR A)
@@ -190,10 +202,10 @@ jarr() { if [ $# -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq
 RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@]}")" --argjson x "$(jarr "${excl[@]}")" \
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
   --arg g "${roots[0]}/hooks/context-gauge.sh --with-user" --argjson lanes "$LANES" --argjson keep "$KEEP" --argjson strict "$STRICT" \
-  --argjson xa "$(jarr "${x_allow[@]}")" --argjson xe "$(jarr "${x_excl[@]}")" --argjson xd "$(jarr "${x_deny[@]}")" \
+  --argjson xa "$(jarr "${x_allow[@]}")" --argjson xe "$(jarr "${x_excl[@]}")" --argjson xd "$(jarr "${x_deny[@]}")" --argjson xr "$(jarr ${x_dirs[@]+"${x_dirs[@]}"})" \
   --argjson xn "$(jarr "${x_net[@]}")" --argjson ua "$(jarr ${u_allow[@]+"${u_allow[@]}"})" --argjson ue "$(jarr ${u_excl[@]+"${u_excl[@]}"})" \
   '{allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep,
-    strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd, xnet: $xn, uallow: $ua, uexcl: $ue}')" || die "could not build the rules"
+    strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd, xdirs: $xr, xnet: $xn, uallow: $ua, uexcl: $ue}')" || die "could not build the rules"
 
 if [ "$MODE" = check ]; then
   me="${CLAUDE_PLUGIN_ROOT:-$CLONE}"; me="${me%/}"
@@ -259,7 +271,8 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   | (($old.env.HEFESTO_SETUP_EXTRA? // "{}") | (try fromjson catch {}) | if type == "object" then . else {} end) as $px
   | def minus($xs): (. // []) - ($xs // []);
     (if .permissions then .permissions.allow |= (strip | minus($px.allow)) | .permissions.ask |= strip
-       | (if .permissions.deny then .permissions.deny |= minus($px.deny) else . end) else . end)
+       | (if .permissions.deny then .permissions.deny |= minus($px.deny) else . end)
+       | (if .permissions.additionalDirectories then .permissions.additionalDirectories |= minus($px.dirs) else . end) else . end)
   | (if .sandbox.excludedCommands then .sandbox.excludedCommands |= minus($px.excl) else . end)
   | (if .sandbox.network.deniedDomains then .sandbox.network.deniedDomains |= minus($px.net) else . end)
   | (if .sandbox then .sandbox.excludedCommands |= (strip | map(select(. as $x | $r.bad | index([$x]) | not)))
@@ -280,13 +293,14 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
      else .permissions.allow |= addu($r.allow) | .permissions.ask |= addu($r.ask)
        | .sandbox.excludedCommands |= addu($r.exclude)
        | .permissions.allow |= addu($r.xallow) | .sandbox.excludedCommands |= addu($r.xexcl) | .permissions.deny |= addu($r.xdeny)
+       | (if ($r.xdirs | length) > 0 then .permissions.additionalDirectories |= addu($r.xdirs) else . end)
        | .sandbox.network.deniedDomains |= addu($r.xnet)
        | (if $r.keep == 0 and .statusLine == null then .statusLine = $r.gauge else . end)
        | (if $r.lanes == 1 and .crossSessionInbound == null then .crossSessionInbound = "accept" | .__m += ["inbound"] else . end)
        | (if $r.strict == 0 or .sandbox.autoAllowBashIfSandboxed == false then . else .sandbox.autoAllowBashIfSandboxed = false | .__m += ["autoallow"] end)
        | (if .sandbox.enabled == true and .sandbox.failIfUnavailable == true then . else .sandbox.enabled = true | .sandbox.failIfUnavailable = true | .__m += ["sandbox"] end)
        | (($mk + (.__m // [])) | unique) as $m | del(.__m)
-       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny, net: $r.xnet, user_allow: $r.uallow, user_excl: $r.uexcl} | tojson)}
+       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny, dirs: $r.xdirs, net: $r.xnet, user_allow: $r.uallow, user_excl: $r.uexcl} | tojson)}
                 + (if ($m | length) > 0 then {HEFESTO_SETUP_SET: ($m | join(","))} else {} end)) end)
   | (if .env then .env |= . else . end)
   | (if .permissions then .permissions |= keep_own_empty($old.permissions) else . end)

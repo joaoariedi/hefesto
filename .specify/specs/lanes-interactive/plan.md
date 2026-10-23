@@ -367,3 +367,25 @@ Suggestions taken:
 - the session record's excluded commands come from every applying settings file;
 - grant patterns escape a literal backslash;
 - mutation-checked cases for the wildcard grant, the hook's own-lane rule for directives and the bypass forms.
+
+## Code review of PR B: REQUEST_CHANGES, answered (2026-10-23)
+
+- **B1.** The prepare record is `<id>.prepare`, not a `.json` the ledger's `list` reads as an entry. A test asserts that
+  `list`, `list --today` (the daily cap's input) and `metrics` still answer while an item is prepared.
+- **B2.** `ledger.sh lanes:*` is allowed.
+- **B3.** `ledger.sh run` and `claim` are the launcher's alone: lane-guard denies them from every lane, and `ledger.sh`
+  refuses them from any session with a record.
+- **B4.** `--prepare` refuses a stage the project runs in worker mode. A verify outcome with no PASS/FAIL review verdict
+  records a review FAIL and blocks, for an in-lane verify and a background run alike.
+- **B5.** A note records its author (`note_by`). The resume shows only the reader's own note, in a delimited block
+  with a nonce.
+- **B6.** setup refuses a repos entry that is `/`, `$HOME`, or a folder containing `~/.cache/hefesto`.
+
+Suggestions taken:
+- a repeated `--lane` and a launched worker are refused in prepare and finish;
+- `ExitWorktree` before the next item;
+- a `done:` line for a deploy whose PR was merged;
+- `lanes --modes` answers worker without a config;
+- the docs rows;
+- FR-015's file wording;
+- tests for each fix, with mutations.

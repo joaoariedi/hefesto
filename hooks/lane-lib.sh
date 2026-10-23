@@ -37,6 +37,10 @@ first_word() { # $1 command → its first word, unquoted
   local w; w="$(printf '%s' "$1" | sed -E 's/^[[:space:]]*//; s/[[:space:]].*$//')"; w="${w#[\"\']}"; printf '%s\n' "${w%[\"\']}"
 }
 
+# The claim and the run record are written by hefesto's launcher only (its own calls are not tool calls); a lane that
+# ran them could free or take another lane's interactive claim (code review of PR B, B3).
+is_launcher_sub() { case "${1:-}" in run|claim) return 0 ;; esac; return 1; }
+
 # Which ledger subcommands record a person's decision — one list, read by lane-guard.sh (the hook) and by ledger.sh
 # itself (the second gate, in case a hook fails open). With --lanes they run only from the orchestrator lane.
 is_person_sub() { # $1 subcommand, then its arguments → 0 when it records a person's decision

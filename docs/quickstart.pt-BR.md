@@ -60,6 +60,12 @@ Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois.
    narra a sua execução enquanto ela acontece (`· /hef.spec`, `· write …/plan.md`, `· run: go test ./...`,
    `■ done`). As três etapas andam juntas; para mais builders, `"max_builders": 2` em `orchestrate` e abra
    também a `meurepo-builder2`.
+   **Sessões que fazem o trabalho elas mesmas:** acrescente `"lane_mode": "interactive"` em `orchestrate`, ou por
+   etapa (`{"build": "interactive"}`). Cada sessão de etapa passa a planejar, construir ou publicar na própria
+   conversa, no worktree do item, sem sessão em segundo plano e sem gasto além do da própria sessão. Dá para conversar
+   com ela no meio da tarefa, e depois de compactar ou reiniciar ela retoma o que tem nas mãos. Abra essas sessões
+   com `--permission-mode acceptEdits`, para que as edições no worktree não peçam permissão; a orchestrator fica no
+   modo padrão.
 4. **Na orchestrator:** `/hef.orchestrate` — ele confere a preparação e encontra as três sessões.
 5. **Mande as RFCs:** `/hef.ship ABC-12` para um item com a sua RFC no quadro (`rfc: docs/rfcs/ABC-12.md`
    abaixo do título), ou `/hef.ship "<ideia>"`. A orchestrator chama a planner; quando um plano fica pronto

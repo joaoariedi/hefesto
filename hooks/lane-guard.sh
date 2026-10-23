@@ -113,6 +113,7 @@ case "$EXCL_HIT" in
     esac ;;
   *)
     IFS=$'\n' read -r -d '' -a WA <<<"$W" || true
+    is_launcher_sub "$SUB" && deny "'ledger.sh $SUB' is the launcher's own record (session-launch.sh writes it) — a lane uses --prepare/--finish, a person ledger.sh release"
     is_person_sub "${WA[@]:1}" && [ "$ROLE" != orchestrator ] && deny "'ledger.sh $SUB' records a person's decision, so it runs only in the orchestrator lane (this session is the ${ROLE:-unnamed} lane '${NAME:-$(jq -r .title <<<"$REC")}') — decisions are made there, as a form"
     case "$SUB" in
       action|directive|note)

@@ -44,19 +44,47 @@
 set -uo pipefail
 
 die() { echo "$*" >&2; exit 1; }
-usage() { echo "usage: session-launch.sh <plan|implement|verify|deploy> <id> [--dry-run]" >&2; exit 2; }
+usage() { echo "usage: session-launch.sh <plan|implement|verify|deploy> <id> [--dry-run] | --prepare --lane <name> | --finish --lane <name> --outcome-file <f>" >&2; exit 2; }
 
 HERE="$(cd "$(dirname "$0")" && pwd)"; LEDGER="$HERE/ledger.sh"; BOARD="$HERE/status-board.sh"
 # lanes-interactive: ledger.sh refuses a person's decision from a session that is not the orchestrator lane
 # (CLAUDE_CODE_SESSION_ID, its second gate). This launcher's own ledger calls — the RFC pin at a plan launch, the
-# transcription — are hefesto's, not the lane's, so the caller's id is dropped here.
-unset CLAUDE_CODE_SESSION_ID
+# transcription — are hefesto's, not the lane's, so the caller's id is kept only for the --lane check below.
+CALLER_SID="${CLAUDE_CODE_SESSION_ID:-}"; unset CLAUDE_CODE_SESSION_ID
 [ $# -ge 2 ] || usage
-ROLE="$1"; ID="$2"; shift 2; DRY=0
-while [ $# -gt 0 ]; do case "$1" in --dry-run) DRY=1 ;; *) usage ;; esac; shift; done
+ROLE="$1"; ID="$2"; shift 2; DRY=0; MODE=run; LANE=""; OUTF=""
+while [ $# -gt 0 ]; do case "$1" in --dry-run) DRY=1 ;; --prepare) MODE=prepare ;; --finish) MODE=finish ;;
+  --lane) [ -z "$LANE" ] || die "session-launch: --lane given twice — a lane names itself once"; LANE="${2:-}"; shift ;;
+  --outcome-file) OUTF="${2:-}"; shift ;; *) usage ;; esac; shift; done
 case "$ROLE" in plan|implement|verify|deploy) ;; *) echo "session-launch: unknown role '$ROLE' (expected plan, implement, verify or deploy)" >&2; usage ;; esac
 [[ "$ID" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || die "session-launch: invalid id '$ID' (expected [A-Za-z][A-Za-z0-9_-]*) — it becomes a worktree name and a session name"
 command -v jq >/dev/null 2>&1 || die "session-launch: jq not found"
+# lanes-interactive FR-014/015 (#134): --prepare and --finish serve a stage lane that does the stage in its own
+# conversation — every check a launch makes, the claim as that lane, the worktree, the prompt; then, from the
+# lane's structured outcome, exactly the transcription a background run gets. No session is started, no USD spent.
+if [ "$MODE" != run ]; then
+  [[ "$LANE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die "session-launch $ROLE $ID --$MODE: --lane <this lane's own name> is required (got '$LANE')"
+  [ "$DRY" = 0 ] || die "session-launch $ROLE $ID: --dry-run goes with a launch, not with --$MODE"
+  [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "session-launch $ROLE $ID --$MODE: a launched worker is never a lane"
+  if [ "$MODE" = finish ]; then [ -n "$OUTF" ] || die "session-launch $ROLE $ID --finish: --outcome-file <f> — write the structured outcome as JSON with the Write tool"
+  else [ -z "$OUTF" ] || die "session-launch $ROLE $ID: --outcome-file goes with --finish"; fi
+  case "$ROLE" in plan) LROLE=plan ;; implement|verify) LROLE=build ;; deploy) LROLE=deploy ;; esac
+  # B4 (code review of PR B): only a stage the project runs interactive is done in a lane — in worker mode the
+  # separate background sessions (the verifier above all) are the design. The config is lane-writable, so this is
+  # the careless path; the verify transcription below holds regardless.
+  [ "$MODE" != prepare ] || [ "$("$LEDGER" lanes --modes 2>/dev/null | jq -r --arg s "$LROLE" '.[$s] // "worker"')" = interactive ] \
+    || die "session-launch $ROLE $ID --prepare: the $LROLE stage runs in worker mode (orchestrate.lane_mode) — launch it, or set it interactive"
+  if [ -n "${HEFESTO_LANE_MAP:-}" ]; then
+    got="$(jq -r --arg l "$LANE" '.[$l] // empty' <<<"$HEFESTO_LANE_MAP" 2>/dev/null)"
+    [ "$got" = "$LROLE" ] || die "session-launch $ROLE $ID --$MODE: '$LANE' is ${got:+the $got lane}${got:-no lane of this project} — $ROLE is the $LROLE lane's"
+  fi
+  # the second gate beside lane-guard.sh: the calling session's own record names this lane
+  if [[ "$CALLER_SID" =~ ^[A-Za-z0-9_-]{8,80}$ ]] && [ -f "$HOME/.cache/hefesto/sessions/$CALLER_SID.json" ] \
+     && [ "$(jq -r '.lanes' "$HOME/.cache/hefesto/sessions/$CALLER_SID.json" 2>/dev/null)" = true ]; then
+    [ "$(jq -r '.name // empty' "$HOME/.cache/hefesto/sessions/$CALLER_SID.json")" = "$LANE" ] \
+      || die "session-launch $ROLE $ID --$MODE: this session is not the lane '$LANE' — a lane prepares and finishes only its own work"
+  fi
+fi
 
 # lanes-v3 FR-022: this launcher is the one command a lane runs outside its sandbox, so it treats what a
 # sandboxed session can write as hostile. Every git it runs — and every helper it calls — ignores the two config
@@ -113,6 +141,12 @@ if [ "$(jq -r .mode <<<"$BCTX")" = external ]; then
   done
 else
   TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || die "session-launch: not inside a git repository (cwd: $PWD)"
+  # --prepare/--finish may run from the item's worktree (a lane works there after EnterWorktree): TOP is then the
+  # main checkout its git common dir belongs to (plan Revision 2 #5)
+  if [ "$MODE" != run ]; then
+    GCD="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+    case "$GCD" in */.git) [ "$(cd "${GCD%/.git}" && pwd -P)" = "$(cd "$TOP" && pwd -P)" ] || TOP="${GCD%/.git}" ;; esac
+  fi
   CONFIG="$TOP/.claude/project-status.json"
 fi
 # lanes-v3 Revision 2: inside a lane the launcher runs only where setup said — HEFESTO_TRUSTED_TOP and _BOARD
@@ -123,7 +157,8 @@ if [ -n "${HEFESTO_TRUSTED_TOP:-}" ]; then
   HERE_CD="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
   # the common dir alone would accept an item worktree, whose config files a worker writes: the folder itself
   # must be the trusted main checkout
-  same_dir "$HERE_CD" "$HEFESTO_TRUSTED_TOP/.git" && same_dir "$(git rev-parse --show-toplevel 2>/dev/null)" "$HEFESTO_TRUSTED_TOP" \
+  same_dir "$HERE_CD" "$HEFESTO_TRUSTED_TOP/.git" && { same_dir "$(git rev-parse --show-toplevel 2>/dev/null)" "$HEFESTO_TRUSTED_TOP" \
+    || { [ "$MODE" != run ] && same_dir "$(git rev-parse --show-toplevel 2>/dev/null)" "$HEFESTO_TRUSTED_TOP/.claude/worktrees/$ID"; }; } \
     || die "session-launch: this folder ($(git rev-parse --show-toplevel 2>/dev/null || pwd)) is not the main checkout hefesto-setup.sh trusted ($HEFESTO_TRUSTED_TOP) — run it from the project's main folder"
   [ "$EXT" = 0 ] || same_dir "$HEFESTO_BOARD_TOP" "${HEFESTO_TRUSTED_BOARD:-}" \
     || die "session-launch: the board resolves to $HEFESTO_BOARD_TOP, not the board hefesto-setup.sh trusted (${HEFESTO_TRUSTED_BOARD:-none}) — re-run hefesto-setup.sh if the board moved"
@@ -167,7 +202,7 @@ MAX_FIXES="$(cfg '.orchestrate.max_fixes // 3')"
 
 # --- host (FR-020) ---------------------------------------------------------------------------
 CFGDIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-{ [ -d "$CFGDIR" ] && [ -w "$CFGDIR" ]; } || die "session-launch: $CFGDIR is not writable — this shell is running inside a sandbox, and a child claude could neither reach the API nor save its transcript. Launch from an unsandboxed session (the orchestrator pane; --dry-run is refused here too so the check is exercised where it matters); workers get their own sandbox via --settings"
+[ "$MODE" != run ] || { [ -d "$CFGDIR" ] && [ -w "$CFGDIR" ]; } || die "session-launch: $CFGDIR is not writable — this shell is running inside a sandbox, and a child claude could neither reach the API nor save its transcript. Launch from an unsandboxed session (the orchestrator pane; --dry-run is refused here too so the check is exercised where it matters); workers get their own sandbox via --settings"
 
 # --- the entry and the daily cap (FR-011, FR-013) ----------------------------------------------
 E="$("$LEDGER" show "$ID")" || exit 1
@@ -175,7 +210,7 @@ TODAY_SPENT="$("$LEDGER" list --today | jq '[.[].budget.usd_spent] | add // 0')"
 CAP_MSG="session-launch $ROLE $ID: daily cap $DAILY_CAP USD would be exceeded (spent today $TODAY_SPENT + session cap $USD_CAP) — raise orchestrate.daily_usd_cap or wait for tomorrow"
 CAP_HIT=0; awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' && CAP_HIT=1
 # deploy checks the cap after its merge record (below), which launches nothing and costs nothing
-[ "$CAP_HIT" = 0 ] || [ "$ROLE" = deploy ] || die "$CAP_MSG"
+[ "$CAP_HIT" = 0 ] || [ "$ROLE" = deploy ] || [ "$MODE" != run ] || die "$CAP_MSG"   # in-lane work spends no USD (FR-019)
 PHASE="$(jq -r .phase <<<"$E")"; SPEC_DIR="$(jq -r '.spec_dir // empty' <<<"$E")"
 # The item's kind (item-kinds FR-004, FR-005; report 18 #6): an incident or vulnerability fix carries one
 # extra sentence for the worker and one REQUIRED gate for the verifier. Empty for a feature, so a feature
@@ -205,6 +240,7 @@ WORKTREE="$(jq -r '.worktree // empty' <<<"$E")"; BRANCH="$(jq -r '.branch // em
 if [ "$LANE_MODE" = 1 ] && [ -n "$WORKTREE" ]; then
   [ "$WORKTREE" = "$TOP/.claude/worktrees/$ID" ] || die "session-launch $ROLE $ID: the entry records the worktree $WORKTREE, not $TOP/.claude/worktrees/$ID — the ledger was edited; fix it with a person"
 fi
+WT="$TOP/.claude/worktrees/$ID"
 
 # --- settings (validated: -p ignores an invalid file silently) --------------------------------
 # lanes-v3 FR-018: a worker reads untrusted text and never rings a lane — the doorbells are the orchestrator's
@@ -302,6 +338,123 @@ rfc_drifted() { # 0 when a pinned RFC no longer holds what its plan was made fro
   return 0
 }
 
+# The structured outcome a lane writes is checked against the same schema a background run is held to — a small
+# validator for the subset these schemas use (type, enum, maxLength, minimum, required, properties, items).
+schema_errors() { # $1 schema JSON, $2 value JSON → the first violation, or nothing
+  jq -rn --argjson s "$1" --argjson v "$2" '
+    def tn: if type == "number" then (if . == floor then "integer" else "number" end) else type end;
+    def okt($t): tn as $x | ($x == $t) or ($t == "number" and $x == "integer");
+    def chk($s; $p): . as $v
+      | (if $s.type then (if ([($s.type | if type == "array" then .[] else . end) as $t | $v | okt($t)] | any) then empty else "\($p): expected \($s.type | tojson), got \($v | tn)" end) else empty end),
+        (if $s.enum and ($s.enum | index([$v]) | not) then "\($p): \($v | tojson) is not one of \($s.enum | map(tojson) | join(", "))" else empty end),
+        (if $s.maxLength and ($v | type) == "string" and ($v | length) > $s.maxLength then "\($p): longer than \($s.maxLength) characters" else empty end),
+        (if $s.minimum != null and ($v | type) == "number" and $v < $s.minimum then "\($p): below \($s.minimum)" else empty end),
+        (if ($v | type) == "object" then
+           (($s.required // [])[] | select(. as $k | $v | has($k) | not) | "\($p).\(.): required"),
+           (($s.properties // {}) | to_entries[] | . as $e | select($v | has($e.key)) | $v[$e.key] | chk($e.value; "\($p).\($e.key)"))
+         else empty end),
+        (if ($v | type) == "array" and $s.items then ($v[] | chk($s.items; "\($p)[]")) else empty end);
+    [$v | chk($s; "outcome")] | .[0] // empty'
+}
+
+# What implement and plan both record after a run in the worktree: where it is, which branch, the spec dir
+# made absolute (unblock runs from the main checkout). Recorded BEFORE the outcome switch so a failed or
+# blocked plan run can resume from it.
+record_worktree() { # $1 extra --route or ""
+  [ -d "$WT" ] || die "session-launch $ROLE $ID: expected the worktree at $WT after the run; not found (exit $RC)"
+  local br args s
+  if [ "$LANE_MODE" = 0 ]; then br="$(git -C "$WT" branch --show-current 2>/dev/null)" || die "session-launch $ROLE $ID: worktree $WT unreadable"
+  else br="$(wt_branch "$WT")" || die "session-launch $ROLE $ID: worktree $WT does not point at this repository's git dir (its .git file or commondir was changed, or it is on no branch) — remove it and re-run"; fi
+  args=(--worktree "$WT" --branch "$br"); [ -n "$1" ] && args+=(--route "$1")
+  s="$(jq -r '.spec_dir // empty' <<<"$SO")"; case "$s" in "") ;; /*) args+=(--spec-dir "$s") ;; *) args+=(--spec-dir "$WT/$s") ;; esac
+  "$LEDGER" record "$ID" "${args[@]}" >/dev/null || exit 1
+}
+transcribe() { # the ledger after a stage: from SO (the structured outcome), RC, WT, NAME, PR_MODE — a run's, or a lane's
+case "$ROLE" in
+  implement)
+    R="$(jq -r '.route // empty' <<<"$SO")"; record_worktree "$R"
+    P="$(jq -r '.pr_url // empty' <<<"$SO")"; [ -n "$P" ] && { "$LEDGER" record "$ID" --pr "$P" >/dev/null || exit 1; }
+    case "$(jq -r '.outcome' <<<"$SO")" in
+      pr)      "$LEDGER" advance "$ID" verify >/dev/null || exit 1 ;;
+      blocked) K="$(jq -r '.blocked_on // empty' <<<"$SO")"; [ -n "$K" ] || K="human:intake"; "$LEDGER" block "$ID" --kind "$K" >/dev/null || exit 1 ;;
+      *)       "$LEDGER" show "$ID"; die "session-launch implement $ID: the worker reported outcome 'failed' (exit $RC) — phase stays implement, re-dispatchable until stall" ;;
+    esac ;;
+  plan)
+    OC="$(jq -r '.outcome' <<<"$SO")"
+    if [ "$OC" = tasks ]; then record_worktree full; else record_worktree ""; fi   # route full: the verify chain must include /hef.verify
+    case "$OC" in tasks|blocked) "$LEDGER" record "$ID" --person-text-consumed >/dev/null || exit 1 ;; esac
+    case "$OC" in
+      tasks)   # lanes-v2 FR-006: with plan_review "human" a finished draft waits for a person's named approval
+               if [ "$PR_MODE" = human ]; then
+                 "$LEDGER" advance "$ID" plan-review >/dev/null && "$LEDGER" block "$ID" --kind human:plan-approval >/dev/null || exit 1
+               else "$LEDGER" advance "$ID" tasks >/dev/null || exit 1; fi ;;
+      blocked) K="$(jq -r '.blocked_on // empty' <<<"$SO")"; [ -n "$K" ] || K="human:intake"
+               # lanes-v3 FR-012: the planner's summary is the question the orchestrator shows the person
+               QF="$("$LEDGER" dir)/$ID.question-$(date +%s).md"; jq -r '.summary // ""' <<<"$SO" > "$QF" || QF=""
+               "$LEDGER" block "$ID" --kind "$K" ${QF:+--question "$QF"} >/dev/null || exit 1 ;;
+      *)       "$LEDGER" show "$ID"; die "session-launch plan $ID: the planner reported outcome 'failed' (exit $RC) — phase stays intake; ledger.sh next --stage plan will pick it up again and the planner resumes from what was recorded" ;;
+    esac ;;
+  verify)
+    FAIL=0
+    while read -r V; do
+      G="$(jq -r .gate <<<"$V")"; VD="$(jq -r .verdict <<<"$V")"; EV="$(jq -r '.evidence // ""' <<<"$V")"
+      "$LEDGER" verdict "$ID" --gate "$G" --verdict "$VD" --by "$NAME" --evidence "$EV" >/dev/null || exit 1
+      [ "$VD" = FAIL ] && FAIL=1
+    done < <(jq -c '.verdicts[]' <<<"$SO")
+    # The kind's gate is REQUIRED (item-kinds FR-005): no PASS/FAIL verdict for it — absent, or SKIPPED —
+    # is a FAIL, decided here and not left to the verifier's prose.
+    if [ -n "$KIND_GATE" ] && ! jq -e --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g and (.verdict == "PASS" or .verdict == "FAIL"))] | length > 0' <<<"$SO" >/dev/null; then
+      WHY=$(jq -r --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g)][0] | if . == null then "gate missing from the verifier'"'"'s report" else (.evidence // "skipped without a reason") end' <<<"$SO")
+      "$LEDGER" verdict "$ID" --gate "$ITEM_KIND" --verdict FAIL --by "$NAME" --evidence "required $ITEM_KIND gate not passed: $WHY" >/dev/null || exit 1
+      FAIL=1
+    fi
+    # the code review is not optional: a verify outcome with no PASS/FAIL review verdict is a FAIL (code review of PR B,
+    # B4 — an empty verdict list used to advance the item to pr)
+    if ! jq -e '[.verdicts[]? | select(.gate == "review" and (.verdict == "PASS" or .verdict == "FAIL"))] | length > 0' <<<"$SO" >/dev/null; then
+      "$LEDGER" verdict "$ID" --gate review --verdict FAIL --by "$NAME" --evidence "no review verdict was reported" >/dev/null || exit 1
+      FAIL=1
+    fi
+    if [ "$FAIL" = 1 ]; then "$LEDGER" block "$ID" --kind verdict >/dev/null || exit 1
+    else "$LEDGER" advance "$ID" pr >/dev/null && "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
+  deploy)
+    # stage-roles FR-008: questions outrank the verdict — a person must read before anything moves; a
+    # mergeable PR already at the gate keeps its block (and its `since`); closed leaves the deploy set.
+    Q="$(jq -r '.questions' <<<"$SO")"; V="$(jq -r '.verdict' <<<"$SO")"; F="$(jq -r '.fixes' <<<"$SO")"
+    CURK="$(jq -r '.blocked_on.kind // empty' <<<"$E")"
+    if [ "$Q" -gt 0 ]; then "$LEDGER" block "$ID" --kind human:intake >/dev/null || exit 1
+    else
+      case "$V" in
+        mergeable) [ "$CURK" = human:merge ] || { "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; } ;;
+        conflict)  "$LEDGER" block "$ID" --kind conflict >/dev/null || exit 1 ;;
+        checks)    [ "$F" -ge "$MAX_FIXES" ] && { "$LEDGER" block "$ID" --kind ci >/dev/null || exit 1; } ;;
+        closed)    "$LEDGER" block "$ID" --kind human:intake >/dev/null || exit 1 ;;
+        review|pending|refused) ;;
+      esac
+    fi ;;
+esac
+}
+
+# --finish (FR-015): the lane's outcome, transcribed exactly as a run's — never a prompt section again (it would
+# re-pin the RFC). The entry must be claimed by this lane, in interactive mode, for this role.
+if [ "$MODE" = finish ]; then
+  LDF="$("$LEDGER" dir)" || exit 1; PF="$LDF/$ID.prepare"
+  [ "$(jq -r '.owner.session_name // empty' <<<"$E")" = "$LANE" ] && [ "$(jq -r '.owner.mode // empty' <<<"$E")" = interactive ] \
+    && [ "$(jq -r '.owner.role // empty' <<<"$E")" = "$ROLE" ] \
+    || die "session-launch $ROLE $ID --finish: the entry is not held by the lane $LANE for $ROLE (owner: $(jq -c '.owner' <<<"$E")) — run --prepare first"
+  [ -f "$PF" ] && [ "$(jq -r '.lane // empty' "$PF")" = "$LANE" ] && [ "$(jq -r '.role // empty' "$PF")" = "$ROLE" ] \
+    || die "session-launch $ROLE $ID --finish: no --prepare of $ROLE by $LANE is on record ($PF)"
+  [ -f "$OUTF" ] && [ "$(wc -c < "$OUTF" | tr -d ' ')" -le 32768 ] || die "session-launch $ROLE $ID --finish: --outcome-file must name a JSON file of at most 32 KB (got '$OUTF')"
+  SO="$(jq -ce . "$OUTF" 2>/dev/null)" || die "session-launch $ROLE $ID --finish: $OUTF is not JSON"
+  SCHEMA="$(jq -c '.schema' "$PF")"; PR_MODE="$(jq -r '.pr_mode // empty' "$PF")"
+  BAD="$(schema_errors "$SCHEMA" "$SO")"; [ -z "$BAD" ] || die "session-launch $ROLE $ID --finish: the outcome does not fit the $ROLE schema — $BAD"
+  RC=0; NAME="$LANE"; [ "$ROLE" = verify ] && NAME="$LANE:code-reviewer"   # FR-018: the lane's fresh-context reviewers
+  case "$ROLE" in verify|deploy) WT="$WORKTREE" ;; esac
+  "$LEDGER" run "$ID" --role "$ROLE" --exit 0 --usd 0 --session-id in-lane --note in-lane >/dev/null || exit 1
+  transcribe
+  rm -f "$PF" "$LDF/$ID.prompt.md"
+  "$LEDGER" show "$ID"; exit 0
+fi
+
 # --- prompt and schema per role ----------------------------------------------------------------
 case "$ROLE" in
   implement)
@@ -392,11 +545,12 @@ EOF
             && [ -f "$(sed -n 's/^gitdir: //p' "$WORKTREE/.git" 2>/dev/null | head -1)/config.worktree" ] && WCFG=1   # git may name the admin dir PB-11, not the worktree's basename
           WTN=""; if [ -d "$WORKTREE" ] && { [ -n "$WCFG" ] || { [ "$LANE_MODE" = 1 ] && ! wt_branch "$WORKTREE" >/dev/null; } || ! git -C "$TOP" worktree remove "$WORKTREE" 2>/dev/null; }; then WTN=" (worktree kept: $WORKTREE — it has local changes, or its git pointer was changed)"; fi
           echo "session-launch deploy $ID: PR #$PRN is merged — recorded, phase merged$WTN; nothing to babysit" >&2
+          [ "$MODE" = prepare ] && echo "done: PR #$PRN is merged — recorded, nothing to prepare"
           "$LEDGER" show "$ID"; exit 0
         fi
       fi
     fi
-    [ "$CAP_HIT" = 0 ] || die "$CAP_MSG"
+    [ "$CAP_HIT" = 0 ] || [ "$MODE" != run ] || die "$CAP_MSG"
     [ -n "$WORKTREE" ] || die "session-launch deploy $ID: no worktree recorded on the entry — the babysitter fixes in the PR's checkout"
     [ -d "$WORKTREE" ] || die "session-launch deploy $ID: recorded worktree missing: $WORKTREE"
     read -r -d '' PROMPT <<EOF || true
@@ -405,11 +559,59 @@ EOF
     SCHEMA='{"type":"object","required":["summary","verdict","fixes","questions"],"properties":{"summary":{"type":"string","maxLength":2000},"verdict":{"enum":["mergeable","conflict","checks","review","pending","closed","refused"]},"fixes":{"type":"integer","minimum":0},"questions":{"type":"integer","minimum":0}}}' ;;
 esac
 
+# --prepare (FR-014): everything a launch does before starting the session — the person's gate first, then the
+# claim as this lane (interactive: no pid, no lease), the phase, the worktree (git, as `claude -w` makes it), and the
+# prompt — and no session. The lane reads the prompt as its task (its delimited blocks stay data).
+if [ "$MODE" = prepare ]; then
+  EBK="$(jq -r '.blocked_on.kind // empty' <<<"$E")"
+  if [[ "$EBK" == human:* ]] && ! { [ "$ROLE" = deploy ] && [ "$EBK" = human:merge ]; }; then
+    die "session-launch $ROLE $ID --prepare: blocked on $EBK — the person clears it first, in the orchestrator"
+  fi
+  "$LEDGER" claim "$ID" --session "$LANE" --role "$ROLE" --mode interactive >/dev/null || exit 1
+  undo() { "$LEDGER" run "$ID" --role "$ROLE" --exit 1 --usd 0 --session-id in-lane --note "prepare failed" >/dev/null 2>&1; die "$1"; }
+  case "$ROLE:$PHASE" in
+    implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || undo "session-launch implement $ID --prepare: advance failed" ;;
+    plan:queued)                      "$LEDGER" advance "$ID" intake >/dev/null || undo "session-launch plan $ID --prepare: advance failed" ;;
+  esac
+  case "$ROLE" in
+    implement|plan)
+      if [ -e "$WT" ] || [ -L "$WT" ]; then
+        [ "$LANE_MODE" = 0 ] || { [ ! -L "$WT" ] && wt_branch "$WT" >/dev/null; } || undo "session-launch $ROLE $ID --prepare: $WT is not a worktree of this repository (a symlink, or its git pointer was changed) — remove it and run again"
+      else
+        git -C "$TOP" fetch -q origin 2>/dev/null || true
+        BASE="origin/$INTEG"; git -C "$TOP" rev-parse -q --verify "$BASE^{commit}" >/dev/null 2>&1 || BASE=HEAD
+        if git -C "$TOP" rev-parse -q --verify "refs/heads/worktree-$ID" >/dev/null 2>&1; then
+          git -C "$TOP" worktree add -q "$WT" "worktree-$ID" >/dev/null 2>&1 || undo "session-launch $ROLE $ID --prepare: cannot add the worktree $WT on worktree-$ID"
+        else
+          git -C "$TOP" worktree add -q -b "worktree-$ID" "$WT" "$BASE" >/dev/null 2>&1 || undo "session-launch $ROLE $ID --prepare: cannot create the worktree $WT from $BASE"
+        fi
+      fi
+      if [ "$LANE_MODE" = 1 ]; then BR="$(wt_branch "$WT")" || undo "session-launch $ROLE $ID --prepare: the worktree's branch is not usable"
+      else BR="$(git -C "$WT" branch --show-current 2>/dev/null)"; fi
+      "$LEDGER" record "$ID" --worktree "$WT" --branch "$BR" >/dev/null || undo "session-launch $ROLE $ID --prepare: cannot record the worktree" ;;
+    verify|deploy) WT="$WORKTREE" ;;
+  esac
+  LDP="$("$LEDGER" dir)" || undo "session-launch $ROLE $ID --prepare: cannot read the ledger folder"
+  FIN="$HERE/session-launch.sh $ROLE $ID --finish --lane $LANE --outcome-file <the file you wrote>"
+  {
+    echo "You are the $LANE lane, doing this stage in your own conversation. Work in $WT (switch into it with EnterWorktree, path $WT); call every hefesto helper as one plain command. When you stop, write the structured output below as one JSON object to a file with the Write tool, then run: $FIN"
+    [ "$ROLE" = verify ] && echo "Run each gate through its /hef.* command: the review gates spawn a fresh-context code-reviewer — report their verdicts, never your own judgement of the change."
+    echo "Structured output schema: $SCHEMA"
+    echo
+    printf '%s\n' "$PROMPT"
+  } > "$LDP/$ID.prompt.md" || undo "session-launch $ROLE $ID --prepare: cannot write the prompt"
+  jq -n --arg role "$ROLE" --arg lane "$LANE" --argjson schema "$SCHEMA" --arg pr "${PR_MODE:-}" \
+    '{role: $role, lane: $lane, schema: $schema, pr_mode: $pr, at: (now | todate)}' > "$LDP/$ID.prepare" || undo "session-launch $ROLE $ID --prepare: cannot write the record"
+  echo "worktree: $WT"
+  echo "prompt: $LDP/$ID.prompt.md"
+  echo "finish: $FIN"
+  exit 0
+fi
+
 # --- the command line (FR-009) -------------------------------------------------------------------
 case "$ROLE" in implement) NAME="impl-$ID" ;; verify) NAME="verify-$ID" ;; plan) NAME="plan-$ID" ;; deploy) NAME="deploy-$ID" ;; esac
 CMD=(env "${WORKER_ENV[@]}" HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS" --max-budget-usd "$USD_CAP"
      --output-format stream-json --verbose --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)
-WT="$TOP/.claude/worktrees/$ID"
 case "$ROLE" in
   implement|plan)
     # a retry reuses the worktree; a new one is made by `claude -w` in its cwd — so the entry's repo, explicitly
@@ -489,73 +691,6 @@ if jq -e '(.subtype // "") | test("budget")' "$OUT" >/dev/null 2>&1; then
 fi
 SO="$(jq -e '.structured_output // empty' "$OUT" 2>/dev/null)" \
   || die "session-launch $ROLE $ID: no structured_output in the result (exit $RC) — stdout: $(head -c 300 "$OUT" | tr '\n' ' ') stderr: $(head -c 300 "$OUT.err" | tr '\n' ' ')"
-# What implement and plan both record after a run in the worktree: where it is, which branch, the spec dir
-# made absolute (unblock runs from the main checkout). Recorded BEFORE the outcome switch so a failed or
-# blocked plan run can resume from it.
-record_worktree() { # $1 extra --route or ""
-  [ -d "$WT" ] || die "session-launch $ROLE $ID: expected the worktree at $WT after the run; not found (exit $RC)"
-  local br args s
-  if [ "$LANE_MODE" = 0 ]; then br="$(git -C "$WT" branch --show-current 2>/dev/null)" || die "session-launch $ROLE $ID: worktree $WT unreadable"
-  else br="$(wt_branch "$WT")" || die "session-launch $ROLE $ID: worktree $WT does not point at this repository's git dir (its .git file or commondir was changed, or it is on no branch) — remove it and re-run"; fi
-  args=(--worktree "$WT" --branch "$br"); [ -n "$1" ] && args+=(--route "$1")
-  s="$(jq -r '.spec_dir // empty' <<<"$SO")"; case "$s" in "") ;; /*) args+=(--spec-dir "$s") ;; *) args+=(--spec-dir "$WT/$s") ;; esac
-  "$LEDGER" record "$ID" "${args[@]}" >/dev/null || exit 1
-}
-case "$ROLE" in
-  implement)
-    R="$(jq -r '.route // empty' <<<"$SO")"; record_worktree "$R"
-    P="$(jq -r '.pr_url // empty' <<<"$SO")"; [ -n "$P" ] && { "$LEDGER" record "$ID" --pr "$P" >/dev/null || exit 1; }
-    case "$(jq -r '.outcome' <<<"$SO")" in
-      pr)      "$LEDGER" advance "$ID" verify >/dev/null || exit 1 ;;
-      blocked) K="$(jq -r '.blocked_on // empty' <<<"$SO")"; [ -n "$K" ] || K="human:intake"; "$LEDGER" block "$ID" --kind "$K" >/dev/null || exit 1 ;;
-      *)       "$LEDGER" show "$ID"; die "session-launch implement $ID: the worker reported outcome 'failed' (exit $RC) — phase stays implement, re-dispatchable until stall" ;;
-    esac ;;
-  plan)
-    OC="$(jq -r '.outcome' <<<"$SO")"
-    if [ "$OC" = tasks ]; then record_worktree full; else record_worktree ""; fi   # route full: the verify chain must include /hef.verify
-    case "$OC" in tasks|blocked) "$LEDGER" record "$ID" --person-text-consumed >/dev/null || exit 1 ;; esac
-    case "$OC" in
-      tasks)   # lanes-v2 FR-006: with plan_review "human" a finished draft waits for a person's named approval
-               if [ "$PR_MODE" = human ]; then
-                 "$LEDGER" advance "$ID" plan-review >/dev/null && "$LEDGER" block "$ID" --kind human:plan-approval >/dev/null || exit 1
-               else "$LEDGER" advance "$ID" tasks >/dev/null || exit 1; fi ;;
-      blocked) K="$(jq -r '.blocked_on // empty' <<<"$SO")"; [ -n "$K" ] || K="human:intake"
-               # lanes-v3 FR-012: the planner's summary is the question the orchestrator shows the person
-               QF="$("$LEDGER" dir)/$ID.question-$(date +%s).md"; jq -r '.summary // ""' <<<"$SO" > "$QF" || QF=""
-               "$LEDGER" block "$ID" --kind "$K" ${QF:+--question "$QF"} >/dev/null || exit 1 ;;
-      *)       "$LEDGER" show "$ID"; die "session-launch plan $ID: the planner reported outcome 'failed' (exit $RC) — phase stays intake; ledger.sh next --stage plan will pick it up again and the planner resumes from what was recorded" ;;
-    esac ;;
-  verify)
-    FAIL=0
-    while read -r V; do
-      G="$(jq -r .gate <<<"$V")"; VD="$(jq -r .verdict <<<"$V")"; EV="$(jq -r '.evidence // ""' <<<"$V")"
-      "$LEDGER" verdict "$ID" --gate "$G" --verdict "$VD" --by "$NAME" --evidence "$EV" >/dev/null || exit 1
-      [ "$VD" = FAIL ] && FAIL=1
-    done < <(jq -c '.verdicts[]' <<<"$SO")
-    # The kind's gate is REQUIRED (item-kinds FR-005): no PASS/FAIL verdict for it — absent, or SKIPPED —
-    # is a FAIL, decided here and not left to the verifier's prose.
-    if [ -n "$KIND_GATE" ] && ! jq -e --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g and (.verdict == "PASS" or .verdict == "FAIL"))] | length > 0' <<<"$SO" >/dev/null; then
-      WHY=$(jq -r --arg g "$ITEM_KIND" '[.verdicts[] | select(.gate == $g)][0] | if . == null then "gate missing from the verifier'"'"'s report" else (.evidence // "skipped without a reason") end' <<<"$SO")
-      "$LEDGER" verdict "$ID" --gate "$ITEM_KIND" --verdict FAIL --by "$NAME" --evidence "required $ITEM_KIND gate not passed: $WHY" >/dev/null || exit 1
-      FAIL=1
-    fi
-    if [ "$FAIL" = 1 ]; then "$LEDGER" block "$ID" --kind verdict >/dev/null || exit 1
-    else "$LEDGER" advance "$ID" pr >/dev/null && "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
-  deploy)
-    # stage-roles FR-008: questions outrank the verdict — a person must read before anything moves; a
-    # mergeable PR already at the gate keeps its block (and its `since`); closed leaves the deploy set.
-    Q="$(jq -r '.questions' <<<"$SO")"; V="$(jq -r '.verdict' <<<"$SO")"; F="$(jq -r '.fixes' <<<"$SO")"
-    CURK="$(jq -r '.blocked_on.kind // empty' <<<"$E")"
-    if [ "$Q" -gt 0 ]; then "$LEDGER" block "$ID" --kind human:intake >/dev/null || exit 1
-    else
-      case "$V" in
-        mergeable) [ "$CURK" = human:merge ] || { "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; } ;;
-        conflict)  "$LEDGER" block "$ID" --kind conflict >/dev/null || exit 1 ;;
-        checks)    [ "$F" -ge "$MAX_FIXES" ] && { "$LEDGER" block "$ID" --kind ci >/dev/null || exit 1; } ;;
-        closed)    "$LEDGER" block "$ID" --kind human:intake >/dev/null || exit 1 ;;
-        review|pending|refused) ;;
-      esac
-    fi ;;
-esac
+transcribe
 rm -f "$OUT" "$OUT.err"
 "$LEDGER" show "$ID"

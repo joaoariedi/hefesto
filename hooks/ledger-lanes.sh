@@ -140,7 +140,7 @@ reap_dead_owners() { # every owned entry whose lease ran out → owner released 
   [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || return 0
   for f in "$DIR"/*.json; do
     [ -f "$f" ] || continue
-    [ "$(jq -r '.owner != null' "$f" 2>/dev/null)" = true ] || continue
+    [ "$(jq -r '.owner != null and .owner.mode != "interactive"' "$f" 2>/dev/null)" = true ] || continue   # a lane's claim has no lease (FR-016)
     lease_stale "$f" || continue
     e=$(jq '.runs = ((.runs // []) + [{role: .owner.role, session_name: .owner.session_name, session_id: "", exit: 125, usd: 0, at: (now | todate), note: "the launcher stopped renewing its lease — the run was cut off"}]) | .owner = null' "$f") || continue
     write_entry "$(basename "$f" .json)" <<<"$e" && rm -f "$DIR/$(basename "$f" .json).lease" \
