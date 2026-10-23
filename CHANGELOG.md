@@ -35,6 +35,94 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [8.0.0] - 2026-10-23
+
+**Two ways to work, both opened with plain `claude --name`: a single lane whose orchestrator runs every
+stage in the background, or four lanes whose stages overlap and narrate their runs live. Every decision
+is a form in the orchestrator, and each pass ends on the one thing the person has to do next.**
+
+### Added
+
+- **`hooks/hefesto-setup.sh [--lanes]`**: one terminal step per project. It writes the lane settings into
+  `.claude/settings.local.json` (a plugin cannot ship them):
+  - the helper allowlist, with the ledger commands that clear a person's decision kept under `ask`;
+  - the launcher alone outside the sandbox, and `sandbox.autoAllowBashIfSandboxed: false`;
+  - the trusted project folder and the status line;
+  - with `--lanes`, inbound doorbells from the other lanes.
+
+  It keeps the person's own entries and drops only stale entries it wrote itself. `--check`, `--remove` and
+  `--print` inspect or undo it.
+- **The lane is the session name.** `claude --name <repo>-orchestrator|planner|builder|deployer`, through
+  any wrapper that passes claude's arguments on (`claude-profile <p> --name …`).
+- **`/hef.ship "<idea>" | <ID>`**: one command from intake to a babysat pull request. A feature is
+  brainstormed into an RFC and planned; a 🐞 fix goes straight to the builder.
+- **Every decision is a form in the orchestrator**: plan approval, a planner's questions, a change request,
+  an item check, the merge on GitHub. Answering one runs the matching command behind Claude Code's
+  permission dialog; nothing is copied between sessions. New for this: `ledger.sh questions | answer | revise`.
+- **Doorbells**: the orchestrator rings a stage lane with a message, found by its exact name. A doorbell
+  is data, and the rung lane runs its own pass.
+- **Stages overlap.** One planner, `orchestrate.max_builders` builders (1–8, default 1) and one deployer
+  can run at a time in a repository; the verifier is exempt. Extra builder lanes are `<repo>-builder2` …
+  In a single lane, the stages are launched side by side in the background.
+- **A stage lane narrates its run.** `hooks/run-follow.sh <id> [--live]` prints one line per step
+  (`· /hef.spec`, `· write …/plan.md`, `· run: go test ./...`, `■ done`), and the lane follows it with
+  Monitor. Workers report as stream-json; each run's stream and result live under
+  `~/.cache/hefesto/runs/`, where no sandboxed session can write.
+- **Each orchestrator pass ends with the person's next move**: the status, then exactly one last line —
+  **Your move:** …, **Optional while it runs:** …, or **Nothing to do — wait.**
+- **The status line** keeps the profile's own line and adds `ctx 45% · 90k/200k`. Below it come one
+  `▶ implement FAB-1 · 4m` row per run and one `⏸ FAB-3 · plan approval` row per decision waiting on the
+  person, at most six, then `… +N more`.
+- **Boards are adopted, not assumed.** `status-board.sh --detect` lists the boards a project already uses
+  and the orchestrator asks which one to adopt. `--init` creates `tasks/` when none exists, and `--add` puts
+  an item on the board.
+- **`orchestrate.allowed_domains`** gives a worker's sandbox network access to the hosts it needs: public
+  hostnames only, no IP literal, localhost or internal-only name.
+
+### Changed
+
+- **`/hef.orchestrate` with no flag is the orchestrator pass**: it checks the setup, registers the
+  board, asks every pending decision as a form, then rings the lanes or runs the stages in the background.
+  `--stage plan|build|deploy` is a stage lane's pass, which never asks a question.
+- **Default caps are $20 per run and $100 per day** (they were $5 and $25), so the pipeline stops on budget
+  less often.
+- **A cut-off claim is released by its lease.** A launcher renews `<id>.lease` every 20 s while it or its
+  worker lives; a later claim releases one stale for over 5 minutes. Process ids gave a wrong answer
+  inside a sandbox.
+- **`plan_first`** leaves 🐞 fixes to the builder.
+
+### Fixed
+
+- Background workers get their own build cache, `~/.cache/hefesto/worker-cache/<repo>`, which their
+  sandbox can write. `go build` failed with `mkdir ~/.cache/go-build: read-only file system`; the
+  person's own cache stays out of the workers' reach (#126).
+- A plan or build no longer dies at the tool's 10-minute limit: launches run in the background.
+- The planner keeps its edit permission after a `cd`, and a failed plan run no longer uses up the
+  person's answers.
+- `ledger.sh list` and `next` are read-only again; a stopped launcher stops its worker; a worker cannot
+  release a claim.
+- The orchestrator could never ring a lane: `ListAgents` shows no folder, and the old folder check needed one.
+- A new worktree is created after a `git fetch`, so it starts from the last merge.
+
+### Breaking
+
+- **`hooks/lane-launch.sh` is gone.** It is now a stub that prints the new steps and exits 2. Lanes open
+  with `claude --name <repo>-<lane>` after `hefesto-setup.sh`.
+- **`/hef.orchestrate` with no arguments** runs the orchestrator pass instead of a build pass (the old default was `--stage build`). A
+  script that relied on the bare call must pass `--stage build`.
+
+### Upgrading
+
+1. Close every Claude Code window and run the wizard:
+   `bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh)`. It should end
+   with `every profile runs hefesto 8.0.0`.
+2. In each project's main folder, run `bash ~/.claude-framework/hooks/hefesto-setup.sh`, adding `--lanes`
+   for four lanes. Run it again after every update; it is idempotent.
+3. Reopen the lanes with `claude --name <repo>-<lane>` (or your wrapper). Start each stage lane once with
+   `/hef.orchestrate --stage plan|build|deploy`, then run `/hef.orchestrate` in the orchestrator.
+4. Optional: `"max_builders": 2` under `orchestrate` plus a `<repo>-builder2` lane, and `allowed_domains`
+   for the hosts your build needs (see `docs/install.md`).
+
 ## [7.13.0] - 2026-10-20
 
 **Pick the mode that fits — one session for experiments, four lanes for an RFC backlog — and in the

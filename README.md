@@ -400,4 +400,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-**Framework Version**: 7.13.0 &nbsp;|&nbsp; **Last Updated**: 2026-10-20 &nbsp;|&nbsp; **Compatibility**: Claude Code with sub-agents, hooks, skills (`<name>/SKILL.md`), MCP, Agent Teams
+**Framework Version**: 8.0.0 &nbsp;|&nbsp; **Last Updated**: 2026-10-23 &nbsp;|&nbsp; **Compatibility**: Claude Code with sub-agents, hooks, skills (`<name>/SKILL.md`), MCP, Agent Teams
