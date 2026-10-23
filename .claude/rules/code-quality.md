@@ -20,9 +20,11 @@
 **Enforced, not just stated.** These are aggregate rules — no single edit violates them, which is
 exactly the class of rule agents honour least (a 31% violation rate was measured for such a rule
 present in every revision of a spec, against 100% for rules that name a file). So
-`quality-before-commit.sh` runs them as a **delta gate** wherever `lizard` is installed: a staged
-file may not have *more* functions over the limits than its `HEAD` version. Brownfield debt stays
-visible and non-blocking; the change that made it worse is blocked. `/hef.quality` reports the
+`quality-before-commit.sh` runs them as a **delta gate**. Wherever `lizard` is installed, a staged file may
+not have *more* functions over the limits than its `HEAD` version; without `lizard` the commit passes and
+says the check was skipped. The file limit needs no tool: a staged file that newly goes over 500 lines of
+code is blocked, and one already over that grows gets an advisory (the two exemptions below are skipped).
+Brownfield debt stays visible and non-blocking; the change that made it worse is blocked. `/hef.quality` reports the
 absolute picture.
 
 ### The two exemptions
