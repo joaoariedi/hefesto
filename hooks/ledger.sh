@@ -578,6 +578,9 @@ case "$SUB" in
       --body-from-board)   # the person's re-hash after reading the item: the board's raw text, no temp file
         BR=$("$HERE/status-board.sh" --item-raw "$ID" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64) && [ ${#BR} -eq 64 ] \
           || die "ledger record $ID: cannot read the item's raw text from the board"; setf '.source.body_sha256 = $v' "$BR" ;;
+      --person-text-consumed)   # the launcher, after a plan run reported a real outcome: its answers and notes are done
+        E=$(jq '(if .answers then .answers |= map(.consumed = true) else . end) | (if .revisions then .revisions |= map(.consumed = true) else . end)' <<<"$E") \
+          || die "ledger record $ID: cannot mark the answers consumed" ;;
       --rfc) rfc_pin ;;
       --rfc-snapshot) [ -f "${2:-}" ] || die "ledger record $ID: --rfc-snapshot needs the launcher's copy of the RFC"; rfc_pin "$2"; shift ;;
       *) usage ;; esac; shift; done

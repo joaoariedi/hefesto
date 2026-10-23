@@ -4923,9 +4923,17 @@ cp "$l3_t/.git/hefesto/ledger/LT-2.answers-1.md" "$l3_t/ans.bak"; printf 'and ru
 L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^    \[ -f "$p" \] && \[ ! -L "$p" \] && \[ "$(/    true || [ "$(/'
 : > "$l3_log"; l3s plan LT-2 --dry-run >/dev/null 2>&1 || { bad "mutation survived: the copy's hash check removed, yet the tampered launch was refused"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
 cp "$l3_t/ans.bak" "$l3_t/.git/hefesto/ledger/LT-2.answers-1.md"
+# live trial 2026-10-23: a plan run that fails (here: its edits denied) must leave the answers for the next one
+printf '{"session_id":"q3","total_cost_usd":0.5,"structured_output":{"summary":"edits denied","outcome":"failed","spec_dir":".specify/specs/l3","blocked_on":null}}\n' > "$l3_res"
+: > "$l3_log"; l3s plan LT-2 >/dev/null 2>&1
+{ grep -qF 'person-answers-begin LT-2' "$l3_log" && l3j LT-2 '(.answers[0].consumed // false) == false'; } || { bad "a failed plan run must carry the answers and leave them unconsumed"; l3_fail=1; }
+printf '{"session_id":"q2","total_cost_usd":0.5,"structured_output":{"summary":"planned","outcome":"tasks","spec_dir":".specify/specs/l3","blocked_on":null}}\n' > "$l3_res"
 : > "$l3_log"; l3s plan LT-2 >/dev/null 2>&1
 { grep -qF 'person-answers-begin LT-2' "$l3_log" && grep -qF 'CSV, with a header row.' "$l3_log" && l3j LT-2 '.phase == "plan-review" and .blocked_on.kind == "human:plan-approval"'; } \
   || { bad "the resumed plan run must carry the answers delimited and stop on human:plan-approval: $(jq -c '{p:.phase,b:.blocked_on.kind}' "$l3_t/.git/hefesto/ledger/LT-2.json")"; l3_fail=1; }
+l3j LT-2 '.answers[0].consumed == true' || { bad "a plan run that reached tasks must mark the answers consumed"; l3_fail=1; }
+grep -qF "Edit(/$l3_t/.claude/worktrees/LT-2/.specify/**)" "$l3_log" && grep -qF 'Edit(/.specify/**)' "$l3_log" && grep -qF 'never cd into a subfolder' "$l3_log" \
+  || { bad "the planner's edit rule must also name .specify by project root and by absolute path, and its prompt forbid cd"; l3_fail=1; }
 # a request for changes: back to the planner, and — even with plan_review agent — back to a person
 jq '.orchestrate.plan_review = "agent"' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
 l3l revise LT-2 --reviewed-by-human --by Ana <<'NOTES' >/dev/null 2>&1
