@@ -57,7 +57,7 @@ plan_approval_clear() {
     now=$(lanes_sha256 "$p")
     [ "$now" = "$pin" ] || die "ledger unblock $ID: the RFC $p changed since the plan was made from it — bring spec, plan and tasks in line with it in the item's folder, re-pin it (ledger.sh record $ID --rfc), then approve"
   fi
-  jq --arg by "$RBY" --arg s "$now" '.blocked_on = null
+  jq --arg by "$RBY" --arg s "$now" '.blocked_on = null | .attempts = 0
     | .reviewed = ((.reviewed // []) + [{kind: "human:plan-approval", by: $by, at: (now | todate)} + (if $s != "" then {rfc_sha: $s} else {} end)])
     | if .phase == "plan-review" then .phase = "tasks" else . end' <<<"$E" | write_entry "$ID" || exit 1
   echo "$ID plan approved by $RBY — phase $(jq -r 'if .phase == "plan-review" then "tasks" else .phase end' <<<"$E")"
@@ -104,7 +104,7 @@ answer_item() { # $1 file|-
   n=$(( $(jq '.answers // [] | length' <<<"$E") + 1 )); dst="$DIR/$ID.answers-$n.md"
   lanes_take_text "$1" "$dst" answer
   jq --arg p "$dst" --arg s "$(lanes_sha256 "$dst")" --arg by "$RBY" --arg k "$k" \
-    '.blocked_on = null | .answers = ((.answers // []) + [{path: $p, sha256: $s, by: $by, kind: $k, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
+    '.blocked_on = null | .attempts = 0 | .answers = ((.answers // []) + [{path: $p, sha256: $s, by: $by, kind: $k, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
   echo "$ID answered by $RBY ($k cleared) — the planner resumes with the answers on its next pass"
 }
 revise_item() { # $1 file|-
@@ -116,7 +116,7 @@ revise_item() { # $1 file|-
   n=$(( $(jq '.revisions // [] | length' <<<"$E") + 1 )); dst="$DIR/$ID.notes-$n.md"
   lanes_take_text "$1" "$dst" revise
   jq --arg p "$dst" --arg s "$(lanes_sha256 "$dst")" --arg by "$RBY" \
-    '.blocked_on = null | .phase = "intake" | .revisions = ((.revisions // []) + [{path: $p, sha256: $s, by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
+    '.blocked_on = null | .attempts = 0 | .phase = "intake" | .revisions = ((.revisions // []) + [{path: $p, sha256: $s, by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
   echo "$ID sent back to the planner by $RBY — it revises spec, plan and tasks to the notes, then waits for approval again"
 }
 

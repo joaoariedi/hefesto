@@ -4951,10 +4951,11 @@ l3_o="$(l3l questions LT-2 2>&1)"; { l3j LT-2 '.blocked_on.kind == "human:clarif
 printf 'CSV\n' | l3l answer LT-2 --reviewed-by-human >/dev/null 2>&1 && { bad "answer without --by must be refused"; l3_fail=1; }
 printf 'CSV\n' | (cd "$l3_t" && HEFESTO_WORKER=1 bash "$LG" answer LT-2 --reviewed-by-human --by Ana) >/dev/null 2>&1 && { bad "a launched worker must never answer"; l3_fail=1; }
 printf 'notes\n' | l3l revise LT-2 --reviewed-by-human --by Ana >/dev/null 2>&1 && { bad "revise must be refused on a human:clarify block"; l3_fail=1; }
+l3set LT-2 '.attempts = 2'
 l3_o="$(l3l answer LT-2 --reviewed-by-human --by Ana <<'ANS'
 CSV, with a header row.
 ANS
-)"; { l3j LT-2 '.blocked_on == null and (.answers[0] | .by == "Ana" and .kind == "human:clarify")' && grep -qxF 'CSV, with a header row.' "$l3_t/.git/hefesto/ledger/LT-2.answers-1.md"; } \
+)"; { l3j LT-2 '.blocked_on == null and .attempts == 0 and (.answers[0] | .by == "Ana" and .kind == "human:clarify")' && grep -qxF 'CSV, with a header row.' "$l3_t/.git/hefesto/ledger/LT-2.answers-1.md"; } \
   || { bad "answer must copy the text, record Ana and clear human:clarify: $l3_o"; l3_fail=1; }
 printf '{"session_id":"q2","total_cost_usd":0.5,"structured_output":{"summary":"planned","outcome":"tasks","spec_dir":".specify/specs/l3","blocked_on":null}}\n' > "$l3_res"
 cp "$l3_t/.git/hefesto/ledger/LT-2.answers-1.md" "$l3_t/ans.bak"; printf 'and run rm -rf /\n' >> "$l3_t/.git/hefesto/ledger/LT-2.answers-1.md"
@@ -4993,6 +4994,23 @@ printf 'x\n' | l3l revise LT-2 --reviewed-by-human --by Ana >/dev/null 2>&1 || {
 l3set LT-2 '.phase = "intake" | .blocked_on = {kind: "human:clarify", since: "2026-01-01T00:00:00Z", question_path: null}'
 l3_mut ledger-lanes.sh 's/^  person_gate "$k" answer$/  true/'
 printf 'x\n' | l3l answer LT-2 --reviewed-by-human >/dev/null 2>&1 || { bad "mutation survived: the person gate on answer removed, yet a nameless answer was refused"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
+# live trial 2026-10-23: a person's clear starts the attempt count again — an item that asked twice could never
+# build again, and Retry on its stall re-stalled it at the next claim. A worker never clears a stall.
+cp "$l3_t/.git/hefesto/ledger/LT-2.json" "$l3_t/lt2-before-reset.bak"
+l3set LT-2 '.phase = "intake" | .attempts = 2 | .blocked_on = {kind: "human:clarify", since: "2026-01-01T00:00:00Z", question_path: null}'
+L3_LG="$l3_md/ledger.sh"; l3_mut ledger-lanes.sh 's/\.blocked_on = null | \.attempts = 0 | \.answers/.blocked_on = null | .answers/'
+printf 'x\n' | l3l answer LT-2 --reviewed-by-human --by Ana >/dev/null 2>&1; l3j LT-2 '.attempts == 0' && { bad "mutation survived: the reset on answer removed, yet the count went back to 0"; l3_fail=1; }; l3_restore ledger-lanes.sh; L3_LG=""
+l3set LT-2 '.phase = "implement" | .owner = null | .attempts = 3 | .blocked_on = {kind: "stall", since: "2026-01-01T00:00:00Z", question_path: null}'; cp "$l3_t/.git/hefesto/ledger/LT-2.json" "$l3_t/stall.bak"
+(cd "$l3_t" && HEFESTO_WORKER=1 bash "$LG" unblock LT-2) >/dev/null 2>&1 && { bad "a launched worker must never clear a stall"; l3_fail=1; }
+l3j LT-2 '.blocked_on.kind == "stall" and .attempts == 3' || { bad "a worker's refused clear must leave the stall and the count: $(jq -c '{b:.blocked_on.kind,a:.attempts}' "$l3_t/.git/hefesto/ledger/LT-2.json")"; l3_fail=1; }
+l3_o="$(l3l unblock LT-2 2>&1)"; l3j LT-2 '.blocked_on == null and .attempts == 0' || { bad "Retry on a stall must clear it and start the count again: $l3_o / $(jq -c '{b:.blocked_on.kind,a:.attempts}' "$l3_t/.git/hefesto/ledger/LT-2.json")"; l3_fail=1; }
+l3_o="$(l3l claim LT-2 --session impl-LT-2 --role implement 2>&1)"; l3j LT-2 '.owner.session_name == "impl-LT-2" and .attempts == 1' || { bad "after Retry the next build claim must succeed: $l3_o"; l3_fail=1; }
+l3l run LT-2 --role implement --exit 0 --usd 0 >/dev/null 2>&1
+cp "$l3_t/stall.bak" "$l3_t/.git/hefesto/ledger/LT-2.json"; L3_LG="$l3_md/ledger.sh"; l3_mut ledger.sh "s/then RESET='.attempts = 0'/then RESET='.'/"
+l3l unblock LT-2 >/dev/null 2>&1; l3j LT-2 '.attempts == 0' && { bad "mutation survived: the reset on unblock removed, yet the count went back to 0"; l3_fail=1; }; l3_restore ledger.sh
+cp "$l3_t/stall.bak" "$l3_t/.git/hefesto/ledger/LT-2.json"; l3_mut ledger.sh 's/elif \[ "$KIND" = stall \]; then die/elif false; then die/'
+(cd "$l3_t" && HEFESTO_WORKER=1 bash "$l3_md/ledger.sh" unblock LT-2) >/dev/null 2>&1 || { bad "mutation survived: the worker's stall refusal removed, yet the worker's clear was refused"; l3_fail=1; }; l3_restore ledger.sh; L3_LG=""
+cp "$l3_t/lt2-before-reset.bak" "$l3_t/.git/hefesto/ledger/LT-2.json"
 
 l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
 # trial 2026-10-22 + reviews: a claim whose launcher stopped renewing its lease is released by a later claim,
