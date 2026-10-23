@@ -35,6 +35,26 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [8.1.0] - 2026-10-23
+
+**The commit gate checks every commit, also `git -C <dir> commit`, says when a check was skipped, and enforces
+the 500-lines-of-code file limit.**
+
+### Added
+
+- **File-length delta gate**, with no tool needed. A staged file that newly goes over 500 lines of code (blank
+  and comment lines don't count) is blocked; one already over that grows gets an advisory. `workflows/workflow.js`
+  and `install.sh` stay exempt, as `rules/code-quality.md` documents (#115).
+
+### Fixed
+
+- **`git -C <dir> commit` is checked.** The hook only intercepted commands starting with `git commit`, so
+  `git -C <dir> commit` (the form the git rules prescribe), `git -c k=v commit` and a leading `VAR=value` ran no
+  secrets scan. It now checks the `-C` repository; a `-C` folder it can't resolve (`"$VAR"`) blocks and says to
+  write a literal path (#117).
+- **A skipped check says so.** With code staged and `lizard` missing, the commit still passes, but the hook now
+  says the function length/complexity check was skipped (#115).
+
 ## [8.0.1] - 2026-10-23
 
 **An item stalled after its builds stopped to ask questions can build again: a person's decision restarts
