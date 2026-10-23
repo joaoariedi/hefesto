@@ -28,7 +28,7 @@ SOLID:       OCP + DIP violations flagged in changed code
 Iron Laws:   verification before completion + root cause before fix
 ```
 
-Enforced by the `code-quality.md` rule, the `quality-guardian` agent, a complexity *delta* gate in `quality-before-commit.sh` (where `lizard` is installed), and the `TaskCompleted` hook for the verification Iron Law. Test coverage follows project-configured thresholds.
+Enforced by the `code-quality.md` rule, the `quality-guardian` agent, complexity and file-length *delta* gates in `quality-before-commit.sh` (functions where `lizard` is installed; file length always), and the `TaskCompleted` hook for the verification Iron Law. Test coverage follows project-configured thresholds.
 
 ---
 

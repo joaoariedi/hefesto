@@ -1149,8 +1149,20 @@ gl_run "$gl_md/qbc.sh"; [ "$gl_rc" = 0 ] && { bad "mutation survived: the old 'd
 ( cd "$gl_t" && echo LEAK > a && git add a ) >/dev/null 2>&1
 sed 's/GL_OUT=$(cd "$CWD" \&\& /GL_OUT=$(/' "$QBC" > "$gl_md/qbc.sh"; cmp -s "$QBC" "$gl_md/qbc.sh" && { bad "gitleaks cwd mutation did not apply"; gl_fail=1; }
 gl_run "$gl_md/qbc.sh"; [ "$gl_rc" = 2 ] && { bad "mutation survived: the scan runs outside the committed repository, yet its secret was still found"; gl_fail=1; }
+# #117: `git -C <dir> commit` — the form the rules prescribe — was never intercepted, so it ran no scan at all.
+# Run from another folder; the hook must scan the -C repository. Mutation: -C no longer recognised.
+gl_cdash() { # [hook] [command] → $gl_out $gl_rc; the session's cwd is $REPO, the commit names $gl_t
+  gl_out="$(jq -nc --arg c "${2:-git -C $gl_t commit -m \"feat: x\"}" --arg d "$REPO" '{tool_input:{command:$c},cwd:$d}' | (cd "$REPO" && PATH="$gl_b:$PATH" bash "${1:-$QBC}") 2>&1 >/dev/null)"; gl_rc=$?
+}
+gl_cdash; { [ "$gl_rc" = 2 ] && grep -qF 'Secrets detected' <<<"$gl_out"; } || { bad "a 'git -C <repo> commit' with a staged secret must be scanned in that repo and blocked (rc=$gl_rc: $gl_out)"; gl_fail=1; }
+gl_cdash "$QBC" "CLAUDE_X=1 git -c core.quotepath=off -C $gl_t commit -m \"feat: x\""; [ "$gl_rc" = 2 ] || { bad "a leading VAR=value and a -c option must not hide the commit from the scan (rc=$gl_rc)"; gl_fail=1; }
+gl_cdash "$QBC" 'git -C "$HOME/x" commit -m "feat: x"'; { [ "$gl_rc" = 2 ] && grep -qF 'literal path' <<<"$gl_out"; } || { bad "a -C folder the hook cannot resolve must block and say so (rc=$gl_rc: $gl_out)"; gl_fail=1; }
+( cd "$gl_t" && echo x > a && git add a ) >/dev/null 2>&1; gl_cdash; [ "$gl_rc" = 0 ] || { bad "a clean 'git -C' commit must pass (rc=$gl_rc: $gl_out)"; gl_fail=1; }
+( cd "$gl_t" && echo LEAK > a && git add a ) >/dev/null 2>&1
+sed 's/^    -C) d=/    -Cx) d=/' "$QBC" > "$gl_md/qbc.sh"; cmp -s "$QBC" "$gl_md/qbc.sh" && { bad "git -C mutation did not apply"; gl_fail=1; }
+gl_cdash "$gl_md/qbc.sh"; [ "$gl_rc" = 2 ] && { bad "mutation survived: -C no longer recognised, yet the git -C commit was still scanned"; gl_fail=1; }
 rm -rf "$gl_t" "$gl_b" "$gl_md"
-[ "$gl_fail" -eq 0 ] && ok "secrets gate: gitleaks 8.30 (git --staged) and older (protect --staged) pass a clean commit and block a finding; a gitleaks that fails to run blocks with its own error, never as 'secrets'; the scan runs in the committed repo; 2 mutations caught"
+[ "$gl_fail" -eq 0 ] && ok "secrets gate: gitleaks 8.30 (git --staged) and older (protect --staged) pass a clean commit and block a finding; a gitleaks that fails to run blocks with its own error, never as 'secrets'; the scan runs in the committed repo, also for 'git -C <dir> commit' (#117); 3 mutations caught"
 
 head_ "Complexity delta gate"
 
@@ -1180,10 +1192,38 @@ cx_case() { # expected-exit description
 ( cd "$cx_t" && git checkout -q a.py 2>/dev/null; git reset -q; printf 'n # LIZARD_VIOLATION\n' > new.py && git add new.py ); cx_case 2 "blocks a NEW file with an over-limit function (0 → 1)"
 ( cd "$cx_t" && git reset -q; rm -f new.py; mkdir -p workflows && printf 'v # LIZARD_VIOLATION\n' > workflows/workflow.js && git add workflows/workflow.js ); cx_case 0 "skips the one documented exemption (workflows/workflow.js)"
 ( cd "$cx_t" && git reset -q; rm -rf workflows; printf 'x # LIZARD_VIOLATION\ny # LIZARD_VIOLATION\n' > a.py && git add a.py )
-rc=0; jq -nc --arg d "$cx_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | PATH="/usr/bin:/bin" bash "$QBC" >/dev/null 2>&1 || rc=$?
-if [ "$rc" -eq 0 ]; then ok "the gate is silent when lizard is not installed (degrades, never blocks)"
-else bad "the gate fired with lizard absent (rc=$rc) — a check that runs without its tool is a false positive factory"; fi
-rm -rf "$cx_t" "$cx_b"
+# #115: lizard absent → never blocks, but SAYS the check was skipped (a skipped gate must not look like a pass).
+# Mutation: the advisory removed → silent again → red.
+cx_skip() { rc=0; cx_o="$(jq -nc --arg d "$cx_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | PATH="/usr/bin:/bin" bash "${1:-$QBC}" 2>/dev/null)" || rc=$?; }
+cx_skip
+if [ "$rc" -eq 0 ] && grep -qF 'SKIPPED' <<<"$cx_o" && grep -qF 'lizard is not installed' <<<"$cx_o"; then ok "lizard absent: the gate never blocks, and says the check was SKIPPED (#115)"
+else bad "with lizard absent the hook must pass AND say the check was skipped (rc=$rc, out: $cx_o)"; fi
+cx_md="$(mktemp -d)"; ln -s "$REPO/hooks/speckit-helper.sh" "$cx_md/speckit-helper.sh"
+sed '/function length\/complexity check was SKIPPED/d' "$QBC" > "$cx_md/qbc.sh"; cmp -s "$QBC" "$cx_md/qbc.sh" && bad "lizard skip mutation did not apply"
+cx_skip "$cx_md/qbc.sh"; grep -qF 'SKIPPED' <<<"$cx_o" && bad "mutation survived: the skip advisory removed, yet SKIPPED was still printed"
+rm -rf "$cx_t" "$cx_b" "$cx_md"
+
+head_ "File length delta gate"
+# #115: the 500-lines-of-CODE file limit had no gate. Zero-dependency, same delta rule: newly over 500 → block;
+# already over and growing → advisory; comments and blanks do not count; the two documented exemptions skip.
+fl_t="$(mktemp -d)"; fl_fail=0
+fl_gen() { local i=0; { case "$1" in *.sh) echo "#!/bin/bash" ;; esac; while [ "$i" -lt "$2" ]; do i=$((i + 1)); echo "x$i=$i"; done; } > "$1"; }   # $1 file, $2 code lines (valid Python and shell)
+( cd "$fl_t" && git init -q . && fl_gen a.py 500 && fl_gen big.py 600 && fl_gen install.sh 490 && git add . && git -c user.email=s@t -c user.name=s commit -q -m 'feat: base' ) >/dev/null 2>&1
+fl_run() { rc=0; fl_o="$(jq -nc --arg d "$fl_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | PATH="/usr/bin:/bin" bash "${1:-$QBC}" 2>&1)" || rc=$?; }
+( cd "$fl_t" && fl_gen a.py 501 && git add a.py ); fl_run
+{ [ "$rc" = 2 ] && grep -qF 'a.py now has 501 lines of code' <<<"$fl_o"; } || { bad "a file crossing 500 lines of code must block (rc=$rc: $fl_o)"; fl_fail=1; }
+( cd "$fl_t" && { fl_gen a.py 499; i=0; while [ "$i" -lt 60 ]; do i=$((i+1)); echo "# note $i"; echo; done; } > a.tmp && mv a.tmp a.py && git add a.py ); fl_run
+[ "$rc" = 0 ] || { bad "comment and blank lines must not count toward the limit (rc=$rc: $fl_o)"; fl_fail=1; }
+( cd "$fl_t" && git checkout -q HEAD -- a.py && fl_gen big.py 601 && git add big.py ); fl_run
+{ [ "$rc" = 0 ] && grep -qF 'big.py is over the 500-line code limit and grew (600 → 601)' <<<"$fl_o"; } || { bad "a file already over the limit that grows must pass with an advisory (rc=$rc: $fl_o)"; fl_fail=1; }
+( cd "$fl_t" && git checkout -q HEAD -- big.py && fl_gen install.sh 900 && git add install.sh ); fl_run
+[ "$rc" = 0 ] || { bad "install.sh is a documented exemption (rc=$rc: $fl_o)"; fl_fail=1; }
+( cd "$fl_t" && git checkout -q HEAD -- install.sh && fl_gen a.py 501 && git add a.py )
+fl_md="$(mktemp -d)"; ln -s "$REPO/hooks/speckit-helper.sh" "$fl_md/speckit-helper.sh"
+sed 's/\[ "${before:-0}" -le 500 \]/false/' "$QBC" > "$fl_md/qbc.sh"; cmp -s "$QBC" "$fl_md/qbc.sh" && { bad "file length mutation did not apply"; fl_fail=1; }
+fl_run "$fl_md/qbc.sh"; [ "$rc" = 2 ] && { bad "mutation survived: the crossing check removed, yet the file crossing 500 was still blocked"; fl_fail=1; }
+rm -rf "$fl_t" "$fl_md"
+[ "$fl_fail" -eq 0 ] && ok "file length gate: a file newly over 500 lines of code blocks; one already over that grows gets an advisory; comments and blanks don't count; install.sh exempt; 1 mutation caught"
 
 # --- Tier 2: release.sh moves every declaration together (FR-013) ------------------------
 head_ "Release script"

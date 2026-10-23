@@ -4,15 +4,34 @@ set -euo pipefail
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Only intercept git commit commands
-if [[ "$COMMAND" != git\ commit* ]]; then
-  exit 0
-fi
-
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 if [ -z "$CWD" ]; then
   exit 0
 fi
+
+# Only intercept git commit commands — also `git -C <dir> commit` (the form the rules prescribe), `git -c k=v
+# commit` and a leading VAR=value. Before (#117), only a command starting with "git commit" was checked, so a
+# `git -C` commit ran no secrets scan at all. The -C folder is the repository being committed.
+read -r -a CW <<<"${COMMAND%%$'\n'*}"
+ci=0
+while [[ "${CW[ci]:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do ci=$((ci + 1)); done
+[ "${CW[ci]:-}" = git ] || exit 0
+ci=$((ci + 1))
+while :; do
+  case "${CW[ci]:-}" in
+    -C) d="${CW[ci + 1]:-}"; d="${d#[\"\']}"; d="${d%[\"\']}"
+        case "$d" in \~|\~/*) d="$HOME${d#\~}" ;; esac
+        if [[ "$d" == *'$'* || -z "$d" ]]; then
+          echo "Pre-commit quality checks failed: cannot tell which repository 'git -C ${CW[ci + 1]:-}' commits to — write the folder as a literal path." >&2; exit 2
+        fi
+        case "$d" in /*) CWD="$d" ;; *) CWD="$CWD/$d" ;; esac
+        ci=$((ci + 2)) ;;
+    -c) ci=$((ci + 2)) ;;
+    *) break ;;
+  esac
+done
+[ "${CW[ci]:-}" = commit ] || exit 0
+[ -d "$CWD" ] || { echo "Pre-commit quality checks failed: git -C folder $CWD does not exist." >&2; exit 2; }
 
 ERRORS=""
 
@@ -140,9 +159,13 @@ fi
 # polyglot and its defaults ARE the framework's limits (-C 10 -L 50). The gate is a DELTA, not an
 # absolute cap: a staged file may not have MORE over-limit functions than its HEAD version, so
 # brownfield debt stays visible without blocking unrelated changes. Zero-dependency baseline: none
-# exists for this check, so it runs only where lizard is present — and says nothing otherwise.
+# exists for this check, so it runs only where lizard is present — and when it is not, says so (#115: a gate
+# that cannot run must not look like a gate that passed).
+CX_FILES=$(echo "$STAGED" | grep -E '\.(py|js|jsx|ts|tsx|go|rs|java|kt|rb|c|cc|cpp|h|hpp|cs|swift|php|scala|lua)$' || true)
+if [ -n "$CX_FILES" ] && ! command -v lizard &>/dev/null; then
+  ADVISORY="${ADVISORY:+$ADVISORY; }quality gate: the function length/complexity check was SKIPPED — lizard is not installed (pip install lizard); tell the person"
+fi
 if command -v lizard &>/dev/null; then
-  CX_FILES=$(echo "$STAGED" | grep -E '\.(py|js|jsx|ts|tsx|go|rs|java|kt|rb|c|cc|cpp|h|hpp|cs|swift|php|scala|lua)$' || true)
   if [ -n "$CX_FILES" ]; then
     while IFS= read -r f; do
       [ -f "$CWD/$f" ] || continue
@@ -161,6 +184,38 @@ if command -v lizard &>/dev/null; then
       fi
     done <<< "$CX_FILES"
   fi
+fi
+
+# --- Universal: file length DELTA gate, zero-dependency (#115) ---------------------------------
+# code-quality.md caps a file at 500 lines of CODE (blank and comment lines do not count). lizard measures
+# functions only, so nothing enforced it. Same delta rule as above: a file that newly crosses 500 is blocked;
+# one already over (brownfield debt) that grows gets an advisory. Comments are recognised by their leading
+# token (# for shell/Python/Ruby, // /* * for the C family, -- for Lua) — a docstring counts as code. The two
+# documented exemptions (rules/code-quality.md) are skipped.
+code_lines() { # $1 file, $2 extension
+  case "$2" in
+    sh|bash|py|rb) grep -cvE '^[[:space:]]*($|#)' "$1" ;;
+    lua) grep -cvE '^[[:space:]]*($|--)' "$1" ;;
+    php) grep -cvE '^[[:space:]]*($|#|//|/\*|\*)' "$1" ;;
+    *) grep -cvE '^[[:space:]]*($|//|/\*|\*)' "$1" ;;
+  esac
+}
+LEN_FILES=$(echo "$STAGED" | grep -E '\.(sh|bash|py|js|jsx|ts|tsx|go|rs|java|kt|rb|c|cc|cpp|h|hpp|cs|swift|php|scala|lua)$' || true)
+if [ -n "$LEN_FILES" ]; then
+  while IFS= read -r f; do
+    [ -f "$CWD/$f" ] || continue
+    case "$f" in workflows/workflow.js|install.sh) continue ;; esac
+    ext="${f##*.}"; now=$(code_lines "$CWD/$f" "$ext" || true); before=0
+    if git -C "$CWD" cat-file -e "HEAD:$f" 2>/dev/null; then
+      len_dir="$(mktemp -d)"; git -C "$CWD" show "HEAD:$f" > "$len_dir/before" 2>/dev/null
+      before=$(code_lines "$len_dir/before" "$ext" || true); rm -rf "$len_dir"
+    fi
+    if [ "${now:-0}" -gt 500 ] && [ "${before:-0}" -le 500 ]; then
+      ERRORS="${ERRORS}$f now has ${now} lines of code (limit 500, rules/code-quality.md; it had ${before}) — split it. "
+    elif [ "${now:-0}" -gt 500 ] && [ "${now:-0}" -gt "${before:-0}" ]; then
+      ADVISORY="${ADVISORY:+$ADVISORY; }$f is over the 500-line code limit and grew (${before} → ${now}) — split it when you can"
+    fi
+  done <<< "$LEN_FILES"
 fi
 
 # --- Language checks, on STAGED FILES where the tool supports it ---------------

@@ -350,7 +350,7 @@ The hooks ship with the plugin — you do not register them:
 - 🛑 **Before any Bash call** — `push --force`, `reset --hard`, `branch -D`, `git clean -f` and catastrophic `rm -r` are denied unless you prefix `CLAUDE_ALLOW_DESTRUCTIVE=1`.
 - 🔏 **Before any edit** — writes to `.env`, keys, `.pem`, credentials and secrets directories are blocked.
 - ✏️ **On every edit** — formatters run; tests fire for the touched code.
-- 🔐 **On every `git commit`** — secrets detection and linting must pass, the subject must be a conventional commit, and (where `lizard` is installed) no changed file may gain over-limit functions — or the commit is blocked. A staged manifest that adds a dependency gets one advisory line (never a block).
+- 🔐 **On every `git commit`** — secrets detection and linting must pass, the subject must be a conventional commit, no changed file may newly go over 500 lines of code, and (where `lizard` is installed) none may gain over-limit functions — or the commit is blocked. A staged manifest that adds a dependency gets one advisory line (never a block).
 - 🔀 **After edits, once a minute** — you are told if the branch's committed state would conflict with its base, or has drifted far behind it.
 - 🔗 **After a test edit, outside an implement phase** — if that test cites a requirement, you are told which spec declares it, so the spec follows the test instead of rotting.
 - ✅ **On task completion** — the task cannot be marked done while the test suite fails.
@@ -390,7 +390,7 @@ needs no Homebrew bash or coreutils (only `brew install jq` if `jq` is missing);
 on macOS.
 
 Optional, auto-detected, silent when absent: `gitleaks` (the secrets gate), `lizard` (the
-complexity gate), `shellcheck`, `rtk` (CLI output compression), `graphify` (knowledge graph),
+function complexity gate — the commit says when it was skipped), `shellcheck`, `rtk` (CLI output compression), `graphify` (knowledge graph),
 `GITHUB_TOKEN` (the bundled GitHub MCP server), and on Linux `bubblewrap` + `socat` for the OS sandbox that
 [`docs/install.md`](docs/install.md) recommends as the boundary the hooks cannot be.
 

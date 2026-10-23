@@ -10,7 +10,7 @@ Hooks ship **inside the plugin** (`hooks/hooks.json`), so installing the plugin 
 | Hook | Trigger | What It Does |
 |------|---------|--------------|
 | ✅ `verify-before-task-complete.sh` | **TaskCompleted** | **Blocks** a task from being marked complete while the test suite fails. Exit 2 is a hard gate. |
-| 🔍 `quality-before-commit.sh` | PreToolUse on `Bash` | Intercepts `git commit` — gitleaks, shell + markdown checks on staged files, then language-specific linters. Blocks on errors. When a staged manifest ADDS a direct dependency it also emits one advisory line through the PreToolUse `additionalContext` (never a block): the dependency names and "run /hef.scan --deps before the PR" |
+| 🔍 `quality-before-commit.sh` | PreToolUse on `Bash` | Intercepts `git commit` (also `git -C <dir> commit`, checked in that repository) — gitleaks, shell + markdown checks on staged files, then language-specific linters. Blocks on errors. When a staged manifest ADDS a direct dependency it also emits one advisory line through the PreToolUse `additionalContext` (never a block): the dependency names and "run /hef.scan --deps before the PR" |
 | 🔒 `block-sensitive-files.sh` | PreToolUse on `Edit\|Write\|MultiEdit` | Blocks writes to `.env*`, `*.key`, `*.pem`, `*.p12`, `*.pfx`, `*.secret`, `credentials*`, `.git/*`, `secrets/`, `.secrets/` |
 | ⛔ `block-destructive-commands.sh` | PreToolUse on `Bash` | Hard-denies `git push --force` and a `+refspec` push (allows `--force-with-lease`), `reset --hard`, `branch -D` (and `-d --force`), `clean -f`, and recursive `rm` of catastrophic targets. Bypass: `CLAUDE_ALLOW_DESTRUCTIVE=1` prefix, visible in the transcript |
 | 📐 `plan-phase-write-block.sh` | PreToolUse on `Edit\|Write\|MultiEdit` | Blocks writes outside `.specify/` while `/hef.plan` is active |
@@ -47,7 +47,8 @@ Two manifest-free checks now run on **staged files only** (per the Tier 1 rule t
 | **Shell** | `bash -n` — syntax must parse | `shellcheck -S error` |
 | **Markdown** | code fences must be balanced (an unclosed ``` silently breaks rendering) | `markdownlint-cli2` |
 | **Commit message** | conventional `<type>(<scope>)?: <description>` on the inline subject (`git-workflow.md`); bypass `CLAUDE_ALLOW_NONCONVENTIONAL=1` | — |
-| **Complexity delta** | *(none — no zero-dependency checker exists)* | `lizard`: a staged file may not gain functions over the `code-quality.md` limits versus `HEAD` |
+| **Complexity delta** | *(none — no zero-dependency checker exists; the commit says the check was skipped)* | `lizard`: a staged file may not gain functions over the `code-quality.md` limits versus `HEAD` |
+| **File length delta** | a file that newly goes over 500 lines of code (blanks and comments excluded) is blocked; one already over that grows gets an advisory; `workflows/workflow.js` and `install.sh` exempt | — |
 
 The zero-dependency baseline is the point. Guarding purely on `command -v shellcheck` would have reproduced the original bug on any machine without it installed — a check that only runs where it's already unnecessary is not a check. To get the stronger tier:
 
@@ -106,7 +107,7 @@ Fifteen hooks enforce quality automatically — and they ship with the plugin, s
 - 👁️ **Config audit** — a settings rewrite mid-session is announced, not silent
 - 🔗 **Spec-cite probe** — a test that cites an `FR-NNN`, edited outside an implement phase, names the spec that declares it (advisory, once a minute per file)
 - 🔀 **Merge-tree probe** — a branch that would conflict with its base, or has drifted far behind it, is told so while the diff is still small
-- 📏 **Complexity as a delta** — where `lizard` is installed, a change may not make a file's functions longer or more complex than the limits; existing debt is visible, not blocking
+- 📏 **Complexity and file length as a delta** — a change may not push a file over 500 lines of code, nor (where `lizard` is installed) make its functions longer or more complex than the limits; existing debt is visible, not blocking, and a skipped check says so
 
 The **boundary** under all of this is OS sandboxing, not string matching: a Bash deny rule can be composed around (`sh -c`, an absolute binary path — Claude Code's own docs say so), and the destructive-command hook documents that limit in its header. Enable `/sandbox` (see `docs/install.md`); the hooks catch the careless path, the sandbox catches the determined one.
 
