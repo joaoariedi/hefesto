@@ -410,6 +410,17 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
      `orchestrate.unsandboxed_commands` (absolute paths only, e.g. `/usr/bin/ssh debian@vm-apps *`) is added to the
      sandbox exclusions, for the steps an approved scope needs; each still needs the grant or your dialog.
 
+   **Interactive lanes** (`orchestrate.lane_mode`: `"worker"`, the default, or `"interactive"`, for all stages or per
+   stage `{plan, build, deploy}`). A stage lane takes its item with `session-launch.sh <role> <id> --prepare --lane
+   <its name>`. That makes every check a launch makes, claims the item for the lane (no lease: it ends with
+   `--finish`, or `ledger.sh release` by a person) and makes the worktree and the prompt. The lane then does the stage
+   with the `/hef.*` commands in its own conversation. `--finish --lane <name> --outcome-file <f>` checks its outcome
+   against the role's schema and records it exactly as a background run's ($0, `note: in-lane`). An interactive build
+   verifies through `/hef.verify` and `/hef.review`, whose reviewers run in a fresh context; their verdicts are
+   recorded as `<lane>:code-reviewer`. That name is the lane's claim, not proof: keep `"build": "worker"` when you
+   want the separate verifier session. On an external board the lanes work in the code repos' worktrees, which
+   `setup --lanes` grants as `additionalDirectories`.
+
    **The ledger moved.** Hefesto 9 keeps it in `~/.cache/hefesto/ledger/<key>`. The first `ledger.sh` call that can
    write there moves an 8.x ledger itself:
    - once, under a lock, only while no 8.x run renews a lease;

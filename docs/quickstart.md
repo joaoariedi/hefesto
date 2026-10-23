@@ -60,6 +60,11 @@ Start with the single lane; the same project can add the three stage lanes later
    narrates its run as it goes (`· /hef.spec`, `· write …/plan.md`, `· run: go test ./...`, `■ done`). The
    three stages overlap; for more builders set `"max_builders": 2` under `orchestrate` and open
    `myrepo-builder2` too.
+   **Lanes that do the work themselves:** add `"lane_mode": "interactive"` under `orchestrate`, or per stage
+   (`{"build": "interactive"}`). Each stage lane then plans, builds or deploys in its own conversation, in the item's
+   worktree, with no background session and no USD spent beyond the lane's own. You can talk to it mid-task, and after
+   a compaction or a restart it resumes what it holds. Open those lanes with `--permission-mode acceptEdits`, so
+   their edits in the worktree don't ask; the orchestrator stays in the default mode.
 4. **In the orchestrator:** `/hef.orchestrate` — it checks the setup and finds the three lanes.
 5. **Feed it RFCs:** `/hef.ship ABC-12` for an item with its RFC on the board (`rfc: docs/rfcs/ABC-12.md`
    under its heading), or `/hef.ship "<idea>"`. The orchestrator rings the planner; when a plan is ready it
