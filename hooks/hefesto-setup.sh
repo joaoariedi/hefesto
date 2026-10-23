@@ -10,7 +10,8 @@
 #   permissions.ask           the commands that clear or rewrite a person's decision — their dialog always shows
 #   sandbox.excludedCommands  the launcher only: the lane keeps its sandbox, its background sessions still run
 #   sandbox.filesystem.allowWrite  on an external board, the board's ledger folder (never the board repository)
-#   statusLine                the context gauge (left alone when you have a status line of your own)
+#   statusLine                the context gauge, run as `context-gauge.sh --with-user`: your profile's own status
+#                             line first, then `ctx 45% · 90k/200k` (left alone when this file already has one)
 #   crossSessionInbound       "accept", with --lanes: the orchestrator's doorbells reach the stage lanes
 #   sandbox.autoAllowBashIfSandboxed  false: any command outside the allowlist asks, sandboxed or not — else a
 #                             sandboxed call could rewrite the ledger (.git/hefesto) and clear a gate silently
@@ -128,7 +129,7 @@ done < <(jq -r '.sandbox.excludedCommands // [] | .[] | strings' <<<"$CUR")
 jarr() { if [ $# -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq -sc .; fi; }
 RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@]}")" --argjson x "$(jarr "${excl[@]}")" \
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
-  --arg g "${roots[0]}/hooks/context-gauge.sh" --argjson lanes "$LANES" --argjson keep "$KEEP" \
+  --arg g "${roots[0]}/hooks/context-gauge.sh --with-user" --argjson lanes "$LANES" --argjson keep "$KEEP" \
   '{allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep}')" || die "could not build the rules"
 
 if [ "$MODE" = check ]; then
@@ -155,7 +156,7 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
     and ($s[($p | length):] | test("^/([^/ ]+/)*/?hooks/(status-board|ledger|session-launch|speckit-helper|hefesto-setup)\\.sh( |:|\\)|$)")));
   def addu($xs): (. // []) as $a | $a + [$xs[] | select(. as $x | $a | index([$x]) | not)];
   def strip: (. // []) | map(select((type == "string" and ours) | not));
-  def gaugeours: (.statusLine.command? // "") as $c | ($c | type == "string") and ($c | endswith("/hooks/context-gauge.sh"))
+  def gaugeours: (.statusLine.command? // "") as $c | ($c | type == "string") and ($c | test("/hooks/context-gauge[.]sh( --with-user)?$"))
     and any($r.prefixes[]; . as $p | $c | startswith($p + "/"));
   def keep_own_empty($o): with_entries(.key as $k | select((.value != [] and .value != {}) or (($o | type) == "object" and ($o | has($k)) and $o[$k] == .value)));
   . as $old

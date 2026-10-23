@@ -4842,10 +4842,10 @@ rm -f "$L3F"; l3u >/dev/null 2>&1
 printf '{}\n' > "$L3F"; l3u --lanes >/dev/null 2>&1; l3u --remove >/dev/null 2>&1
 [ "$(jq -c . "$L3F")" = '{}' ] || { bad "setup then --remove on an empty file must leave {} (the gauge and the owned keys gone): $(jq -c . "$L3F")"; l3_fail=1; }
 printf '{"statusLine":{"type":"command","command":"%s/.claude/plugins/cache/hefesto/hefesto/1.0.0/hooks/context-gauge.sh"}}\n' "$l3_home" > "$L3F"; l3u >/dev/null 2>&1
-[ "$(jq -r .statusLine.command "$L3F")" = "$REPO/hooks/context-gauge.sh" ] || { bad "an old version's gauge must be replaced by the current one: $(jq -r .statusLine.command "$L3F")"; l3_fail=1; }
+[ "$(jq -r .statusLine.command "$L3F")" = "$REPO/hooks/context-gauge.sh --with-user" ] || { bad "an old version's gauge must be replaced by the current one: $(jq -r .statusLine.command "$L3F")"; l3_fail=1; }
 l3_su_mut 's/^  def gaugeours: (/  def gaugeours: false and (/'
 printf '{"statusLine":{"type":"command","command":"%s/.claude/plugins/cache/hefesto/hefesto/1.0.0/hooks/context-gauge.sh"}}\n' "$l3_home" > "$L3F"; l3u >/dev/null 2>&1; l3_rc=$?
-{ [ "$l3_rc" -eq 0 ] && [ "$(jq -r .statusLine.command "$L3F")" != "$REPO/hooks/context-gauge.sh" ]; } || { bad "mutation survived (or did not run, rc=$l3_rc): gaugeours false, yet the old gauge was replaced"; l3_fail=1; }; l3_su_restore
+{ [ "$l3_rc" -eq 0 ] && [ "$(jq -r .statusLine.command "$L3F")" != "$REPO/hooks/context-gauge.sh --with-user" ]; } || { bad "mutation survived (or did not run, rc=$l3_rc): gaugeours false, yet the old gauge was replaced"; l3_fail=1; }; l3_su_restore
 printf '{"statusLine":{"type":"command","command":"%s/hooks/context-gauge.sh"}}\n' "$REPO" > "$L3F"; l3u --keep-statusline >/dev/null 2>&1
 [ "$(jq -r .statusLine.command "$L3F")" = "$REPO/hooks/context-gauge.sh" ] || { bad "--keep-statusline must never touch the status line, hefesto's gauge included"; l3_fail=1; }
 printf '{"crossSessionInbound":"refuse","sandbox":{"autoAllowBashIfSandboxed":false}}\n' > "$L3F"; l3_o="$(l3u --lanes 2>&1)"; l3u --remove >/dev/null 2>&1
@@ -4873,6 +4873,16 @@ jq '.context = {compact_at: {plan: 50, build: 0}}' "$l3_t/ps.bak" > "$l3_t/.clau
 { [ "$(l3_g repo-planner)" = 'ctx 45%' ] && [ "$(l3_g repo-builder)" = 'ctx 45%' ] && [ "$(l3_g repo-orchestrator)" = 'ctx 45% · /compact (orchestrator)' ] && [ "$(l3_g repo)" = 'ctx 45% · /compact (general)' ]; } \
   || { bad "gauge: the lane comes from session_name (planner 50, builder off, orchestrator and a plain name 40)"; l3_fail=1; }
 sed 's/plan|planner) nl=plan/plan) nl=plan/' "$REPO/hooks/context-gauge.sh" > "$l3_bin/g.sh"; [ "$(L3_G="$l3_bin/g.sh" l3_g repo-planner)" = 'ctx 45%' ] && { bad "mutation survived: the planner alias dropped, yet repo-planner still had the plan threshold"; l3_fail=1; }
+# live trial 2026-10-23: tokens beside the percentage; --with-user keeps the profile's own status line first
+l3_gin='{"context_window":{"used_percentage":12,"total_input_tokens":90123,"context_window_size":200000},"session_name":"repo-plan"}'
+[ "$(printf '%s' "$l3_gin" | bash "$REPO/hooks/context-gauge.sh")" = 'ctx 12% · 90k/200k' ] || { bad "gauge: tokens in context over the window must follow the percentage (ctx 12% · 90k/200k)"; l3_fail=1; }
+mkdir -p "$l3_cfg"; printf '{"statusLine":{"type":"command","command":"printf MINE"}}\n' > "$l3_cfg/settings.json"
+l3_o="$(printf '%s' "$l3_gin" | CLAUDE_CONFIG_DIR="$l3_cfg" bash "$REPO/hooks/context-gauge.sh" --with-user)"
+[[ "$l3_o" == MINE*"ctx 12% · 90k/200k" ]] || { bad "gauge --with-user must print the profile's own status line first, then the gauge: '$l3_o'"; l3_fail=1; }
+[ "$(printf '%s' "$l3_gin" | CLAUDE_CONFIG_DIR="$l3_cfg" bash "$REPO/hooks/context-gauge.sh")" = 'ctx 12% · 90k/200k' ] || { bad "gauge without --with-user must not run the profile's status line"; l3_fail=1; }
+printf '{"statusLine":{"type":"command","command":"%s/hooks/context-gauge.sh --with-user"}}\n' "$REPO" > "$l3_cfg/settings.json"
+[ "$(printf '%s' "$l3_gin" | CLAUDE_CONFIG_DIR="$l3_cfg" bash "$REPO/hooks/context-gauge.sh" --with-user)" = 'ctx 12% · 90k/200k' ] || { bad "gauge --with-user must skip a profile status line that is itself the gauge (no recursion)"; l3_fail=1; }
+rm -f "$l3_cfg/settings.json"
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
 l3_ss() { printf '{"cwd":"%s","session_title":"%s","permission_mode":"%s"}' "$l3_t" "$1" "$2" | bash "${L3_SS:-$REPO/hooks/session-start-context.sh}" 2>&1; }
 l3_o="$(l3_ss repo-builder default)"; grep -qF 'hefesto lane: build (repo-builder)' <<<"$l3_o" && grep -qF '/hef.orchestrate --stage build' <<<"$l3_o" && ! grep -qF 'hefesto setup:' <<<"$l3_o" \
