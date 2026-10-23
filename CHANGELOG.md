@@ -35,6 +35,106 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [9.0.0] - 2026-10-23
+
+**Approve any lane action in the orchestrator and the lane carries it out, with nothing typed or pasted into its
+pane. Stage lanes can do the work in their own conversation, at no extra cost, and pick up after a compaction. The
+ledger and your approvals live outside every sandbox.**
+
+### Added
+
+- **Lane actions** (#132, #138). Any action a lane carries out for you is a request the orchestrator writes:
+  - the steps;
+  - the heads as full SHAs;
+  - the stop checks;
+  - what is not covered;
+  - whether it is irreversible;
+  - the exact commands it needs.
+
+  Examples: a merge at its head SHA, a release cut, a deploy, a backfill, a server command.
+
+  You answer it as a form in the orchestrator. **Approve** runs `ledger.sh approve` behind its permission dialog
+  there. The lane named in it then:
+  - takes it;
+  - checks the heads live;
+  - follows the steps exactly;
+  - records done, or stopped at step N.
+
+  While the action is open, its commands run with no dialog in that lane's pane (`hooks/lane-guard.sh`). One approval,
+  one use. A changed scope or head comes back to you as a new form. `ledger.sh op new` creates an entry for an action
+  that belongs to no board item.
+- **Directives** (#135): `ledger.sh direct <id> --to <lane>` records a precise instruction (a head to use, an order,
+  a correction) that the lane reads as data and applies inside the item's scope. A directive approves nothing.
+- **Interactive lanes** (#134). With `"lane_mode": "interactive"` under `orchestrate`, globally or per stage
+  `{plan, build, deploy}`, a stage lane does the stage in its own conversation:
+  - `session-launch.sh <role> <id> --prepare --lane <name>` makes every check a launch makes, claims the item for the
+    lane, and makes the worktree and the prompt;
+  - `--finish --lane <name> --outcome-file <f>` records the lane's outcome exactly as a background run's, at $0.
+
+  You can talk to the lane mid-task. An interactive build verifies through `/hef.verify` and `/hef.review`, whose
+  reviewers run in a fresh context; a verify with no review verdict fails.
+- **Resume** (#140): after a compaction or a restart, the session start tells a lane what it holds, its open
+  directives, the actions approved for it and its own last note (`ledger.sh note <id> --file <f>`).
+- **Lane names from the project** (#133): `orchestrate.lane_prefix`, or an explicit `orchestrate.lanes` map
+  (`build` may list up to eight names). Setup resolves the names and writes them into the settings, where no lane can
+  change them; `ledger.sh lanes` prints them.
+- **The status line** shows each action waiting on you (`⏸ DET-7-A2 · action: merge PR #726`) and each one running.
+
+### Changed
+
+- **The ledger lives in `~/.cache/hefesto/ledger/<key>`**, outside every sandbox, beside the approvals and the
+  session records. Inside the project, a lane could rename the ledger folder and rebuild a forged one. The first
+  `ledger.sh` call that can write there moves an 8.x ledger:
+  - once, under a lock, and only while no 8.x run renews a lease;
+  - it leaves `.git/hefesto/MOVED` and keeps the old folder, renamed.
+- **`hefesto-setup.sh`:**
+  - `ledger.sh`, `gh`, `pr-watch.sh` and `status-board.sh` run outside the sandbox, and the GitHub API is denied
+    inside it. Only gh's read forms and `gh pr create` are allowed, so `gh pr merge`, `gh pr review` and `gh api`
+    always need an approved action or your dialog;
+  - Edit is denied on hefesto's state, and the sandbox is on with `failIfUnavailable`;
+  - sandboxed commands run without a dialog again, as in 7.x; `--strict` keeps 8.0's every-command-asks;
+  - your own command lists are typed on its command line (`--allow-command`, `--unsandboxed-command`,
+    `--forget-commands`), never read from a file a lane can write;
+  - `--check` refuses anything that weakens this: a grant reaching hefesto's state, a sandbox turned off, a hook
+    command in a writable folder, a drifted lane map, a missing API denial.
+- **A lane is a name in the map, only with `--lanes`** (#140). A project that never ran `hefesto-setup.sh --lanes`
+  gets no lane context, whatever its session names. A launched worker is never a lane.
+- **In a `--lanes` project, hefesto's hooks that run a project's own commands stand down:** tests after an edit, the
+  formatter, the task-completion gate and the commit gate's linters. A hook runs outside the sandbox, and those ran
+  what project files name.
+- **Every hook that runs git ignores `core.fsmonitor` and `core.hooksPath`.**
+- **In a set-up project, a command that names `gh` must be exactly one plain `gh` command.** `echo gh` and
+  `grep -rn gh docs/` are refused on purpose: search with the Grep tool.
+
+### Fixed
+
+- A shellcheck that cannot run (killed for memory on a large file) no longer blocks a commit as "shellcheck errors";
+  it passes with an advisory.
+
+### Upgrading
+
+**Needs** a Claude Code with hook `onFailure` support (current releases have it).
+
+1. Close every Claude Code window and run the wizard. It should end with `every profile runs hefesto 9.0.0`.
+2. In each project's main folder, in a terminal, run `bash ~/.claude-framework/hooks/hefesto-setup.sh` (`--lanes`
+   for four lanes), **before** the first `/hef.orchestrate` or `/hef.ship`. The ledger now lives outside the project,
+   and only a set-up project lets `ledger.sh` write there. The first call moves your 8.x ledger itself.
+3. Reopen the lanes. `run-follow` shows nothing for runs started before the upgrade.
+
+**From 8.x four lanes:**
+- The lane names stay as they were: `orchestrate.pane_sessions`, or `<folder>-<lane>`.
+- Approvals that used to be typed in a lane (merges, deploys) are now lane actions you approve in the orchestrator.
+- Commands outside the sandbox move from any config file to `--unsandboxed-command`.
+
+**From 7.x interactive lanes** (an external board, named lanes, approvals typed as `go <file> <hash>`):
+- set `"lane_prefix"` (or `"lanes"`) and `"lane_mode": "interactive"` under `orchestrate` in the board's config, then
+  run setup with `--lanes`, adding `--unsandboxed-command` for each ssh or docker command a deploy needs;
+- open the stage lanes with `--permission-mode acceptEdits` and the orchestrator in the default mode;
+- your approval files become requests: ask the orchestrator for the action, answer its form, and the lane carries
+  it out.
+
+Run through the PR's live checks once, in a project you can afford to break, before your production one.
+
 ## [8.1.0] - 2026-10-23
 
 **The commit gate checks every commit, also `git -C <dir> commit`, says when a check was skipped, and enforces
