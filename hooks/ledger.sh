@@ -68,6 +68,8 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 [ -f "$HERE/ledger-lanes.sh" ] || die "ledger: $HERE/ledger-lanes.sh not found — the plugin install is incomplete (reinstall it)"
 # shellcheck source=hooks/ledger-lanes.sh
 . "$HERE/ledger-lanes.sh"
+# shellcheck source=hooks/lane-lib.sh
+. "$HERE/lane-lib.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -215,6 +217,19 @@ trusted_check() {
   fi
   [ -n "$want" ] && [ "$want" = "$got" ] || die "ledger: this call resolved the board at '$got', not the project's trusted one '$want' (its settings) — run it from the project's folder; a changed .board or git dir is refused"
 }
+# The second gate (lanes-interactive): the hook that guards these calls fails open if it errors, so this helper
+# checks the caller itself. Claude Code sets CLAUDE_CODE_SESSION_ID in every Bash command (documented; lane-guard
+# denies a command line that sets it), and the session's record says which lane it is. No record (a terminal, a
+# project without --lanes) → 8.0's rule: the permission dialog of the ask rule is the gate.
+caller_gate() {
+  local sid="${CLAUDE_CODE_SESSION_ID:-}" f
+  valid_sid "$sid" || return 0; f=$(session_file "$sid"); [ -f "$f" ] || return 0
+  [ "$(jq -r '.lanes' "$f" 2>/dev/null)" = true ] || return 0
+  if is_person_sub "$SUB" "$@" && [ "$(jq -r '.role // empty' "$f")" != orchestrator ]; then
+    die "ledger $SUB: this records a person's decision, so it runs only in the orchestrator lane (this session is '$(jq -r 'if .name != "" then .name else .title end' "$f")')"
+  fi
+  return 0
+}
 GC0="${GIT_CONFIG_COUNT:-}"; case "$GC0" in ''|*[!0-9]*) GCN=0 ;; *) GCN="$GC0" ;; esac
 export "GIT_CONFIG_KEY_$GCN=core.fsmonitor" "GIT_CONFIG_VALUE_$GCN=false" \
        "GIT_CONFIG_KEY_$((GCN + 1))=core.hooksPath" "GIT_CONFIG_VALUE_$((GCN + 1))=/dev/null" "GIT_CONFIG_COUNT=$((GCN + 2))"
@@ -343,6 +358,7 @@ fi
 BCTX=$(board_ctx) || exit 1
 if [ "$SUB" = board ]; then [ $# -eq 0 ] || usage; echo "$BCTX"; exit 0; fi
 trusted_check
+caller_gate "$@"
 DIR=$(ledger_dir) || exit 1
 ledger_settle "$DIR" "$(jq -r '.git_common // empty' <<<"$BCTX")" || exit 1
 case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|-h|--help) ;; *) ledger_mkdir ;; esac

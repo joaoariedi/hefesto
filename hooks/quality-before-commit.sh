@@ -235,8 +235,18 @@ fi
 #        staged files rather than to the files themselves.
 #    Linters (ruff, eslint, biome) take a file list and are scoped properly.
 
+# lanes-interactive: these run project-defined programs (node_modules/.bin, npm scripts, cargo build scripts, maven
+# plugins) and this hook runs outside the sandbox — in a --lanes project a lane can edit them, so they stand down there
+# and say so. The checks above (secrets, shell, markdown, complexity, file length) use only tools from PATH.
+SKIP_LANG=0
+LL="$(cd "$(dirname "$0")" && pwd)/lane-lib.sh"
+# shellcheck source=hooks/lane-lib.sh
+if [ -f "$LL" ] && . "$LL" && lanes_project "$CWD"; then
+  SKIP_LANG=1; ADVISORY="${ADVISORY:+$ADVISORY; }quality gate: the language linters and type checks were skipped — they run project-defined programs and this hook runs outside the sandbox (a --lanes project); run them yourself"
+fi
+
 # JavaScript / TypeScript
-if [ -f "$CWD/package.json" ]; then
+if [ "$SKIP_LANG" = 0 ] && { [ -f "$CWD/package.json" ] ; }; then
   JS_FILES=$(echo "$STAGED" | grep -E '\.(js|jsx|ts|tsx|mjs|cjs)$' || true)
 
   if [ -n "$JS_FILES" ]; then
@@ -271,7 +281,7 @@ if [ -f "$CWD/package.json" ]; then
 fi
 
 # Python — ruff takes an explicit file list.
-if [ -f "$CWD/pyproject.toml" ] || [ -f "$CWD/setup.py" ]; then
+if [ "$SKIP_LANG" = 0 ] && { [ -f "$CWD/pyproject.toml" ] || [ -f "$CWD/setup.py" ] ; }; then
   PY_FILES=$(echo "$STAGED" | grep -E '\.py$' || true)
   if [ -n "$PY_FILES" ] && command -v ruff &>/dev/null; then
     if ! (cd "$CWD" && echo "$PY_FILES" | xargs ruff check --quiet >/dev/null 2>&1); then
@@ -282,7 +292,7 @@ fi
 
 # Rust — clippy analyses a CRATE. It cannot be scoped to files; whole-crate is the
 # only correct invocation. Gate it on Rust actually being staged so it stays cheap.
-if [ -f "$CWD/Cargo.toml" ]; then
+if [ "$SKIP_LANG" = 0 ] && { [ -f "$CWD/Cargo.toml" ] ; }; then
   RS_FILES=$(echo "$STAGED" | grep -E '\.rs$' || true)
   if [ -n "$RS_FILES" ] && command -v cargo &>/dev/null; then
     if ! cargo clippy --manifest-path "$CWD/Cargo.toml" --quiet >/dev/null 2>&1; then
@@ -292,7 +302,7 @@ if [ -f "$CWD/Cargo.toml" ]; then
 fi
 
 # Go — `go vet` works per-package, so scope it to the packages owning staged files.
-if [ -f "$CWD/go.mod" ]; then
+if [ "$SKIP_LANG" = 0 ] && { [ -f "$CWD/go.mod" ] ; }; then
   GO_FILES=$(echo "$STAGED" | grep -E '\.go$' || true)
   if [ -n "$GO_FILES" ] && command -v go &>/dev/null; then
     GO_PKGS=$(echo "$GO_FILES" | xargs -n1 dirname 2>/dev/null | sort -u | sed 's|^|./|' | tr '\n' ' ')
@@ -306,7 +316,7 @@ if [ -f "$CWD/go.mod" ]; then
 fi
 
 # Java — Spotless can be scoped with -DspotlessFiles (a regex over absolute paths).
-if [ -f "$CWD/pom.xml" ] || [ -f "$CWD/build.gradle" ] || [ -f "$CWD/build.gradle.kts" ]; then
+if [ "$SKIP_LANG" = 0 ] && { [ -f "$CWD/pom.xml" ] || [ -f "$CWD/build.gradle" ] || [ -f "$CWD/build.gradle.kts" ] ; }; then
   JAVA_FILES=$(echo "$STAGED" | grep -E '\.(java|kt)$' || true)
   if [ -n "$JAVA_FILES" ]; then
     SPOTLESS_RE=$(echo "$JAVA_FILES" | sed 's/[.[\*^$]/\\&/g' | paste -sd'|' -)

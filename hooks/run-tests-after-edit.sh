@@ -5,6 +5,12 @@ INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 
+# lanes-interactive: a hook runs outside the sandbox, and this one runs what project files name — in a --lanes
+# project a lane can edit those files, so the hook stands down there (the lane runs the suite itself, sandboxed).
+LL="$(cd "$(dirname "$0")" && pwd)/lane-lib.sh"
+# shellcheck source=hooks/lane-lib.sh
+if [ -f "$LL" ] && . "$LL" && lanes_project "$CWD"; then echo "hefesto: the after-edit test run stands down in a --lanes project (it would run project-defined commands outside the sandbox) — run the tests yourself" >&2; exit 0; fi
+
 if [ -z "$FILE_PATH" ] || [ -z "$CWD" ]; then
   exit 0
 fi

@@ -91,7 +91,7 @@ It is the enforcement the Verification Iron Law always claimed to have:
 
 ## 🛡️ Automated Quality Gates
 
-Fifteen hooks enforce quality automatically — and they ship with the plugin, so there is nothing to register:
+Sixteen hooks enforce quality automatically — and they ship with the plugin, so there is nothing to register:
 
 - 🔍 **Pre-commit** — secrets detection (gitleaks) + language-specific linting blocks the commit on errors
 - 🔒 **File protection** — writes to `.env`, `*.key`, `*.pem`, credentials, `secrets/` directories and `.git/` internals are blocked

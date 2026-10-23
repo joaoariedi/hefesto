@@ -47,6 +47,10 @@ die() { echo "$*" >&2; exit 1; }
 usage() { echo "usage: session-launch.sh <plan|implement|verify|deploy> <id> [--dry-run]" >&2; exit 2; }
 
 HERE="$(cd "$(dirname "$0")" && pwd)"; LEDGER="$HERE/ledger.sh"; BOARD="$HERE/status-board.sh"
+# lanes-interactive: ledger.sh refuses a person's decision from a session that is not the orchestrator lane
+# (CLAUDE_CODE_SESSION_ID, its second gate). This launcher's own ledger calls — the RFC pin at a plan launch, the
+# transcription — are hefesto's, not the lane's, so the caller's id is dropped here.
+unset CLAUDE_CODE_SESSION_ID
 [ $# -ge 2 ] || usage
 ROLE="$1"; ID="$2"; shift 2; DRY=0
 while [ $# -gt 0 ]; do case "$1" in --dry-run) DRY=1 ;; *) usage ;; esac; shift; done

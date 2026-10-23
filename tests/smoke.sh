@@ -4903,7 +4903,7 @@ chmod +x "$l3_bin/claude"
 ( cd "$l3_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && mkdir -p tasks .claude docs/rfcs \
   && printf '# TODO\n\n## LT-1 — with an RFC\nrfc: docs/rfcs/LT-1.md\n\n## LT-2 — plain\nno rfc\n\n## 🐞 LT-3 — a crash\nsteps\n' > tasks/TODO.md \
   && for c in DOING DONE BACKLOG; do printf '# %s\n' "$c" > "tasks/$c.md"; done && printf '# RFC LT-1\nThree columns.\n' > docs/rfcs/LT-1.md \
-  && printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":50,"plan_review":"human"}}\n' > .claude/project-status.json ) >/dev/null 2>&1
+  && printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":50,"plan_review":"human","lane_prefix":"repo"}}\n' > .claude/project-status.json ) >/dev/null 2>&1
 cp "$l3_t/.claude/project-status.json" "$l3_t/ps.bak"
 # a profile whose plugin copy sits in a temp folder (skipped), and a project-scope install (ignored)
 mkdir -p "$l3_home/.claude/plugins"
@@ -4931,24 +4931,39 @@ l3_o="$(l3u --lanes 2>&1)"
     (.permissions.allow | index(["Bash(\($h)/ledger.sh board:*)"])) and (.permissions.ask | index(["Bash(\($h)/ledger.sh unblock:*)"])) and (.permissions.ask | index(["Bash(bash \($h)/ledger.sh unblock:*)"]))
     and (.permissions.ask | index(["Bash(\($h)/ledger.sh answer:*)"])) and (.permissions.ask | index(["Bash(\($h)/ledger.sh revise:*)"]))
     and (.permissions.allow | map(select(test("ledger.sh (unblock|record|claim|advance|handoff|block|answer|revise)"))) | length == 0)
-    and (.sandbox.excludedCommands | index(["\($h)/session-launch.sh *"])) and .sandbox.autoAllowBashIfSandboxed == false
+    and (.sandbox.excludedCommands | index(["\($h)/session-launch.sh *"])) and (.sandbox.excludedCommands | index(["\($h)/ledger.sh *"])) and (.sandbox.excludedCommands | index(["gh *"]))
+    and (.sandbox | has("autoAllowBashIfSandboxed") | not) and .sandbox.enabled == true and .sandbox.failIfUnavailable == true
+    and (.permissions.allow | index(["Bash(gh pr view:*)"])) and (.permissions.allow | map(select(test("gh (pr merge|pr review|api)"))) | length == 0)
+    and (.permissions.deny | index(["Edit(/\($home)/.cache/hefesto/approvals/**)"])) and (.permissions.deny | index(["Edit(/\($home)/.cache/hefesto/ledger/**)"]))
+    and .env.HEFESTO_LANES == "1" and (.env.HEFESTO_LANE_MAP | fromjson | .["repo-builder2"] == "build" and .["repo-orchestrator"] == "orchestrator")
     and .env.HEFESTO_TRUSTED_TOP == $t and .env.FOO == "1" and .crossSessionInbound == "accept" and .statusLine.command == "/my/sl"
-    and (.permissions.allow | index(["Bash(ls)"])) and .permissions.deny == [] and (.sandbox.excludedCommands | index(["docker *"]))' "$L3F" >/dev/null; } \
-  || { bad "setup --lanes must write the allowlist, the ask rules (both spellings, answer and revise), the launcher exclusion, autoAllowBashIfSandboxed false, the trusted top and inbound accept, keeping the person's own entries: $(jq -c . "$L3F" | head -c 400)"; l3_fail=1; }
+    and (.permissions.allow | index(["Bash(ls)"])) and (.sandbox.excludedCommands | index(["docker *"]))' --arg home "$l3_home" "$L3F" >/dev/null; } \
+  || { bad "setup --lanes must write the allowlist, the ask rules (both spellings, answer and revise), the launcher and ledger.sh exclusions, gh outside the sandbox with only its read forms allowed, Edit denied on hefesto's state, the sandbox on, auto-allow left at its default, the lane map, the trusted top and inbound accept, keeping the person's own entries: $(jq -c . "$L3F" | head -c 600)"; l3_fail=1; }
 { ! grep -qF '/gone/hooks/' "$L3F" && ! grep -qF '1.0.0/hooks' "$L3F" && ! grep -qF '9.9.9' "$L3F" && grep -qF "$REPO/scripts/mine.sh" "$L3F" && grep -qF 'skipped' <<<"$l3_o"; } \
   || { bad "setup must drop a stale exclusion and an old version's rules, skip a temp-folder root, and keep the person's other rules: $l3_o"; l3_fail=1; }
 l3_h="$(cksum < "$L3F")"; l3_o="$(l3u --lanes 2>&1)"; { grep -qF unchanged <<<"$l3_o" && [ "$(cksum < "$L3F")" = "$l3_h" ]; } || { bad "a second setup run must change nothing: $l3_o"; l3_fail=1; }
-[ "$(l3u --check 2>&1)" = "setup: ok" ] || { bad "--check must pass after setup: $(l3u --check 2>&1)"; l3_fail=1; }
+l3_o="$(l3u --check 2>&1)"; { [ "$(tail -1 <<<"$l3_o")" = "setup: ok" ] && grep -qF 'setup: lanes ' <<<"$l3_o" && grep -qF 'repo-builder2' <<<"$l3_o"; } || { bad "--check must pass after setup and print the lanes: $l3_o"; l3_fail=1; }
+# --strict keeps 8.0's every-command-asks; a 9.0 run without it takes that back out (user decision 2026-10-23)
+l3u --lanes --strict >/dev/null 2>&1; jq -e '.sandbox.autoAllowBashIfSandboxed == false' "$L3F" >/dev/null || { bad "--strict must set autoAllowBashIfSandboxed false"; l3_fail=1; }
 jq '.sandbox.autoAllowBashIfSandboxed = true' "$L3F" > "$l3_t/x" && cp "$l3_t/x" "$L3F"
-l3_o="$(l3u --check 2>&1)" && { bad "--check must fail with autoAllowBashIfSandboxed true"; l3_fail=1; }; grep -qF autoAllowBashIfSandboxed <<<"$l3_o" || { bad "--check must name autoAllowBashIfSandboxed: $l3_o"; l3_fail=1; }
-l3u --lanes >/dev/null 2>&1
-l3u --remove >/dev/null 2>&1; [ "$(jq -S 'del(.sandbox.excludedCommands) | .permissions.allow -= [.permissions.allow[] | select(test("1.0.0"))]' "$l3_t/own.json")" = "$(jq -S 'del(.sandbox.excludedCommands)' "$L3F")" ] \
+l3_o="$(l3u --check 2>&1)" && { bad "--check must fail when a --strict setup lost autoAllowBashIfSandboxed false"; l3_fail=1; }; grep -qF autoAllowBashIfSandboxed <<<"$l3_o" || { bad "--check must name autoAllowBashIfSandboxed: $l3_o"; l3_fail=1; }
+l3u --lanes >/dev/null 2>&1; jq -e '.sandbox | has("autoAllowBashIfSandboxed") | not' "$L3F" >/dev/null || { bad "setup without --strict must take the strict autoAllowBashIfSandboxed back out: $(jq -c .sandbox "$L3F")"; l3_fail=1; }
+# --check refusals: a sandbox turned off, a grant that reaches hefesto's state, a hook command in the project
+cp "$L3F" "$l3_t/sl9.bak"
+for l3_bad in '.sandbox.enabled = false' '.sandbox.filesystem.allowWrite = ["~/.cache"]' '.hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": ($t + "/x.sh")}]}]}'; do
+  jq --arg t "$l3_t" "$l3_bad" "$l3_t/sl9.bak" > "$L3F"; l3_o="$(l3u --check 2>&1)" && { bad "--check must refuse: $l3_bad"; l3_fail=1; }
+done
+cp "$l3_t/sl9.bak" "$L3F"; jq '.orchestrate.lane_prefix = "other"' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+l3_o="$(l3u --check 2>&1)" && { bad "--check must refuse a lane map that no longer matches the config"; l3_fail=1; }; grep -qF 'lane names' <<<"$l3_o" || { bad "the drift refusal must say so: $l3_o"; l3_fail=1; }
+cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
+# (an empty deny list and none mean the same; setup filled the person's [] and emptied it again)
+l3u --remove >/dev/null 2>&1; [ "$(jq -S 'del(.sandbox.excludedCommands) | .permissions.allow -= [.permissions.allow[] | select(test("1.0.0"))] | if .permissions.deny == [] then del(.permissions.deny) else . end' "$l3_t/own.json")" = "$(jq -S 'del(.sandbox.excludedCommands) | if .permissions.deny == [] then del(.permissions.deny) else . end' "$L3F")" ] \
   || { bad "--remove must give back the person's own file (less the stale entries): $(jq -c . "$L3F" | head -c 300)"; l3_fail=1; }
 cp "$l3_t/own.json" "$L3F"
 l3_su_mut 's/| map(select(. as $x | $r.bad | index(\[$x\]) | not))//'
 l3u >/dev/null 2>&1; grep -qF '/gone/hooks/' "$L3F" || { bad "mutation survived: the stale-exclusion filter removed, yet /gone was still dropped"; l3_fail=1; }; l3_su_restore; cp "$l3_t/own.json" "$L3F"
 l3_su_mut 's/else .sandbox.autoAllowBashIfSandboxed = false | .__m += \["autoallow"\] end/else . end/'
-l3u >/dev/null 2>&1; jq -e '.sandbox.autoAllowBashIfSandboxed == false' "$L3F" >/dev/null 2>&1 && { bad "mutation survived: autoAllowBashIfSandboxed no longer written, yet the file has it"; l3_fail=1; }; l3_su_restore; cp "$l3_t/own.json" "$L3F"
+l3u --strict >/dev/null 2>&1; jq -e '.sandbox.autoAllowBashIfSandboxed == false' "$L3F" >/dev/null 2>&1 && { bad "mutation survived: autoAllowBashIfSandboxed no longer written, yet the file has it"; l3_fail=1; }; l3_su_restore; cp "$l3_t/own.json" "$L3F"
 l3_su_mut 's/^  local p t$/  return 1; local p t/'
 l3u >/dev/null 2>&1; grep -qF '9.9.9' "$L3F" || { bad "mutation survived: unsafe roots no longer skipped, yet the temp-folder root has no rule"; l3_fail=1; }; l3_su_restore
 # a symlinked settings file is written through; a file that is not JSON is refused and left alone
@@ -5024,15 +5039,103 @@ printf '{"id":"RN-1","owner":{"role":"plan","started":"2026-01-01T00:00:00Z"}}\n
 [[ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" =~ ▶\ plan\ RN-1\ ·\ [0-9]+h[0-9]{2}m ]] || { bad "gauge: a long run's age must read in hours and minutes (1h05m)"; l3_fail=1; }
 rm -rf -- "${l3_rn:?}"
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
-l3_ss() { printf '{"cwd":"%s","session_title":"%s","permission_mode":"%s"}' "$l3_t" "$1" "$2" | bash "${L3_SS:-$REPO/hooks/session-start-context.sh}" 2>&1; }
-l3_o="$(l3_ss repo-builder default)"; grep -qF 'hefesto lane: build (repo-builder)' <<<"$l3_o" && grep -qF '/hef.orchestrate --stage build' <<<"$l3_o" && ! grep -qF 'hefesto setup:' <<<"$l3_o" \
+l3u --lanes >/dev/null 2>&1
+l3_ss() { printf '{"cwd":"%s","session_title":"%s","permission_mode":"%s","session_id":"sid-%s-0001"}' "$l3_t" "$1" "$2" "$1" | bash "${L3_SS:-$REPO/hooks/session-start-context.sh}" 2>&1; }
+l3_o="$(l3_ss repo-builder default)"; grep -qF 'hefesto lane: build (repo-builder, ' <<<"$l3_o" && grep -qF '/hef.orchestrate --stage build' <<<"$l3_o" && ! grep -qF 'hefesto setup:' <<<"$l3_o" \
   || { bad "session start must name the build lane and its doorbell pass, with no setup line after setup: $l3_o"; l3_fail=1; }
-grep -qF 'WARNING: this orchestrator lane runs in auto' <<<"$(l3_ss repo-orchestrator auto)" || { bad "an orchestrator lane in auto mode must be warned at start"; l3_fail=1; }
+grep -qF 'this orchestrator lane runs in auto mode' <<<"$(l3_ss repo-orchestrator auto)" || { bad "an orchestrator lane in auto mode must be told what auto decides without a dialog"; l3_fail=1; }
+grep -qF 'this build lane runs in bypassPermissions mode' <<<"$(l3_ss repo-builder bypassPermissions)" || { bad "every lane, not only the orchestrator, must be told its mode (bypassPermissions)"; l3_fail=1; }
+jq -e '.role == "build" and .name == "repo-builder" and .lanes == true and (.excluded | length) > 0 and (.ledger | length) > 0' "$HOME/.cache/hefesto/sessions/sid-repo-builder-0001.json" >/dev/null 2>&1 \
+  || { bad "the session start must record the lane (role, name, lanes, excluded commands, ledger): $(cat "$HOME/.cache/hefesto/sessions/sid-repo-builder-0001.json" 2>&1)"; l3_fail=1; }
+grep -qF 'hefesto lane' <<<"$(HEFESTO_WORKER=1 l3_ss repo-builder default)" && { bad "a launched worker is never a lane, whatever its name"; l3_fail=1; }
 grep -qF 'WARNING: this orchestrator' <<<"$(l3_ss repo-orchestrator default)" && { bad "an orchestrator lane in default mode must not be warned"; l3_fail=1; }
 grep -qF 'hefesto lane' <<<"$(l3_ss repo default)" && { bad "a session with no lane suffix is no lane"; l3_fail=1; }
-mv "$L3F" "$l3_t/sl.bak"; grep -qF 'hefesto setup: missing' <<<"$(l3_ss repo-plan default)" || { bad "a lane in a project without setup must be told the setup command"; l3_fail=1; }; mv "$l3_t/sl.bak" "$L3F"
-l3_mut session-start-context.sh 's/plan|planner) LANE=plan/plan) LANE=plan/'
-grep -qF 'hefesto lane: plan' <<<"$(L3_SS="$l3_md/session-start-context.sh" l3_ss repo-planner default)" && { bad "mutation survived: the planner alias dropped at session start, yet the lane line printed"; l3_fail=1; }; l3_restore session-start-context.sh
+# #140: no lane context in a project that did not run setup --lanes, whatever the names
+mv "$L3F" "$l3_t/sl.bak"; grep -qF 'hefesto lane' <<<"$(l3_ss repo-plan default)" && { bad "a session in a project without setup --lanes is no lane, even named repo-plan"; l3_fail=1; }; mv "$l3_t/sl.bak" "$L3F"
+jq '.sandbox.excludedCommands -= [.sandbox.excludedCommands[] | select(endswith("/ledger.sh *"))]' "$L3F" > "$l3_t/x" && cp "$L3F" "$l3_t/sl.bak" && cp "$l3_t/x" "$L3F"
+grep -qF 'hefesto setup: missing' <<<"$(l3_ss repo-plan default)" || { bad "a lane whose setup is incomplete must be told the setup command"; l3_fail=1; }; cp "$l3_t/sl.bak" "$L3F"
+l3_mut session-start-context.sh 's/ \&\& \[ -z "\${HEFESTO_WORKER:-}" \]//'
+grep -qF 'hefesto lane' <<<"$(HEFESTO_WORKER=1 L3_SS="$l3_md/session-start-context.sh" l3_ss repo-builder default)" || { bad "mutation survived: the worker exclusion removed, yet a worker named repo-builder was still no lane"; l3_fail=1; }; l3_restore session-start-context.sh
+l3_mut session-start-context.sh 's/\[ "$(jq -r .\.env\.HEFESTO_LANES \/\/ empty. <<<"$SETS")" = 1 \] \&\& LANES_ON=1/LANES_ON=1/'
+mv "$L3F" "$l3_t/sl.bak"; jq 'del(.env.HEFESTO_LANES)' "$l3_t/sl.bak" > "$L3F"
+grep -qF 'hefesto lane' <<<"$(L3_SS="$l3_md/session-start-context.sh" l3_ss repo-builder default)" || { bad "mutation survived: the --lanes marker check removed, yet a project without it still gave no lane"; l3_fail=1; }; l3_restore session-start-context.sh; mv "$l3_t/sl.bak" "$L3F"
+
+head_ "Lane guard (security)"
+# lanes-interactive FR-002/FR-011 and review rounds 1–3: every refusal path of hooks/lane-guard.sh, as hook JSON in →
+# decision out, against session records the real session start wrote above (sid-repo-<lane>-0001).
+lg_fail=0; LGD="$REPO/hooks/lane-guard.sh"; LGL="$REPO/hooks/ledger.sh"
+l3_ss repo-orchestrator default >/dev/null; l3_ss repo-builder default >/dev/null; l3_ss repo-deployer default >/dev/null
+gd() { # $1 lane (sid suffix), $2 command → the decision: deny | allow | none
+  local o; o="$(jq -nc --arg c "$2" --arg s "sid-repo-$1-0001" --arg d "$l3_t" '{tool_name: "Bash", tool_input: {command: $c}, session_id: $s, cwd: $d}' | bash "${LG_GD:-$LGD}" 2>/dev/null)"
+  [ -n "$o" ] || { echo none; return; }; jq -r '.hookSpecificOutput.permissionDecision // "none"' <<<"$o" 2>/dev/null || echo none
+}
+gdf() { # $1 path → the file-tool decision
+  local o; o="$(jq -nc --arg f "$1" --arg d "$l3_t" '{tool_name: "Write", tool_input: {file_path: $f, content: "x"}, session_id: "sid-repo-builder-0001", cwd: $d}' | bash "${LG_GD:-$LGD}" 2>/dev/null)"
+  [ -n "$o" ] || { echo none; return; }; jq -r '.hookSpecificOutput.permissionDecision // "none"' <<<"$o" 2>/dev/null || echo none
+}
+lg_want() { [ "$(gd "$1" "$2")" = "$3" ] || { bad "lane-guard ($1): '$2' must be $3, got $(gd "$1" "$2")"; lg_fail=1; }; }
+lg_want builder "$LGL answer LT-2 --reviewed-by-human --by Ana" deny
+lg_want builder "$LGL unblock LT-2" deny
+lg_want deployer "$LGL record LT-2 --body-from-board" deny
+lg_want orchestrator "$LGL answer LT-2 --reviewed-by-human --by \"Ana Lima\"" none
+lg_want builder "$LGL show LT-2" none
+lg_want builder "gh pr view 7 --json body -q .body > $HOME/.cache/hefesto/approvals/x.json" deny
+lg_want orchestrator "gh pr view 1 > x.txt" deny
+lg_want builder "$LGL show LT-2 | tee x.json" deny
+lg_want builder "echo hi && gh pr merge 3 --merge" deny
+lg_want builder "env gh pr view 1" deny
+lg_want builder "FOO=1 $LGL show LT-2" deny
+lg_want builder "CLAUDE_CODE_SESSION_ID=sid-repo-orchestrator-0001 $LGL show LT-2" deny
+lg_want builder "gh pr view 7 --json title" none
+lg_want builder "git status" none
+lg_want orchestrator "$LGL direct LT-2 --to repo-builder <<'DIR_a1b2c3'
+use head 5f3c0a9, not f3dd166
+DIR_a1b2c3" none
+lg_want builder "$LGL direct LT-2 --to repo-builder <<'DIR_a1b2c3'
+x
+DIR_a1b2c3" deny
+lg_want orchestrator "$LGL show LT-2 <<'DIR_a1b2c3'
+x
+DIR_a1b2c3" deny
+lg_want builder "$REPO/hooks/session-launch.sh implement LT-2 --prepare --lane repo-deployer" deny
+lg_want builder "$REPO/hooks/session-launch.sh implement LT-2 --prepare --lane repo-builder" none
+# a set-up project without --lanes: the plain-word rule still holds, the person-only rule does not apply
+jq '.lanes = false | .role = "" | .name = ""' "$HOME/.cache/hefesto/sessions/sid-repo-builder-0001.json" > "$HOME/.cache/hefesto/sessions/sid-repo-single-0001.json"
+lg_want single "gh pr list | head -3" deny
+lg_want single "$LGL answer LT-2 --reviewed-by-human --by Ana" none
+# a session with no record (no setup): nothing to say
+lg_want nobody "gh pr view 1 > x.txt" none
+# file tools: hefesto's state, directly, through a project symlink, and through a symlinked ~/.cache
+[ "$(gdf "$HOME/.cache/hefesto/ledger/x/LT-2.json")" = deny ] || { bad "lane-guard: a Write into the ledger must be denied"; lg_fail=1; }
+mkdir -p "$HOME/.cache/hefesto/approvals"; ln -sfn "$HOME/.cache/hefesto/approvals" "$l3_t/apl"
+[ "$(gdf "$l3_t/apl/k/A1.json")" = deny ] || { bad "lane-guard: a Write through a project symlink into the store must be denied"; lg_fail=1; }
+[ "$(gdf "$l3_t/notes.md")" = none ] || { bad "lane-guard: an ordinary Write must get no decision"; lg_fail=1; }
+lg_h2="$(mktemp -d)"; mkdir -p "$lg_h2/real-cache/hefesto/ledger"; ln -s "$lg_h2/real-cache" "$lg_h2/.cache"
+[ "$(HOME="$lg_h2" gdf "$lg_h2/real-cache/hefesto/ledger/x.json")" = deny ] || { bad "lane-guard: with ~/.cache a symlink, a Write by the physical path must be denied"; lg_fail=1; }
+rm -f "$l3_t/apl"
+# ledger.sh's own second gate (the hook fails open on an error): the session id says which lane is asking
+lg_o="$(cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-builder-0001 bash "$LGL" answer LT-2 --reviewed-by-human --by Ana </dev/null 2>&1)" && { bad "ledger.sh must refuse a person's answer from the builder lane's session"; lg_fail=1; }
+grep -qF 'only in the orchestrator lane' <<<"$lg_o" || { bad "the second gate must say why: $lg_o"; lg_fail=1; }
+lg_o="$(cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-orchestrator-0001 bash "$LGL" answer LT-2 --reviewed-by-human --by Ana </dev/null 2>&1)"; grep -qF 'only in the orchestrator lane' <<<"$lg_o" && { bad "the second gate must let the orchestrator through: $lg_o"; lg_fail=1; }
+# hefesto's project-command hooks stand down in a --lanes project
+printf '{"scripts":{"test":"touch %s/RAN"}}\n' "$l3_t" > "$l3_t/package.json"
+lg_o="$(jq -nc --arg d "$l3_t" '{tool_name: "Edit", tool_input: {file_path: ($d + "/a.js")}, cwd: $d}' | bash "$REPO/hooks/run-tests-after-edit.sh" 2>&1 >/dev/null)"
+{ [ ! -f "$l3_t/RAN" ] && grep -qF 'stands down in a --lanes project' <<<"$lg_o"; } || { bad "run-tests-after-edit must not run the project's test script in a --lanes project, and say so: $lg_o"; lg_fail=1; }
+# mutations, beside the real helpers
+l3_mut lane-lib.sh 's/;&|<>(){}/;\&|(){}/'; LG_GD="$l3_md/lane-guard.sh"
+[ "$(gd orchestrator "gh pr view 1 > x.txt")" = deny ] && { bad "mutation survived: redirections allowed in a plain word, yet the redirect was still denied"; lg_fail=1; }; l3_restore lane-lib.sh
+l3_mut lane-guard.sh 's/is_person_sub "${WA\[@\]:1}" \&\& \[ "$ROLE" != orchestrator \] \&\& deny/false \&\& deny/'
+[ "$(gd builder "$LGL answer LT-2 --reviewed-by-human --by Ana")" = deny ] && { bad "mutation survived: the person-only rule removed, yet the builder was still refused"; lg_fail=1; }; l3_restore lane-guard.sh
+l3_mut lane-guard.sh 's/^  for sub in ledger approvals sessions; do$/  for sub in nothing; do/'
+[ "$(gdf "$HOME/.cache/hefesto/ledger/x/LT-2.json")" = deny ] && { bad "mutation survived: the protected-path test removed, yet the ledger write was denied"; lg_fail=1; }; l3_restore lane-guard.sh
+LG_GD=""
+l3_mut ledger.sh 's/^  valid_sid "$sid" || return 0; f=$(session_file "$sid")/  return 0; f=$(session_file "$sid")/'
+lg_o="$(cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-builder-0001 bash "$l3_md/ledger.sh" answer LT-2 --reviewed-by-human --by Ana </dev/null 2>&1)"; grep -qF 'only in the orchestrator lane' <<<"$lg_o" && { bad "mutation survived: the second gate removed, yet it still refused"; lg_fail=1; }; l3_restore ledger.sh
+l3_mut run-tests-after-edit.sh 's/lanes_project "$CWD"; then echo/false; then echo/'
+lg_o="$(jq -nc --arg d "$l3_t" '{tool_name: "Edit", tool_input: {file_path: ($d + "/a.js")}, cwd: $d}' | bash "$l3_md/run-tests-after-edit.sh" 2>&1 >/dev/null)"
+grep -qF 'stands down' <<<"$lg_o" && { bad "mutation survived: the stand-down removed, yet it still stood down"; lg_fail=1; }; l3_restore run-tests-after-edit.sh
+rm -f "$l3_t/package.json" "$l3_t/RAN" "$HOME/.cache/hefesto/sessions/sid-repo-single-0001.json"; rm -rf -- "${lg_h2:?}"
+[ "$lg_fail" -eq 0 ] && ok "lane guard: person-only commands from the orchestrator only; excluded commands (gh, ledger.sh, the launcher) as one plain word list in every lane and in single-lane mode — no redirect, pipe, chain, wrapper, assignment or CLAUDE_CODE_SESSION_ID; the orchestrator heredoc only for answer/revise/direct; --prepare/--finish only as the caller's own lane; no record → silent; file tools denied on hefesto's state directly, through a symlink and by the physical path; ledger.sh's own session check; project-command hooks stand down; 5 mutations caught"
 
 # FR-016/017/024 the board: --init on a fresh repo, --add with the next id, an incident fix built without a plan
 l3_n="$(mktemp -d)/shop-app"; mkdir -p "$l3_n"; git -C "$l3_n" init -q
@@ -5213,7 +5316,7 @@ for i in 31 32 33 34 35; do l3_pc "LT-$i"; done
 # numbered builder lanes
 [ "$(printf '{"context_window":{"used_percentage":45},"session_name":"repo-builder2"}' | bash "$REPO/hooks/context-gauge.sh")" = 'ctx 45% · /compact (build)' ] \
   || { bad "gauge: repo-builder2 is a build lane"; l3_fail=1; }
-grep -qF 'hefesto lane: build (repo-builder3)' <<<"$(printf '{"cwd":"%s","session_title":"repo-builder3"}' "$l3_t" | bash "$REPO/hooks/session-start-context.sh" 2>&1)" \
+grep -qF 'hefesto lane: build (repo-builder3, ' <<<"$(printf '{"cwd":"%s","session_title":"repo-builder3"}' "$l3_t" | bash "$REPO/hooks/session-start-context.sh" 2>&1)" \
   || { bad "session start: repo-builder3 is a build lane"; l3_fail=1; }
 # the run's files outside the sandbox's reach, the outcome read back from a stream-json result event, and the
 # narration: started, a skill, an edit, a command, done
