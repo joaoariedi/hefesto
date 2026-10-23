@@ -347,3 +347,23 @@ Live evidence list (PR), adding to Revision 1 #9:
 10. **The named smoke cases** of conditions 1–4 and 6, each mutation-checked, in `head_ "Lane guard (security)"`.
 
 ## Reviewed 2026-10-23
+
+## Code review of PR A: REQUEST_CHANGES, answered (2026-10-23)
+
+1. **gh behind a keyword, quote or backslash ran inside the sandbox, auto-allowed.** Two layers now:
+   - lane-guard detects an excluded command as a whole word anywhere, and requires the raw command to start with
+     the bare word;
+   - setup denies `api.github.com` to the lanes' sandbox (`sandbox.network.deniedDomains`), so only the
+     unsandboxed, rule-checked `gh` (and `pr-watch.sh`, now excluded too) reach the API.
+2. **The hooks that run git now call `hef_git_neutral`** (lane-lib.sh): the session start, precompact, the commit
+   gate, merge-tree-probe, spec-cite-probe, verify-before-task-complete and pr-watch. A core.fsmonitor canary is in
+   the smoke suite, with a mutation.
+3. **The command lists move from `orchestrate.readonly_commands` / `unsandboxed_commands` (a file lanes can write) to
+   setup's command line**: `--allow-command` and `--unsandboxed-command`, kept in `settings.local.json`, dropped
+   with `--forget-commands`. Each is checked by basename against shells, interpreters and wrappers, and an allowed
+   `gh` pattern must be a read form.
+
+Suggestions taken:
+- the session record's excluded commands come from every applying settings file;
+- grant patterns escape a literal backslash;
+- mutation-checked cases for the wildcard grant, the hook's own-lane rule for directives and the bypass forms.

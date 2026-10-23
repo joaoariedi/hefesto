@@ -406,9 +406,16 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
      gate, the commit gate's linters) stand down in a `--lanes` project. A hook runs outside the sandbox, so those
      would be a way out of it.
    - **In auto mode** a command no rule matches is the classifier's call, with no dialog; every lane says so at start.
-   - **Optional lists:** `orchestrate.readonly_commands` is written as allow rules (e.g. `gh run view *`).
-     `orchestrate.unsandboxed_commands` (absolute paths only, e.g. `/usr/bin/ssh debian@vm-apps *`) is added to the
-     sandbox exclusions, for the steps an approved scope needs; each still needs the grant or your dialog.
+   - **The GitHub API is denied to the sandbox** (`sandbox.network.deniedDomains`). Only the unsandboxed `gh` and
+     `pr-watch.sh` reach it, each called as one plain command and decided by the permission rules. `git push` over
+     HTTPS (github.com) still works.
+   - **Your own command lists** are typed on setup's command line, never read from a file a lane can write. Setup
+     keeps them in `settings.local.json`; a later run keeps them, and `--forget-commands` drops them:
+     - `--allow-command "<pattern>"` adds an allow rule (for `gh`, only its view, list, checks and diff forms);
+     - `--unsandboxed-command "<absolute path …>"` runs a command outside the sandbox, e.g. `/usr/bin/ssh
+       debian@vm-apps *` for the steps an approved scope needs. Each still needs the grant or your dialog.
+
+     A shell or interpreter (by basename: `/bin/sh` too), a wrapper, `-c`/`-e` or a shell operator is refused.
 
    **The ledger moved.** Hefesto 9 keeps it in `~/.cache/hefesto/ledger/<key>`. The first `ledger.sh` call that can
    write there moves an 8.x ledger itself:

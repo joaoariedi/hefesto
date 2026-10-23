@@ -32,12 +32,15 @@ set -uo pipefail
 die() { echo "hefesto-setup: $*" >&2; exit 1; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 CLONE="$(dirname "$HERE")"
-LANES=0; KEEP=0; STRICT=0; MODE="write"
+LANES=0; KEEP=0; STRICT=0; MODE="write"; FORGET=0; NEW_ALLOW=(); NEW_EXCL=()
 while [ $# -gt 0 ]; do case "$1" in
-  --lanes) LANES=1 ;; --keep-statusline) KEEP=1 ;; --strict) STRICT=1 ;;
+  --lanes) LANES=1 ;; --keep-statusline) KEEP=1 ;; --strict) STRICT=1 ;; --forget-commands) FORGET=1 ;;
+  # the person's own command lists, typed here — never read from a file a lane can write (code review of PR A)
+  --allow-command) [ -n "${2:-}" ] || die "--allow-command needs a pattern"; NEW_ALLOW+=("$2"); shift ;;
+  --unsandboxed-command) [ -n "${2:-}" ] || die "--unsandboxed-command needs a pattern"; NEW_EXCL+=("$2"); shift ;;
   --check|--remove|--print) [ "$MODE" = write ] || die "one of --check, --remove, --print at a time (got --$MODE and $1)"; MODE="${1#--}" ;;
   -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  *) die "unknown option '$1' (expected --lanes, --strict, --keep-statusline, --check, --remove or --print)" ;;
+  *) die "unknown option '$1' (expected --lanes, --strict, --keep-statusline, --allow-command, --unsandboxed-command, --forget-commands, --check, --remove or --print)" ;;
 esac; shift; done
 [ "$LANES" = 0 ] || [ "$MODE" != remove ] || die "--lanes does not go with --remove (it takes every hefesto entry out, the lane ones included)"
 command -v jq >/dev/null 2>&1 || die "jq not found — install jq: https://jqlang.org"
@@ -114,7 +117,8 @@ for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
   for c in unblock record claim advance handoff block revise answer approve release; do
     ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
   done
-  excl+=("$h/session-launch.sh *" "$h/ledger.sh *")
+  excl+=("$h/session-launch.sh *" "$h/ledger.sh *" "$h/pr-watch.sh *")   # pr-watch: the babysitter's gh calls live in it
+  allow+=("Bash($h/pr-watch.sh:*)")
 done; done
 # hefesto 9 keeps the ledger in ~/.cache/hefesto, outside every sandbox: the 8.x grant of the board repo's
 # .git/hefesto (and this project's) is taken out, and nothing a sandbox can reach is granted in its place.
@@ -135,26 +139,43 @@ envj="$(jq -nc --arg t "$TOP" --arg b "${BTOP:-}" --argjson lanes "$LANES" --arg
 # hefesto's own state, by every spelling of the path.
 x_allow=("Bash(gh pr view:*)" "Bash(gh pr list:*)" "Bash(gh pr checks:*)" "Bash(gh pr diff:*)" "Bash(gh pr create:*)"
          "Bash(gh run list:*)" "Bash(gh run view:*)" "Bash(gh repo view:*)" "Bash(gh auth status)")
-x_excl=("gh *"); x_deny=()
+x_excl=("gh *"); x_deny=(); x_net=("api.github.com")
+# the GitHub API is out of the lanes' sandbox: only the unsandboxed gh, decided by the permission rules, reaches it —
+# a sandboxed `if :; then gh pr merge …; fi`, or a script that runs gh, gets no network for it (code review of PR A)
 HC="$HOME/.cache/hefesto"; HCP="$(mkdir -p "$HC" 2>/dev/null; cd -P "$HC" 2>/dev/null && pwd -P)"
 for b in "$HC" ${HCP:+"$HCP"}; do for sub in ledger approvals sessions; do r="Edit(/$b/$sub/**)"; case " ${x_deny[*]-} " in *" $r "*) ;; *) x_deny+=("$r") ;; esac; done; done
-cmd_ok() { # $1 a configured command pattern → 0 when safe to write as a rule (review round 1 #6)
+cmd_ok() { # $1 a command pattern → 0 when safe to write as a rule (review round 1 #6, code review of PR A)
+  local w
   case "$1" in ""|"*"*|*$'\n'*) return 1 ;; esac
   [[ "$1" =~ [\;\&\|\<\>\`\$\(\)\{\}] ]] && return 1
-  case "${1%% *}" in sh|bash|zsh|env|eval|exec|xargs|sudo|nohup|timeout|command|builtin) return 1 ;; esac
-  case " $1 " in *" -c "*) return 1 ;; esac
+  w="${1%% *}"; w="${w##*/}"   # by basename: /bin/sh is a shell too
+  case "$w" in sh|bash|zsh|dash|ksh|fish|env|eval|exec|xargs|sudo|doas|nohup|timeout|command|builtin|nice|time|setsid|script \
+    |python|python[0-9]*|perl|ruby|node|deno|bun|php|lua|tclsh|awk|gawk|mawk|sed|find|git|make|osascript) return 1 ;; esac
+  case " $1 " in *" -c "*|*" -e "*) return 1 ;; esac
   return 0
 }
-while IFS= read -r c; do [ -n "$c" ] || continue
-  cmd_ok "$c" || die "orchestrate.readonly_commands: '$c' is not a plain command pattern (no shell operators, no wrapper or interpreter, no -c, not starting with *)"
+gh_read_ok() { # $1 an allow pattern: a gh one may only be a read form
+  case "$1" in gh\ *) case "$1" in "gh pr view"*|"gh pr list"*|"gh pr checks"*|"gh pr diff"*|"gh run view"*|"gh run list"*|"gh issue view"*|"gh issue list"*|"gh repo view"*) return 0 ;; *) return 1 ;; esac ;; esac
+  return 0
+}
+PREV="$(jq -c '(.env.HEFESTO_SETUP_EXTRA? // "{}") | (try fromjson catch {}) | if type == "object" then . else {} end' <<<"$CUR")"
+u_allow=(); u_excl=()
+if [ "$FORGET" = 0 ]; then
+  while IFS= read -r c; do [ -n "$c" ] && u_allow+=("$c"); done < <(jq -r '.user_allow // [] | .[]' <<<"$PREV")
+  while IFS= read -r c; do [ -n "$c" ] && u_excl+=("$c"); done < <(jq -r '.user_excl // [] | .[]' <<<"$PREV")
+fi
+for c in ${NEW_ALLOW[@]+"${NEW_ALLOW[@]}"}; do case " ${u_allow[*]-} " in *" $c "*) ;; *) u_allow+=("$c") ;; esac; done
+for c in ${NEW_EXCL[@]+"${NEW_EXCL[@]}"}; do case " ${u_excl[*]-} " in *" $c "*) ;; *) u_excl+=("$c") ;; esac; done
+for c in ${u_allow[@]+"${u_allow[@]}"}; do
+  cmd_ok "$c" && gh_read_ok "$c" || die "--allow-command '$c' is not a plain read-only pattern (no shell operators, wrapper or interpreter, no -c/-e; for gh only its view/list/checks/diff forms) — nothing was written"
   x_allow+=("Bash($c)")
-done < <(jq -r '.orchestrate.readonly_commands // [] | .[]' "$BCFG" 2>/dev/null)
-while IFS= read -r c; do [ -n "$c" ] || continue
-  cmd_ok "$c" || die "orchestrate.unsandboxed_commands: '$c' is not a plain command pattern"
-  case "$c" in /*) ;; *) die "orchestrate.unsandboxed_commands: '$c' must start with an absolute path (a bare name is found on PATH, which a lane can change)" ;; esac
-  unsafe_root "$(dirname "${c%% *}")" && die "orchestrate.unsandboxed_commands: '${c%% *}' lies where a sandboxed session can write — it would run whatever a lane put there outside the sandbox"
+done
+for c in ${u_excl[@]+"${u_excl[@]}"}; do
+  cmd_ok "$c" || die "--unsandboxed-command '$c' is not a plain command pattern (no shell operators, wrapper or interpreter, no -c/-e) — nothing was written"
+  case "$c" in /*) ;; *) die "--unsandboxed-command '$c' must start with an absolute path (a bare name is found on PATH, which a lane can change)" ;; esac
+  unsafe_root "$(dirname "${c%% *}")" && die "--unsandboxed-command: '${c%% *}' lies where a sandboxed session can write — it would run whatever a lane put there outside the sandbox"
   x_excl+=("$c")
-done < <(jq -r '.orchestrate.unsandboxed_commands // [] | .[]' "$BCFG" 2>/dev/null)
+done
 # An exclusion for a launcher that is gone, or that a sandboxed session could write, would let whoever
 # creates that file run it outside the sandbox: every run drops such entries, whoever wrote them.
 badx=()
@@ -166,8 +187,9 @@ RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
   --arg g "${roots[0]}/hooks/context-gauge.sh --with-user" --argjson lanes "$LANES" --argjson keep "$KEEP" --argjson strict "$STRICT" \
   --argjson xa "$(jarr "${x_allow[@]}")" --argjson xe "$(jarr "${x_excl[@]}")" --argjson xd "$(jarr "${x_deny[@]}")" \
+  --argjson xn "$(jarr "${x_net[@]}")" --argjson ua "$(jarr ${u_allow[@]+"${u_allow[@]}"})" --argjson ue "$(jarr ${u_excl[@]+"${u_excl[@]}"})" \
   '{allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep,
-    strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd}')" || die "could not build the rules"
+    strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd, xnet: $xn, uallow: $ua, uexcl: $ue}')" || die "could not build the rules"
 
 if [ "$MODE" = check ]; then
   me="${CLAUDE_PLUGIN_ROOT:-$CLONE}"; me="${me%/}"
@@ -209,6 +231,8 @@ if [ "$MODE" = check ]; then
     fi
   fi
   if [ -n "$miss" ]; then echo "setup: missing $miss for $me — run: bash $CLONE/hooks/hefesto-setup.sh$([ "$(jq -r '.env.HEFESTO_LANES // empty' <<<"$CUR")" = 1 ] || [ "$LANES" = 1 ] && echo ' --lanes')"; exit 1; fi
+  [ "${#u_excl[@]}" -eq 0 ] || echo "setup: your commands outside the sandbox: ${u_excl[*]}"
+  [ "${#u_allow[@]}" -eq 0 ] || echo "setup: your allowed commands: ${u_allow[*]}"
   echo "setup: ok"; exit 0
 fi
 
@@ -219,7 +243,7 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   # ours: under a known root, and naming one of the hefesto helpers — the other rules of a person under the
   # same folder are left alone
   def ours: (sub("^Bash\\((bash )?"; "")) as $s | any($r.prefixes[]; . as $p | ($s | startswith($p + "/"))
-    and ($s[($p | length):] | test("^/([^/ ]+/)*/?hooks/(status-board|ledger|session-launch|speckit-helper|hefesto-setup|run-follow)\\.sh( |:|\\)|$)")));
+    and ($s[($p | length):] | test("^/([^/ ]+/)*/?hooks/(status-board|ledger|session-launch|speckit-helper|hefesto-setup|run-follow|pr-watch)\\.sh( |:|\\)|$)")));
   def addu($xs): (. // []) as $a | $a + [$xs[] | select(. as $x | $a | index([$x]) | not)];
   def strip: (. // []) | map(select((type == "string" and ours) | not));
   def gaugeours: (.statusLine.command? // "") as $c | ($c | type == "string") and ($c | test("/hooks/context-gauge[.]sh( --with-user)?$"))
@@ -232,6 +256,7 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
     (if .permissions then .permissions.allow |= (strip | minus($px.allow)) | .permissions.ask |= strip
        | (if .permissions.deny then .permissions.deny |= minus($px.deny) else . end) else . end)
   | (if .sandbox.excludedCommands then .sandbox.excludedCommands |= minus($px.excl) else . end)
+  | (if .sandbox.network.deniedDomains then .sandbox.network.deniedDomains |= minus($px.net) else . end)
   | (if .sandbox then .sandbox.excludedCommands |= (strip | map(select(. as $x | $r.bad | index([$x]) | not)))
        | (if .sandbox.filesystem then .sandbox.filesystem.allowWrite |= ((. // []) - $r.write) else . end) else . end)
   | (if gaugeours and ($r.keep == 0 or $mode == "remove") then del(.statusLine) else . end)
@@ -250,16 +275,18 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
      else .permissions.allow |= addu($r.allow) | .permissions.ask |= addu($r.ask)
        | .sandbox.excludedCommands |= addu($r.exclude)
        | .permissions.allow |= addu($r.xallow) | .sandbox.excludedCommands |= addu($r.xexcl) | .permissions.deny |= addu($r.xdeny)
+       | .sandbox.network.deniedDomains |= addu($r.xnet)
        | (if $r.keep == 0 and .statusLine == null then .statusLine = $r.gauge else . end)
        | (if $r.lanes == 1 and .crossSessionInbound == null then .crossSessionInbound = "accept" | .__m += ["inbound"] else . end)
        | (if $r.strict == 0 or .sandbox.autoAllowBashIfSandboxed == false then . else .sandbox.autoAllowBashIfSandboxed = false | .__m += ["autoallow"] end)
        | (if .sandbox.enabled == true and .sandbox.failIfUnavailable == true then . else .sandbox.enabled = true | .sandbox.failIfUnavailable = true | .__m += ["sandbox"] end)
        | (($mk + (.__m // [])) | unique) as $m | del(.__m)
-       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny} | tojson)}
+       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny, net: $r.xnet, user_allow: $r.uallow, user_excl: $r.uexcl} | tojson)}
                 + (if ($m | length) > 0 then {HEFESTO_SETUP_SET: ($m | join(","))} else {} end)) end)
   | (if .env then .env |= . else . end)
   | (if .permissions then .permissions |= keep_own_empty($old.permissions) else . end)
   | (if .sandbox.filesystem then .sandbox.filesystem |= keep_own_empty($old.sandbox.filesystem) else . end)
+  | (if .sandbox.network then .sandbox.network |= keep_own_empty($old.sandbox.network) else . end)
   | (if .sandbox then .sandbox |= keep_own_empty($old.sandbox) else . end)
   | with_entries(select((.key != "permissions" and .key != "sandbox" and .key != "env") or .value != {} or ($old[.key] == {})))' <<<"$CUR")" || die "could not merge into $F (nothing was written)"
 

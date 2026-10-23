@@ -4953,6 +4953,20 @@ cp "$L3F" "$l3_t/sl9.bak"
 for l3_bad in '.sandbox.enabled = false' '.sandbox.filesystem.allowWrite = ["~/.cache"]' '.hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": ($t + "/x.sh")}]}]}'; do
   jq --arg t "$l3_t" "$l3_bad" "$l3_t/sl9.bak" > "$L3F"; l3_o="$(l3u --check 2>&1)" && { bad "--check must refuse: $l3_bad"; l3_fail=1; }
 done
+# code review of PR A: the API is out of the sandbox, pr-watch is excluded, the command lists come from the command line
+cp "$l3_t/sl9.bak" "$L3F"
+jq -e --arg h "$REPO/hooks" '(.sandbox.network.deniedDomains | index(["api.github.com"])) and (.sandbox.excludedCommands | index(["\($h)/pr-watch.sh *"]))' "$L3F" >/dev/null \
+  || { bad "setup must deny the GitHub API to the sandbox and exclude pr-watch.sh: $(jq -c .sandbox "$L3F")"; l3_fail=1; }
+for l3_x in "--unsandboxed-command /bin/sh *" "--unsandboxed-command /usr/bin/python3 *" "--unsandboxed-command ssh vm *" "--allow-command gh pr merge *" "--allow-command /bin/bash *"; do
+  l3u --lanes ${l3_x%% *} "${l3_x#* }" >/dev/null 2>&1 && { bad "setup must refuse $l3_x"; l3_fail=1; }
+done
+cmp -s "$L3F" "$l3_t/sl9.bak" || { bad "a refused command list must write nothing"; l3_fail=1; }
+l3u --lanes --unsandboxed-command "/usr/bin/ssh debian@vm-apps *" --allow-command "gh run view *" >/dev/null 2>&1 && l3u --lanes >/dev/null 2>&1
+jq -e '(.sandbox.excludedCommands | index(["/usr/bin/ssh debian@vm-apps *"])) and (.permissions.allow | index(["Bash(gh run view *)"]))' "$L3F" >/dev/null || { bad "the person's command lists must be written and kept by a later run: $(jq -c '{x: .sandbox.excludedCommands, a: .permissions.allow[-3:]}' "$L3F")"; l3_fail=1; }
+grep -qF 'your commands outside the sandbox: /usr/bin/ssh debian@vm-apps *' <<<"$(l3u --check 2>&1)" || { bad "--check must print the person's lists"; l3_fail=1; }
+l3u --lanes --forget-commands >/dev/null 2>&1; jq -e '.sandbox.excludedCommands | index(["/usr/bin/ssh debian@vm-apps *"]) | not' "$L3F" >/dev/null || { bad "--forget-commands must take the person's lists out"; l3_fail=1; }
+l3_su_mut 's/^  w="${1%% \*}"; w="${w##\*\/}"   # by basename/  w="${1%% *}"   # by basename/'
+l3u --lanes --unsandboxed-command "/bin/sh *" >/dev/null 2>&1 || { bad "mutation survived: the basename check removed, yet /bin/sh was refused"; l3_fail=1; }; l3_su_restore; l3u --lanes --forget-commands >/dev/null 2>&1
 cp "$l3_t/sl9.bak" "$L3F"; jq '.orchestrate.lane_prefix = "other"' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
 l3_o="$(l3u --check 2>&1)" && { bad "--check must refuse a lane map that no longer matches the config"; l3_fail=1; }; grep -qF 'lane names' <<<"$l3_o" || { bad "the drift refusal must say so: $l3_o"; l3_fail=1; }
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
@@ -5099,6 +5113,11 @@ x
 DIR_a1b2c3" deny
 lg_want builder "$REPO/hooks/session-launch.sh implement LT-2 --prepare --lane repo-deployer" deny
 lg_want builder "$REPO/hooks/session-launch.sh implement LT-2 --prepare --lane repo-builder" none
+# code review of PR A: a keyword, a quote or a backslash before gh made it run INSIDE the sandbox, auto-allowed
+for lg_c in 'if :; then gh pr merge 3 --merge; fi' '! gh pr merge 3 --merge' '"gh" pr merge 3 --merge' '\gh pr merge 3 --merge' 'for x in 1; do gh pr merge 3; done' "env -u CLAUDE_CODE_SESSION_ID $LGL approve A"; do
+  lg_want builder "$lg_c" deny
+done
+lg_want builder "git log --oneline -3" none
 # a set-up project without --lanes: the plain-word rule still holds, the person-only rule does not apply
 jq '.lanes = false | .role = "" | .name = ""' "$HOME/.cache/hefesto/sessions/sid-repo-builder-0001.json" > "$HOME/.cache/hefesto/sessions/sid-repo-single-0001.json"
 lg_want single "gh pr list | head -3" deny
@@ -5121,6 +5140,17 @@ lg_o="$(cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-orchestrator-0001 bash "$L
 printf '{"scripts":{"test":"touch %s/RAN"}}\n' "$l3_t" > "$l3_t/package.json"
 lg_o="$(jq -nc --arg d "$l3_t" '{tool_name: "Edit", tool_input: {file_path: ($d + "/a.js")}, cwd: $d}' | bash "$REPO/hooks/run-tests-after-edit.sh" 2>&1 >/dev/null)"
 { [ ! -f "$l3_t/RAN" ] && grep -qF 'stands down in a --lanes project' <<<"$lg_o"; } || { bad "run-tests-after-edit must not run the project's test script in a --lanes project, and say so: $lg_o"; lg_fail=1; }
+# the hooks' git ignores core.fsmonitor: a lane that planted one in .git/config runs nothing outside the sandbox
+lg_fm="$(mktemp -d)"; ( cd "$lg_fm" && git init -q . && printf '#!/bin/sh\ntouch %s/ESCAPED\n' "$lg_fm" > fm.sh && chmod +x fm.sh && git config core.fsmonitor "$lg_fm/fm.sh" && echo x > a && git add a ) >/dev/null 2>&1; rm -f "$lg_fm/ESCAPED"   # git add fired it once
+printf '{"cwd":"%s","source":"compact"}' "$lg_fm" | bash "$REPO/hooks/session-start-context.sh" >/dev/null 2>&1
+[ -f "$lg_fm/ESCAPED" ] && { bad "the session start ran git with the repository's core.fsmonitor — a way out of the sandbox"; lg_fail=1; }
+jq -nc --arg d "$lg_fm" '{tool_input: {command: "git commit -m \"feat: x\""}, cwd: $d}' | bash "$REPO/hooks/quality-before-commit.sh" >/dev/null 2>&1
+[ -f "$lg_fm/ESCAPED" ] && { bad "the commit gate ran git with the repository's core.fsmonitor"; lg_fail=1; }
+l3_mut session-start-context.sh 's/^  \. "$HEF_LL"; hef_git_neutral$/  . "$HEF_LL"/'
+printf '{"cwd":"%s","source":"compact"}' "$lg_fm" | bash "$l3_md/session-start-context.sh" >/dev/null 2>&1
+[ -f "$lg_fm/ESCAPED" ] || { bad "mutation survived: the neutraliser removed, yet the canary did not fire (is the fixture's fsmonitor live?)"; lg_fail=1; }; l3_restore session-start-context.sh; rm -rf -- "${lg_fm:?}"
+l3_mut lane-guard.sh 's/^  re="(^|\[^A-Za-z0-9_.\/-\])/  re="(^|[;\&|])/'; LG_GD="$l3_md/lane-guard.sh"
+[ "$(gd builder 'if :; then gh pr merge 3 --merge; fi')" = deny ] && { bad "mutation survived: the whole-word detection reduced to operators, yet the keyword form was denied"; lg_fail=1; }; l3_restore lane-guard.sh; LG_GD=""
 # mutations, beside the real helpers
 l3_mut lane-lib.sh 's/;&|<>(){}/;\&|(){}/'; LG_GD="$l3_md/lane-guard.sh"
 [ "$(gd orchestrator "gh pr view 1 > x.txt")" = deny ] && { bad "mutation survived: redirections allowed in a plain word, yet the redirect was still denied"; lg_fail=1; }; l3_restore lane-lib.sh
@@ -5135,7 +5165,7 @@ l3_mut run-tests-after-edit.sh 's/lanes_project "$CWD"; then echo/false; then ec
 lg_o="$(jq -nc --arg d "$l3_t" '{tool_name: "Edit", tool_input: {file_path: ($d + "/a.js")}, cwd: $d}' | bash "$l3_md/run-tests-after-edit.sh" 2>&1 >/dev/null)"
 grep -qF 'stands down' <<<"$lg_o" && { bad "mutation survived: the stand-down removed, yet it still stood down"; lg_fail=1; }; l3_restore run-tests-after-edit.sh
 rm -f "$l3_t/package.json" "$l3_t/RAN" "$HOME/.cache/hefesto/sessions/sid-repo-single-0001.json"; rm -rf -- "${lg_h2:?}"
-[ "$lg_fail" -eq 0 ] && ok "lane guard: person-only commands from the orchestrator only; excluded commands (gh, ledger.sh, the launcher) as one plain word list in every lane and in single-lane mode — no redirect, pipe, chain, wrapper, assignment or CLAUDE_CODE_SESSION_ID; the orchestrator heredoc only for answer/revise/direct; --prepare/--finish only as the caller's own lane; no record → silent; file tools denied on hefesto's state directly, through a symlink and by the physical path; ledger.sh's own session check; project-command hooks stand down; 5 mutations caught"
+[ "$lg_fail" -eq 0 ] && ok "lane guard: person-only commands from the orchestrator only; excluded commands (gh, ledger.sh, the launcher) as one plain word list in every lane and in single-lane mode — no redirect, pipe, chain, wrapper, assignment or CLAUDE_CODE_SESSION_ID; the orchestrator heredoc only for answer/revise/direct; --prepare/--finish only as the caller's own lane; no record → silent; file tools denied on hefesto's state directly, through a symlink and by the physical path; ledger.sh's own session check; project-command hooks stand down; gh behind a keyword, quote or backslash denied; the hooks ignore a planted core.fsmonitor; 7 mutations caught"
 
 # FR-016/017/024 the board: --init on a fresh repo, --add with the next id, an incident fix built without a plan
 l3_n="$(mktemp -d)/shop-app"; mkdir -p "$l3_n"; git -C "$l3_n" init -q
@@ -5526,6 +5556,18 @@ la builder note LT-3 --file "$l3_t/n.md" >/dev/null 2>&1 && [ -f "$(sld "$l3_t")
 la orchestrator park --all | grep -qF 'LT-3 is held by repo-builder (interactive)' || { bad "park --all must name the held claims"; la_fail=1; }
 la orchestrator release LT-3 --reviewed-by-human --by Ana </dev/null >/dev/null 2>&1 && l3j LT-3 '.owner == null' || { bad "a person releases an interactive claim"; la_fail=1; }
 la orchestrator lanes | jq -e '.["repo-deployer"] == "deploy"' >/dev/null 2>&1 || { bad "lanes must print the lane map"; la_fail=1; }
+# a wildcard grant: * stands for arguments, never for a shell operator; a literal backslash stays literal
+jq -n '{title: "remove a stg volume", steps: ["remove it"], commands: ["ssh stg docker volume rm *", "printf a\\w"]}' > "$l3_t/sc3.json"
+la orchestrator request OP-1 --to repo-deployer --scope-file "$l3_t/sc3.json" >/dev/null 2>&1; la_w="$(ls "$(sld "$l3_t")"/actions/ | sed -n 's/^\(OP-1-A[0-9]*\)\.json$/\1/p' | tail -1)"
+la_hw="$(jq -r .sha256 "$(sld "$l3_t")/actions/$la_w.json")"; la_appr orchestrator "$la_w" "${la_hw:0:8}" repo-deployer "remove a stg volume" >/dev/null 2>&1; la deployer action take "$la_w" >/dev/null 2>&1
+[ "$(gd deployer 'ssh stg docker volume rm v1')" = allow ] || { bad "a wildcard grant must cover its arguments"; la_fail=1; }
+for la_c in 'ssh stg docker volume rm v1; id' 'ssh stg docker volume rm $(id)' 'ssh stg docker volume rm v1 > /tmp/x' 'printf aXw'; do
+  [ "$(gd deployer "$la_c")" = none ] || { bad "a wildcard or a literal must not cover: $la_c"; la_fail=1; }
+done
+# the hook's own-lane rule for a directive (the ledger.sh check is the second gate)
+[ "$(gd deployer "$LGL directive LT-2 1 --done")" = deny ] && [ "$(gd builder "$LGL directive LT-2 1 --done")" = none ] || { bad "lane-guard: a directive is closed only by the lane it names"; la_fail=1; }
+l3_mut lane-guard.sh 's/^\(    case "$ch" in .\*.) out+=\).\[^;&|`$()<>{}\]\*./\1".*"/'; LG_GD="$l3_md/lane-guard.sh"
+[ "$(gd deployer 'ssh stg docker volume rm v1; id')" = none ] && { bad "mutation survived: the wildcard widened to anything, yet the operator was still refused"; la_fail=1; }; l3_restore lane-guard.sh; LG_GD=""
 # mutations, beside the real helpers
 l3_mut ledger-actions.sh 's/^      \[ "$h" = "$(jq -r .sha256 <<<"$a")" \] \&\& \[ "$h" = "$(jq -r .sha256 <<<"$r")" \] || die/      true || die/'; LA_LG="$l3_md/ledger.sh"
 jq '.scope.commands += ["gh pr merge 9 --merge"]' "$l3_t/a4.bak" | jq '.status = "approved"' > "$(sld "$l3_t")/actions/LT-2-A4.json"; jq '.consumed_at = null' "$la_st/LT-2-A4.json" > "$l3_t/x.json" && cp "$l3_t/x.json" "$la_st/LT-2-A4.json"
@@ -5547,7 +5589,7 @@ grep -qF "⏸ $la_last · action: merge PR #7" <<<"$(la_gauge)" || { bad "the st
 l3_mut context-gauge.sh '/select(.status == "pending")/d'
 grep -qF "⏸ $la_last · action" <<<"$(la_gauge "$l3_md/context-gauge.sh")" && { bad "mutation survived: the pending-action row removed, yet it was shown"; la_fail=1; }; l3_restore context-gauge.sh
 rm -rf -- "${la_gh:?}"; rm -f "$l3_t"/sc.json "$l3_t"/sc2.json "$l3_t"/bad.json "$l3_t"/ev.md "$l3_t"/why.md "$l3_t"/d.md "$l3_t"/n.md "$l3_t"/a4.bak "$l3_t"/x.json
-[ "$la_fail" -eq 0 ] && ok "lane actions: scopes validated (heads, wrappers, hefesto helpers, *); request leaves the entry's block alone; approve checks hash prefix, lane, title, irreversible, the orchestrator, not a worker, and writes the store; take by the named lane only, once, with the hash unchanged; heads fail closed and gate the grant; grants for that lane and pattern only, ended by done; supersede and stop use the approval up; op entries never staged; directives from the orchestrator, closed by their lane, tampered text withheld; notes by the holder; release by a person; a pending action on the status line; 5 mutations caught"
+[ "$la_fail" -eq 0 ] && ok "lane actions: scopes validated (heads, wrappers, hefesto helpers, *); request leaves the entry's block alone; approve checks hash prefix, lane, title, irreversible, the orchestrator, not a worker, and writes the store; take by the named lane only, once, with the hash unchanged; heads fail closed and gate the grant; grants for that lane and pattern only, ended by done; supersede and stop use the approval up; op entries never staged; directives from the orchestrator, closed by their lane, tampered text withheld; notes by the holder; release by a person; a pending action on the status line; wildcards stop at shell operators; directives closed by their lane in the hook too; 6 mutations caught"
 
 rm -rf -- "${l3_t:?}" "${l3_home:?}" "${l3_bin:?}" "${l3_cfg:?}" "${l3_md:?}"; rm -f -- "${L3_SUM:?}"
 

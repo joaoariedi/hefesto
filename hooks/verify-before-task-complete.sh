@@ -12,6 +12,11 @@
 #
 # Escape hatch: CLAUDE_SKIP_VERIFY_GATE=1 disables the gate entirely.
 set -uo pipefail
+HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"   # git here ignores core.fsmonitor/hooksPath (lane-lib.sh)
+if [ -f "$HEF_LL" ]; then
+  # shellcheck source=hooks/lane-lib.sh
+  . "$HEF_LL"; hef_git_neutral
+fi
 
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
