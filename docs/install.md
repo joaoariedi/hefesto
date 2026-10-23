@@ -357,6 +357,14 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    `crossSessionInbound: "accept"`. Lanes open with `claude --name <repo>-<lane>`; the name is the lane.
    In the orchestrator, `/hef.orchestrate` asks every decision as a form and rings the stage lanes;
    `/hef.ship` starts new work. `context.compact_at` sets each lane's compaction nudge.
+   **What a background worker can reach.** Its sandbox writes only its worktree and a cache of its own
+   (`~/.cache/hefesto/worker-cache/<repo>`, which `XDG_CACHE_HOME`, `GOCACHE` and npm's cache point at — never
+   your own `~/.cache/go-build`, which your unsandboxed builds share). Go's module cache (`~/go/pkg/mod`) stays
+   read-only: modules already there work, a task that adds one cannot download it. The network: only
+   `orchestrate.allowed_domains` (public hostnames). A worker cannot push over SSH (the sandbox proxy carries
+   HTTPS only), so for workers that push, add `"github.com"` and `"api.github.com"` and, in the repository,
+   `git config url."https://github.com/".pushInsteadOf git@github.com:` — pushes then go over HTTPS with the
+   `gh` credential helper.
 
 9. **Hand-run items, the board and escalation** (all optional): a person who ran an item by hand runs
    `hooks/ledger.sh handoff <id> --pr <url>` on its branch — one call instead of four. Set

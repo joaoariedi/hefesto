@@ -5159,6 +5159,13 @@ l3_am="$(l3_max all)"
 l3set LT-1 '.source.body_sha256 = "0"'; l3l record LT-1 --body-from-board >/dev/null 2>&1
 l3j LT-1 "(.source.body_sha256 | length) == 64" || { bad "record --body-from-board must re-hash the item from the board"; l3_fail=1; }
 grep -qF '"deny":["SendMessage","ListAgents"]' <<<"$(l3s implement LT-1 --dry-run 2>&1)" || { bad "every worker's settings must deny SendMessage and ListAgents"; l3_fail=1; }
+# issue #126: a cache of the workers' own, writable in their sandbox — never the person's ~/.cache/go-build
+l3_o="$(l3s implement LT-1 --dry-run 2>&1)"; l3_wc="$SMOKE_XDG/hefesto/worker-cache/$(basename "$l3_t")-$(printf '%s' "$l3_t" | cksum | cut -d' ' -f1)"
+{ grep -qF "\"filesystem\":{\"allowWrite\":[\"$l3_wc\"]}" <<<"$l3_o" && grep -qF "XDG_CACHE_HOME=$l3_wc " <<<"$l3_o" && grep -qF "GOCACHE=$l3_wc/go-build " <<<"$l3_o" \
+  && grep -qF "npm_config_cache=$l3_wc/npm " <<<"$l3_o" && ! grep -qF '.cache/go-build' <<<"$l3_o" && ! grep -qF 'hefesto/runs' <<<"$l3_o"; } \
+  || { bad "every worker must get its own writable cache (allowWrite, XDG_CACHE_HOME, GOCACHE, npm), never the person's nor the runs folder: $(head -c 400 <<<"$l3_o")"; l3_fail=1; }
+L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/, filesystem: {allowWrite: \[$w\]}//'
+grep -qF '"allowWrite"' <<<"$(l3s implement LT-1 --dry-run 2>&1)" && { bad "mutation survived: allowWrite removed, yet the settings still grant the cache"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
 
 # FR-022 the launcher in lane mode: the trusted folder, the derived worktree, its git pointer, its branch;
 # and the worker gets the person's own GIT_CONFIG_* back
@@ -5193,7 +5200,7 @@ L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^if \[ "$LANE_MODE
 grep -qF 'the ledger was edited' <<<"$(l3v)" && { bad "mutation survived: the derived-worktree check removed, yet the forged worktree was refused"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
 l3l record LT-5 --worktree "$l3_t/.claude/worktrees/LT-5" >/dev/null 2>&1
 l3_o="$(cd "$l3_t" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.note GIT_CONFIG_VALUE_0=mine bash "$SL" implement LT-1 --dry-run 2>&1)"
-{ grep -qF -- '-u GIT_CONFIG_KEY_1 ' <<<"$l3_o" && grep -qF -- '-u GIT_CONFIG_KEY_2 ' <<<"$l3_o" && grep -qF 'GIT_CONFIG_COUNT=1 HEFESTO_WORKER=1' <<<"$l3_o"; } \
+{ grep -qF -- '-u GIT_CONFIG_KEY_1 ' <<<"$l3_o" && grep -qF -- '-u GIT_CONFIG_KEY_2 ' <<<"$l3_o" && grep -qF 'GIT_CONFIG_COUNT=1 ' <<<"$l3_o" && grep -qF ' HEFESTO_WORKER=1 claude -p' <<<"$l3_o"; } \
   || { bad "the worker must get the person's GIT_CONFIG_* back: ours appended after theirs and removed, their count restored: $(head -c 300 <<<"$l3_o")"; l3_fail=1; }
 L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^CMD=(env "${WORKER_ENV\[@\]}" /CMD=(env /'
 grep -qF -- '-u GIT_CONFIG_KEY_1 ' <<<"$(cd "$l3_t" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" GIT_CONFIG_COUNT=1 bash "$l3_md/session-launch.sh" implement LT-1 --dry-run 2>&1)" \

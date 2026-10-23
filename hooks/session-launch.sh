@@ -225,7 +225,15 @@ while IFS= read -r d; do
   [ "$DOK" = 1 ] || die "session-launch: orchestrate.allowed_domains: '$d' is not a public hostname (expected e.g. registry.npmjs.org or *.npmjs.org, optionally :port 1-65535 — no IP address, no localhost, no scheme, no path)"
 done <<<"$DOMAINS"
 DOMJ="$(printf '%s\n' "$DOMAINS" | sed '/^$/d' | jq -R . | jq -sc .)"
-SETTINGS="$(jq -nc --argjson d "$DOMJ" '{sandbox: ({enabled: true, failIfUnavailable: true} + (if ($d | length) > 0 then {network: {allowedDomains: $d}} else {} end)), crossSessionInbound: "refuse", permissions: {deny: ["SendMessage", "ListAgents"]}}')"
+# issue #126: a worker's sandbox writes only its worktree, so a toolchain's user cache (Go's ~/.cache/go-build,
+# pip, npm, gh) is read-only and a fresh compile fails. Each repository's workers get their own cache, writable
+# in their sandbox and never the person's: ~/.cache/go-build is shared with unsandboxed builds, and an object
+# a sandboxed worker planted there under a known action id would be linked by the person's next `go build`.
+# (Not under hefesto/runs/, where the outcomes the launcher reads back live.)
+WCACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/worker-cache/$(basename "$TOP")-$(printf '%s' "$TOP" | cksum | cut -d' ' -f1)"
+[ "$DRY" = 1 ] || mkdir -p "$WCACHE" || die "session-launch $ROLE $ID: cannot create the workers' cache $WCACHE"
+WORKER_ENV+=("XDG_CACHE_HOME=$WCACHE" "GOCACHE=$WCACHE/go-build" "npm_config_cache=$WCACHE/npm")
+SETTINGS="$(jq -nc --argjson d "$DOMJ" --arg w "$WCACHE" '{sandbox: ({enabled: true, failIfUnavailable: true, filesystem: {allowWrite: [$w]}} + (if ($d | length) > 0 then {network: {allowedDomains: $d}} else {} end)), crossSessionInbound: "refuse", permissions: {deny: ["SendMessage", "ListAgents"]}}')"
 jq -e . <<<"$SETTINGS" >/dev/null 2>&1 || die "session-launch: settings JSON invalid: $SETTINGS"
 
 # FR-014: an item edited after it was registered is reported, not dispatched — the hash taken at init is
