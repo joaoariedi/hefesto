@@ -35,6 +35,25 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [8.0.1] - 2026-10-23
+
+**An item stalled after its builds stopped to ask questions can build again: a person's decision restarts
+its attempt count.**
+
+### Fixed
+
+- **Retry on a stall works.** `attempts` counts an item's build claims, and a third claim stalls the item.
+  Nothing ever reset that count, so an item whose runs stopped to ask a question was stalled even though
+  each question was answered. Retrying (`ledger.sh unblock`) then re-stalled it at the next claim. Now the
+  count goes back to 0 when a person clears a block (unblock, plan approval, `answer`, `revise`). A
+  launched worker never resets it and is refused if it tries to clear a stall.
+
+### Upgrading
+
+Run the wizard. Then retry each item blocked on `stall` from the orchestrator's form, or with
+`ledger.sh unblock <id>`. An item that has already built twice is stalled once more on its next claim;
+retry it once, and from then on the count starts again after every decision of yours.
+
 ## [8.0.0] - 2026-10-23
 
 **Two ways to work, both opened with plain `claude --name`: a single lane whose orchestrator runs every
