@@ -229,6 +229,7 @@ caller_gate() {
   local sid="${CLAUDE_CODE_SESSION_ID:-}" f
   valid_sid "$sid" || return 0; f=$(session_file "$sid"); [ -f "$f" ] || return 0
   [ "$(jq -r '.lanes' "$f" 2>/dev/null)" = true ] || return 0
+  is_launcher_sub "$SUB" && die "ledger $SUB: the launcher's own record — a lane uses session-launch.sh --prepare/--finish, a person ledger.sh release"
   if is_person_sub "$SUB" "$@" && [ "$(jq -r '.role // empty' "$f")" != orchestrator ]; then
     die "ledger $SUB: this records a person's decision, so it runs only in the orchestrator lane (this session is '$(jq -r 'if .name != "" then .name else .title end' "$f")')"
   fi

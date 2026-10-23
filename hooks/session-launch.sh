@@ -54,7 +54,8 @@ CALLER_SID="${CLAUDE_CODE_SESSION_ID:-}"; unset CLAUDE_CODE_SESSION_ID
 [ $# -ge 2 ] || usage
 ROLE="$1"; ID="$2"; shift 2; DRY=0; MODE=run; LANE=""; OUTF=""
 while [ $# -gt 0 ]; do case "$1" in --dry-run) DRY=1 ;; --prepare) MODE=prepare ;; --finish) MODE=finish ;;
-  --lane) LANE="${2:-}"; shift ;; --outcome-file) OUTF="${2:-}"; shift ;; *) usage ;; esac; shift; done
+  --lane) [ -z "$LANE" ] || die "session-launch: --lane given twice — a lane names itself once"; LANE="${2:-}"; shift ;;
+  --outcome-file) OUTF="${2:-}"; shift ;; *) usage ;; esac; shift; done
 case "$ROLE" in plan|implement|verify|deploy) ;; *) echo "session-launch: unknown role '$ROLE' (expected plan, implement, verify or deploy)" >&2; usage ;; esac
 [[ "$ID" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || die "session-launch: invalid id '$ID' (expected [A-Za-z][A-Za-z0-9_-]*) — it becomes a worktree name and a session name"
 command -v jq >/dev/null 2>&1 || die "session-launch: jq not found"
@@ -64,9 +65,15 @@ command -v jq >/dev/null 2>&1 || die "session-launch: jq not found"
 if [ "$MODE" != run ]; then
   [[ "$LANE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die "session-launch $ROLE $ID --$MODE: --lane <this lane's own name> is required (got '$LANE')"
   [ "$DRY" = 0 ] || die "session-launch $ROLE $ID: --dry-run goes with a launch, not with --$MODE"
+  [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "session-launch $ROLE $ID --$MODE: a launched worker is never a lane"
   if [ "$MODE" = finish ]; then [ -n "$OUTF" ] || die "session-launch $ROLE $ID --finish: --outcome-file <f> — write the structured outcome as JSON with the Write tool"
   else [ -z "$OUTF" ] || die "session-launch $ROLE $ID: --outcome-file goes with --finish"; fi
   case "$ROLE" in plan) LROLE=plan ;; implement|verify) LROLE=build ;; deploy) LROLE=deploy ;; esac
+  # B4 (code review of PR B): only a stage the project runs interactive is done in a lane — in worker mode the
+  # separate background sessions (the verifier above all) are the design. The config is lane-writable, so this is
+  # the careless path; the verify transcription below holds regardless.
+  [ "$MODE" != prepare ] || [ "$("$LEDGER" lanes --modes 2>/dev/null | jq -r --arg s "$LROLE" '.[$s] // "worker"')" = interactive ] \
+    || die "session-launch $ROLE $ID --prepare: the $LROLE stage runs in worker mode (orchestrate.lane_mode) — launch it, or set it interactive"
   if [ -n "${HEFESTO_LANE_MAP:-}" ]; then
     got="$(jq -r --arg l "$LANE" '.[$l] // empty' <<<"$HEFESTO_LANE_MAP" 2>/dev/null)"
     [ "$got" = "$LROLE" ] || die "session-launch $ROLE $ID --$MODE: '$LANE' is ${got:+the $got lane}${got:-no lane of this project} — $ROLE is the $LROLE lane's"
@@ -401,6 +408,12 @@ case "$ROLE" in
       "$LEDGER" verdict "$ID" --gate "$ITEM_KIND" --verdict FAIL --by "$NAME" --evidence "required $ITEM_KIND gate not passed: $WHY" >/dev/null || exit 1
       FAIL=1
     fi
+    # the code review is not optional: a verify outcome with no PASS/FAIL review verdict is a FAIL (code review of PR B,
+    # B4 — an empty verdict list used to advance the item to pr)
+    if ! jq -e '[.verdicts[]? | select(.gate == "review" and (.verdict == "PASS" or .verdict == "FAIL"))] | length > 0' <<<"$SO" >/dev/null; then
+      "$LEDGER" verdict "$ID" --gate review --verdict FAIL --by "$NAME" --evidence "no review verdict was reported" >/dev/null || exit 1
+      FAIL=1
+    fi
     if [ "$FAIL" = 1 ]; then "$LEDGER" block "$ID" --kind verdict >/dev/null || exit 1
     else "$LEDGER" advance "$ID" pr >/dev/null && "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
   deploy)
@@ -424,7 +437,7 @@ esac
 # --finish (FR-015): the lane's outcome, transcribed exactly as a run's — never a prompt section again (it would
 # re-pin the RFC). The entry must be claimed by this lane, in interactive mode, for this role.
 if [ "$MODE" = finish ]; then
-  LDF="$("$LEDGER" dir)" || exit 1; PF="$LDF/$ID.prepare.json"
+  LDF="$("$LEDGER" dir)" || exit 1; PF="$LDF/$ID.prepare"
   [ "$(jq -r '.owner.session_name // empty' <<<"$E")" = "$LANE" ] && [ "$(jq -r '.owner.mode // empty' <<<"$E")" = interactive ] \
     && [ "$(jq -r '.owner.role // empty' <<<"$E")" = "$ROLE" ] \
     || die "session-launch $ROLE $ID --finish: the entry is not held by the lane $LANE for $ROLE (owner: $(jq -c '.owner' <<<"$E")) — run --prepare first"
@@ -532,6 +545,7 @@ EOF
             && [ -f "$(sed -n 's/^gitdir: //p' "$WORKTREE/.git" 2>/dev/null | head -1)/config.worktree" ] && WCFG=1   # git may name the admin dir PB-11, not the worktree's basename
           WTN=""; if [ -d "$WORKTREE" ] && { [ -n "$WCFG" ] || { [ "$LANE_MODE" = 1 ] && ! wt_branch "$WORKTREE" >/dev/null; } || ! git -C "$TOP" worktree remove "$WORKTREE" 2>/dev/null; }; then WTN=" (worktree kept: $WORKTREE — it has local changes, or its git pointer was changed)"; fi
           echo "session-launch deploy $ID: PR #$PRN is merged — recorded, phase merged$WTN; nothing to babysit" >&2
+          [ "$MODE" = prepare ] && echo "done: PR #$PRN is merged — recorded, nothing to prepare"
           "$LEDGER" show "$ID"; exit 0
         fi
       fi
@@ -577,7 +591,7 @@ if [ "$MODE" = prepare ]; then
       "$LEDGER" record "$ID" --worktree "$WT" --branch "$BR" >/dev/null || undo "session-launch $ROLE $ID --prepare: cannot record the worktree" ;;
     verify|deploy) WT="$WORKTREE" ;;
   esac
-  LDP="$("$LEDGER" dir)" || exit 1
+  LDP="$("$LEDGER" dir)" || undo "session-launch $ROLE $ID --prepare: cannot read the ledger folder"
   FIN="$HERE/session-launch.sh $ROLE $ID --finish --lane $LANE --outcome-file <the file you wrote>"
   {
     echo "You are the $LANE lane, doing this stage in your own conversation. Work in $WT (switch into it with EnterWorktree, path $WT); call every hefesto helper as one plain command. When you stop, write the structured output below as one JSON object to a file with the Write tool, then run: $FIN"
@@ -587,7 +601,7 @@ if [ "$MODE" = prepare ]; then
     printf '%s\n' "$PROMPT"
   } > "$LDP/$ID.prompt.md" || undo "session-launch $ROLE $ID --prepare: cannot write the prompt"
   jq -n --arg role "$ROLE" --arg lane "$LANE" --argjson schema "$SCHEMA" --arg pr "${PR_MODE:-}" \
-    '{role: $role, lane: $lane, schema: $schema, pr_mode: $pr, at: (now | todate)}' > "$LDP/$ID.prepare.json" || undo "session-launch $ROLE $ID --prepare: cannot write the record"
+    '{role: $role, lane: $lane, schema: $schema, pr_mode: $pr, at: (now | todate)}' > "$LDP/$ID.prepare" || undo "session-launch $ROLE $ID --prepare: cannot write the record"
   echo "worktree: $WT"
   echo "prompt: $LDP/$ID.prompt.md"
   echo "finish: $FIN"

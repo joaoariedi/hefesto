@@ -112,7 +112,7 @@ for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
           "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)" "Bash($h/ledger.sh questions:*)"
           "Bash($h/ledger.sh request:*)" "Bash($h/ledger.sh actions:*)" "Bash($h/ledger.sh action:*)" "Bash($h/ledger.sh op new:*)"
           "Bash($h/ledger.sh direct:*)" "Bash($h/ledger.sh directives:*)" "Bash($h/ledger.sh directive:*)" "Bash($h/ledger.sh note:*)"
-          "Bash($h/ledger.sh park --all)" "Bash($h/ledger.sh lanes)" "Bash($h/ledger.sh dir)"
+          "Bash($h/ledger.sh park --all)" "Bash($h/ledger.sh lanes:*)" "Bash($h/ledger.sh dir)"
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/run-follow.sh:*)")
   for c in unblock record claim advance handoff block revise answer approve release; do
     ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
@@ -149,7 +149,14 @@ x_excl=("gh *"); x_deny=(); x_dirs=(); x_net=("api.github.com")
 # An external board's code repos sit beside it, outside this project: with --lanes the lanes edit and build in their
 # worktrees, so they are added to permissions.additionalDirectories (which also widens the lanes' sandbox to them).
 if [ "$LANES" = 1 ] && [ -n "${BTOP:-}" ]; then
-  while IFS= read -r d; do [ -n "$d" ] && [ -d "$d" ] && x_dirs+=("$(cd "$d" && pwd -P)"); done < <(jq -r '.repos // {} | .[]' <<<"$BCTX")
+  while IFS= read -r d; do
+    [ -n "$d" ] && [ -d "$d" ] || continue; d="$(cd "$d" && pwd -P)"
+    # the repos map is in the board config, a file a lane can edit (code review of PR B, B6): never a grant that
+    # contains hefesto's state, $HOME or / (a temp folder or one inside the project is writable already)
+    case "$(printf '%s/' "$HOME/.cache/hefesto" | tr -s /)" in "$(printf '%s/' "$d" | tr -s /)"*) die "the board's repos map names $d, which contains $HOME/.cache/hefesto — refusing to grant it to the lanes' sandbox (nothing was written)" ;; esac
+    { [ "$d" = / ] || [ "$d" = "$(cd "$HOME" && pwd -P)" ]; } && die "the board's repos map names $d — / and your home are never granted to the lanes (nothing was written)"
+    x_dirs+=("$d")
+  done < <(jq -r '.repos // {} | .[]' <<<"$BCTX")
 fi
 HC="$HOME/.cache/hefesto"; HCP="$(mkdir -p "$HC" 2>/dev/null; cd -P "$HC" 2>/dev/null && pwd -P)"
 for b in "$HC" ${HCP:+"$HCP"}; do for sub in ledger approvals sessions; do r="Edit(/$b/$sub/**)"; case " ${x_deny[*]-} " in *" $r "*) ;; *) x_deny+=("$r") ;; esac; done; done

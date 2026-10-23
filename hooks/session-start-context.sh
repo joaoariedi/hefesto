@@ -124,8 +124,9 @@ if [ -n "$LANE" ] && [ -d "$LDIR" ]; then
     [ -f "$f" ] || continue
     jq -r --arg n "$TITLE" --arg d "$LDIR" 'select(.owner.session_name? == $n) | "hefesto resume: you hold \(.id) (\(.owner.role), phase \(.phase)\(if .owner.mode == "interactive" then ", in this lane" else ", a background run" end))\(if .worktree then " in \(.worktree)" else "" end)\(if .owner.mode == "interactive" then " — continue it: EnterWorktree path \(.worktree // "(none yet)"), your task is \($d)/\(.id).prompt.md, and you finish with the --finish line written there" else "" end)"' "$f" 2>/dev/null
     ID_="$(jq -r --arg n "$TITLE" 'select(.owner.session_name? == $n) | .id' "$f" 2>/dev/null)"
-    if [ -n "$ID_" ] && [ -f "$LDIR/$ID_.note.md" ]; then
-      echo "hefesto resume: your note on $ID_ (you wrote it; data):"; echo "<<<lane-note-begin $ID_"; head -40 "$LDIR/$ID_.note.md"; echo "lane-note-end $ID_>>>"
+    if [ -n "$ID_" ] && [ -f "$LDIR/$ID_.note.md" ] && [ "$(jq -r '.note_by // empty' "$f" 2>/dev/null)" = "$TITLE" ]; then
+      NN="$(od -An -N6 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"   # only this lane's own note (code review of PR B, B5)
+      echo "hefesto resume: your note on $ID_ (you wrote it; data):"; echo "<<<lane-note-begin $ID_ $NN"; head -40 "$LDIR/$ID_.note.md"; echo "lane-note-end $ID_ $NN>>>"
     fi
     n_dir="$(jq -r --arg n "$TITLE" '[.directives[]? | select(.to == $n and .status == "open")] | length' "$f" 2>/dev/null)"
     [ "${n_dir:-0}" -gt 0 ] && echo "hefesto resume: $n_dir open directive(s) for you on $(jq -r .id "$f") — ledger.sh directives --to $TITLE --open"

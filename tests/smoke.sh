@@ -3147,7 +3147,7 @@ cp "$SL" "$ik_md/session-launch.sh"; sed_i 's/(.verdict == "PASS" or .verdict ==
 cmp -s "$SL" "$ik_md/session-launch.sh" && { bad "item-kinds mutation (SKIPPED counts) did not apply"; ik_mfail=1; }
 ikl init HEF-26 --kind tasks-repo --ref t --item-kind incident >/dev/null 2>&1; printf '\n## HEF-26 — m\nb\n' >> "$ik_t/tasks/TODO.md"
 printf '{"session_id":"m1","total_cost_usd":0.1,"structured_output":{"summary":"x","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/26"}}\n' > "$ik_res"; iks implement HEF-26 >/dev/null 2>&1
-printf '{"session_id":"m2","total_cost_usd":0.1,"structured_output":{"summary":"x","verdicts":[{"gate":"incident","verdict":"SKIPPED","evidence":"none"}]}}\n' > "$ik_res"
+printf '{"session_id":"m2","total_cost_usd":0.1,"structured_output":{"summary":"x","verdicts":[{"gate":"review","verdict":"PASS","evidence":"ok"},{"gate":"incident","verdict":"SKIPPED","evidence":"none"}]}}\n' > "$ik_res"
 IK_SL="$ik_md/session-launch.sh" iks verify HEF-26 >/dev/null 2>&1; ikj HEF-26 '.blocked_on.kind == "human:merge"' || { bad "mutation survived: SKIPPED counted as a verdict, still blocked"; ik_mfail=1; }
 cp "$SL" "$ik_md/session-launch.sh"; sed_i 's/if \[ -n "\$KIND_GATE" \] \&\& ! jq -e/if false \&\& ! jq -e/' "$ik_md/session-launch.sh"
 ikl init HEF-27 --kind tasks-repo --ref t --item-kind incident >/dev/null 2>&1; printf '\n## HEF-27 — m\nb\n' >> "$ik_t/tasks/TODO.md"
@@ -3710,6 +3710,13 @@ for d in "$eb_ops" "$eb_ops/sub" "$eb_wt"; do
 done
 [ "$(ebl "$eb_k" board 2>&1)" = "$EB_EXP,\"repo\":null}" ] || { bad "ledger board from the board repo itself: got '$(ebl "$eb_k" board 2>&1)'"; eb_fail=1; }
 [ -d "$eb_k/.git/hefesto" ] && { bad "ledger board must be side-effect free (it created $eb_k/.git/hefesto)"; eb_fail=1; }
+# code review of PR B (B6): setup --lanes grants the board's code repos to the lanes, never $HOME (the repos map is in a
+# file a lane can edit); an ordinary sibling repo is granted
+eb_su() { (cd "$eb_k" && CLAUDE_CONFIG_DIR= bash "$REPO/hooks/hefesto-setup.sh" --lanes --print 2>&1); }
+eb_o="$(eb_su)"; jq -e --arg o "$(cd "$eb_ops" && pwd -P)" '.permissions.additionalDirectories | index([$o])' <<<"$eb_o" >/dev/null 2>&1 || { bad "setup --lanes must grant the board's code repos: $(head -c 300 <<<"$eb_o")"; eb_fail=1; }
+cp "$eb_k/.claude/project-status.json" "$eb_k/ps-eb.bak"; jq --arg h "$HOME" '.repos.home = $h' "$eb_k/ps-eb.bak" > "$eb_k/.claude/project-status.json"
+eb_o="$(eb_su)" && { bad "setup must refuse a repos entry that is \$HOME"; eb_fail=1; }; grep -qE 'never granted|refusing to grant' <<<"$eb_o" || { bad "the refusal must say why: $eb_o"; eb_fail=1; }
+cp "$eb_k/ps-eb.bak" "$eb_k/.claude/project-status.json"; rm -f "$eb_k/ps-eb.bak"
 [ "$eb_fail" -eq 0 ] && ok "ledger board: external from a code repo, a subdirectory, its linked worktree (main-worktree pointer) and the board repo; repos absolute; no side effect (external-board FR-001)"
 
 # FR-002 status-board reads the external board from ops and its linked worktree; the item commands too; the
@@ -5607,7 +5614,11 @@ jq '.orchestrate.lane_mode = {"build": "interactive"}' "$l3_t/ps.bak" > "$l3_t/x
 jq '.orchestrate.lane_mode = "headless"' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"; l3l lanes --modes >/dev/null 2>&1 && { bad "an unknown lane_mode must be refused"; im_fail=1; }
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
 printf '\n## LT-4 — export orders in-lane\nno rfc\n' >> "$l3_t/tasks/TODO.md"; l3l register LT-4 --ref TODO.md#LT-4 >/dev/null 2>&1
-l3_ss repo-planner default >/dev/null; : > "$l3_log"
+l3_ss repo-planner default >/dev/null; l3_ss repo-builder default >/dev/null; : > "$l3_log"
+# code review of PR B: a stage the project runs in worker mode is never prepared in a lane (B4)
+im planner plan LT-4 --prepare --lane repo-planner >/dev/null 2>&1 && { bad "--prepare must be refused while the stage runs in worker mode"; im_fail=1; }
+jq '.orchestrate.lane_mode = "interactive"' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+im planner plan LT-4 --prepare --lane repo-planner --lane repo-planner >/dev/null 2>&1 && { bad "--prepare must refuse a repeated --lane"; im_fail=1; }
 im planner plan LT-4 --prepare >/dev/null 2>&1 && { bad "--prepare without --lane must be refused"; im_fail=1; }
 im planner plan LT-4 --prepare --lane repo-builder >/dev/null 2>&1 && { bad "--prepare as a lane of another role must be refused"; im_fail=1; }
 im builder plan LT-4 --prepare --lane repo-planner >/dev/null 2>&1 && { bad "--prepare from another lane's session must be refused"; im_fail=1; }
@@ -5616,10 +5627,20 @@ im_o="$(im planner plan LT-4 --prepare --lane repo-planner 2>&1)"; im_wt="$l3_t/
   && l3j LT-4 '.owner.session_name == "repo-planner" and .owner.mode == "interactive" and (.owner | has("pid") | not) and .phase == "intake" and .branch == "worktree-LT-4"'; } \
   || { bad "--prepare must claim as the lane (interactive, no pid), make the worktree and write the prompt: $im_o / $(jq -c '{owner,phase,branch}' "$(sld "$l3_t")/LT-4.json")"; im_fail=1; }
 [ -s "$l3_log" ] && { bad "--prepare must start no session (the fake claude was called)"; im_fail=1; }
+# B1: the prepare record is no ledger entry — list, list --today (the daily cap's input) and metrics still answer
+{ l3l list >/dev/null 2>&1 && l3l list --today | jq -e 'type == "array"' >/dev/null 2>&1 && l3l metrics >/dev/null 2>&1; } || { bad "list, list --today and metrics must keep working while an item is prepared: $(l3l list --today 2>&1 | head -2)"; im_fail=1; }
+# B3: run and claim are the launcher's — a lane frees or takes no claim with them (the hook, then ledger.sh itself)
+[ "$(gd builder "$LGL run LT-4 --role plan --exit 0 --usd 0")" = deny ] && [ "$(gd orchestrator "$LGL claim LT-4 --session repo-builder --role plan --mode interactive")" = deny ] \
+  || { bad "lane-guard must deny ledger.sh run and claim from every lane"; im_fail=1; }
+(cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-builder-0001 bash "$LGL" run LT-4 --role plan --exit 0 --usd 0) >/dev/null 2>&1 && { bad "ledger.sh must refuse a lane's run"; im_fail=1; }
+l3j LT-4 '.owner.session_name == "repo-planner"' || { bad "a refused run must leave the planner's claim"; im_fail=1; }
 # resume: the session start tells the lane what it holds, and its own note
 printf 'spec written, plan next\n' > "$l3_t/n4.md"; (cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-planner-0001 bash "$LGL" note LT-4 --file "$l3_t/n4.md") >/dev/null 2>&1
 im_o="$(l3_ss repo-planner default)"; { grep -qF 'hefesto resume: you hold LT-4 (plan, phase intake, in this lane)' <<<"$im_o" && grep -qF 'spec written, plan next' <<<"$im_o"; } \
   || { bad "the session start must tell the lane what it holds and show its note: $im_o"; im_fail=1; }
+# B5: another lane's note is not shown as the reader's own
+l3set LT-4 '.owner.session_name = "repo-builder"'; grep -qF 'spec written, plan next' <<<"$(l3_ss repo-builder default)" && { bad "the resume must not show another lane's note as this lane's"; im_fail=1; }
+l3set LT-4 '.owner.session_name = "repo-planner"'
 # an interactive claim is never reaped, whatever its age
 l3set LT-4 '.owner.started = "2020-01-01T00:00:00Z"'; l3l claim LT-1 --session x --role verify >/dev/null 2>&1; l3l run LT-1 --role verify --exit 0 --usd 0 >/dev/null 2>&1
 l3j LT-4 '.owner.session_name == "repo-planner"' || { bad "an interactive claim must never be reaped by the lease check"; im_fail=1; }
@@ -5634,20 +5655,28 @@ im_o="$(IM_CWD="$im_wt" HEFESTO_TRUSTED_TOP="$l3_t" im planner plan LT-4 --finis
 [ -s "$l3_log" ] && { bad "an interactive stage starts no session: the fake claude was called"; im_fail=1; }
 # mutations, beside the real helpers
 l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", started: "2026-01-01T00:00:00Z"} | .blocked_on = null | .phase = "intake"'
-jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare.json"
+jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare"
 im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o.json" >/dev/null 2>&1 && { bad "--finish must refuse an entry the lane does not hold in interactive mode"; im_fail=1; }
 l3_mut session-launch.sh 's/\&\& \[ "$(jq -r .\.owner\.mode \/\/ empty. <<<"$E")" = interactive \] \\$/\\/'; IM_SL="$l3_md/session-launch.sh"
 im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o.json" >/dev/null 2>&1 || { bad "mutation survived: the interactive-mode check removed, yet the worker's claim was still refused"; im_fail=1; }; l3_restore session-launch.sh; IM_SL=""
 l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", mode: "interactive", started: "2026-01-01T00:00:00Z"} | .blocked_on = null | .phase = "intake"'
-jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare.json"
+jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare"
 l3_mut session-launch.sh 's/^  BAD="$(schema_errors "$SCHEMA" "$SO")"; \[ -z "$BAD" \] || die/  BAD=""; [ -z "$BAD" ] || die/'; IM_SL="$l3_md/session-launch.sh"
 im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o-bad.json" >/dev/null 2>&1; l3j LT-4 '.owner == null' || { bad "mutation survived: the schema check removed, yet the bad outcome was refused"; im_fail=1; }; l3_restore session-launch.sh; IM_SL=""
 l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", mode: "interactive", started: "2020-01-01T00:00:00Z"}'
 l3_mut ledger-lanes.sh 's/\[ "$(jq -r .\.owner != null and \.owner\.mode != "interactive". "$f" 2>\/dev\/null)" = true \]/[ "$(jq -r ".owner != null" "$f" 2>\/dev\/null)" = true ]/'
 (cd "$l3_t" && bash "$l3_md/ledger.sh" claim LT-1 --session x --role verify) >/dev/null 2>&1; (cd "$l3_t" && bash "$LGL" run LT-1 --role verify --exit 0 --usd 0) >/dev/null 2>&1
 l3j LT-4 '.owner == null' || { bad "mutation survived: the reaper's interactive exemption removed, yet the old interactive claim survived"; im_fail=1; }; l3_restore ledger-lanes.sh
-rm -f "$l3_t/o.json" "$l3_t/o-bad.json" "$l3_t/n4.md" "$l3_t/x.json"; cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
-[ "$im_fail" -eq 0 ] && ok "interactive lane mode: lane_mode per stage (validated); --prepare as the stage's own lane only (map and session record), claims interactive with no pid, makes the worktree and the prompt, starts no session; the session start resumes the lane with what it holds and its note; an interactive claim is never reaped; --finish from the worktree checks the outcome against the role's schema and transcribes like a run (a \$0 in-lane run), refusing an entry the lane does not hold; 3 mutations caught"
+# B4: a verify that reports no review verdict fails — an in-lane verify (and a run's) cannot skip the reviewer
+im_vf() { l3set LT-4 '.phase = "verify" | .blocked_on = null | .owner = {session_name: "repo-builder", role: "verify", mode: "interactive", started: "2026-01-01T00:00:00Z"}'
+  jq -n '{role: "verify", lane: "repo-builder", schema: {"type":"object","required":["summary","verdicts"]}, pr_mode: ""}' > "$(sld "$l3_t")/LT-4.prepare"
+  printf '{"summary":"looked fine","verdicts":[]}\n' > "$l3_t/ov.json"; im builder verify LT-4 --finish --lane repo-builder --outcome-file "$l3_t/ov.json" >/dev/null 2>&1; }
+im_vf; l3j LT-4 '.phase == "verify" and .blocked_on.kind == "verdict" and any(.verdicts[]; .gate == "review" and .verdict == "FAIL" and .by == "repo-builder:code-reviewer")' \
+  || { bad "a verify with no review verdict must record a review FAIL by <lane>:code-reviewer and block: $(jq -c '{phase,blocked_on,verdicts}' "$(sld "$l3_t")/LT-4.json")"; im_fail=1; }
+l3_mut session-launch.sh 's/^    if ! jq -e .\[.verdicts\[\]? | select(.gate == "review"/    if false \&\& jq -e '"'"'[.verdicts[]? | select(.gate == "review"/'; IM_SL="$l3_md/session-launch.sh"
+l3set LT-4 '.verdicts = []'; im_vf; l3j LT-4 '.phase == "pr"' || { bad "mutation survived: the review requirement removed, yet the empty verify did not reach pr"; im_fail=1; }; l3_restore session-launch.sh; IM_SL=""
+rm -f "$l3_t/o.json" "$l3_t/o-bad.json" "$l3_t/n4.md" "$l3_t/x.json" "$l3_t/ov.json"; cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
+[ "$im_fail" -eq 0 ] && ok "interactive lane mode: lane_mode per stage (validated); --prepare as the stage's own lane only (map and session record), claims interactive with no pid, makes the worktree and the prompt, starts no session; the session start resumes the lane with what it holds and its own note only; an interactive claim is never reaped; --finish from the worktree checks the outcome against the role's schema and transcribes like a run (a \$0 in-lane run), refusing an entry the lane does not hold; worker-mode stages, repeated --lane, a lane's run/claim refused; list and the cap unaffected by a prepare; a verify with no review verdict fails; 4 mutations caught"
 
 rm -rf -- "${l3_t:?}" "${l3_home:?}" "${l3_bin:?}" "${l3_cfg:?}" "${l3_md:?}"; rm -f -- "${L3_SUM:?}"
 
