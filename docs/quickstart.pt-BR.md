@@ -56,7 +56,10 @@ Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois.
    claude --name meurepo-deployer
    ```
 3. **Inicie cada sessão de etapa uma vez:** `/hef.orchestrate --stage plan` na planner, `--stage build` na
-   builder, `--stage deploy` na deployer. Daí em diante elas esperam a campainha da orchestrator.
+   builder, `--stage deploy` na deployer. Daí em diante elas esperam a campainha da orchestrator, e cada uma
+   narra a sua execução enquanto ela acontece (`· /hef.spec`, `· write …/plan.md`, `· run: go test ./...`,
+   `■ done`). As três etapas andam juntas; para mais builders, `"max_builders": 2` em `orchestrate` e abra
+   também a `meurepo-builder2`.
 4. **Na orchestrator:** `/hef.orchestrate` — ele confere a preparação e encontra as três sessões.
 5. **Mande as RFCs:** `/hef.ship ABC-12` para um item com a sua RFC no quadro (`rfc: docs/rfcs/ABC-12.md`
    abaixo do título), ou `/hef.ship "<ideia>"`. A orchestrator chama a planner; quando um plano fica pronto

@@ -106,7 +106,7 @@ for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
           "Bash($h/status-board.sh --add:*)" "Bash($h/status-board.sh --init)" "Bash($h/status-board.sh --detect)" "Bash($h/status-board.sh --item-raw:*)" "Bash($h/hefesto-setup.sh --check)"
           "Bash($h/ledger.sh board:*)" "Bash($h/ledger.sh list:*)" "Bash($h/ledger.sh next:*)" "Bash($h/ledger.sh show:*)" "Bash($h/ledger.sh metrics:*)"
           "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)" "Bash($h/ledger.sh questions:*)"
-          "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)")
+          "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/run-follow.sh:*)")
   for c in unblock record claim advance handoff block revise answer; do
     ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
   done
@@ -153,7 +153,7 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   # ours: under a known root, and naming one of the hefesto helpers — the other rules of a person under the
   # same folder are left alone
   def ours: (sub("^Bash\\((bash )?"; "")) as $s | any($r.prefixes[]; . as $p | ($s | startswith($p + "/"))
-    and ($s[($p | length):] | test("^/([^/ ]+/)*/?hooks/(status-board|ledger|session-launch|speckit-helper|hefesto-setup)\\.sh( |:|\\)|$)")));
+    and ($s[($p | length):] | test("^/([^/ ]+/)*/?hooks/(status-board|ledger|session-launch|speckit-helper|hefesto-setup|run-follow)\\.sh( |:|\\)|$)")));
   def addu($xs): (. // []) as $a | $a + [$xs[] | select(. as $x | $a | index([$x]) | not)];
   def strip: (. // []) | map(select((type == "string" and ours) | not));
   def gaugeours: (.statusLine.command? // "") as $c | ($c | type == "string") and ($c | test("/hooks/context-gauge[.]sh( --with-user)?$"))
@@ -208,4 +208,4 @@ fi
 if [ "$KEEP" = 0 ] && [ "$(jq -c '.statusLine' <<<"$NEW")" != "$(jq -c '.gauge' <<<"$RULES")" ]; then
   echo "your own status line is kept; to show the context gauge in it, print: \"\$(printf '%s' \"\$INPUT\" | ${roots[0]}/hooks/context-gauge.sh)\""
 fi
-echo "next: open each lane with  claude --name $(basename "$TOP")-<orchestrator|plan|build|deploy>  (any wrapper that forwards claude's arguments works)"
+echo "next: open each lane with  claude --name $(basename "$TOP")-<orchestrator|planner|builder|deployer>  (more builders: -builder2 … with orchestrate.max_builders; any wrapper that forwards claude's arguments works)"

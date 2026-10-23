@@ -46,8 +46,8 @@ overwrites) and `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --detailed`.
 
 4. **Drive it.** Run `/hef.orchestrate` (the orchestrator pass). It asks every decision as a form, runs the
    stages here or rings the open stage lanes, and repeats until the item waits on something outside this
-   session — CI, a merge on GitHub, or a person's later answer. When it stops, say in one line what the
-   item waits on and that `/hef.orchestrate` picks it up again.
+   session — CI, a merge on GitHub, or a person's later answer. It ends as every orchestrator pass does: the
+   status, then **Your move:** / **Optional while it runs:** / **Nothing to do — wait.** as its last line.
 
 ## Never
 

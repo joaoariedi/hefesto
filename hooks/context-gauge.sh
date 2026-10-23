@@ -72,7 +72,7 @@ tok="$(jq -r '.context_window | ((.total_input_tokens // empty) | if type == "nu
     "\($u | h)/\($w | h)"' <<<"$in" 2>/dev/null)"
 [[ "$tok" =~ ^[0-9.]+[kM]/[0-9.]+[kM]$ ]] && tok=" · $tok" || tok=""
 name="$(jq -r '.session_name // empty' <<<"$in" 2>/dev/null)"
-case "${name##*-}" in orchestrator) nl=orchestrator ;; plan|planner) nl=plan ;; build|builder) nl=build ;; deploy|deployer) nl=deploy ;; *) nl=general ;; esac
+case "${name##*-}" in orchestrator) nl=orchestrator ;; plan|planner) nl=plan ;; build|builder|builder[2-8]) nl=build ;; deploy|deployer) nl=deploy ;; *) nl=general ;; esac
 lane="${HEFESTO_LANE:-$nl}"
 dir="$(jq -r '.workspace.current_dir // .cwd // empty' <<<"$in" 2>/dev/null)"
 pdir="$(jq -r '.workspace.project_dir // .workspace.current_dir // .cwd // empty' <<<"$in" 2>/dev/null)"

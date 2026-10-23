@@ -373,6 +373,7 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; --pid) CPID="${2:-}"; shift ;; *) usage ;; esac; shift; done
     [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
+    in_list "$ROLE" "plan implement verify deploy" || die "ledger claim $ID: --role must be plan, implement, verify or deploy (got '$ROLE') — each stage has its own limit"
     # A claim whose launcher stopped renewing its lease is released here, under the lock (ledger-lanes.sh) —
     # never by list or next, which stay read-only (code review 2026-10-22).
     claim_lock
@@ -383,10 +384,19 @@ case "$SUB" in
     # One worker per repository (report 17 §1f), enforced here under the lock taken above: two lanes whose passes
     # started in the same second both passed /hef.orchestrate's own check and both launched. Another owned
     # entry in this repo → busy.
-    BUSY=$(jq -rs --arg id "$ID" --arg r "$(jq -r '.repo // ""' <<<"$E")" 'map(select(.id != $id and .owner != null and (.repo // "") == $r)) | .[0] | if . then "\(.id) (owned by \(.owner.session_name))" else empty end' "$DIR"/*.json)
+    # lanes-in-lane FR-001: a limit per stage, not per repository — one planner, `max_builders` builders
+    # (default 1), one deployer at a time, so the four lanes overlap; builders are the ones that change code.
+    LIM=1
+    if [ "$ROLE" = implement ]; then
+      LIM="$(cfgp '.orchestrate.max_builders // 1')"; LIM="${LIM:-1}"
+      [[ "$LIM" =~ ^[1-8]$ ]] || die "ledger claim $ID: orchestrate.max_builders must be a whole number from 1 to 8 (got '$LIM')"
+    fi
+    BUSY=$(jq -rs --arg id "$ID" --arg r "$(jq -r '.repo // ""' <<<"$E")" --arg role "$ROLE" --argjson lim "$LIM" \
+      '[.[] | select(.id != $id and .owner != null and (.repo // "") == $r and (.owner.role // "") == $role)]
+       | if length >= $lim then (map("\(.id) (owned by \(.owner.session_name))") | join(", ")) else empty end' "$DIR"/*.json)
     # verify is exempt: read-only, and the second half of the SAME build pass — refusing it would strand the
     # item in phase verify, which no stage picks up again (quickstart re-review 2026-10-19).
-    [ -z "$BUSY" ] || [ "$ROLE" = verify ] || die "ledger claim $ID: the repository is busy with $BUSY — one worker per repository; wait for it to finish"
+    [ -z "$BUSY" ] || [ "$ROLE" = verify ] || die "ledger claim $ID: the repository is busy with $BUSY — at most $LIM $ROLE session(s) at a time per repository; wait for it to finish"
     # An intake-blocked entry is never worked on: claim → run → claim would reach the stall below and
     # overwrite the block (security re-review 2026-10-06). human:merge stays claimable — the deploy stage
     # babysits exactly that wait.

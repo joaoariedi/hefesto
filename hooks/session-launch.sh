@@ -396,7 +396,7 @@ esac
 # --- the command line (FR-009) -------------------------------------------------------------------
 case "$ROLE" in implement) NAME="impl-$ID" ;; verify) NAME="verify-$ID" ;; plan) NAME="plan-$ID" ;; deploy) NAME="deploy-$ID" ;; esac
 CMD=(env "${WORKER_ENV[@]}" HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS" --max-budget-usd "$USD_CAP"
-     --output-format json --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)
+     --output-format stream-json --verbose --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)
 WT="$TOP/.claude/worktrees/$ID"
 case "$ROLE" in
   implement|plan)
@@ -433,13 +433,25 @@ case "$ROLE:$PHASE" in
   implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || exit 1 ;;
   plan:queued)                      "$LEDGER" advance "$ID" intake >/dev/null || exit 1 ;;
 esac
-OUT="$(mktemp "${TMPDIR:-/tmp}/hefesto-launch.XXXXXX")"
+# The run's files live where no sandboxed session can write (~/.cache, not the temp folder): the launcher reads
+# the outcome back from them, and a lane must not be able to swap it (lanes-in-lane review 2026-10-23). The
+# event stream (stream-json) is what run-follow.sh narrates in the stage lane while the run goes on.
+RUNDIR="${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/runs/$(printf '%s' "$("$LEDGER" dir)" | cksum | cut -d' ' -f1)"
+mkdir -p "$RUNDIR" && chmod 700 "$RUNDIR" 2>/dev/null || die "session-launch $ROLE $ID: cannot create $RUNDIR for the run's output"
+# One stream per run (code review 2026-10-23: one file per item let a follow narrate the previous run), named by
+# role and time; <id>.current names it and the claim it belongs to, so run-follow follows this run only.
+RUNTAG="$ROLE.$(date -u +%Y%m%dT%H%M%SZ).$$"
+EVENTS="$RUNDIR/$ID.$RUNTAG.events.jsonl"; OUT="$RUNDIR/$ID.$RUNTAG.result.json"; : > "$EVENTS"
+jq -nc --arg f "$(basename "$EVENTS")" --arg s "$(jq -r '.owner.started // empty' "$("$LEDGER" dir)/$ID.json" 2>/dev/null)" --arg r "$ROLE" \
+  '{file: $f, started: $s, role: $r}' > "$RUNDIR/$ID.current" || die "session-launch $ROLE $ID: cannot write $RUNDIR/$ID.current"
+# keep the last five runs of this item
+ls -1t "$RUNDIR/$ID".*.events.jsonl 2>/dev/null | sed -n '6,$p' | while IFS= read -r old; do rm -f "$old" "${old%.events.jsonl}.result.json" "${old%.events.jsonl}.result.json.err"; done
 # The worker runs as our child; if this launcher is stopped (a closed session, a kill), it stops the worker
 # and records the run first — a released claim must never leave an orphaned worker behind (review 2026-10-22).
 # The lease: renewed every 20 s while this launcher lives, so a later claim can tell a cut-off run from a
 # running one without seeing this process (ledger-lanes.sh, lease_stale).
 LEASE="$("$LEDGER" dir)/$ID.lease"; touch "$LEASE" 2>/dev/null || true
-"${CMD[@]}" > "$OUT" 2>"$OUT.err" &
+"${CMD[@]}" > "$EVENTS" 2>"$OUT.err" &
 CHILD=$!
 # renewed while the launcher OR its worker lives: a SIGKILL of the launcher cannot be trapped, and its worker
 # must keep its claim while it runs (review 2026-10-22). touch, not ": >", moves the mtime on every filesystem.
@@ -448,7 +460,14 @@ HB=$!
 trap 'kill "$CHILD" "$HB" 2>/dev/null; wait "$CHILD" 2>/dev/null; "$LEDGER" run "$ID" --role "$ROLE" --exit 143 --usd 0 --pid "$$" >/dev/null 2>&1; exit 143' TERM INT HUP
 wait "$CHILD"; RC=$?
 trap - TERM INT HUP; kill "$HB" 2>/dev/null
-USD="$(jq -r '.total_cost_usd // 0' "$OUT" 2>/dev/null || echo 0)"; SID="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || echo "")"
+# the outcome: the stream's last `result` event — or, from a session that printed one JSON object (the json
+# output format), that object
+# — or, from a session that printed one JSON object (the json output format), that object. A stream that
+# ended with no result (a crash) leaves OUT empty: the run is still recorded (usd 0) and the claim released.
+jq -c 'select(type == "object" and .type? == "result")' "$EVENTS" 2>/dev/null | tail -1 > "$OUT"
+[ -s "$OUT" ] || { [ "$(jq -s 'length' "$EVENTS" 2>/dev/null)" = 1 ] && cp "$EVENTS" "$OUT"; } || : > "$OUT"
+USD="$(jq -r '.total_cost_usd // 0' "$OUT" 2>/dev/null | head -1)"; SID="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null | head -1)"
+[[ "$USD" =~ ^[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?$ ]] || USD=0
 "$LEDGER" run "$ID" --role "$ROLE" --exit "$RC" --usd "${USD:-0}" --session-id "$SID" --pid "$$" >/dev/null || exit 1
 # FR-011: a session that hit --max-budget-usd is a `budget` block for a person to split or raise the
 # cap, not a retry (three retries would spend 3× the cap on one item — review 2026-09-27).
