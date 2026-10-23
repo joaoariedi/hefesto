@@ -87,7 +87,20 @@ release_item() { # globals: ID E REVIEWED RBY
   echo "$ID released by $RBY"
 }
 
+# orchestrate.lane_mode (FR-013): "worker" (the default — background sessions) or "interactive" (the stage lane does
+# the work in its own conversation), for every stage or per stage {plan, build, deploy}.
+lane_modes() {
+  local c; c=$(jq -r '.config // empty' <<<"$BCTX"); [ -n "$c" ] && [ -f "$c" ] || c=/dev/null
+  jq -ce '(.orchestrate.lane_mode // "worker") as $m
+    | def ok: . == "worker" or . == "interactive";
+    if ($m | type) == "string" then (if ($m | ok) then {plan: $m, build: $m, deploy: $m} else error("orchestrate.lane_mode must be \"worker\" or \"interactive\" (got \($m))") end)
+    elif ($m | type) == "object" then {plan: ($m.plan // "worker"), build: ($m.build // "worker"), deploy: ($m.deploy // "worker")}
+      | if (to_entries | all(.value | ok)) then . else error("orchestrate.lane_mode.<stage> must be \"worker\" or \"interactive\"") end
+    else error("orchestrate.lane_mode must be a string or {plan, build, deploy}") end' "$c" 2>&1 \
+    || die "ledger lanes: $(jq -nr 'empty' 2>/dev/null)the lane_mode in $c is not valid — \"worker\", \"interactive\" or {plan, build, deploy} of those"
+}
 lanes_print() {
+  if [ "${1:-}" = --modes ]; then lane_modes; return; fi
   if [ -n "${HEFESTO_LANE_MAP:-}" ]; then jq -e . <<<"$HEFESTO_LANE_MAP" || die "ledger lanes: HEFESTO_LANE_MAP in the settings is not JSON — run hefesto-setup.sh --lanes again"; return; fi
   local c; c=$(jq -r '.config // empty' <<<"$BCTX"); [ -n "$c" ] || c="$PWD/.claude/project-status.json"
   resolve_lane_map "$c" "$(jq -r .board_top <<<"$BCTX")" | jq . || die "ledger lanes: the lane names in $c are not valid"

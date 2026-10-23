@@ -135,7 +135,12 @@ envj="$(jq -nc --arg t "$TOP" --arg b "${BTOP:-}" --argjson lanes "$LANES" --arg
 # hefesto's own state, by every spelling of the path.
 x_allow=("Bash(gh pr view:*)" "Bash(gh pr list:*)" "Bash(gh pr checks:*)" "Bash(gh pr diff:*)" "Bash(gh pr create:*)"
          "Bash(gh run list:*)" "Bash(gh run view:*)" "Bash(gh repo view:*)" "Bash(gh auth status)")
-x_excl=("gh *"); x_deny=()
+x_excl=("gh *"); x_deny=(); x_dirs=()
+# An external board's code repos sit beside it, outside this project: with --lanes the lanes edit and build in their
+# worktrees, so they are added to permissions.additionalDirectories (which also widens the lanes' sandbox to them).
+if [ "$LANES" = 1 ] && [ -n "${BTOP:-}" ]; then
+  while IFS= read -r d; do [ -n "$d" ] && [ -d "$d" ] && x_dirs+=("$(cd "$d" && pwd -P)"); done < <(jq -r '.repos // {} | .[]' <<<"$BCTX")
+fi
 HC="$HOME/.cache/hefesto"; HCP="$(mkdir -p "$HC" 2>/dev/null; cd -P "$HC" 2>/dev/null && pwd -P)"
 for b in "$HC" ${HCP:+"$HCP"}; do for sub in ledger approvals sessions; do r="Edit(/$b/$sub/**)"; case " ${x_deny[*]-} " in *" $r "*) ;; *) x_deny+=("$r") ;; esac; done; done
 cmd_ok() { # $1 a configured command pattern → 0 when safe to write as a rule (review round 1 #6)
@@ -165,9 +170,9 @@ jarr() { if [ $# -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq
 RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@]}")" --argjson x "$(jarr "${excl[@]}")" \
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
   --arg g "${roots[0]}/hooks/context-gauge.sh --with-user" --argjson lanes "$LANES" --argjson keep "$KEEP" --argjson strict "$STRICT" \
-  --argjson xa "$(jarr "${x_allow[@]}")" --argjson xe "$(jarr "${x_excl[@]}")" --argjson xd "$(jarr "${x_deny[@]}")" \
+  --argjson xa "$(jarr "${x_allow[@]}")" --argjson xe "$(jarr "${x_excl[@]}")" --argjson xd "$(jarr "${x_deny[@]}")" --argjson xr "$(jarr ${x_dirs[@]+"${x_dirs[@]}"})" \
   '{allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep,
-    strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd}')" || die "could not build the rules"
+    strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd, xdirs: $xr}')" || die "could not build the rules"
 
 if [ "$MODE" = check ]; then
   me="${CLAUDE_PLUGIN_ROOT:-$CLONE}"; me="${me%/}"
@@ -230,7 +235,8 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   | (($old.env.HEFESTO_SETUP_EXTRA? // "{}") | (try fromjson catch {}) | if type == "object" then . else {} end) as $px
   | def minus($xs): (. // []) - ($xs // []);
     (if .permissions then .permissions.allow |= (strip | minus($px.allow)) | .permissions.ask |= strip
-       | (if .permissions.deny then .permissions.deny |= minus($px.deny) else . end) else . end)
+       | (if .permissions.deny then .permissions.deny |= minus($px.deny) else . end)
+       | (if .permissions.additionalDirectories then .permissions.additionalDirectories |= minus($px.dirs) else . end) else . end)
   | (if .sandbox.excludedCommands then .sandbox.excludedCommands |= minus($px.excl) else . end)
   | (if .sandbox then .sandbox.excludedCommands |= (strip | map(select(. as $x | $r.bad | index([$x]) | not)))
        | (if .sandbox.filesystem then .sandbox.filesystem.allowWrite |= ((. // []) - $r.write) else . end) else . end)
@@ -250,12 +256,13 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
      else .permissions.allow |= addu($r.allow) | .permissions.ask |= addu($r.ask)
        | .sandbox.excludedCommands |= addu($r.exclude)
        | .permissions.allow |= addu($r.xallow) | .sandbox.excludedCommands |= addu($r.xexcl) | .permissions.deny |= addu($r.xdeny)
+       | (if ($r.xdirs | length) > 0 then .permissions.additionalDirectories |= addu($r.xdirs) else . end)
        | (if $r.keep == 0 and .statusLine == null then .statusLine = $r.gauge else . end)
        | (if $r.lanes == 1 and .crossSessionInbound == null then .crossSessionInbound = "accept" | .__m += ["inbound"] else . end)
        | (if $r.strict == 0 or .sandbox.autoAllowBashIfSandboxed == false then . else .sandbox.autoAllowBashIfSandboxed = false | .__m += ["autoallow"] end)
        | (if .sandbox.enabled == true and .sandbox.failIfUnavailable == true then . else .sandbox.enabled = true | .sandbox.failIfUnavailable = true | .__m += ["sandbox"] end)
        | (($mk + (.__m // [])) | unique) as $m | del(.__m)
-       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny} | tojson)}
+       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny, dirs: $r.xdirs} | tojson)}
                 + (if ($m | length) > 0 then {HEFESTO_SETUP_SET: ($m | join(","))} else {} end)) end)
   | (if .env then .env |= . else . end)
   | (if .permissions then .permissions |= keep_own_empty($old.permissions) else . end)

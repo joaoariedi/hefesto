@@ -5408,7 +5408,7 @@ l3v | grep -qF -- '--name verify-LT-5' || { bad "lane mode: a verify dry run ove
 grep -qF 'not the main checkout hefesto-setup.sh trusted' <<<"$(L3_TT=/elsewhere l3v)" || { bad "lane mode: a launch outside the trusted folder must be refused"; l3_fail=1; }
 l3_o="$(cd "$l3_t/.claude/worktrees/LT-5" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" HEFESTO_TRUSTED_TOP="$l3_t" bash "$SL" implement LT-1 --dry-run 2>&1)"
 grep -qF 'is not the main checkout hefesto-setup.sh trusted' <<<"$l3_o" || { bad "lane mode: a launch from an item worktree (its config is a worker's) must be refused: $(head -c 200 <<<"$l3_o")"; l3_fail=1; }
-L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/ \&\& same_dir "$(git rev-parse --show-toplevel 2>\/dev\/null)" "$HEFESTO_TRUSTED_TOP"//'
+L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/\&\& { same_dir "$(git rev-parse --show-toplevel 2>\/dev\/null)" "$HEFESTO_TRUSTED_TOP" \\$/\&\& { true \\/'
 grep -qF 'is not the main checkout' <<<"$(cd "$l3_t/.claude/worktrees/LT-5" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" HEFESTO_TRUSTED_TOP="$l3_t" bash "$l3_md/session-launch.sh" implement LT-1 --dry-run 2>&1)" \
   && { bad "mutation survived: the main-checkout check removed, yet the worktree launch was refused"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
 L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^  same_dir "$HERE_CD" .* \\$/  true \\/'
@@ -5548,6 +5548,61 @@ l3_mut context-gauge.sh '/select(.status == "pending")/d'
 grep -qF "⏸ $la_last · action" <<<"$(la_gauge "$l3_md/context-gauge.sh")" && { bad "mutation survived: the pending-action row removed, yet it was shown"; la_fail=1; }; l3_restore context-gauge.sh
 rm -rf -- "${la_gh:?}"; rm -f "$l3_t"/sc.json "$l3_t"/sc2.json "$l3_t"/bad.json "$l3_t"/ev.md "$l3_t"/why.md "$l3_t"/d.md "$l3_t"/n.md "$l3_t"/a4.bak "$l3_t"/x.json
 [ "$la_fail" -eq 0 ] && ok "lane actions: scopes validated (heads, wrappers, hefesto helpers, *); request leaves the entry's block alone; approve checks hash prefix, lane, title, irreversible, the orchestrator, not a worker, and writes the store; take by the named lane only, once, with the hash unchanged; heads fail closed and gate the grant; grants for that lane and pattern only, ended by done; supersede and stop use the approval up; op entries never staged; directives from the orchestrator, closed by their lane, tampered text withheld; notes by the holder; release by a person; a pending action on the status line; 5 mutations caught"
+
+head_ "Interactive lane mode"
+# lanes-interactive FR-013..019, FR-025 (#134, #140): a stage lane does the stage in its own conversation — prepare
+# (every launch check, the claim as that lane, the worktree, the prompt), finish (the same transcription a run gets)
+# — no session started, no USD; the claim has no lease and is never reaped; the lane resumes from what it holds.
+im_fail=0; IMMAP="$(jq -r '.env.HEFESTO_LANE_MAP' "$L3F")"
+im() { local who="$1"; shift; (cd "${IM_CWD:-$l3_t}" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" HEFESTO_LANE_MAP="$IMMAP" CLAUDE_CODE_SESSION_ID="sid-repo-$who-0001" bash "${IM_SL:-$SL}" "$@"); }
+jq '.orchestrate.lane_mode = "interactive"' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+[ "$(l3l lanes --modes | jq -c .)" = '{"plan":"interactive","build":"interactive","deploy":"interactive"}' ] || { bad "lanes --modes must print each stage's mode: $(l3l lanes --modes 2>&1)"; im_fail=1; }
+jq '.orchestrate.lane_mode = {"build": "interactive"}' "$l3_t/ps.bak" > "$l3_t/x.json" && cp "$l3_t/x.json" "$l3_t/.claude/project-status.json"
+[ "$(l3l lanes --modes | jq -r .plan)" = worker ] || { bad "a stage the lane_mode object leaves out is worker"; im_fail=1; }
+jq '.orchestrate.lane_mode = "headless"' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"; l3l lanes --modes >/dev/null 2>&1 && { bad "an unknown lane_mode must be refused"; im_fail=1; }
+cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
+printf '\n## LT-4 — export orders in-lane\nno rfc\n' >> "$l3_t/tasks/TODO.md"; l3l register LT-4 --ref TODO.md#LT-4 >/dev/null 2>&1
+l3_ss repo-planner default >/dev/null; : > "$l3_log"
+im planner plan LT-4 --prepare >/dev/null 2>&1 && { bad "--prepare without --lane must be refused"; im_fail=1; }
+im planner plan LT-4 --prepare --lane repo-builder >/dev/null 2>&1 && { bad "--prepare as a lane of another role must be refused"; im_fail=1; }
+im builder plan LT-4 --prepare --lane repo-planner >/dev/null 2>&1 && { bad "--prepare from another lane's session must be refused"; im_fail=1; }
+im_o="$(im planner plan LT-4 --prepare --lane repo-planner 2>&1)"; im_wt="$l3_t/.claude/worktrees/LT-4"
+{ grep -qx "worktree: $im_wt" <<<"$im_o" && [ -d "$im_wt" ] && grep -qF 'You are the repo-planner lane' "$(sld "$l3_t")/LT-4.prompt.md" \
+  && l3j LT-4 '.owner.session_name == "repo-planner" and .owner.mode == "interactive" and (.owner | has("pid") | not) and .phase == "intake" and .branch == "worktree-LT-4"'; } \
+  || { bad "--prepare must claim as the lane (interactive, no pid), make the worktree and write the prompt: $im_o / $(jq -c '{owner,phase,branch}' "$(sld "$l3_t")/LT-4.json")"; im_fail=1; }
+[ -s "$l3_log" ] && { bad "--prepare must start no session (the fake claude was called)"; im_fail=1; }
+# resume: the session start tells the lane what it holds, and its own note
+printf 'spec written, plan next\n' > "$l3_t/n4.md"; (cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-planner-0001 bash "$LGL" note LT-4 --file "$l3_t/n4.md") >/dev/null 2>&1
+im_o="$(l3_ss repo-planner default)"; { grep -qF 'hefesto resume: you hold LT-4 (plan, phase intake, in this lane)' <<<"$im_o" && grep -qF 'spec written, plan next' <<<"$im_o"; } \
+  || { bad "the session start must tell the lane what it holds and show its note: $im_o"; im_fail=1; }
+# an interactive claim is never reaped, whatever its age
+l3set LT-4 '.owner.started = "2020-01-01T00:00:00Z"'; l3l claim LT-1 --session x --role verify >/dev/null 2>&1; l3l run LT-1 --role verify --exit 0 --usd 0 >/dev/null 2>&1
+l3j LT-4 '.owner.session_name == "repo-planner"' || { bad "an interactive claim must never be reaped by the lease check"; im_fail=1; }
+# finish: the outcome checked against the role's schema, then the run's transcription; from the worktree's cwd
+mkdir -p "$im_wt/.specify/specs/l4" && printf '# tasks\n- [ ] T001 x\n' > "$im_wt/.specify/specs/l4/tasks.md"
+printf '{"summary":"planned","outcome":"done"}\n' > "$l3_t/o-bad.json"; printf '{"summary":"planned","outcome":"tasks","spec_dir":".specify/specs/l4","blocked_on":null}\n' > "$l3_t/o.json"
+im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o-bad.json" >/dev/null 2>&1 && { bad "--finish must refuse an outcome outside the schema"; im_fail=1; }
+l3j LT-4 '.owner.session_name == "repo-planner"' || { bad "a refused finish keeps the claim"; im_fail=1; }
+im_o="$(IM_CWD="$im_wt" HEFESTO_TRUSTED_TOP="$l3_t" im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o.json" 2>&1)"
+{ l3j LT-4 '.owner == null and .phase == "plan-review" and .blocked_on.kind == "human:plan-approval" and (.runs[-1] | .usd == 0 and .note == "in-lane" and .session_name == "repo-planner") and (.spec_dir | endswith("LT-4/.specify/specs/l4"))' \
+  && [ ! -f "$(sld "$l3_t")/LT-4.prompt.md" ]; } || { bad "--finish from the worktree must transcribe like a run (plan-review, plan approval, a \$0 in-lane run) and release: $im_o / $(jq -c '{owner,phase,blocked_on,run:.runs[-1]}' "$(sld "$l3_t")/LT-4.json")"; im_fail=1; }
+[ -s "$l3_log" ] && { bad "an interactive stage starts no session: the fake claude was called"; im_fail=1; }
+# mutations, beside the real helpers
+l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", started: "2026-01-01T00:00:00Z"} | .blocked_on = null | .phase = "intake"'
+jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare.json"
+im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o.json" >/dev/null 2>&1 && { bad "--finish must refuse an entry the lane does not hold in interactive mode"; im_fail=1; }
+l3_mut session-launch.sh 's/\&\& \[ "$(jq -r .\.owner\.mode \/\/ empty. <<<"$E")" = interactive \] \\$/\\/'; IM_SL="$l3_md/session-launch.sh"
+im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o.json" >/dev/null 2>&1 || { bad "mutation survived: the interactive-mode check removed, yet the worker's claim was still refused"; im_fail=1; }; l3_restore session-launch.sh; IM_SL=""
+l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", mode: "interactive", started: "2026-01-01T00:00:00Z"} | .blocked_on = null | .phase = "intake"'
+jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare.json"
+l3_mut session-launch.sh 's/^  BAD="$(schema_errors "$SCHEMA" "$SO")"; \[ -z "$BAD" \] || die/  BAD=""; [ -z "$BAD" ] || die/'; IM_SL="$l3_md/session-launch.sh"
+im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o-bad.json" >/dev/null 2>&1; l3j LT-4 '.owner == null' || { bad "mutation survived: the schema check removed, yet the bad outcome was refused"; im_fail=1; }; l3_restore session-launch.sh; IM_SL=""
+l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", mode: "interactive", started: "2020-01-01T00:00:00Z"}'
+l3_mut ledger-lanes.sh 's/\[ "$(jq -r .\.owner != null and \.owner\.mode != "interactive". "$f" 2>\/dev\/null)" = true \]/[ "$(jq -r ".owner != null" "$f" 2>\/dev\/null)" = true ]/'
+(cd "$l3_t" && bash "$l3_md/ledger.sh" claim LT-1 --session x --role verify) >/dev/null 2>&1; (cd "$l3_t" && bash "$LGL" run LT-1 --role verify --exit 0 --usd 0) >/dev/null 2>&1
+l3j LT-4 '.owner == null' || { bad "mutation survived: the reaper's interactive exemption removed, yet the old interactive claim survived"; im_fail=1; }; l3_restore ledger-lanes.sh
+rm -f "$l3_t/o.json" "$l3_t/o-bad.json" "$l3_t/n4.md" "$l3_t/x.json"; cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
+[ "$im_fail" -eq 0 ] && ok "interactive lane mode: lane_mode per stage (validated); --prepare as the stage's own lane only (map and session record), claims interactive with no pid, makes the worktree and the prompt, starts no session; the session start resumes the lane with what it holds and its note; an interactive claim is never reaped; --finish from the worktree checks the outcome against the role's schema and transcribes like a run (a \$0 in-lane run), refusing an entry the lane does not hold; 3 mutations caught"
 
 rm -rf -- "${l3_t:?}" "${l3_home:?}" "${l3_bin:?}" "${l3_cfg:?}" "${l3_md:?}"; rm -f -- "${L3_SUM:?}"
 

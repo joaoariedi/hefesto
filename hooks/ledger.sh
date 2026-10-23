@@ -402,8 +402,13 @@ case "$SUB" in
     echo "$DIR/$ID.json" ;;
 
   claim)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; SESSION=""; ROLE=""; CPID=""
-    while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; --pid) CPID="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; SESSION=""; ROLE=""; CPID=""; CMODE=""
+    while [ $# -gt 0 ]; do case "$1" in --session) SESSION="${2:-}"; shift ;; --role) ROLE="${2:-}"; shift ;; --pid) CPID="${2:-}"; shift ;;
+      --mode) CMODE="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    # lanes-interactive FR-016: a lane doing the stage in its own conversation holds an interactive claim — no pid,
+    # no lease, never reaped; it ends with --finish, or a person's ledger.sh release
+    case "$CMODE" in ""|interactive) ;; *) die "ledger claim $ID: --mode must be interactive (or absent), got '$CMODE'" ;; esac
+    [ -z "$CMODE" ] || [ -z "$CPID" ] || die "ledger claim $ID: an interactive claim has no --pid (it is a lane, not a launcher)"
     [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
     in_list "$ROLE" "plan implement verify deploy" || die "ledger claim $ID: --role must be plan, implement, verify or deploy (got '$ROLE') — each stage has its own limit"
@@ -449,8 +454,9 @@ case "$SUB" in
     fi
     # --pid: the launcher's own process, so a claim it never closed (a crash) can be released; without it no
     # pid is recorded and the claim is released only by `ledger run` (this process's own pid dies at once)
-    jq --arg s "$SESSION" --arg r "$ROLE" --arg p "$CPID" --argjson i "$INC" \
-      '.owner = ({session_name: $s, role: $r, started: (now | todate)} + (if $p != "" then {pid: ($p | tonumber)} else {} end)) | .attempts += $i' <<<"$E" | write_entry "$ID" || exit 1
+    jq --arg s "$SESSION" --arg r "$ROLE" --arg p "$CPID" --argjson i "$INC" --arg m "$CMODE" \
+      '.owner = ({session_name: $s, role: $r, started: (now | todate)} + (if $p != "" then {pid: ($p | tonumber)} else {} end)
+         + (if $m != "" then {mode: $m} else {} end)) | .attempts += $i' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID claimed by $SESSION (attempt $N)" ;;
 
   advance)
@@ -594,18 +600,19 @@ case "$SUB" in
     fi ;;
 
   run)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; ROLE=""; RC=""; USD=""; SID=""; RPID=""
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; ROLE=""; RC=""; USD=""; SID=""; RPID=""; RNOTE=""
     while [ $# -gt 0 ]; do case "$1" in
       --role) ROLE="${2:-}"; shift ;; --exit) RC="${2:-}"; shift ;; --usd) USD="${2:-}"; shift ;; --session-id) SID="${2:-}"; shift ;;
-      --pid) RPID="${2:-}"; shift ;;
+      --pid) RPID="${2:-}"; shift ;; --note) RNOTE="${2:-}"; shift ;;
       *) usage ;; esac; shift; done
     [ -n "$ROLE" ] && [ -n "$RC" ] && [ -n "$USD" ] || die "ledger run $ID: --role, --exit and --usd are required"
     # only the launcher records a run: a worker that read a pid from `show` must not release a claim with it
     [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "ledger run $ID: never from inside a launched worker — the launcher records the run from the worker's structured output"
     E=$(entry "$ID") || exit 1
     [[ "$RC" =~ ^-?[0-9]+$ ]] && [[ "$USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "ledger run $ID: --exit must be an integer and --usd a non-negative number (got '$RC', '$USD')"
-    jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" --arg p "$RPID" \
-      '.runs += [{role: $r, session_name: (.owner.session_name // null), session_id: (if $sid == "" then null else $sid end), exit: $rc, usd: $usd, at: (now | todate)}]
+    jq --arg r "$ROLE" --argjson rc "$RC" --argjson usd "$USD" --arg sid "$SID" --arg p "$RPID" --arg note "$RNOTE" \
+      '.runs += [{role: $r, session_name: (.owner.session_name // null), session_id: (if $sid == "" then null else $sid end), exit: $rc, usd: $usd, at: (now | todate)}
+                  + (if $note != "" then {note: $note} else {} end)]
        | .budget.usd_spent += $usd
        # a claim made by a launcher (it has a pid) is released only by that launcher (--pid) — never by a worker or a
        # later run without one; a claim made without a pid, by hand, releases as before (review 2026-10-22)
@@ -672,7 +679,7 @@ case "$SUB" in
   release) ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0; RBY=""
     while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
     E=$(entry "$ID") || exit 1; release_item ;;
-  lanes) lanes_print ;;
+  lanes) lanes_print "$@" ;;
   register)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; REF=""
     while [ $# -gt 0 ]; do case "$1" in --ref) REF="${2:-}"; shift ;; *) usage ;; esac; shift; done
