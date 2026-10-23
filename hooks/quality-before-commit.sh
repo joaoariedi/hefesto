@@ -127,9 +127,14 @@ if [ -n "$SH_FILES" ]; then
     # (This comment must not begin with "shellcheck": that spelling is a directive and fails to parse.)
     while IFS= read -r f; do
       [ -f "$CWD/$f" ] || continue
-      if ! shellcheck -S error "$CWD/$f" >/dev/null 2>&1; then
-        ERRORS="${ERRORS}shellcheck errors in $f. "
-      fi
+      # exit 1 is a finding; anything else is shellcheck failing to run (killed for memory on a large file, exit
+      # 137 — seen 2026-10-23 on tests/smoke.sh), which says nothing about the file and must not read as an error
+      SC_RC=0; shellcheck -S error "$CWD/$f" >/dev/null 2>&1 || SC_RC=$?
+      case "$SC_RC" in
+        0) ;;
+        1) ERRORS="${ERRORS}shellcheck errors in $f. " ;;
+        *) ADVISORY="${ADVISORY:+$ADVISORY; }quality gate: shellcheck could not check $f (exit $SC_RC — out of memory?); run it yourself" ;;
+      esac
     done <<< "$SH_FILES"
   fi
 fi

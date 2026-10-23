@@ -1214,6 +1214,21 @@ sed '/function length\/complexity check was SKIPPED/d' "$QBC" > "$cx_md/qbc.sh";
 cx_skip "$cx_md/qbc.sh"; grep -qF 'SKIPPED' <<<"$cx_o" && bad "mutation survived: the skip advisory removed, yet SKIPPED was still printed"
 rm -rf "$cx_t" "$cx_b" "$cx_md"
 
+head_ "Shellcheck that cannot run"
+# A shellcheck killed for memory (exit 137 on a large file, 2026-10-23) blocked the commit as "shellcheck errors":
+# only exit 1 is a finding; anything else passes with an advisory. FakeShellcheck exits $SC_FAKE_RC.
+sk_t="$(mktemp -d)"; sk_b="$(mktemp -d)"; sk_fail=0
+printf '#!/bin/sh\nexit "${SC_FAKE_RC:-0}"\n' > "$sk_b/shellcheck"; chmod +x "$sk_b/shellcheck"
+( cd "$sk_t" && git init -q . && printf '#!/bin/bash\necho hi\n' > a.sh && git add a.sh ) >/dev/null 2>&1
+sk_run() { rc=0; sk_o="$(jq -nc --arg d "$sk_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | SC_FAKE_RC="$1" PATH="$sk_b:/usr/bin:/bin" bash "${2:-$QBC}" 2>&1)" || rc=$?; }
+sk_run 1; [ "$rc" = 2 ] && grep -qF 'shellcheck errors in a.sh' <<<"$sk_o" || { bad "a shellcheck finding (exit 1) must block (rc=$rc: $sk_o)"; sk_fail=1; }
+sk_run 137; { [ "$rc" = 0 ] && grep -qF 'shellcheck could not check a.sh (exit 137' <<<"$sk_o"; } || { bad "a shellcheck that could not run (exit 137) must pass with an advisory (rc=$rc: $sk_o)"; sk_fail=1; }
+sk_md="$(mktemp -d)"; ln -s "$REPO/hooks/speckit-helper.sh" "$sk_md/speckit-helper.sh"; ln -s "$REPO/hooks/lane-lib.sh" "$sk_md/lane-lib.sh"
+sed 's/^        1) ERRORS="${ERRORS}shellcheck errors in $f. " ;;$/        *) ERRORS="${ERRORS}shellcheck errors in $f. " ;;/' "$QBC" > "$sk_md/qbc.sh"; cmp -s "$QBC" "$sk_md/qbc.sh" && { bad "shellcheck mutation did not apply"; sk_fail=1; }
+sk_run 137 "$sk_md/qbc.sh"; [ "$rc" = 2 ] || { bad "mutation survived: every failure an error again, yet exit 137 passed"; sk_fail=1; }
+rm -rf -- "${sk_t:?}" "${sk_b:?}" "${sk_md:?}"
+[ "$sk_fail" -eq 0 ] && ok "shellcheck: a finding (exit 1) blocks; one that cannot run (killed, exit 137) passes with an advisory; 1 mutation caught"
+
 head_ "File length delta gate"
 # #115: the 500-lines-of-CODE file limit had no gate. Zero-dependency, same delta rule: newly over 500 → block;
 # already over and growing → advisory; comments and blanks do not count; the two documented exemptions skip.
