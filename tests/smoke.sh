@@ -20,6 +20,8 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The launcher keeps a run's files under ~/.cache (where no sandboxed session writes); the suite gets its own.
+SMOKE_XDG="$(mktemp -d)"; export XDG_CACHE_HOME="$SMOKE_XDG"
 HELPER="$REPO/hooks/speckit-helper.sh"
 PASS=0
 FAIL=0
@@ -1792,7 +1794,7 @@ sl() { (cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$SL" "$@"); }
 # settings JSON with sandbox on and inbound refused, budget cap from config, worktree via -w <id>
 sl_out="$(sl implement HEF-1 --dry-run 2>&1)"; sl_rc=$?
 [ "$sl_rc" -eq 0 ] || { bad "session-launch implement --dry-run exited $sl_rc: $(head -c 300 <<<"$sl_out")"; sl_fail=1; }
-for tok in '^env .* HEFESTO_WORKER=1 claude -p ' '--name impl-HEF-1' '--model opus' '--max-budget-usd 5' '--output-format json' '--json-schema' "--allowedTools '?Read,Edit,Bash" '--permission-prompts none' '--permission-mode acceptEdits' '-w HEF-1'; do
+for tok in '^env .* HEFESTO_WORKER=1 claude -p ' '--name impl-HEF-1' '--model opus' '--max-budget-usd 5' '--output-format stream-json' '--json-schema' "--allowedTools '?Read,Edit,Bash" '--permission-prompts none' '--permission-mode acceptEdits' '-w HEF-1'; do
   grep -qE -- "$tok" <<<"$sl_out" || { bad "session-launch implement --dry-run lacks '$tok': $(head -c 400 <<<"$sl_out")"; sl_fail=1; }
 done
 # The --settings token is parsed as JSON, not pattern-matched: `sandbox.*enabled.*true` also matched
@@ -2166,8 +2168,14 @@ else bad "mutation survived: the busy check removed, yet the second claim was st
 # strand its item in phase verify, which no stage picks up again — so a verify claim passes while HEF-53 is owned.
 lg2 claim HEF-54 --session v54 --role verify >/dev/null 2>&1 || { bad "a verify claim must pass while another entry is owned (it would strand the item in verify)"; cl_fail=1; }
 lg2 run HEF-54 --role verify --exit 0 --usd 0 >/dev/null 2>&1
+# (with a limit per stage the exemption matters only beside another verifier: a second one must still pass)
+lg2 init HEF-77 --kind tasks-repo --ref t >/dev/null 2>&1; lg2 claim HEF-77 --session v77 --role verify >/dev/null 2>&1 \
+  || { bad "fixture: HEF-77 must take a verify claim"; cl_fail=1; }
+lg2 claim HEF-54 --session v54 --role verify >/dev/null 2>&1 || { bad "a second verify claim must pass beside a running verifier"; cl_fail=1; }
+lg2 run HEF-54 --role verify --exit 0 --usd 0 >/dev/null 2>&1
 sed 's/ || \[ "\$ROLE" = verify \] || die "ledger claim/ || die "ledger claim/' "$LG" > "$cl_md/ledger.sh"
-LG_BIN="$cl_md/ledger.sh" lg2 claim HEF-54 --session v54 --role verify >/dev/null 2>&1 && { bad "mutation survived: the verify exemption removed, yet a verify claim still passed while HEF-53 is owned"; cl_fail=1; lg2 run HEF-54 --role verify --exit 0 --usd 0 >/dev/null 2>&1; }
+LG_BIN="$cl_md/ledger.sh" lg2 claim HEF-54 --session v54 --role verify >/dev/null 2>&1 && { bad "mutation survived: the verify exemption removed, yet a second verify claim still passed beside a running verifier"; cl_fail=1; lg2 run HEF-54 --role verify --exit 0 --usd 0 >/dev/null 2>&1; }
+lg2 run HEF-77 --role verify --exit 0 --usd 0 >/dev/null 2>&1
 rm -rf "$cl_md"
 lg2 run HEF-53 --role implement --exit 0 --usd 0 >/dev/null 2>&1
 lg2 claim HEF-54 --session s54 --role implement >/dev/null 2>&1 || { bad "once HEF-53 is released, claim HEF-54 must pass"; cl_fail=1; }
@@ -5054,13 +5062,100 @@ l3_o="$(cd "$l3_t" && bash "$SB" --detect 2>&1)"
 { grep -qF '{"kind":"config","path":".claude/project-status.json"}' <<<"$l3_o" && grep -qF '"kind":"tasks-folder","root":"tasks"' <<<"$l3_o"; } \
   || { bad "--detect must list the config and the tasks folder: $l3_o"; l3_fail=1; }
 
+# lanes-in-lane FR-001: a limit per stage, not per repository — a planner, a builder and a deployer together;
+# a second planner refused; max_builders builders; verify exempt
+l3_pc() { l3l init "$1" --kind tasks-repo --ref t >/dev/null 2>&1; l3set "$1" '.owner = null'; }
+for i in 31 32 33 34 35; do l3_pc "LT-$i"; done
+l3l claim LT-31 --session p --role plan >/dev/null 2>&1 && l3l claim LT-32 --session b --role implement >/dev/null 2>&1 \
+  && l3l claim LT-33 --session d --role deploy >/dev/null 2>&1 || { bad "a planner, a builder and a deployer must run together in one repository"; l3_fail=1; }
+l3_o="$(l3l claim LT-34 --session p2 --role plan 2>&1)" && { bad "a second planner must be refused"; l3_fail=1; }
+grep -qF 'at most 1 plan session' <<<"$l3_o" || { bad "the refusal must name the stage's limit: $l3_o"; l3_fail=1; }
+l3l claim LT-35 --session b2 --role implement >/dev/null 2>&1 && { bad "a second builder with max_builders 1 must be refused"; l3_fail=1; }
+jq '.orchestrate.max_builders = 2' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+l3l claim LT-35 --session b2 --role implement >/dev/null 2>&1 || { bad "max_builders 2 must admit a second builder"; l3_fail=1; }
+l3l claim LT-34 --session v --role verify >/dev/null 2>&1 || { bad "a verifier must stay exempt from the limits"; l3_fail=1; }
+jq '.orchestrate.max_builders = 9' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"; l3_pc LT-35
+l3l claim LT-35 --session b2 --role implement >/dev/null 2>&1 && { bad "max_builders outside 1..8 must be refused"; l3_fail=1; }
+cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"; l3_pc LT-34
+L3_LG="$l3_md/ledger.sh"; l3_mut ledger.sh 's/ and (.owner.role \/\/ "") == $role)]/)]/'
+l3l claim LT-34 --session p2 --role plan >/dev/null 2>&1; l3_pc LT-34; l3l claim LT-34 --session v --role deploy >/dev/null 2>&1 \
+  && { bad "mutation survived: the role filter removed, yet a deployer joined a running planner and builder"; l3_fail=1; }; l3_restore ledger.sh; L3_LG=""
+for i in 31 32 33 34 35; do l3_pc "LT-$i"; done
+# numbered builder lanes
+[ "$(printf '{"context_window":{"used_percentage":45},"session_name":"repo-builder2"}' | bash "$REPO/hooks/context-gauge.sh")" = 'ctx 45% · /compact (build)' ] \
+  || { bad "gauge: repo-builder2 is a build lane"; l3_fail=1; }
+grep -qF 'hefesto lane: build (repo-builder3)' <<<"$(printf '{"cwd":"%s","session_title":"repo-builder3"}' "$l3_t" | bash "$REPO/hooks/session-start-context.sh" 2>&1)" \
+  || { bad "session start: repo-builder3 is a build lane"; l3_fail=1; }
+# the run's files outside the sandbox's reach, the outcome read back from a stream-json result event, and the
+# narration: started, a skill, an edit, a command, done
+l3_sj="$(mktemp -d)"
+cat > "$l3_sj/claude" <<'SJEOF'
+#!/bin/bash
+prev=""; for a in "$@"; do if [ "$prev" = "-w" ]; then w="$PWD/.claude/worktrees/$a"; git worktree add -q "$w" -b "$a" >/dev/null 2>&1; fi; prev="$a"; done
+printf '%s\n' '{"type":"system","subtype":"init","model":"opus"}' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"hefesto:hef.spec"}},{"type":"tool_use","name":"Write","input":{"file_path":"/x/.claude/worktrees/LT-40/.specify/specs/s/spec.md"}},{"type":"tool_use","name":"Bash","input":{"command":"go test ./..."}}]}}' \
+  '{"type":"result","subtype":"success","total_cost_usd":0.42,"session_id":"sj1","structured_output":{"summary":"planned","outcome":"tasks","spec_dir":".specify/specs/l3","blocked_on":null}}'
+SJEOF
+chmod +x "$l3_sj/claude"
+( cd "$l3_t" && printf '\n## LT-40 — streamed\nplan me\n' >> tasks/TODO.md ); l3l register LT-40 --ref TODO.md#LT-40 >/dev/null 2>&1
+jq '.orchestrate.plan_review = "agent"' "$l3_t/ps.bak" > "$l3_t/.claude/project-status.json"
+(cd "$l3_t" && PATH="$l3_sj:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" bash "$SL" plan LT-40) >/dev/null 2>&1
+l3j LT-40 '.phase == "tasks" and (.runs[-1] | .usd == 0.42 and .session_id == "sj1")' || { bad "the outcome must be read from the stream's result event: $(jq -c '{phase, run: .runs[-1]}' "$l3_t/.git/hefesto/ledger/LT-40.json")"; l3_fail=1; }
+l3_rd="$SMOKE_XDG/hefesto/runs/$(printf '%s' "$l3_t/.git/hefesto/ledger" | cksum | cut -d' ' -f1)"
+{ [ -s "$l3_rd/$(jq -r .file "$l3_rd/LT-40.current" 2>/dev/null)" ] && ls "$l3_rd"/LT-40.plan.*.events.jsonl >/dev/null 2>&1; } \
+  || { bad "the run's event stream must be kept per run under the cache folder ($l3_rd), named by LT-40.current"; l3_fail=1; }
+l3_o="$(cd "$l3_t" && bash "$REPO/hooks/run-follow.sh" LT-40 2>&1)"
+{ grep -qxF '· started (opus)' <<<"$l3_o" && grep -qxF '· /hefesto:hef.spec' <<<"$l3_o" && grep -qxF '· write .specify/specs/s/spec.md' <<<"$l3_o" \
+  && grep -qxF '· run: go test ./...' <<<"$l3_o" && grep -qxF '■ done (success) · $0.42 · tasks' <<<"$l3_o"; } || { bad "run-follow must narrate the run step by step: $l3_o"; l3_fail=1; }
+# --live follows only the current claim's run: an empty stream that grows (the moment right after a launch),
+# never a pointer left by an earlier claim (code review 2026-10-23)
+l3l init LT-41 --kind tasks-repo --ref t >/dev/null 2>&1; l3_st="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+l3set LT-41 ".owner = {session_name: \"plan-LT-41\", role: \"plan\", started: \"$l3_st\"}"
+: > "$l3_rd/LT-41.plan.x.events.jsonl"; jq -nc --arg s "$l3_st" '{file: "LT-41.plan.x.events.jsonl", started: $s, role: "plan"}' > "$l3_rd/LT-41.current"
+( sleep 1; printf '%s\n' '{"type":"system","subtype":"init","model":"opus"}' >> "$l3_rd/LT-41.plan.x.events.jsonl"; sleep 2
+  printf '%s\n' '{"type":"result","subtype":"success","total_cost_usd":0.1,"structured_output":{"outcome":"tasks"}}' >> "$l3_rd/LT-41.plan.x.events.jsonl" ) &
+l3_o="$(cd "$l3_t" && RUN_FOLLOW_WAIT=10 bash "$REPO/hooks/run-follow.sh" LT-41 --live 2>&1)"; l3_rc=$?; wait
+{ [ "$l3_rc" = 0 ] && grep -qxF '· started (opus)' <<<"$l3_o" && grep -qF '■ done (success)' <<<"$l3_o"; } || { bad "run-follow --live must follow a stream that starts empty to its result (rc=$l3_rc): $l3_o"; l3_fail=1; }
+jq -nc '{file: "LT-41.plan.x.events.jsonl", started: "2026-01-01T00:00:00Z", role: "plan"}' > "$l3_rd/LT-41.current"
+l3_o="$(cd "$l3_t" && RUN_FOLLOW_WAIT=2 bash "$REPO/hooks/run-follow.sh" LT-41 --live 2>&1)"
+grep -qF 'no run of LT-41 is going' <<<"$l3_o" || { bad "run-follow --live must not narrate a run from another claim: $l3_o"; l3_fail=1; }
+sed 's/^n=0; idle=0$/n=0/' "$REPO/hooks/run-follow.sh" > "$l3_bin/rf.sh"; cp "$REPO/hooks/ledger.sh" "$REPO/hooks/ledger-lanes.sh" "$REPO/hooks/board-lib.sh" "$REPO/hooks/status-board.sh" "$l3_bin/" 2>/dev/null
+: > "$l3_rd/LT-41.plan.x.events.jsonl"; jq -nc --arg s "$l3_st" '{file: "LT-41.plan.x.events.jsonl", started: $s, role: "plan"}' > "$l3_rd/LT-41.current"
+l3_o="$(cd "$l3_t" && RUN_FOLLOW_WAIT=2 bash "$l3_bin/rf.sh" LT-41 --live 2>&1)"
+grep -qF 'unbound variable' <<<"$l3_o" || { bad "mutation survived: idle left unset, yet an empty stream did not crash the follow: $l3_o"; l3_fail=1; }
+l3set LT-41 '.owner = null'
+# a run that ends with no result event (a crash): the run is recorded and the claim released
+l3_cr="$(mktemp -d)"; printf '#!/bin/bash\nprintf "%%s\\n" %s\nexit 1\n' "'{\"type\":\"system\",\"subtype\":\"init\"}' '{\"type\":\"assistant\",\"message\":{\"content\":[]}}'" > "$l3_cr/claude"; chmod +x "$l3_cr/claude"
+( cd "$l3_t" && printf '\n## LT-42 — crashes\nx\n' >> tasks/TODO.md ); l3l register LT-42 --ref TODO.md#LT-42 >/dev/null 2>&1
+(cd "$l3_t" && PATH="$l3_cr:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" bash "$SL" implement LT-42) >/dev/null 2>&1
+l3j LT-42 '.owner == null and (.runs | length) == 1 and .runs[0].exit == 1 and .runs[0].usd == 0' \
+  || { bad "a run that crashed with no result must still be recorded and release its claim: $(jq -c '{owner, runs}' "$l3_t/.git/hefesto/ledger/LT-42.json")"; l3_fail=1; }
+rm -rf -- "${l3_cr:?}"
+L3_SL="$l3_md/session-launch.sh"; l3_mut session-launch.sh 's/^jq -c .select(type == "object" and .type? == "result"). "$EVENTS" 2>\/dev\/null | tail -1 > "$OUT"$/: > "$OUT"/'
+l3set LT-40 '.phase = "intake" | .owner = null'
+(cd "$l3_t" && PATH="$l3_sj:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" bash "$l3_md/session-launch.sh" plan LT-40) >/dev/null 2>&1
+l3j LT-40 '.phase == "tasks"' && { bad "mutation survived: the result event no longer extracted, yet the stream was transcribed"; l3_fail=1; }; l3_restore session-launch.sh; L3_SL=""
+cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"; rm -rf -- "${l3_sj:?}"
+l3_ocx="$REPO/commands/hef.orchestrate.md"
+{ grep -qF '**Your move:**' "$l3_ocx" && grep -qF '**Optional while it runs:**' "$l3_ocx" && grep -qF '**Nothing to do — wait.**' "$l3_ocx" \
+  && grep -qF 'last line is always exactly one of these three' "$l3_ocx" && grep -qF 'Do not poll' "$l3_ocx" && grep -qF '**Your move:**' "$REPO/commands/hef.ship.md"; } \
+  || { bad "/hef.orchestrate (and /hef.ship) must end every pass on the person's next move: Your move / Optional while it runs / Nothing to do — wait"; l3_fail=1; }
+grep -qF 'run-follow.sh <id> --live' "$REPO/commands/hef.orchestrate.md" && grep -qF 'max_builders' "$REPO/commands/hef.orchestrate.md" \
+  && grep -qF 'list --phase verify' "$REPO/commands/hef.orchestrate.md" || { bad "/hef.orchestrate must narrate with run-follow, name max_builders and recover a build whose verifier never ran"; l3_fail=1; }
+
 # FR-018 workers never ring a lane
 l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
 # --add never reuses an id the ledger holds (an entry outlives its board item); --body-from-board re-hashes
 l3l init LT-7 --kind tasks-repo --ref t >/dev/null 2>&1
+# the next id: one past every id on the board AND in the ledger (computed, so later fixtures do not move it)
+l3_max() { { grep -hoE '^#{2,3} .*LT-[0-9]+' "$l3_t"/tasks/*.md | grep -oE 'LT-[0-9]+'; [ "$1" = all ] && ls "$l3_t/.git/hefesto/ledger" | sed -n 's/^\(LT-[0-9]*\)\.json$/\1/p'; } | sed 's/LT-//' | sort -n | tail -1; }
+l3l init "LT-$(( $(l3_max all) + 10 ))" --kind tasks-repo --ref t >/dev/null 2>&1   # an entry past every board item
+l3_bm="$(l3_max board)"; l3_am="$(l3_max all)"
+[ "$l3_am" -gt "$l3_bm" ] || { bad "fixture: the ledger must hold an id past the board's ($l3_am vs $l3_bm)"; l3_fail=1; }
 l3_mut status-board.sh 's/\[ -n "$ld" \] \&\& for f in "$ld"\/\*.json; do \[ -f "$f" \] \&\& basename "$f" .json; done;/:;/'
-[ "$( (cd "$l3_t" && bash "$l3_md/status-board.sh" --add "Export orders once more") 2>&1)" = LT-4 ] || { bad "mutation survived: ledger ids no longer counted, yet --add did not fall back to the board's next id"; l3_fail=1; }; l3_restore status-board.sh
-[ "$( (cd "$l3_t" && bash "$SB" --add "Export orders again") 2>&1)" = LT-12 ] || { bad "--add must skip ids the ledger holds (LT-5, LT-7, LT-9 and LT-11 are entries, not on the board): expected LT-12"; l3_fail=1; }
+[ "$( (cd "$l3_t" && bash "$l3_md/status-board.sh" --add "Export orders once more") 2>&1)" = "LT-$((l3_bm + 1))" ] || { bad "mutation survived: ledger ids no longer counted, yet --add did not fall back to the board's next id"; l3_fail=1; }; l3_restore status-board.sh
+l3_am="$(l3_max all)"
+[ "$( (cd "$l3_t" && bash "$SB" --add "Export orders again") 2>&1)" = "LT-$((l3_am + 1))" ] || { bad "--add must skip ids the ledger holds: expected LT-$((l3_am + 1))"; l3_fail=1; }
 l3set LT-1 '.source.body_sha256 = "0"'; l3l record LT-1 --body-from-board >/dev/null 2>&1
 l3j LT-1 "(.source.body_sha256 | length) == 64" || { bad "record --body-from-board must re-hash the item from the board"; l3_fail=1; }
 grep -qF '"deny":["SendMessage","ListAgents"]' <<<"$(l3s implement LT-1 --dry-run 2>&1)" || { bad "every worker's settings must deny SendMessage and ListAgents"; l3_fail=1; }
@@ -5122,7 +5217,7 @@ for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
   { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
     || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
 done
-[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), stale leases released by claim only, allowed_domains (no IP, no localhost), --detect, a stopped launcher stops its worker, claims released by lease age only; 26 mutations caught"
+[ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), stale leases released by claim only, allowed_domains (no IP, no localhost), --detect, a stopped launcher stops its worker, claims released by lease age only; 30 mutations caught"
 
 # --- Tier 1: macOS portability (field report 2026-10-15: /hef.status and /hef.babysit broke on a Mac) -----
 head_ "macOS portability"

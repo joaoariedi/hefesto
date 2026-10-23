@@ -56,7 +56,10 @@ Start with the single lane; the same project can add the three stage lanes later
    claude --name myrepo-deployer
    ```
 3. **Start each stage lane once:** `/hef.orchestrate --stage plan` in the planner, `--stage build` in the
-   builder, `--stage deploy` in the deployer. From then on they wait for the orchestrator's doorbell.
+   builder, `--stage deploy` in the deployer. From then on they wait for the orchestrator's doorbell, and each
+   narrates its run as it goes (`· /hef.spec`, `· write …/plan.md`, `· run: go test ./...`, `■ done`). The
+   three stages overlap; for more builders set `"max_builders": 2` under `orchestrate` and open
+   `myrepo-builder2` too.
 4. **In the orchestrator:** `/hef.orchestrate` — it checks the setup and finds the three lanes.
 5. **Feed it RFCs:** `/hef.ship ABC-12` for an item with its RFC on the board (`rfc: docs/rfcs/ABC-12.md`
    under its heading), or `/hef.ship "<idea>"`. The orchestrator rings the planner; when a plan is ready it
