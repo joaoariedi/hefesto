@@ -107,8 +107,11 @@ for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
           "Bash($h/status-board.sh --add:*)" "Bash($h/status-board.sh --init)" "Bash($h/status-board.sh --detect)" "Bash($h/status-board.sh --item-raw:*)" "Bash($h/hefesto-setup.sh --check)"
           "Bash($h/ledger.sh board:*)" "Bash($h/ledger.sh list:*)" "Bash($h/ledger.sh next:*)" "Bash($h/ledger.sh show:*)" "Bash($h/ledger.sh metrics:*)"
           "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)" "Bash($h/ledger.sh questions:*)"
+          "Bash($h/ledger.sh request:*)" "Bash($h/ledger.sh actions:*)" "Bash($h/ledger.sh action:*)" "Bash($h/ledger.sh op new:*)"
+          "Bash($h/ledger.sh direct:*)" "Bash($h/ledger.sh directives:*)" "Bash($h/ledger.sh directive:*)" "Bash($h/ledger.sh note:*)"
+          "Bash($h/ledger.sh park --all)" "Bash($h/ledger.sh lanes)" "Bash($h/ledger.sh dir)"
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/run-follow.sh:*)")
-  for c in unblock record claim advance handoff block revise answer; do
+  for c in unblock record claim advance handoff block revise answer approve release; do
     ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
   done
   excl+=("$h/session-launch.sh *" "$h/ledger.sh *")

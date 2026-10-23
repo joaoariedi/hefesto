@@ -70,6 +70,10 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 . "$HERE/ledger-lanes.sh"
 # shellcheck source=hooks/lane-lib.sh
 . "$HERE/lane-lib.sh"
+# shellcheck source=hooks/ledger-actions.sh
+. "$HERE/ledger-actions.sh"
+# shellcheck source=hooks/ledger-notes.sh
+. "$HERE/ledger-notes.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -361,7 +365,7 @@ trusted_check
 caller_gate "$@"
 DIR=$(ledger_dir) || exit 1
 ledger_settle "$DIR" "$(jq -r '.git_common // empty' <<<"$BCTX")" || exit 1
-case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|-h|--help) ;; *) ledger_mkdir ;; esac
+case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|park|-h|--help) ;; *) ledger_mkdir ;; esac
 
 case "$SUB" in
   dir) echo "$DIR" ;;
@@ -403,6 +407,7 @@ case "$SUB" in
     [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
     in_list "$ROLE" "plan implement verify deploy" || die "ledger claim $ID: --role must be plan, implement, verify or deploy (got '$ROLE') — each stage has its own limit"
+    [ "$(jq -r '.item_kind // empty' "$DIR/$ID.json" 2>/dev/null)" != op ] || die "ledger claim $ID: an op entry holds approved actions only — no stage claims it"
     # A claim whose launcher stopped renewing its lease is released here, under the lock (ledger-lanes.sh) —
     # never by list or next, which stay read-only (code review 2026-10-22).
     claim_lock
@@ -636,12 +641,46 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; --file|--notes-file) TXT="${2:-}"; shift ;; *) usage ;; esac; shift; done
     E=$(entry "$ID") || exit 1
     if [ "$VERB" = answer ]; then answer_item "$TXT"; else revise_item "$TXT"; fi ;;
+  request)   # lanes-interactive FR-003 — the orchestrator's proposal; ledger-actions.sh
+    # shellcheck disable=SC2034 # read by ledger-actions.sh
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; TO=""; SCOPE=""; SUP=""
+    while [ $# -gt 0 ]; do case "$1" in --to) TO="${2:-}"; shift ;; --scope-file) SCOPE="${2:-}"; shift ;; --supersedes) SUP="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    request_action ;;
+  approve)   # FR-005 — person-only, in the ask rules: its dialog is the person's signature
+    # shellcheck disable=SC2034 # read by ledger-actions.sh
+    AID="${1:-}"; [ -n "$AID" ] || usage; shift; SHA=""; ATO=""; ATITLE=""; IRREV=0; REVIEWED=0; RBY=""
+    while [ $# -gt 0 ]; do case "$1" in --sha) SHA="${2:-}"; shift ;; --to) ATO="${2:-}"; shift ;; --title) ATITLE="${2:-}"; shift ;;
+      --irreversible-confirmed) IRREV=1 ;; --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    approve_action ;;
+  action) [ $# -ge 2 ] || usage; VERB="$1"; AID="$2"; shift 2; action_cmd "$VERB" "$@" ;;
+  actions) actions_list "$@" ;;
+  op) [ "${1:-}" = new ] || usage; shift
+    # shellcheck disable=SC2034 # read by ledger-actions.sh
+    OTITLE=""
+    while [ $# -gt 0 ]; do case "$1" in --title) OTITLE="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    op_new ;;
+  direct)    # FR-012 — the orchestrator's directive; ledger-notes.sh
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; TO=""; TXT=""
+    while [ $# -gt 0 ]; do case "$1" in --to) TO="${2:-}"; shift ;; --file) TXT="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    E=$(entry "$ID") || exit 1; direct_item "$TXT" ;;
+  directives) directives_list "$@" ;;
+  directive) ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1; directive_close "$@" ;;
+  note) ID="${1:-}"; [ -n "$ID" ] || usage; shift; F=""
+    while [ $# -gt 0 ]; do case "$1" in --file) F="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    E=$(entry "$ID") || exit 1; note_item "$F" ;;
+  park) [ "${1:-}" = --all ] || usage; park_all ;;
+  release) ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0; RBY=""
+    while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    E=$(entry "$ID") || exit 1; release_item ;;
+  lanes) lanes_print ;;
   register)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; REF=""
     while [ $# -gt 0 ]; do case "$1" in --ref) REF="${2:-}"; shift ;; *) usage ;; esac; shift; done
     valid_id "$ID" || exit 1
     register_item "$ID" "$REF" ;;
-  show) ID="${1:-}"; [ -n "$ID" ] || usage; entry "$ID" ;;
+  show) ID="${1:-}"; [ -n "$ID" ] || usage; E=$(entry "$ID") || exit 1
+    set -- "$DIR"/actions/"$ID"-A*.json
+    if [ -f "$1" ]; then jq -s --argjson e "$E" '$e + {actions: [sort_by(.at)[] | {aid, status, to, sha256, title: .scope.title, approved_by, at, outcome}]}' "$@"; else printf '%s\n' "$E"; fi ;;
   where)   # branch-model FR-006 — computed from git, never stored
     ID="${1:-}"; [ -n "$ID" ] || usage
     E=$(entry "$ID") || exit 1; BR=$(jq -r '.branch // empty' <<<"$E")
@@ -799,6 +838,7 @@ case "$SUB" in
               ORDER='sort_by([(if .blocked_on == null then 0 else 1 end), (([.runs[]? | select(.role == "deploy") | .at] | max) // ""), (.id | (capture("^(?<p>.*?)(?<n>[0-9]+)$") // {p: ., n: "0"}) | [.p, (.n | tonumber)])])' ;;
       *) usage ;;
     esac
+    SEL="($SEL) and (.item_kind != \"op\")"   # lanes-interactive FR-004: an op entry holds actions; no stage takes it
     shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
     [ "${#FILES[@]}" -gt 0 ] || die "ledger next: no entries in $DIR (run: ledger.sh init <id> …)"
     if is_external; then next_external; exit $?; fi

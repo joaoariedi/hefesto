@@ -97,33 +97,59 @@ if [ -n "$EXCL_HIT" ]; then
   fi
 fi
 
-# --- with --lanes: who may record what ---------------------------------------------------------------------------
+# --- with --lanes: who may record what, then the grants ---------------------------------------------------------
 [ "$LANES" = true ] || exit 0
-[ -n "$EXCL_HIT" ] || exit 0
-case "$EXCL_HIT" in */ledger.sh|*/session-launch.sh) ;; *) exit 0 ;; esac
+if [ -n "$EXCL_HIT" ]; then case "$EXCL_HIT" in */ledger.sh|*/session-launch.sh)
 W="$(words "${CMD%%$'\n'*}")"; SUB="$(sed -n 2p <<<"$W")"; ARGS=" $(tr '\n' ' ' <<<"$W")"
 case "$EXCL_HIT" in
   */session-launch.sh)
     case "$ARGS" in *" --prepare "*|*" --finish "*)
       L="$(awk 'p {print; exit} $0 == "--lane" {p = 1}' <<<"$W")"
       [ -n "$NAME" ] && [ "$L" = "$NAME" ] || deny "--prepare/--finish run only in the lane they name, as --lane <its own name> (this session is '${NAME:-not a lane}', the call names '${L:-no lane}')" ;;
-    esac
-    exit 0 ;;
-esac
-# shellcheck disable=SC2046 # one word per line, by design (words() unquoted them)
-IFS=$'\n' read -r -d '' -a WA <<<"$W" || true
-is_person_sub "${WA[@]:1}" && [ "$ROLE" != orchestrator ] && deny "'ledger.sh $SUB' records a person's decision, so it runs only in the orchestrator lane (this session is the ${ROLE:-unnamed} lane '${NAME:-$(jq -r .title <<<"$REC")}') — decisions are made there, as a form"
-case "$SUB" in
-  action|directive|note)
-    target=""; ID3="$(sed -n 3p <<<"$W")"; ID4="$(sed -n 4p <<<"$W")"; LD="$(jq -r '.ledger // empty' <<<"$REC")"
+    esac ;;
+  *)
+    IFS=$'\n' read -r -d '' -a WA <<<"$W" || true
+    is_person_sub "${WA[@]:1}" && [ "$ROLE" != orchestrator ] && deny "'ledger.sh $SUB' records a person's decision, so it runs only in the orchestrator lane (this session is the ${ROLE:-unnamed} lane '${NAME:-$(jq -r .title <<<"$REC")}') — decisions are made there, as a form"
     case "$SUB" in
-      action) [ "$ID3" = show ] && exit 0
-              [[ "$ID4" =~ ^[A-Za-z][A-Za-z0-9_-]*-A[0-9]+$ ]] && target="$(jq -r '.to // empty' "$LD/actions/$ID4.json" 2>/dev/null)" ;;
-      directive) [[ "$ID3" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] && [[ "$ID4" =~ ^[0-9]+$ ]] \
-                   && target="$(jq -r --argjson n "$ID4" '.directives[]? | select(.n == $n) | .to // empty' "$LD/$ID3.json" 2>/dev/null)" ;;
-      note) [[ "$ID3" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] && target="$(jq -r '.owner.session_name // empty' "$LD/$ID3.json" 2>/dev/null)" ;;
-    esac
-    [ -n "$target" ] && [ -n "$NAME" ] && [ "$target" = "$NAME" ] \
-      || deny "'ledger.sh $SUB' acts for one lane — '${target:-unknown}' — and this session is '${NAME:-not a lane}'" ;;
+      action|directive|note)
+        target=""; ID3="$(sed -n 3p <<<"$W")"; ID4="$(sed -n 4p <<<"$W")"; LD="$(jq -r '.ledger // empty' <<<"$REC")"
+        case "$SUB" in
+          action) [ "$ID3" = show ] && exit 0
+                  [[ "$ID4" =~ ^[A-Za-z][A-Za-z0-9_-]*-A[0-9]+$ ]] && target="$(jq -r '.to // empty' "$LD/actions/$ID4.json" 2>/dev/null)" ;;
+          directive) [[ "$ID3" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] && [[ "$ID4" =~ ^[0-9]+$ ]] \
+                       && target="$(jq -r --argjson n "$ID4" '.directives[]? | select(.n == $n) | .to // empty' "$LD/$ID3.json" 2>/dev/null)" ;;
+          note) [[ "$ID3" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] && target="$(jq -r '.owner.session_name // empty' "$LD/$ID3.json" 2>/dev/null)" ;;
+        esac
+        [ -n "$target" ] && [ -n "$NAME" ] && [ "$target" = "$NAME" ] \
+          || deny "'ledger.sh $SUB' acts for one lane — '${target:-unknown}' — and this session is '${NAME:-not a lane}'" ;;
+    esac ;;
 esac
+exit 0 ;; esac; fi
+
+# Grants (FR-011, #138): a command of an action this lane has taken runs without a dialog in its pane — only while
+# the approval in the store is valid (same hash, this lane, not used up) and, for a scope with heads, the heads were
+# checked since the take (and within 30 minutes). A pattern is literal text; its `*` matches no shell operator.
+[ -n "$NAME" ] || exit 0
+[[ "$CMD" == *$'\n'* ]] && exit 0
+LD="$(jq -r '.ledger // empty' <<<"$REC")"; [ -d "$LD/actions" ] || exit 0
+set -- "$LD"/actions/*.json; [ -f "$1" ] || exit 0
+glob_re() { # $1 pattern → an anchored ERE
+  local out="" ch i
+  for ((i = 0; i < ${#1}; i++)); do ch="${1:i:1}"
+    case "$ch" in '*') out+='[^;&|`$()<>{}]*' ;; [][\.^\$+?\(\)\{\}\|]) out+="\\$ch" ;; *) out+="$ch" ;; esac
+  done; printf '^%s$' "$out"
+}
+while IFS= read -r a; do
+  aid="$(jq -r .aid <<<"$a")"; st="$(cat "$(hef_cache)/approvals/$(basename "$LD")/$aid.json" 2>/dev/null)" || continue
+  h="$(jq -cS '{entry, to, scope}' <<<"$a" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)"
+  [ "$h" = "$(jq -r .sha256 <<<"$a")" ] && [ "$h" = "$(jq -r '.sha256 // empty' <<<"$st")" ] || continue
+  [ "$(jq -r '.to // empty' <<<"$st")" = "$NAME" ] && [ -z "$(jq -r '.consumed_at // empty' <<<"$st")" ] || continue
+  if [ "$(jq -r '.scope.heads | length' <<<"$a")" -gt 0 ]; then
+    jq -e '(.heads_ok_at // "") as $h | $h != "" and $h >= .taken_at and (now - ($h | fromdateiso8601)) < 1800' <<<"$a" >/dev/null 2>&1 || continue
+  fi
+  while IFS= read -r pat; do
+    [ -n "$pat" ] || continue; re="$(glob_re "$pat")"
+    [[ "$CMD" =~ $re ]] && allow "approved action $aid ($(jq -r .scope.title <<<"$a" | cut -c1-80)), approved by $(jq -r .by <<<"$st")"
+  done < <(jq -r '.scope.commands[]?' <<<"$a")
+done < <(jq -c --arg n "$NAME" 'select(.to == $n and .status == "taken")' "$@" 2>/dev/null)
 exit 0
