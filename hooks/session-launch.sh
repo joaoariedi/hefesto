@@ -152,7 +152,10 @@ tools() { jq -r --arg h "$HOOKS_RULE" "(.orchestrate.allowed_tools.$1 // $2) + [
 case "$ROLE" in
   implement) ALLOWED="$(tools implement '["Read","Edit","Write","Glob","Grep","Skill","Agent","Bash(git *)","Bash(gh pr create *)","Bash(gh pr view *)"]')" ;;
   verify)    ALLOWED="$(tools verify '["Read","Glob","Grep","Skill","Agent","Bash(git diff*)","Bash(git log*)"]')" ;;
-  plan)      ALLOWED="$(tools plan '["Read","Glob","Grep","Skill","Agent","Edit(.specify/**)","Bash(git *)"]')" ;;
+  # The planner's edit rule also names .specify/ by project root (/.specify) and by absolute path (//…): a
+  # relative rule is matched against the shell's CURRENT folder, so one `cd` into a spec folder made every
+  # later edit fall outside it and, headless, be denied (live trial 2026-10-23).
+  plan)      ALLOWED="$(tools plan "$(jq -nc --arg a "Edit(/$TOP/.claude/worktrees/$ID/.specify/**)" '["Read","Glob","Grep","Skill","Agent","Edit(.specify/**)","Edit(/.specify/**)",$a,"Bash(git *)"]')")" ;;
   deploy)    ALLOWED="$(tools deploy '["Read","Edit","Write","Glob","Grep","Skill","Agent","Bash(git *)","Bash(gh auth status)"]')" ;;
 esac
 [ -n "$ALLOWED" ] || die "session-launch: orchestrate.allowed_tools.$ROLE must be an array of permission rules (jq could not join it) — a worker with no tools would only spend"
@@ -262,13 +265,14 @@ rfc_as_data() { # → the delimited RFC block (and the pin recorded); nothing wh
 # planner delimited. Each copy is re-hashed against the ledger first: a file changed after the person's
 # dialog (the only consent) refuses the launch.
 person_text_as_data() { # $1 answers|revisions, $2 the rule line → the block, or nothing
-  local since rows r p h out="" nonce LDIR
+  local rows r p h out="" nonce LDIR
   LDIR="$("$LEDGER" dir)" || exit 1
-  since="$(jq -r '[.runs[]? | select(.role == "plan") | .at] | last // ""' <<<"$E")"
-  # >= : a run and a person's reply can share a second; re-reading an applied answer is harmless, missing one is not.
-  # the path is derived from the ledger dir and the row's index, never read from the entry; the hash
-  # catches an accidental edit only (it sits in the same writable entry)
-  rows="$(jq -c --arg s "$since" --arg k "$1" '.[$k] // [] | to_entries[] | select(.value.at >= $s) | {n: (.key + 1), sha256: .value.sha256}' <<<"$E")"
+  # every answer or note no plan run has acted on yet: marked consumed only when a run reports a real outcome
+  # (tasks, or a new question) — a run that failed, or was denied its edits, leaves them for the next one
+  # (live trial 2026-10-23: "since the last run" dropped the person's approval after a failed run).
+  # The path is derived from the ledger dir and the row's index, never read from the entry; the hash catches
+  # an accidental edit only (it sits in the same writable entry).
+  rows="$(jq -c --arg k "$1" '.[$k] // [] | to_entries[] | select(.value.consumed != true) | {n: (.key + 1), sha256: .value.sha256}' <<<"$E")"
   [ -n "$rows" ] || return 0
   while IFS= read -r r; do
     p="$LDIR/$ID.$([ "$1" = answers ] && echo answers || echo notes)-$(jq -r .n <<<"$r").md"; h="$(jq -r .sha256 <<<"$r")"
@@ -326,7 +330,7 @@ EOF
     # missing artifact — a cleared human:plan-review means "## Reviewed" exists, and re-planning would erase it.
     if [ -n "$SPEC_DIR" ]; then
       read -r -d '' PROMPT <<EOF || true
-The spec for board item $ID already exists at $SPEC_DIR on this branch — do not re-spec. Resume at the first missing artifact: /hef.clarify only while [NEEDS CLARIFICATION] markers remain (a marker you cannot decide from the code → outcome "blocked", blocked_on "human:clarify"); /hef.plan only if plan.md is missing; /hef.review (plan mode) only if plan.md lacks "## Reviewed" (NEEDS_DISCUSSION, or a second REVISE_PLAN → outcome "blocked", blocked_on "human:plan-review"); then /hef.tasks. Commit everything under .specify/ on this branch (git add .specify && git commit). Never edit a file outside .specify/. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir ($SPEC_DIR), blocked_on.
+The spec for board item $ID already exists at $SPEC_DIR on this branch — do not re-spec. Resume at the first missing artifact: /hef.clarify only while [NEEDS CLARIFICATION] markers remain (a marker you cannot decide from the code → outcome "blocked", blocked_on "human:clarify"); /hef.plan only if plan.md is missing; /hef.review (plan mode) only if plan.md lacks "## Reviewed" (NEEDS_DISCUSSION, or a second REVISE_PLAN → outcome "blocked", blocked_on "human:plan-review"); then /hef.tasks. Commit everything under .specify/ on this branch (git add .specify && git commit). Never edit a file outside .specify/, and run every command from this worktree's root — never cd into a subfolder. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir ($SPEC_DIR), blocked_on.
 
 $NOTEBLK
 $ANSBLK
@@ -335,7 +339,7 @@ EOF
     else
       ITEM="$(item_as_data)" || exit 1
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository. Plan it, do not build it: run /hef.spec, then /hef.plan, then /hef.review (plan mode — the fresh-context reviewer), then /hef.tasks; commit everything under .specify/ on this branch (git add .specify && git commit). Stop with outcome "blocked" and blocked_on "human:clarify" at the first [NEEDS CLARIFICATION] you cannot decide from the code; blocked_on "human:plan-review" if the reviewer returns NEEDS_DISCUSSION or a second REVISE_PLAN. $INJECTION_RULE Never edit a file outside .specify/. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir (the .specify/specs/<name> directory you created), blocked_on.
+Board item $ID for this repository. Plan it, do not build it: run /hef.spec, then /hef.plan, then /hef.review (plan mode — the fresh-context reviewer), then /hef.tasks; commit everything under .specify/ on this branch (git add .specify && git commit). Stop with outcome "blocked" and blocked_on "human:clarify" at the first [NEEDS CLARIFICATION] you cannot decide from the code; blocked_on "human:plan-review" if the reviewer returns NEEDS_DISCUSSION or a second REVISE_PLAN. $INJECTION_RULE Never edit a file outside .specify/, and run every command from this worktree's root — never cd into a subfolder. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir (the .specify/specs/<name> directory you created), blocked_on.
 
 $ITEM
 
@@ -478,6 +482,7 @@ case "$ROLE" in
   plan)
     OC="$(jq -r '.outcome' <<<"$SO")"
     if [ "$OC" = tasks ]; then record_worktree full; else record_worktree ""; fi   # route full: the verify chain must include /hef.verify
+    case "$OC" in tasks|blocked) "$LEDGER" record "$ID" --person-text-consumed >/dev/null || exit 1 ;; esac
     case "$OC" in
       tasks)   # lanes-v2 FR-006: with plan_review "human" a finished draft waits for a person's named approval
                if [ "$PR_MODE" = human ]; then
