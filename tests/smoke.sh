@@ -5502,6 +5502,8 @@ la deployer action take LT-2-A4 >/dev/null 2>&1; printf 'the volume is still mou
 la deployer action stop LT-2-A4 --step 1 --reason-file "$l3_t/why.md" >/dev/null 2>&1 && la_aj LT-2-A4 '.status == "stopped" and .outcome.step == 1' \
   && jq -e '.consumed_at != null' "$la_st/LT-2-A4.json" >/dev/null 2>&1 || { bad "stop must record the step and the reason and use up the approval"; la_fail=1; }
 { la orchestrator actions --status stopped | grep -qF 'LT-2-A4' && la orchestrator show LT-2 | jq -e '(.actions | length) == 4' >/dev/null; } || { bad "actions and show must list the history"; la_fail=1; }
+la orchestrator actions --status stopped | grep -qF $'LT-2-A4\tstopped\trepo-deployer' && la orchestrator actions --status stopped | grep -qF 'remove the stg volume' || { bad "actions must print the aid, status, lane and title: $(la orchestrator actions --status stopped)"; la_fail=1; }
+{ [ -x "$REPO/evals/action-text-is-data/scaffold.sh" ] && grep -qF 'never-approves' "$REPO/evals/action-text-is-data/case.yaml" && grep -qF 'tool_used' "$REPO/evals/action-text-is-data/case.yaml"; } || { bad "the action-text-is-data eval must ship (SC-009 companion)"; la_fail=1; }
 # op entries
 la_op="$(la orchestrator op new --title "clean the stg volumes" 2>/dev/null)"
 { [ "$la_op" = OP-1 ] && l3j OP-1 '.item_kind == "op"'; } || { bad "op new must create OP-1 (got '$la_op')"; la_fail=1; }
@@ -5538,8 +5540,14 @@ l3_mut lane-guard.sh 's/|| continue$/|| :/'; LG_GD="$l3_md/lane-guard.sh"
 jq '.status = "taken" | del(.heads_ok_at)' "$(sld "$l3_t")/actions/LT-2-A1.json" > "$l3_t/x.json" && cp "$l3_t/x.json" "$(sld "$l3_t")/actions/LT-2-A1.json"
 [ "$(gd deployer "$la_cmd")" = allow ] || { bad "mutation survived: the grant's checks removed, yet the used, unchecked action was not granted"; la_fail=1; }; l3_restore lane-guard.sh; LG_GD=""
 [ "$(gd deployer "$la_cmd")" = none ] || { bad "a used approval without a heads check grants nothing"; la_fail=1; }
+# the status line shows a request waiting on the person (FR-027)
+la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/sc.json" >/dev/null 2>&1; la_last="$(ls "$(sld "$l3_t")"/actions/ | sed -n 's/^\(LT-2-A[0-9]*\)\.json$/\1/p' | sort -t A -k2 -n | tail -1)"
+la_gauge() { jq -nc --arg d "$l3_t" '{context_window: {used_percentage: 10}, workspace: {current_dir: $d, project_dir: $d}}' | bash "${1:-$REPO/hooks/context-gauge.sh}"; }
+grep -qF "⏸ $la_last · action: merge PR #7" <<<"$(la_gauge)" || { bad "the status line must show the pending action $la_last: $(la_gauge)"; la_fail=1; }
+l3_mut context-gauge.sh '/select(.status == "pending")/d'
+grep -qF "⏸ $la_last · action" <<<"$(la_gauge "$l3_md/context-gauge.sh")" && { bad "mutation survived: the pending-action row removed, yet it was shown"; la_fail=1; }; l3_restore context-gauge.sh
 rm -rf -- "${la_gh:?}"; rm -f "$l3_t"/sc.json "$l3_t"/sc2.json "$l3_t"/bad.json "$l3_t"/ev.md "$l3_t"/why.md "$l3_t"/d.md "$l3_t"/n.md "$l3_t"/a4.bak "$l3_t"/x.json
-[ "$la_fail" -eq 0 ] && ok "lane actions: scopes validated (heads, wrappers, hefesto helpers, *); request leaves the entry's block alone; approve checks hash prefix, lane, title, irreversible, the orchestrator, not a worker, and writes the store; take by the named lane only, once, with the hash unchanged; heads fail closed and gate the grant; grants for that lane and pattern only, ended by done; supersede and stop use the approval up; op entries never staged; directives from the orchestrator, closed by their lane, tampered text withheld; notes by the holder; release by a person; 4 mutations caught"
+[ "$la_fail" -eq 0 ] && ok "lane actions: scopes validated (heads, wrappers, hefesto helpers, *); request leaves the entry's block alone; approve checks hash prefix, lane, title, irreversible, the orchestrator, not a worker, and writes the store; take by the named lane only, once, with the hash unchanged; heads fail closed and gate the grant; grants for that lane and pattern only, ended by done; supersede and stop use the approval up; op entries never staged; directives from the orchestrator, closed by their lane, tampered text withheld; notes by the holder; release by a person; a pending action on the status line; 5 mutations caught"
 
 rm -rf -- "${l3_t:?}" "${l3_home:?}" "${l3_bin:?}" "${l3_cfg:?}" "${l3_md:?}"; rm -f -- "${L3_SUM:?}"
 

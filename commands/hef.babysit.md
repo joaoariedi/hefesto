@@ -19,6 +19,9 @@ those; the merge is a person's step and the ledger records that it happened.
 
 ## Host
 
+- **Inside a launched deploy session** (your prompt says `session-launch.sh` started you): run none of the
+  `ledger.sh block` / `ledger.sh advance` lines below. The ledger lives outside your sandbox (hefesto 9). Put the
+  state in your structured output (`verdict`, `questions`, `fixes`); the launcher records it.
 - `gh` must be authenticated (`gh auth status`). Under the sandbox, `api.github.com` must be
   granted to the Bash tool; the helper's `--check` names what is missing.
 - **The wait call needs the raised tool timeout.** `pr-watch.sh checks <n> --wait 540 --after <sha>`

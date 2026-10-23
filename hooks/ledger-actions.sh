@@ -123,7 +123,7 @@ action_cmd() { # $1 verb, then its arguments; globals: AID set by the caller
   case "$verb" in
     show)
       local nonce; nonce=$(od -An -N6 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-      jq -r '"\(.aid) · \(.status) · for \(.to) · sha256 \(.sha256[0:12]) · \(.scope.title | gsub("[\\u0000-\\u001f]"; " "))"' <<<"$a"
+      jq -r '"\(.aid) · \(.status) · for \(.to) · sha256 \(.sha256[0:12]) · \(.scope.title | gsub("[[:cntrl:]]"; " "))"' <<<"$a"
       echo "<<<untrusted-scope-begin $AID $nonce"; jq '{scope, steps_done, outcome, approved_by, approved_at}' <<<"$a"; echo "untrusted-scope-end $AID $nonce>>>"
       return 0 ;;
   esac
@@ -177,7 +177,7 @@ actions_list() { # args: [--to <lane>] [--status <s>] [--since <date>]
   set -- "$DIR"/actions/*.json; [ -f "$1" ] || return 0
   jq -rs --arg to "$to" --arg st "$st" --arg since "$since" 'sort_by(.at) | .[]
     | select(($to == "" or .to == $to) and ($st == "" or .status == $st) and ($since == "" or .at >= $since))
-    | "\(.aid)\t\(.status)\t\(.to)\t\(.sha256[0:12])\t\(.approved_by // "-")\t\(.at)\t\(.scope.title | gsub("[\\u0000-\\u001f]"; " "))"' "$@"
+    | "\(.aid)\t\(.status)\t\(.to)\t\(.sha256[0:12])\t\(.approved_by // "-")\t\(.at)\t\(.scope.title | gsub("[[:cntrl:]]"; " "))"' "$@"
 }
 
 op_new() { # globals: OTITLE → prints the new OP-<n>
