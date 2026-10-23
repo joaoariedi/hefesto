@@ -70,6 +70,8 @@ Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois.
   modo de permissão padrão (ela avisa se não estiver).
 - **RFCs** ficam em `docs/rfcs/<ID>.md`, uma por item, ligadas por uma linha `rfc:`. Se uma RFC muda depois
   que o plano foi aprovado, a builder para e a orchestrator pede que você alinhe o plano.
+- **A linha de status** mantém a sua (perfil, modelo, pasta…) e acrescenta `ctx 45% · 90k/200k`: o contexto
+  usado, e os tokens no contexto sobre o tamanho da janela.
 - **Compacte** quando a linha de status de uma sessão disser `/compact`, com o prompt próprio dela
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` só para trabalho sem relação.
 - **Gasto e rede.** Cada execução em segundo plano pode gastar até `orchestrate.usd_cap` (US$ 20 por padrão), e
