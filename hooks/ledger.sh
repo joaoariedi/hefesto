@@ -27,7 +27,7 @@ usage: ledger.sh <subcommand> …
   dir                                                   print the ledger directory
   board                                                 the resolved board as JSON: mode (in-repo|external), board_top, config, ledger_dir, repos, repo
   init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability] [--repo <name>]   (--repo: required on an external board)
-  claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; attempts > 2 → stall; releases claims whose lease (<id>.lease, renewed by the launcher) is over 5 min old
+  claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; implement attempts > 2 → stall (a person's clear starts the count again); releases claims whose lease (<id>.lease, renewed by the launcher) is over 5 min old
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
   block <id> --kind <kind> [--question <path>]
@@ -509,6 +509,11 @@ case "$SUB" in
     [ -z "$MSHA" ] || [ "$KIND" = human:merge ] || die "ledger unblock $ID: --merge-sha applies to human:merge only — this entry is blocked on $KIND"
     [ "$KIND" = human:intake ] || [ "$KIND" = human:plan-approval ] || { [ "$REVIEWED" = 0 ] && [ -z "$RBY" ]; } \
       || die "ledger unblock $ID: --reviewed-by-human / --by apply to human:intake and human:plan-approval only — this entry is blocked on $KIND (a reviewer would not be recorded)"
+    # attempts reset on a person's clear (live trial 2026-10-23): the count stops a run that keeps failing with
+    # nobody looking, so a person's decision starts it again — before, an item that asked twice could never build
+    # again, "Retry" on its stall re-stalled it at the next claim. A worker never resets it, nor clears a stall.
+    RESET='.'; if [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ]; then RESET='.attempts = 0'
+    elif [ "$KIND" = stall ]; then die "ledger unblock $ID: stall is never cleared from inside a launched worker — a person decides whether to retry, split or drop it"; fi
     SPEC_DIR=$(jq -r '.spec_dir // empty' <<<"$E")
     case "$KIND" in
       human:plan-review)
@@ -548,10 +553,10 @@ case "$SUB" in
         else echo "UNVERIFIED (no PR is recorded; the merge commit was not checked against one)"; fi
       fi
     elif [ "$KIND" = human:intake ]; then
-      jq --arg by "$RBY" '.blocked_on = null | .reviewed = ((.reviewed // []) + [{kind: "human:intake", by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
+      jq --arg by "$RBY" '.blocked_on = null | .attempts = 0 | .reviewed = ((.reviewed // []) + [{kind: "human:intake", by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
       echo "$ID unblocked ($KIND, reviewed by $RBY)"
     else
-      jq '.blocked_on = null' <<<"$E" | write_entry "$ID" || exit 1; echo "$ID unblocked ($KIND)"
+      jq ".blocked_on = null | $RESET" <<<"$E" | write_entry "$ID" || exit 1; echo "$ID unblocked ($KIND)"
     fi ;;
 
   run)
