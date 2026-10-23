@@ -4883,6 +4883,27 @@ l3_o="$(printf '%s' "$l3_gin" | CLAUDE_CONFIG_DIR="$l3_cfg" bash "$REPO/hooks/co
 printf '{"statusLine":{"type":"command","command":"%s/hooks/context-gauge.sh --with-user"}}\n' "$REPO" > "$l3_cfg/settings.json"
 [ "$(printf '%s' "$l3_gin" | CLAUDE_CONFIG_DIR="$l3_cfg" bash "$REPO/hooks/context-gauge.sh" --with-user)" = 'ctx 12% · 90k/200k' ] || { bad "gauge --with-user must skip a profile status line that is itself the gauge (no recursion)"; l3_fail=1; }
 rm -f "$l3_cfg/settings.json"
+# feature 2026-10-23: the background runs by name — every claim (stage, item, age) and the decisions waiting on
+# a person — from the main folder and from inside a worktree
+l3_rn="$(mktemp -d)"; git -C "$l3_rn" init -q -b main; mkdir -p "$l3_rn/.git/hefesto/ledger"
+printf '{"id":"RN-1","owner":{"role":"implement","started":"%s"},"blocked_on":null}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$l3_rn/.git/hefesto/ledger/RN-1.json"
+printf '{"id":"RN-2","owner":null,"blocked_on":{"kind":"human:plan-approval"}}\n' > "$l3_rn/.git/hefesto/ledger/RN-2.json"
+printf '{"id":"RN-3","owner":null,"blocked_on":{"kind":"ci"}}\n' > "$l3_rn/.git/hefesto/ledger/RN-3.json"
+l3_rin() { printf '{"context_window":{"used_percentage":12},"workspace":{"current_dir":"%s"}}' "$1"; }
+l3_want="$(printf 'ctx 12%%\n▶ implement RN-1 · 0m\n⏸ RN-2 · plan approval')"
+[ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" = "$l3_want" ] \
+  || { bad "gauge: each running claim and each decision for a person must be its own row below the first: '$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")'"; l3_fail=1; }
+git -C "$l3_rn" -c user.email=t@t -c user.name=t commit -q --allow-empty -m i; git -C "$l3_rn" worktree add -q "$l3_rn/wt" -b wt >/dev/null 2>&1
+[ "$(l3_rin "$l3_rn/wt" | bash "$REPO/hooks/context-gauge.sh")" = "$l3_want" ] || { bad "gauge: from inside a worktree the same rows must show"; l3_fail=1; }
+for n in 4 5 6 7 8 9; do printf '{"id":"RN-%s","owner":null,"blocked_on":{"kind":"human:merge"}}\n' "$n" > "$l3_rn/.git/hefesto/ledger/RN-$n.json"; done
+l3_o="$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")"
+{ [ "$(wc -l <<<"$l3_o" | tr -d ' ')" = 8 ] && [ "$(tail -1 <<<"$l3_o")" = '… +2 more' ]; } || { bad "gauge: at most six rows below the first, then '… +N more': $l3_o"; l3_fail=1; }
+rm -f "$l3_rn/.git/hefesto/ledger/"*.json; [ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" = 'ctx 12%' ] || { bad "gauge: with nothing running and nothing waiting, one row only"; l3_fail=1; }
+sed 's/^\[ -n "$pdir" \] \&\& runs_rows "$pdir"$/:/' "$REPO/hooks/context-gauge.sh" > "$l3_bin/g2.sh"; cmp -s "$REPO/hooks/context-gauge.sh" "$l3_bin/g2.sh" && { bad "gauge rows mutation did not apply"; l3_fail=1; }
+printf '{"id":"RN-1","owner":{"role":"plan","started":"2026-01-01T00:00:00Z"}}\n' > "$l3_rn/.git/hefesto/ledger/RN-1.json"
+[[ "$(l3_rin "$l3_rn" | bash "$l3_bin/g2.sh")" == *"▶ plan RN-1"* ]] && { bad "mutation survived: the run rows removed, yet the claim was named"; l3_fail=1; }
+[[ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" =~ ▶\ plan\ RN-1\ ·\ [0-9]+h[0-9]{2}m ]] || { bad "gauge: a long run's age must read in hours and minutes (1h05m)"; l3_fail=1; }
+rm -rf -- "${l3_rn:?}"
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
 l3_ss() { printf '{"cwd":"%s","session_title":"%s","permission_mode":"%s"}' "$l3_t" "$1" "$2" | bash "${L3_SS:-$REPO/hooks/session-start-context.sh}" 2>&1; }
 l3_o="$(l3_ss repo-builder default)"; grep -qF 'hefesto lane: build (repo-builder)' <<<"$l3_o" && grep -qF '/hef.orchestrate --stage build' <<<"$l3_o" && ! grep -qF 'hefesto setup:' <<<"$l3_o" \

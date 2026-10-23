@@ -70,8 +70,9 @@ Start with the single lane; the same project can add the three stage lanes later
   default permission mode (it warns you otherwise).
 - **RFCs** live in `docs/rfcs/<ID>.md`, one per item, linked by an `rfc:` line. If an RFC changes after its
   plan was approved, the builder stops and the orchestrator asks you to bring the plan in line.
-- **The status line** keeps your own (profile, model, folder…) and adds `ctx 45% · 90k/200k`: context used,
-  and tokens in context over the window.
+- **The status line** keeps your own (profile, model, folder…) and adds `ctx 45% · 90k/200k` (context used,
+  tokens in context over the window); below it, one row per background run (`▶ implement FAB-1 · 4m`) and per
+  decision waiting on you (`⏸ FAB-3 · plan approval`).
 - **Compact** when a lane's status line says `/compact`, with that lane's own prompt
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` only for unrelated work.
 - **Spend and network.** Each background run may spend up to `orchestrate.usd_cap` ($20 by default), and a
