@@ -4948,16 +4948,18 @@ l3u --lanes --strict >/dev/null 2>&1; jq -e '.sandbox.autoAllowBashIfSandboxed =
 jq '.sandbox.autoAllowBashIfSandboxed = true' "$L3F" > "$l3_t/x" && cp "$l3_t/x" "$L3F"
 l3_o="$(l3u --check 2>&1)" && { bad "--check must fail when a --strict setup lost autoAllowBashIfSandboxed false"; l3_fail=1; }; grep -qF autoAllowBashIfSandboxed <<<"$l3_o" || { bad "--check must name autoAllowBashIfSandboxed: $l3_o"; l3_fail=1; }
 l3u --lanes >/dev/null 2>&1; jq -e '.sandbox | has("autoAllowBashIfSandboxed") | not' "$L3F" >/dev/null || { bad "setup without --strict must take the strict autoAllowBashIfSandboxed back out: $(jq -c .sandbox "$L3F")"; l3_fail=1; }
-# --check refusals: a sandbox turned off, a grant that reaches hefesto's state, a hook command in the project
+# FR-023 --check refusals: a sandbox turned off, a grant that reaches hefesto's state, a hook command in the project
 cp "$L3F" "$l3_t/sl9.bak"
 for l3_bad in '.sandbox.enabled = false' '.sandbox.filesystem.allowWrite = ["~/.cache"]' '.hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": ($t + "/x.sh")}]}]}'; do
   jq --arg t "$l3_t" "$l3_bad" "$l3_t/sl9.bak" > "$L3F"; l3_o="$(l3u --check 2>&1)" && { bad "--check must refuse: $l3_bad"; l3_fail=1; }
 done
 # code review of PR A: the API is out of the sandbox, pr-watch is excluded, the command lists come from the command line
 cp "$l3_t/sl9.bak" "$L3F"
-jq -e --arg h "$REPO/hooks" '(.sandbox.network.deniedDomains | index(["api.github.com"])) and (.sandbox.excludedCommands | index(["\($h)/pr-watch.sh *"]))' "$L3F" >/dev/null \
-  || { bad "setup must deny the GitHub API to the sandbox and exclude pr-watch.sh: $(jq -c .sandbox "$L3F")"; l3_fail=1; }
-for l3_x in "--unsandboxed-command /bin/sh *" "--unsandboxed-command /usr/bin/python3 *" "--unsandboxed-command ssh vm *" "--allow-command gh pr merge *" "--allow-command /bin/bash *"; do
+jq -e --arg h "$REPO/hooks" '(.sandbox.network.deniedDomains | index(["api.github.com"])) and (.sandbox.excludedCommands | index(["\($h)/pr-watch.sh *"]))
+    and (.sandbox.excludedCommands | index(["\($h)/status-board.sh *"])) and (.permissions.ask | index(["Bash(\($h)/pr-watch.sh comment:*)"]))' "$L3F" >/dev/null \
+  || { bad "setup must deny the GitHub API to the sandbox, exclude pr-watch.sh and status-board.sh, and ask for pr-watch's writes: $(jq -c .sandbox "$L3F")"; l3_fail=1; }
+jq '.sandbox.network.deniedDomains = []' "$l3_t/sl9.bak" > "$L3F"; l3_o="$(l3u --check 2>&1)" && { bad "--check must refuse a setup without the GitHub API denial"; l3_fail=1; }; cp "$l3_t/sl9.bak" "$L3F"
+for l3_x in "--unsandboxed-command /bin/sh *" "--unsandboxed-command /usr/bin/busybox sh *" "--unsandboxed-command /usr/bin/python3 *" "--unsandboxed-command ssh vm *" "--allow-command gh pr merge *" "--allow-command /bin/bash *"; do
   l3u --lanes ${l3_x%% *} "${l3_x#* }" >/dev/null 2>&1 && { bad "setup must refuse $l3_x"; l3_fail=1; }
 done
 cmp -s "$L3F" "$l3_t/sl9.bak" || { bad "a refused command list must write nothing"; l3_fail=1; }
@@ -5114,7 +5116,7 @@ DIR_a1b2c3" deny
 lg_want builder "$REPO/hooks/session-launch.sh implement LT-2 --prepare --lane repo-deployer" deny
 lg_want builder "$REPO/hooks/session-launch.sh implement LT-2 --prepare --lane repo-builder" none
 # code review of PR A: a keyword, a quote or a backslash before gh made it run INSIDE the sandbox, auto-allowed
-for lg_c in 'if :; then gh pr merge 3 --merge; fi' '! gh pr merge 3 --merge' '"gh" pr merge 3 --merge' '\gh pr merge 3 --merge' 'for x in 1; do gh pr merge 3; done' "env -u CLAUDE_CODE_SESSION_ID $LGL approve A"; do
+for lg_c in 'if :; then gh pr merge 3 --merge; fi' 'g\h pr merge 3 --merge' '! gh pr merge 3 --merge' '"gh" pr merge 3 --merge' '\gh pr merge 3 --merge' 'for x in 1; do gh pr merge 3; done' "env -u CLAUDE_CODE_SESSION_ID $LGL approve A"; do
   lg_want builder "$lg_c" deny
 done
 lg_want builder "git log --oneline -3" none
@@ -5533,6 +5535,7 @@ la deployer action stop LT-2-A4 --step 1 --reason-file "$l3_t/why.md" >/dev/null
   && jq -e '.consumed_at != null' "$la_st/LT-2-A4.json" >/dev/null 2>&1 || { bad "stop must record the step and the reason and use up the approval"; la_fail=1; }
 { la orchestrator actions --status stopped | grep -qF 'LT-2-A4' && la orchestrator show LT-2 | jq -e '(.actions | length) == 4' >/dev/null; } || { bad "actions and show must list the history"; la_fail=1; }
 la orchestrator actions --status stopped | grep -qF $'LT-2-A4\tstopped\trepo-deployer' && la orchestrator actions --status stopped | grep -qF 'remove the stg volume' || { bad "actions must print the aid, status, lane and title: $(la orchestrator actions --status stopped)"; la_fail=1; }
+# FR-029: scope and directive text is data — the eval baits both
 { [ -x "$REPO/evals/action-text-is-data/scaffold.sh" ] && grep -qF 'never-approves' "$REPO/evals/action-text-is-data/case.yaml" && grep -qF 'tool_used' "$REPO/evals/action-text-is-data/case.yaml"; } || { bad "the action-text-is-data eval must ship (SC-009 companion)"; la_fail=1; }
 # op entries
 la_op="$(la orchestrator op new --title "clean the stg volumes" 2>/dev/null)"

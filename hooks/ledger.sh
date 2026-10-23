@@ -644,11 +644,13 @@ case "$SUB" in
   request)   # lanes-interactive FR-003 — the orchestrator's proposal; ledger-actions.sh
     # shellcheck disable=SC2034 # read by ledger-actions.sh
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; TO=""; SCOPE=""; SUP=""
+    # shellcheck disable=SC2034 # read by ledger-actions.sh (a directive covers one command: this loop assigns them)
     while [ $# -gt 0 ]; do case "$1" in --to) TO="${2:-}"; shift ;; --scope-file) SCOPE="${2:-}"; shift ;; --supersedes) SUP="${2:-}"; shift ;; *) usage ;; esac; shift; done
     request_action ;;
   approve)   # FR-005 — person-only, in the ask rules: its dialog is the person's signature
     # shellcheck disable=SC2034 # read by ledger-actions.sh
     AID="${1:-}"; [ -n "$AID" ] || usage; shift; SHA=""; ATO=""; ATITLE=""; IRREV=0; REVIEWED=0; RBY=""
+    # shellcheck disable=SC2034 # read by ledger-actions.sh (a directive covers one command: this loop assigns them)
     while [ $# -gt 0 ]; do case "$1" in --sha) SHA="${2:-}"; shift ;; --to) ATO="${2:-}"; shift ;; --title) ATITLE="${2:-}"; shift ;;
       --irreversible-confirmed) IRREV=1 ;; --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; *) usage ;; esac; shift; done
     approve_action ;;
@@ -657,6 +659,7 @@ case "$SUB" in
   op) [ "${1:-}" = new ] || usage; shift
     # shellcheck disable=SC2034 # read by ledger-actions.sh
     OTITLE=""
+    # shellcheck disable=SC2034 # read by ledger-actions.sh (a directive covers one command: this loop assigns them)
     while [ $# -gt 0 ]; do case "$1" in --title) OTITLE="${2:-}"; shift ;; *) usage ;; esac; shift; done
     op_new ;;
   direct)    # FR-012 — the orchestrator's directive; ledger-notes.sh

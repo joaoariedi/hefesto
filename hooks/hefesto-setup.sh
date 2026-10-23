@@ -117,7 +117,11 @@ for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
   for c in unblock record claim advance handoff block revise answer approve release; do
     ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
   done
-  excl+=("$h/session-launch.sh *" "$h/ledger.sh *" "$h/pr-watch.sh *")   # pr-watch: the babysitter's gh calls live in it
+  # pr-watch's two verbs that write to GitHub (a reply, a comment) ask — the rest of it reads
+  ask+=("Bash($h/pr-watch.sh reply:*)" "Bash($h/pr-watch.sh comment:*)")
+  # pr-watch: the babysitter's gh calls live in it; status-board: a github-project board is read through gh — both
+  # need the API the lanes' sandbox no longer reaches (code review of PR A)
+  excl+=("$h/session-launch.sh *" "$h/ledger.sh *" "$h/pr-watch.sh *" "$h/status-board.sh *")
   allow+=("Bash($h/pr-watch.sh:*)")
 done; done
 # hefesto 9 keeps the ledger in ~/.cache/hefesto, outside every sandbox: the 8.x grant of the board repo's
@@ -150,7 +154,7 @@ cmd_ok() { # $1 a command pattern → 0 when safe to write as a rule (review rou
   [[ "$1" =~ [\;\&\|\<\>\`\$\(\)\{\}] ]] && return 1
   w="${1%% *}"; w="${w##*/}"   # by basename: /bin/sh is a shell too
   case "$w" in sh|bash|zsh|dash|ksh|fish|env|eval|exec|xargs|sudo|doas|nohup|timeout|command|builtin|nice|time|setsid|script \
-    |python|python[0-9]*|perl|ruby|node|deno|bun|php|lua|tclsh|awk|gawk|mawk|sed|find|git|make|osascript) return 1 ;; esac
+    |python|python[0-9]*|perl|ruby|node|deno|bun|php|lua|tclsh|awk|gawk|mawk|sed|find|git|make|osascript|busybox|toybox) return 1 ;; esac
   case " $1 " in *" -c "*|*" -e "*) return 1 ;; esac
   return 0
 }
@@ -200,6 +204,7 @@ if [ "$MODE" = check ]; then
       (if ((.sandbox.excludedCommands // []) | index(["\($h)/ledger.sh *"])) then empty else "the ledger.sh sandbox exclusion (hefesto 9 keeps the ledger outside the project)" end),
       (if ((.sandbox.excludedCommands // []) | index(["gh *"])) then empty else "gh outside the sandbox (so a merge is decided by the permission rules)" end),
       (if .sandbox.enabled == true then empty else "sandbox.enabled true" end),
+      (if ((.sandbox.network.deniedDomains // []) | index(["api.github.com"])) then empty else "the GitHub API denied to the sandbox (sandbox.network.deniedDomains)" end),
       (if ((.env.HEFESTO_SETUP_SET // "") | split(",") | index(["autoallow"])) and .sandbox.autoAllowBashIfSandboxed != false then "sandbox.autoAllowBashIfSandboxed false (--strict)" else empty end),
       (if .env.HEFESTO_TRUSTED_TOP then empty else "the trusted project folder" end)
     ] | join(", ")' <<<"$CUR")"

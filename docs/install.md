@@ -399,7 +399,8 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
      sandbox's write set. Only hefesto's helpers write them; file edits there are denied, through a symlink too.
    - **The lane** is the session's name, recorded by the session-start hook outside the sandbox.
    - **A person's decision is recorded only from the orchestrator lane**: lane-guard and `ledger.sh` both check.
-   - **A command hefesto runs outside the sandbox** must be one plain word list: no pipe, redirect or chain.
+   - **A command hefesto runs outside the sandbox** must be one plain word list: no pipe, redirect or chain. A command
+     that merely names one (`echo gh`, `grep -rn gh docs/`) is refused too, on purpose: use the Grep tool to search.
    - **A command that stays inside the sandbox runs without approval.** The sandbox's network allowlist is part of the
      trust model: keep it to what the lanes need.
    - **Hefesto's hooks that run a project's own commands** (tests after an edit, the formatter, the task-completion
