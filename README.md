@@ -377,6 +377,7 @@ The hooks ship with the plugin — you do not register them:
 | 🧠 [Skills](docs/skills.md) · [Rules](docs/rules.md) · [MCP](docs/mcp.md) | Component reference. |
 | ⚡ [Performance & Reasoning](docs/performance.md) | Ultrathink, model selection, context management. |
 | 📖 [Research Corpus](docs/research.md) | The reports the framework is built on, and acknowledgments. |
+| 🏭 [Case Study: a Production SDLC](docs/case-study-sdlc.md) | One adopter's whole lifecycle on Hefesto, from RFC to prod: lanes, gates, the PO chat-bot loop, how to replicate it, and the gaps it found. |
 
 ---
 
