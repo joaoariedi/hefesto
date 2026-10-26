@@ -69,6 +69,8 @@ EXCL_HIT=""
 while IFS= read -r e; do
   [ -n "$e" ] || continue
   w="${e%% *}"; q="$(re_quote "$w")"
+  # (a path such as /usr/bin/gh is not matched: it does not leave the sandbox — the exclusion is the bare word — and the
+  # sandbox denies api.github.com, which setup writes and --check verifies)
   # the word anywhere, quoted or escaped too — not only after an operator: `if :; then gh …; fi`, `! gh …`, `"gh" …`
   # and `\gh …` start with something else, so they run INSIDE the sandbox, auto-allowed (code review of PR A)
   re="(^|[^A-Za-z0-9_./-])[\\\\\"']*${q}[\"']*([^A-Za-z0-9_./-]|\$)"
@@ -167,8 +169,11 @@ try_grant
 # DENIED here, not left to the permission rules — in auto mode a command no rule matches is the classifier's call, and
 # the classifier let a lane's `gh pr merge` run with no one asked. A deny holds in every permission mode; an ask rule
 # could not do this (it beats a hook's allow, so an approved merge would ask too).
-GH_READ='^[[:space:]]*gh[[:space:]]+(pr[[:space:]]+(view|list|checks|diff|status|create|checkout)|issue[[:space:]]+(view|list|status)|run[[:space:]]+(view|list|watch)|repo[[:space:]]+view|release[[:space:]]+(view|list)|workflow[[:space:]]+(view|list)|label[[:space:]]+list|auth[[:space:]]+status|search|--version|version|help)([[:space:]]|$)'
+# Not admitted, though they look like reads (review of 9.0.1): `gh pr checkout … --worktree <path>` writes anywhere on the
+# host (gh runs unsandboxed), and `gh auth status --show-token` prints the person's token — `auth status` only bare.
+GH_READ='^[[:space:]]*gh[[:space:]]+((pr[[:space:]]+(view|list|checks|diff|status|create)|issue[[:space:]]+(view|list|status)|run[[:space:]]+(view|list|watch)|repo[[:space:]]+view|release[[:space:]]+(view|list)|workflow[[:space:]]+(view|list)|label[[:space:]]+list|search|--version|version|help)([[:space:]]|$)|auth[[:space:]]+status[[:space:]]*$)'
 if [ "$EXCL_HIT" = gh ] && ! [[ "$CMD" =~ $GH_READ ]]; then
-  deny "in a --lanes project a gh command that writes to GitHub runs only as an approved action — ask the orchestrator for one (the person approves it as a form); reads (gh pr view/list/checks/diff, gh run view, …) and gh pr create are fine"
+  if [ -n "$NAME" ]; then deny "in a --lanes project a gh command that writes to GitHub runs only as an approved action — ask the orchestrator for one (the person approves it as a form); reads (gh pr view/list/checks/diff, gh run view, …) and gh pr create are fine"
+  else deny "in a --lanes project a gh command that writes to GitHub runs only as an approved action of a lane — this session is no lane, so it cannot hold one; do it on GitHub, or from a lane through the orchestrator"; fi
 fi
 exit 0

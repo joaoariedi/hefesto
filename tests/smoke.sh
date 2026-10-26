@@ -5144,10 +5144,11 @@ done
 lg_want builder "git log --oneline -3" none
 # 9.0.1 (live check 6): in auto mode an unmatched gh pr merge was the classifier's call and ran — in a --lanes project
 # a gh that writes is denied unless granted; reads and gh pr create are left to the rules
-for lg_c in "gh pr merge 99999 --merge" "gh api user" "gh release create v1" "gh pr comment 1 --body x" "gh pr review 1 --approve"; do
+for lg_c in "gh pr merge 99999 --merge" "gh api user" "gh release create v1" "gh pr comment 1 --body x" "gh pr review 1 --approve" \
+            "gh pr checkout 1 --worktree $HOME/.claude/skills/x" "gh auth status --show-token" "gh auth status -t" "gh -R o/r pr merge 1"; do
   lg_want builder "$lg_c" deny; lg_want orchestrator "$lg_c" deny
 done
-for lg_c in "gh pr view 1 --json title" "gh pr create --fill" "gh run view 12" "gh pr checks 1"; do lg_want builder "$lg_c" none; done
+for lg_c in "gh pr view 1 --json title" "gh pr create --fill" "gh run view 12" "gh pr checks 1" "gh auth status"; do lg_want builder "$lg_c" none; done
 lg_want single "gh pr merge 99999 --merge" none   # a set-up project without --lanes: the permission rules decide, as 9.0
 # a set-up project without --lanes: the plain-word rule still holds, the person-only rule does not apply
 jq '.lanes = false | .role = "" | .name = ""' "$HOME/.cache/hefesto/sessions/sid-repo-builder-0001.json" > "$HOME/.cache/hefesto/sessions/sid-repo-single-0001.json"

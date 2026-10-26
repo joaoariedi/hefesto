@@ -355,8 +355,8 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    - a person's decisions (`approve`, `unblock`, `record`, `answer`, `revise`, `release`, …) in `ask`;
    - outside the sandbox (`sandbox.excludedCommands`): the launcher, `ledger.sh` (hefesto 9 keeps the ledger outside
      the project) and `gh` (so a merge is decided by the permission rules, never by the sandbox). Only gh's read
-     forms and `gh pr create` are allowed; `gh pr merge`, `gh pr review` and `gh api` always need an approved
-     action or your dialog;
+     forms and `gh pr create` are allowed; `gh pr merge`, `gh pr review` and `gh api` need an approved action
+     (with `--lanes`) or your dialog (a single lane);
    - `Edit` denied on hefesto's own state (`~/.cache/hefesto/{ledger,approvals,sessions}`);
    - the sandbox on (`enabled`, `failIfUnavailable`), and sandboxed commands running without a dialog
      (`--strict` keeps 8.0's every-command-asks);
