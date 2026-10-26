@@ -355,8 +355,8 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    - a person's decisions (`approve`, `unblock`, `record`, `answer`, `revise`, `release`, …) in `ask`;
    - outside the sandbox (`sandbox.excludedCommands`): the launcher, `ledger.sh` (hefesto 9 keeps the ledger outside
      the project) and `gh` (so a merge is decided by the permission rules, never by the sandbox). Only gh's read
-     forms and `gh pr create` are allowed; `gh pr merge`, `gh pr review` and `gh api` always need an approved
-     action or your dialog;
+     forms and `gh pr create` are allowed; `gh pr merge`, `gh pr review` and `gh api` need an approved action
+     (with `--lanes`) or your dialog (a single lane);
    - `Edit` denied on hefesto's own state (`~/.cache/hefesto/{ledger,approvals,sessions}`);
    - the sandbox on (`enabled`, `failIfUnavailable`), and sandboxed commands running without a dialog
      (`--strict` keeps 8.0's every-command-asks);
@@ -407,6 +407,10 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
      gate, the commit gate's linters) stand down in a `--lanes` project. A hook runs outside the sandbox, so those
      would be a way out of it.
    - **In auto mode** a command no rule matches is the classifier's call, with no dialog; every lane says so at start.
+   - **In a `--lanes` project, a `gh` command that writes to GitHub runs only as an approved action.** lane-guard
+     denies `gh pr merge`, `gh api`, `gh release create` and every other form that is not a read (`gh pr view`, `list`,
+     `checks`, `diff`, `gh run view`, …) or `gh pr create`, in every permission mode. In auto mode a command no rule
+     matches is otherwise the classifier's call.
    - **The GitHub API is denied to the sandbox** (`sandbox.network.deniedDomains`). Only the unsandboxed `gh` and
      `pr-watch.sh` reach it, each called as one plain command and decided by the permission rules. `git push` over
      HTTPS (github.com) still works.

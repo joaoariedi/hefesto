@@ -5142,6 +5142,14 @@ for lg_c in 'if :; then gh pr merge 3 --merge; fi' 'g\h pr merge 3 --merge' '! g
   lg_want builder "$lg_c" deny
 done
 lg_want builder "git log --oneline -3" none
+# 9.0.1 (live check 6): in auto mode an unmatched gh pr merge was the classifier's call and ran — in a --lanes project
+# a gh that writes is denied unless granted; reads and gh pr create are left to the rules
+for lg_c in "gh pr merge 99999 --merge" "gh api user" "gh release create v1" "gh pr comment 1 --body x" "gh pr review 1 --approve" \
+            "gh pr checkout 1 --worktree $HOME/.claude/skills/x" "gh auth status --show-token" "gh auth status -t" "gh -R o/r pr merge 1"; do
+  lg_want builder "$lg_c" deny; lg_want orchestrator "$lg_c" deny
+done
+for lg_c in "gh pr view 1 --json title" "gh pr create --fill" "gh run view 12" "gh pr checks 1" "gh auth status"; do lg_want builder "$lg_c" none; done
+lg_want single "gh pr merge 99999 --merge" none   # a set-up project without --lanes: the permission rules decide, as 9.0
 # a set-up project without --lanes: the plain-word rule still holds, the person-only rule does not apply
 jq '.lanes = false | .role = "" | .name = ""' "$HOME/.cache/hefesto/sessions/sid-repo-builder-0001.json" > "$HOME/.cache/hefesto/sessions/sid-repo-single-0001.json"
 lg_want single "gh pr list | head -3" deny
@@ -5173,6 +5181,8 @@ jq -nc --arg d "$lg_fm" '{tool_input: {command: "git commit -m \"feat: x\""}, cw
 l3_mut session-start-context.sh 's/^  \. "$HEF_LL"; hef_git_neutral$/  . "$HEF_LL"/'
 printf '{"cwd":"%s","source":"compact"}' "$lg_fm" | bash "$l3_md/session-start-context.sh" >/dev/null 2>&1
 [ -f "$lg_fm/ESCAPED" ] || { bad "mutation survived: the neutraliser removed, yet the canary did not fire (is the fixture's fsmonitor live?)"; lg_fail=1; }; l3_restore session-start-context.sh; rm -rf -- "${lg_fm:?}"
+l3_mut lane-guard.sh 's/^if \[ "$EXCL_HIT" = gh \] \&\& ! \[\[ "$CMD" =~ $GH_READ \]\]; then$/if false; then/'; LG_GD="$l3_md/lane-guard.sh"
+[ "$(gd builder "gh pr merge 99999 --merge")" = deny ] && { bad "mutation survived: the gh write rule removed, yet the merge was denied"; lg_fail=1; }; l3_restore lane-guard.sh; LG_GD=""
 l3_mut lane-guard.sh 's/^  re="(^|\[^A-Za-z0-9_.\/-\])/  re="(^|[;\&|])/'; LG_GD="$l3_md/lane-guard.sh"
 [ "$(gd builder 'if :; then gh pr merge 3 --merge; fi')" = deny ] && { bad "mutation survived: the whole-word detection reduced to operators, yet the keyword form was denied"; lg_fail=1; }; l3_restore lane-guard.sh; LG_GD=""
 # mutations, beside the real helpers
@@ -5189,7 +5199,7 @@ l3_mut run-tests-after-edit.sh 's/lanes_project "$CWD"; then echo/false; then ec
 lg_o="$(jq -nc --arg d "$l3_t" '{tool_name: "Edit", tool_input: {file_path: ($d + "/a.js")}, cwd: $d}' | bash "$l3_md/run-tests-after-edit.sh" 2>&1 >/dev/null)"
 grep -qF 'stands down' <<<"$lg_o" && { bad "mutation survived: the stand-down removed, yet it still stood down"; lg_fail=1; }; l3_restore run-tests-after-edit.sh
 rm -f "$l3_t/package.json" "$l3_t/RAN" "$HOME/.cache/hefesto/sessions/sid-repo-single-0001.json"; rm -rf -- "${lg_h2:?}"
-[ "$lg_fail" -eq 0 ] && ok "lane guard: person-only commands from the orchestrator only; excluded commands (gh, ledger.sh, the launcher) as one plain word list in every lane and in single-lane mode — no redirect, pipe, chain, wrapper, assignment or CLAUDE_CODE_SESSION_ID; the orchestrator heredoc only for answer/revise/direct; --prepare/--finish only as the caller's own lane; no record → silent; file tools denied on hefesto's state directly, through a symlink and by the physical path; ledger.sh's own session check; project-command hooks stand down; gh behind a keyword, quote or backslash denied; the hooks ignore a planted core.fsmonitor; 7 mutations caught"
+[ "$lg_fail" -eq 0 ] && ok "lane guard: person-only commands from the orchestrator only; excluded commands (gh, ledger.sh, the launcher) as one plain word list in every lane and in single-lane mode — no redirect, pipe, chain, wrapper, assignment or CLAUDE_CODE_SESSION_ID; the orchestrator heredoc only for answer/revise/direct; --prepare/--finish only as the caller's own lane; no record → silent; file tools denied on hefesto's state directly, through a symlink and by the physical path; ledger.sh's own session check; project-command hooks stand down; gh behind a keyword, quote or backslash denied; the hooks ignore a planted core.fsmonitor; a gh that writes is denied in lanes unless granted; 8 mutations caught"
 
 # FR-016/017/024 the board: --init on a fresh repo, --add with the next id, an incident fix built without a plan
 l3_n="$(mktemp -d)/shop-app"; mkdir -p "$l3_n"; git -C "$l3_n" init -q
@@ -5527,18 +5537,18 @@ la builder action take LT-2-A1 >/dev/null 2>&1 && { bad "a lane must not take an
 la deployer action take LT-2-A1 >/dev/null 2>&1 && la_aj LT-2-A1 '.status == "taken"' || { bad "the deployer must take its approved action"; la_fail=1; }
 la deployer action take LT-2-A1 >/dev/null 2>&1 && { bad "an action is taken once"; la_fail=1; }
 la_cmd="gh pr merge 7 --merge --match-head-commit $la_sha"
-[ "$(gd deployer "$la_cmd")" = none ] || { bad "no grant before the heads are checked (the scope has heads)"; la_fail=1; }
+[ "$(gd deployer "$la_cmd")" = deny ] || { bad "no grant before the heads are checked (the scope has heads) — an ungranted gh merge is denied"; la_fail=1; }
 la_gh="$(mktemp -d)"; printf '#!/bin/bash\necho "${LA_HEAD:-%s}"\n' "$la_sha" > "$la_gh/gh"; chmod +x "$la_gh/gh"
 LA_HEAD=bbbb HEFESTO_GH_BIN="$la_gh/gh" la deployer action heads LT-2-A1 >/dev/null 2>&1 && { bad "heads must fail when the live head differs"; la_fail=1; }
 HEFESTO_GH_BIN="$la_gh/gh" la deployer action heads LT-2-A1 >/dev/null 2>&1 && la_aj LT-2-A1 '.heads_ok_at != null' || { bad "heads must record heads_ok_at when every head matches"; la_fail=1; }
 [ "$(gd deployer "$la_cmd")" = allow ] || { bad "the approved command must be granted to the deployer once the heads match"; la_fail=1; }
-[ "$(gd builder "$la_cmd")" = none ] || { bad "the grant is for the action's lane only"; la_fail=1; }
-[ "$(gd deployer "$la_cmd --admin")" = none ] || { bad "a command beyond the pattern is not granted"; la_fail=1; }
+[ "$(gd builder "$la_cmd")" = deny ] || { bad "the grant is for the action's lane only (another lane's gh merge is denied)"; la_fail=1; }
+[ "$(gd deployer "$la_cmd --admin")" = deny ] || { bad "a command beyond the pattern is not granted (denied)"; la_fail=1; }
 printf 'merged as 1234567\n' > "$l3_t/ev.md"
 la builder action done LT-2-A1 --evidence-file "$l3_t/ev.md" >/dev/null 2>&1 && { bad "another lane must not finish the action"; la_fail=1; }
 la deployer action done LT-2-A1 --evidence-file "$l3_t/ev.md" >/dev/null 2>&1 && la_aj LT-2-A1 '.status == "done" and .outcome.kind == "done"' \
   && jq -e '.consumed_at != null' "$la_st/LT-2-A1.json" >/dev/null 2>&1 || { bad "done must record the evidence and use up the approval"; la_fail=1; }
-[ "$(gd deployer "$la_cmd")" = none ] || { bad "no grant after the action is done"; la_fail=1; }
+[ "$(gd deployer "$la_cmd")" = deny ] || { bad "no grant after the action is done (denied)"; la_fail=1; }
 # supersede, irreversible, tamper, stop
 la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/sc.json" >/dev/null 2>&1; la_h2="$(jq -r .sha256 "$(sld "$l3_t")/actions/LT-2-A2.json")"
 la_appr orchestrator LT-2-A2 "${la_h2:0:8}" >/dev/null 2>&1
@@ -5606,7 +5616,7 @@ la_appr orchestrator LT-2-A5 "${la_h6:0:8}" repo-builder >/dev/null 2>&1 || { ba
 l3_mut lane-guard.sh 's/|| continue$/|| :/'; LG_GD="$l3_md/lane-guard.sh"
 jq '.status = "taken" | del(.heads_ok_at)' "$(sld "$l3_t")/actions/LT-2-A1.json" > "$l3_t/x.json" && cp "$l3_t/x.json" "$(sld "$l3_t")/actions/LT-2-A1.json"
 [ "$(gd deployer "$la_cmd")" = allow ] || { bad "mutation survived: the grant's checks removed, yet the used, unchecked action was not granted"; la_fail=1; }; l3_restore lane-guard.sh; LG_GD=""
-[ "$(gd deployer "$la_cmd")" = none ] || { bad "a used approval without a heads check grants nothing"; la_fail=1; }
+[ "$(gd deployer "$la_cmd")" = deny ] || { bad "a used approval without a heads check grants nothing (denied)"; la_fail=1; }
 # the status line shows a request waiting on the person (FR-027)
 la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/sc.json" >/dev/null 2>&1; la_last="$(ls "$(sld "$l3_t")"/actions/ | sed -n 's/^\(LT-2-A[0-9]*\)\.json$/\1/p' | sort -t A -k2 -n | tail -1)"
 la_gauge() { jq -nc --arg d "$l3_t" '{context_window: {used_percentage: 10}, workspace: {current_dir: $d, project_dir: $d}}' | bash "${1:-$REPO/hooks/context-gauge.sh}"; }
