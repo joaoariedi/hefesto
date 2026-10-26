@@ -134,27 +134,41 @@ exit 0 ;; esac; fi
 # Grants (FR-011, #138): a command of an action this lane has taken runs without a dialog in its pane — only while
 # the approval in the store is valid (same hash, this lane, not used up) and, for a scope with heads, the heads were
 # checked since the take (and within 30 minutes). A pattern is literal text; its `*` matches no shell operator.
-[ -n "$NAME" ] || exit 0
-[[ "$CMD" == *$'\n'* ]] && exit 0
-LD="$(jq -r '.ledger // empty' <<<"$REC")"; [ -d "$LD/actions" ] || exit 0
-set -- "$LD"/actions/*.json; [ -f "$1" ] || exit 0
 glob_re() { # $1 pattern → an anchored ERE
   local out="" ch i
   for ((i = 0; i < ${#1}; i++)); do ch="${1:i:1}"
     case "$ch" in '*') out+='[^;&|`$()<>{}]*' ;; [][\\.^\$+?\(\)\{\}\|]) out+="\\$ch" ;; *) out+="$ch" ;; esac
   done; printf '^%s$' "$out"
 }
-while IFS= read -r a; do
-  aid="$(jq -r .aid <<<"$a")"; st="$(cat "$(hef_cache)/approvals/$(basename "$LD")/$aid.json" 2>/dev/null)" || continue
-  h="$(jq -cS '{entry, to, scope}' <<<"$a" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)"
-  [ "$h" = "$(jq -r .sha256 <<<"$a")" ] && [ "$h" = "$(jq -r '.sha256 // empty' <<<"$st")" ] || continue
-  [ "$(jq -r '.to // empty' <<<"$st")" = "$NAME" ] && [ -z "$(jq -r '.consumed_at // empty' <<<"$st")" ] || continue
-  if [ "$(jq -r '.scope.heads | length' <<<"$a")" -gt 0 ]; then
-    jq -e '(.heads_ok_at // "") as $h | $h != "" and $h >= .taken_at and (now - ($h | fromdateiso8601)) < 1800' <<<"$a" >/dev/null 2>&1 || continue
-  fi
-  while IFS= read -r pat; do
-    [ -n "$pat" ] || continue; re="$(glob_re "$pat")"
-    [[ "$CMD" =~ $re ]] && allow "approved action $aid ($(jq -r .scope.title <<<"$a" | cut -c1-80)), approved by $(jq -r .by <<<"$st")"
-  done < <(jq -r '.scope.commands[]?' <<<"$a")
-done < <(jq -c --arg n "$NAME" 'select(.to == $n and .status == "taken")' "$@" 2>/dev/null)
+try_grant() { # → allow (and exit) when CMD is a command of an action this lane holds; else return
+  local LD a aid st h pat re
+  [ -n "$NAME" ] || return 0
+  [[ "$CMD" == *$'\n'* ]] && return 0
+  LD="$(jq -r '.ledger // empty' <<<"$REC")"; [ -d "$LD/actions" ] || return 0
+  set -- "$LD"/actions/*.json; [ -f "$1" ] || return 0
+  while IFS= read -r a; do
+    aid="$(jq -r .aid <<<"$a")"; st="$(cat "$(hef_cache)/approvals/$(basename "$LD")/$aid.json" 2>/dev/null)" || continue
+    h="$(jq -cS '{entry, to, scope}' <<<"$a" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)"
+    [ "$h" = "$(jq -r .sha256 <<<"$a")" ] && [ "$h" = "$(jq -r '.sha256 // empty' <<<"$st")" ] || continue
+    [ "$(jq -r '.to // empty' <<<"$st")" = "$NAME" ] && [ -z "$(jq -r '.consumed_at // empty' <<<"$st")" ] || continue
+    if [ "$(jq -r '.scope.heads | length' <<<"$a")" -gt 0 ]; then
+      jq -e '(.heads_ok_at // "") as $h | $h != "" and $h >= .taken_at and (now - ($h | fromdateiso8601)) < 1800' <<<"$a" >/dev/null 2>&1 || continue
+    fi
+    while IFS= read -r pat; do
+      [ -n "$pat" ] || continue; re="$(glob_re "$pat")"
+      [[ "$CMD" =~ $re ]] && allow "approved action $aid ($(jq -r .scope.title <<<"$a" | cut -c1-80)), approved by $(jq -r .by <<<"$st")"
+    done < <(jq -r '.scope.commands[]?' <<<"$a")
+  done < <(jq -c --arg n "$NAME" 'select(.to == $n and .status == "taken")' "$@" 2>/dev/null)
+  return 0
+}
+try_grant
+
+# gh in a --lanes project (9.0.1, live check 6): a gh that is not a read form, a PR creation or a granted command is
+# DENIED here, not left to the permission rules — in auto mode a command no rule matches is the classifier's call, and
+# the classifier let a lane's `gh pr merge` run with no one asked. A deny holds in every permission mode; an ask rule
+# could not do this (it beats a hook's allow, so an approved merge would ask too).
+GH_READ='^[[:space:]]*gh[[:space:]]+(pr[[:space:]]+(view|list|checks|diff|status|create|checkout)|issue[[:space:]]+(view|list|status)|run[[:space:]]+(view|list|watch)|repo[[:space:]]+view|release[[:space:]]+(view|list)|workflow[[:space:]]+(view|list)|label[[:space:]]+list|auth[[:space:]]+status|search|--version|version|help)([[:space:]]|$)'
+if [ "$EXCL_HIT" = gh ] && ! [[ "$CMD" =~ $GH_READ ]]; then
+  deny "in a --lanes project a gh command that writes to GitHub runs only as an approved action — ask the orchestrator for one (the person approves it as a form); reads (gh pr view/list/checks/diff, gh run view, …) and gh pr create are fine"
+fi
 exit 0

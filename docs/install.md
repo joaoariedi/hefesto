@@ -407,6 +407,10 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
      gate, the commit gate's linters) stand down in a `--lanes` project. A hook runs outside the sandbox, so those
      would be a way out of it.
    - **In auto mode** a command no rule matches is the classifier's call, with no dialog; every lane says so at start.
+   - **In a `--lanes` project, a `gh` command that writes to GitHub runs only as an approved action.** lane-guard
+     denies `gh pr merge`, `gh api`, `gh release create` and every other form that is not a read (`gh pr view`, `list`,
+     `checks`, `diff`, `gh run view`, …) or `gh pr create`, in every permission mode. In auto mode a command no rule
+     matches is otherwise the classifier's call.
    - **The GitHub API is denied to the sandbox** (`sandbox.network.deniedDomains`). Only the unsandboxed `gh` and
      `pr-watch.sh` reach it, each called as one plain command and decided by the permission rules. `git push` over
      HTTPS (github.com) still works.
