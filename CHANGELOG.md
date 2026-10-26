@@ -35,6 +35,33 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [9.0.1] - 2026-10-26
+
+**In a four-lane project, a lane can no longer write to GitHub without an approved action, whatever the permission
+mode.**
+
+### Fixed
+
+- **A lane's unapproved `gh pr merge` ran in auto mode** (found by the 9.0 live checks). `gh` runs outside the sandbox,
+  so a command no permission rule matched was left to auto mode's classifier, and the classifier let it run.
+
+  In a `--lanes` project, `hooks/lane-guard.sh` now decides every plain `gh` call:
+  - a command of an approved action the lane has taken is granted;
+  - read forms and `gh pr create` are left to the permission rules;
+  - everything else is denied in every mode: `gh pr merge`, `gh api`, `gh release create`, `gh pr comment`,
+    `gh pr review` and the rest.
+
+  Two forms that look like reads are denied too:
+  - `gh pr checkout … --worktree <path>`, which writes anywhere on the host;
+  - `gh auth status --show-token`, which would print your token.
+
+  A project set up without `--lanes` behaves as in 9.0.
+- **The case study** (`docs/case-study-sdlc.md`): a production SDLC run on hefesto.
+
+### Upgrading
+
+Run the wizard. Nothing else changes; setup does not need to run again.
+
 ## [9.0.0] - 2026-10-23
 
 **Approve any lane action in the orchestrator and the lane carries it out, with nothing typed or pasted into its
