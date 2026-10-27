@@ -40,10 +40,13 @@ usage: ledger.sh <subcommand> …
   revise <id> --reviewed-by-human --by <name> [--notes-file f]  a plan waiting on approval goes back to the planner with the person's notes
   show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
+  drop <id> --reason-file <f> | fold <id> --into <id2> --reason-file <f> | supersede <id> --by <id2> --reason-file <f>   a terminal phase (person-only)
+  reopen <id> --reason-file <f>                         a merged item back to implement for a follow-up PR (person-only)
+  deployed <id> --env <env> --commit <sha>              record that the commit is in that environment; the final env releases a merged item
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
   publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish)
   escalate [--record <id>]                              old human:* blocks as one-line pointers (opt-in: orchestrate.escalate_after_hours)
-  branches                                              the resolved branch model as JSON (config .branches; defaults = trunk on main)
+  branches [--configured] [--repo <name>]              the resolved branch model as JSON with .source (repo file | board | default; defaults = trunk on main)
   where <id>                                            per environment: does it contain the entry's branch (local, then origin/)
 EOF
   exit 2
@@ -70,10 +73,22 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 . "$HERE/ledger-lanes.sh"
 # shellcheck source=hooks/lane-lib.sh
 . "$HERE/lane-lib.sh"
+# One gh resolution, at entry (FR-027; lane-lib.sh says why never inline). A copy run without lane-lib.sh beside it
+# (the mutation fixtures) keeps the 9.0 seam — unless the eval seam is set, which only gh_bin may resolve.
+if declare -F gh_bin >/dev/null; then GH=$(gh_bin) || exit 1
+elif [ -z "${EVAL_GH_BIN:-}" ]; then GH="${HEFESTO_GH_BIN:-gh}"
+else die "ledger: EVAL_GH_BIN=$EVAL_GH_BIN is set but $HERE/lane-lib.sh is missing — refusing to fall back to the real gh"; fi
 # shellcheck source=hooks/ledger-actions.sh
 . "$HERE/ledger-actions.sh"
 # shellcheck source=hooks/ledger-notes.sh
 . "$HERE/ledger-notes.sh"
+# The item lifecycle (terminal phases, .prs[], deployed, .events) and the deploy recipes (lanes-parity, 9.1).
+[ -f "$HERE/ledger-lifecycle.sh" ] || die "ledger: $HERE/ledger-lifecycle.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/ledger-lifecycle.sh
+. "$HERE/ledger-lifecycle.sh"
+[ -f "$HERE/ledger-recipes.sh" ] || die "ledger: $HERE/ledger-recipes.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/ledger-recipes.sh
+. "$HERE/ledger-recipes.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -83,21 +98,20 @@ cfgp() { # jq over the project config; empty output when there is no config (cal
 # (session-launch, pr-watch, speckit-helper, merge-tree-probe, the commands) asks `ledger.sh branches`.
 # `jq -n … input?`: an absent config must still run the program — jq never runs one over EMPTY input
 # (plan review 2026-10-05: `jq -ce … /dev/null` printed nothing and exited 4).
-branches_model() {
-  local c out; c=$(repo_config) || c=""   # the CURRENT repo's model: ops integrates on dev, ui on trunk (external-board)
-  # A config that does not PARSE is malformed, never "unconfigured": `input?` alone would swallow the
-  # parse error and hand back the trunk defaults — dropping every protected branch on a typo (code review B1).
-  [ -z "$c" ] || jq empty "$c" 2>/dev/null || die "ledger branches: $c is not valid JSON"
-  out=$(jq -nce '
+branches_model() { # [$1 a branches_block line] → the model + .source; no argument = the repo we stand in NOW
+  local blk="${1:-}" src lbl raw out   # the CURRENT repo's model: ops integrates on dev, ui on trunk (external-board)
+  [ $# -gt 0 ] || { blk=$(branches_block); [ $? -ne 2 ] || return 1; }   # board-lib.sh: repo file → board → default
+  IFS="$BR_SEP" read -r src lbl raw <<<"$blk"
+  out=$(jq -nce --arg src "$src" --argjson raw "${raw:-null}" '
     def nm: type == "string" and test("^[A-Za-z0-9._][A-Za-z0-9._/-]*$") and (test("\\.\\.") | not);
-    ((input? // null) | if type == "object" then .branches else null end) as $raw | ($raw // {}) as $b
+    ($raw // {}) as $b
     | if ($b | type) != "object" then error("branches must be an object like {\"integration\": \"dev\"}")
       else ($b.integration // "main") as $i | ($b.environments // [$i]) as $e | ($b.protected // []) as $p
       | if ($i | nm | not) then error("branches.integration must be a branch name (got \($i | tojson))")
         elif ($p | type) != "array" or ($p | any(type != "string" or length == 0 or test("[[:cntrl:]\\s]"))) then error("branches.protected must be a list of branch names or globs (got \($p | tojson))")
         elif ($e | type) != "array" or ($e | length) == 0 or ($e | any(nm | not)) or $e[0] != $i then error("branches.environments must be a list of branch names starting with the integration branch \($i | tojson) (got \($e | tojson))")
-        else {integration: $i, protected: (["main", "master", $i] + $e + $p | unique), environments: $e, final: $e[-1]} end end' \
-    ${c:+"$c"} 2>&1 </dev/null) || die "ledger branches: ${c:-<no config>}: ${out#jq: error*: }"
+        else {integration: $i, protected: (["main", "master", $i] + $e + $p | unique), environments: $e, final: $e[-1], source: $src} end end' \
+    2>&1 </dev/null) || die "ledger branches: $lbl: ${out#jq: error*: }"
   echo "$out"
 }
 # in_branch <branch> <target> → prints the ref that contains it. Source and target are each tried
@@ -117,10 +131,10 @@ in_branch() {
   [ "$found" = 1 ] && return 1
   return 4
 }
-gh_present() { command -v "${HEFESTO_GH_BIN:-gh}" >/dev/null 2>&1; }   # a HEFESTO_GH_BIN at a missing path is "absent"
+gh_present() { command -v "$GH" >/dev/null 2>&1; }   # a HEFESTO_GH_BIN at a missing path is "absent"
 gh_pr_fact() { # $1 PR url → "<state> <headRefName> <mergeCommit oid>" or non-zero (no gh, unreadable)
   gh_present || return 1
-  "${HEFESTO_GH_BIN:-gh}" pr view "$1" --json state,headRefName,mergeCommit -q '"\(.state) \(.headRefName) \(.mergeCommit.oid // "-")"' 2>/dev/null
+  "$GH" pr view "$1" --json state,headRefName,mergeCommit -q '"\(.state) \(.headRefName) \(.mergeCommit.oid // "-")"' 2>/dev/null
 }
 # merge_evidence <entry> <sha or ""> <flag|recorded> → prints how the entry is merged — "branch", or
 # "commit <sha> <verified|unverified> <reason>" — or dies naming what is missing. The ONE check behind `unblock human:merge` and any `advance` into merged:
@@ -274,13 +288,13 @@ write_entry() { # $1 id; stdin = new JSON. temp + mv in the same dir: a reader n
 # an even count returns the upper-middle value.
 metrics_compute() { # $1 since (or ""), $@ files → one JSON object on stdout
   local since="$1"; shift
-  jq -s --arg since "$since" '
+  jq -s --arg since "$since" --argjson tp "$TERMINAL_PHASES" '
       def hours($a; $b): (($b | fromdate) - ($a | fromdate)) / 3600;
       def median: if length == 0 then null else (sort | .[(length / 2) | floor]) end;
       def r1: if . == null then null else ((. * 10) | round) / 10 end;
-      map(select($since == "" or .created >= $since)) as $e
+      (map(select($since == "" or .created >= $since)) | '"$JQ_OPS_COUNT"') as $ops | map(select(($since == "" or .created >= $since) and .item_kind != "op")) as $e   # FR-011: an op is not an item
       | ($e | map(select(.phase == "merged" or .phase == "released"))) as $m
-      | ($e | map(select(.phase == "pr" or .phase == "merged" or .phase == "released" or .pr != null))) as $p
+      | ($e | map(select((.phase == "pr" or .phase == "merged" or .phase == "released" or .pr != null) and (.phase as $x | $tp | index([$x]) | not)))) as $p
       | ($e | map(select(any(.runs[]?; .role == "verify")))) as $v
       | { entries: ($e | length),
           by_phase: ($e | group_by(.phase) | map({key: .[0].phase, value: length}) | from_entries),
@@ -298,7 +312,8 @@ metrics_compute() { # $1 since (or ""), $@ files → one JSON object on stdout
               | hours((.runs | map(select(.role == "verify")) | .[-1].at); .updated)) | median | r1),
           blocked: ($e | map(select(.blocked_on != null)) | group_by(.blocked_on.kind)
               | map({key: .[0].blocked_on.kind, value: {count: length, oldest_since: (map(.blocked_on.since) | min)}}) | from_entries),
-          stalled: ($e | map(select((.blocked_on.kind? // "") == "stall")) | length) }' "$@"
+          stalled: ($e | map(select((.blocked_on.kind? // "") == "stall")) | length),
+          terminal: ($tp | map({key: ., value: (. as $x | $e | map(select(.phase == $x)) | length)}) | from_entries), ops: $ops }' "$@"
 }
 metrics_render() { # stdin = the JSON object; $1 since (or "")
   local M since="$1"; M=$(cat)
@@ -311,6 +326,8 @@ metrics_render() { # stdin = the JSON object; $1 since (or "")
   printf '  verify    FAIL rate %s (%s verified)\n' "$(pct .verify_fail_rate)" "$(jq -r .verified <<<"$M")"
   printf '  spend     %s total · per merged PR %s\n' "$(usd .usd_total)" "$(usd .usd_per_merged_pr)"
   printf '  hours     implement→verify median %s · verify→merge median %s (approx.)\n' "$(hrs .median_hours_implement_to_verify)" "$(hrs .median_hours_verify_to_merge)"
+  printf '  closed    %s\n' "$(jq -r '.terminal | to_entries | map("\(.key) \(.value)") | join(" · ")' <<<"$M")"
+  printf '  ops       %s\n' "$(jq -r '.ops // {} | to_entries | map("\(.key) \(.value)") | join(" · ")' <<<"$M")"   # FR-011: apart from the items
   printf '  blocked   %s — %s\n' "$(jq -r '[.blocked[].count] | add // 0' <<<"$M")" "$(jq -r '.blocked | to_entries | map("\(.key) \(.value.count) (oldest \(.value.oldest_since[0:10]))") | join(" · ") | if . == "" then "none" else . end' <<<"$M")"
 }
 
@@ -335,10 +352,10 @@ next_external() {
   bad=$(jq -rs "map(select($SEL) | select((.repo // \"\") == \"\") | .id) | join(\", \")" "${FILES[@]}") \
     || die "ledger next: an entry in $DIR is not valid JSON — repair or remove it"
   [ -z "$bad" ] || die "ledger next: the board is external and these entries record no repo: $bad — re-register each with ledger.sh init <id> … --repo <name> (the board feeds: $(repo_names))"
-  n=$(jq -rs "[.[] | select(.owner != null) | (.repo // \"\")] as \$busy | map(select($SEL) | select((.repo // \"\") as \$r | \$busy | any(. == \$r) | not)) | $ORDER | .[0].id // empty" "${FILES[@]}") \
+  n=$(jq -rs "$JQ_LIVE_OWNER [.[] | select(live_owner) | (.repo // \"\")] as \$busy | map(select($SEL) | select((.repo // \"\") as \$r | \$busy | any(. == \$r) | not)) | $ORDER | .[0].id // empty" "${FILES[@]}") \
     || die "ledger next: an entry in $DIR is not valid JSON — repair or remove it"
   if [ -z "$n" ] && [ -n "$(jq -rs "map(select($SEL)) | .[0].id // empty" "${FILES[@]}")" ]; then
-    busy=$(jq -rs '[.[] | select(.owner != null) | "\(.repo // "<none>") (owned by \(.owner.session_name) on \(.id))"] | join(", ")' "${FILES[@]}")
+    busy=$(jq -rs "$JQ_LIVE_OWNER"'[.[] | select(live_owner) | "\(.repo // "<none>") (owned by \(.owner.session_name) on \(.id))"] | join(", ")' "${FILES[@]}")
     die "ledger next: no dispatchable entry for stage $STAGE — every candidate's repo is busy (one worker per repository): $busy"
   fi
   [ -n "$n" ] || die "ledger next: no dispatchable entry for stage $STAGE in $DIR (plan: queued|intake; build: queued|tasks|implement, unowned, unblocked; deploy: pr with a PR)"
@@ -348,16 +365,8 @@ next_external() {
 [ $# -ge 1 ] || usage
 SUB="$1"; shift
 # Read-only and ledger-free: answered before ledger_dir, which would create the directory (and needs a repo).
-# `branches --configured` exits 0 when the config declares a `branches` block, 1 otherwise — so the
-# consumers that keep the historical order for unconfigured repos ask here instead of re-reading.
-if [ "$SUB" = branches ]; then
-  if [ "${1:-}" = --configured ]; then   # 0 = declared, 1 = not, 2 = the config is not valid JSON (loud)
-    c=$(repo_config) || exit 1   # the same file branches_model reads — never the board config (external-board)
-    jq empty "$c" 2>/dev/null || { echo "ledger branches: $c is not valid JSON" >&2; exit 2; }
-    jq -e '.branches != null' "$c" >/dev/null 2>&1; [ $? -eq 0 ] && exit 0; exit 1
-  fi
-  branches_model; exit $?
-fi
+# `branches [--configured] [--repo <name>]` resolves the board first and stays ledger-free (board-lib.sh, US6).
+[ "$SUB" = branches ] && { branches_cli "$@"; exit $?; }
 # The board (external-board FR-001), resolved once per call. `board` is answered here, before ledger_dir:
 # side-effect free, and in-repo it never dies where status-board does not (outside git, no config).
 BCTX=$(board_ctx) || exit 1
@@ -418,7 +427,7 @@ case "$SUB" in
     # never by list or next, which stay read-only (code review 2026-10-22).
     claim_lock
     reap_dead_owners
-    E=$(entry "$ID") || exit 1
+    E=$(entry "$ID") || exit 1; claim_refuse_done "$ID" "$E"
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
     # One worker per repository (report 17 §1f), enforced here under the lock taken above: two lanes whose passes
@@ -432,7 +441,7 @@ case "$SUB" in
       [[ "$LIM" =~ ^[1-8]$ ]] || die "ledger claim $ID: orchestrate.max_builders must be a whole number from 1 to 8 (got '$LIM')"
     fi
     BUSY=$(jq -rs --arg id "$ID" --arg r "$(jq -r '.repo // ""' <<<"$E")" --arg role "$ROLE" --argjson lim "$LIM" \
-      '[.[] | select(.id != $id and .owner != null and (.repo // "") == $r and (.owner.role // "") == $role)]
+      "$JQ_LIVE_OWNER"'[.[] | select(.id != $id and live_owner and (.repo // "") == $r and (.owner.role // "") == $role)]
        | if length >= $lim then (map("\(.id) (owned by \(.owner.session_name))") | join(", ")) else empty end' "$DIR"/*.json)
     # verify is exempt: read-only, and the second half of the SAME build pass — refusing it would strand the
     # item in phase verify, which no stage picks up again (quickstart re-review 2026-10-19).
@@ -480,20 +489,23 @@ case "$SUB" in
       # (and its cd_entry_repo must not move the arms below).
       ( merge_evidence "$E" "$(jq -r '.pr.merge_sha // empty' <<<"$E")" recorded >/dev/null ) \
         || die "ledger advance $ID $TO: the merge is not evidenced (see above) — the person merges the PR, then ledger.sh unblock $ID"
+      UNST=$(prs_unstamped "$E"); [ -z "$UNST" ] || die "ledger advance $ID $TO: the earlier PR $UNST carries no merged stamp — every PR before the current one is stamped when its gate clears (FR-006)"
     fi
     if [ "$TO" = released ]; then   # branch-model FR-006 — the model is loaded only on this path
       cd_entry_repo "$E" || exit 1   # external-board: the entry's repo, its own model and its own branches
       BM=$(branches_model) || exit 1
       if [ "$(jq '.environments | length' <<<"$BM")" -gt 1 ]; then
         FIN=$(jq -r .final <<<"$BM"); BR=$(jq -r '.branch // empty' <<<"$E")
-        [ -n "$BR" ] || die "ledger advance $ID released: no branch recorded — cannot check it reached $FIN"
-        in_branch "$BR" "$FIN" >/dev/null; rc=$?
-        [ "$rc" -ne 3 ] || die "ledger advance $ID released: branch '$BR' resolves to no commit (local or origin/) — git fetch first"
-        [ "$rc" -ne 4 ] || die "ledger advance $ID released: the final branch '$FIN' resolves nowhere (no $FIN, no origin/$FIN) — git fetch first"
-        [ "$rc" -eq 0 ] || die "ledger advance $ID released: '$BR' is in neither $FIN nor origin/$FIN — promote it first (git fetch if it was merged remotely)"
+        if ! released_by_record "$E" "$FIN"; then   # FR-008: a release record in $FIN stands in for ancestry (ledger-lifecycle.sh)
+          [ -n "$BR" ] || die "ledger advance $ID released: no branch recorded — cannot check it reached $FIN"
+          in_branch "$BR" "$FIN" >/dev/null; rc=$?
+          [ "$rc" -ne 3 ] || die "ledger advance $ID released: branch '$BR' resolves to no commit (local or origin/) — git fetch first"
+          [ "$rc" -ne 4 ] || die "ledger advance $ID released: the final branch '$FIN' resolves nowhere (no $FIN, no origin/$FIN) — git fetch first"
+          [ "$rc" -eq 0 ] || die "ledger advance $ID released: '$BR' is in neither $FIN nor origin/$FIN — promote it first (git fetch if it was merged remotely)"
+        fi
       fi
     fi
-    jq --arg p "$TO" '.phase = $p' <<<"$E" | write_entry "$ID" || exit 1; echo "$ID $CUR → $TO" ;;
+    jq --arg p "$TO" '.phase = $p' <<<"$E" | owner_release_on "$TO" | write_entry "$ID" || exit 1; lease_drop_unowned "$ID"; echo "$ID $CUR → $TO" ;;
 
   verdict)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; GATE=""; V=""; BY=""; EV=""
@@ -518,7 +530,7 @@ case "$SUB" in
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; KIND=""; Q=""
     while [ $# -gt 0 ]; do case "$1" in --kind) KIND="${2:-}"; shift ;; --question) Q="${2:-}"; shift ;; *) usage ;; esac; shift; done
     in_list "$KIND" "$KINDS" || die "ledger block $ID: --kind must be one of: $KINDS (got '${KIND:-<none>}')"
-    E=$(entry "$ID") || exit 1
+    E=$(entry "$ID") || exit 1; refuse_closed block "$ID" "$E"
     # A launched worker never REPLACES a person's block: blocking a human:intake entry with `ci` and then
     # clearing `ci` freely was a path around the gate open to any worker, whose allowlist carries the hooks
     # directory (security review 2026-10-06, reproduced on 7.9.0). The launcher itself — the pane process,
@@ -586,7 +598,8 @@ case "$SUB" in
     esac
     if [ "$KIND" = human:merge ] && [ -n "${MERGED_VIA:-}" ]; then
       jq --arg m "$MERGED_VIA" --arg v "$MERGED_VER" '.blocked_on = null | .pr.merge_sha = $m
-        | if $v == "unverified" then .pr.merge_unverified = true else del(.pr.merge_unverified) end' <<<"$E" | write_entry "$ID" || exit 1
+        | if $v == "unverified" then .pr.merge_unverified = true else del(.pr.merge_unverified) end' <<<"$E" \
+        | pr_stamp_merged commit "$MERGED_VIA" "$([ "$MERGED_VER" = unverified ] && echo true || echo false)" | write_entry "$ID" || exit 1
       echo "$ID unblocked ($KIND, via merge commit $MERGED_VIA — $MERGED_WHY)"
       if [ "$MERGED_VER" = unverified ]; then
         U=$(jq -r '.pr.url // empty' <<<"$E")
@@ -597,7 +610,8 @@ case "$SUB" in
       jq --arg by "$RBY" '.blocked_on = null | .attempts = 0 | .reviewed = ((.reviewed // []) + [{kind: "human:intake", by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
       echo "$ID unblocked ($KIND, reviewed by $RBY)"
     else
-      jq ".blocked_on = null | $RESET" <<<"$E" | write_entry "$ID" || exit 1; echo "$ID unblocked ($KIND)"
+      jq ".blocked_on = null | $RESET" <<<"$E" | { if [ "$KIND" = human:merge ]; then pr_stamp_merged branch; else cat; fi; } \
+        | write_entry "$ID" || exit 1; echo "$ID unblocked ($KIND)"
     fi ;;
 
   run)
@@ -622,14 +636,14 @@ case "$SUB" in
     echo "$ID run recorded ($ROLE exit $RC, $USD USD); owner released" ;;
 
   record)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1; refuse_closed record "$ID" "$E"
     setf() { E=$(jq --arg v "$2" "$1" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set $1 to '$2'"; }
     while [ $# -gt 0 ]; do case "$1" in
       --body-file) [ -f "${2:-}" ] || die "ledger record $ID: body file not found: '${2:-}'"; setf '.source.body_sha256 = $v' "$({ sha256sum 2>/dev/null || shasum -a 256; } < "$2" | cut -c1-64)"; shift ;;
       --worktree) setf '.worktree = $v' "${2:-}"; shift ;;
       --branch)   setf '.branch = $v' "${2:-}"; shift ;;
       --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; setf '.route = $v' "$2"; shift ;;
-      --pr)       setf '.pr = {url: $v, number: (($v | capture("/(?<n>[0-9]+)$").n | tonumber)? // null)}' "${2:-}"; shift ;;
+      --pr)       E=$(pr_append "${2:-}" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot record the PR '${2:-}'"; shift ;;   # .prs[]; ledger-lifecycle.sh
       --spec-dir) setf '.spec_dir = $v' "${2:-}"; shift ;;
       --item-kind) in_list "${2:-}" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '${2:-}')"; setf '.item_kind = $v' "$2"; shift ;;
       --body-from-board)   # the person's re-hash after reading the item: the board's raw text, no temp file
@@ -664,7 +678,10 @@ case "$SUB" in
     approve_action ;;
   action) [ $# -ge 2 ] || usage; VERB="$1"; AID="$2"; shift 2; action_cmd "$VERB" "$@" ;;
   actions) actions_list "$@" ;;
-  op) [ "${1:-}" = new ] || usage; shift
+  drop|fold|supersede) terminal_cmd "$SUB" "$@" ;;   # US1 — person-only; ledger-lifecycle.sh
+  reopen) reopen_cmd "$@" ;;   # US2 — person-only; ledger-lifecycle.sh
+  deployed) deployed_cmd "$@" ;;   # US3 — any lane, git decides; ledger-lifecycle.sh
+  op) case "${1:-}" in close|drop) op_end "$@"; exit $? ;; new) ;; *) usage ;; esac; shift   # close|drop: US5, ledger-actions.sh
     # shellcheck disable=SC2034 # read by ledger-actions.sh
     OTITLE=""
     # shellcheck disable=SC2034 # read by ledger-actions.sh (a directive covers one command: this loop assigns them)
@@ -700,6 +717,7 @@ case "$SUB" in
     BM=$(branches_model) || exit 1
     UNK=0
     while IFS= read -r ENV; do
+      where_deployed "$E" "$ENV" && continue   # FR-008: a recorded deployment still in ENV; ledger-lifecycle.sh
       REF=$(in_branch "$BR" "$ENV"); rc=$?
       [ "$rc" -ne 3 ] || die "ledger where $ID: branch '$BR' resolves to no commit (local or origin/) — git fetch first"
       case "$rc" in 0) echo "$ENV: yes ($REF)" ;; 4) echo "$ENV: unknown (no $ENV, no origin/$ENV)"; UNK=1 ;; *) echo "$ENV: no" ;; esac
@@ -716,6 +734,7 @@ case "$SUB" in
     while [ $# -gt 0 ]; do case "$1" in --pr) PR="${2:-}"; shift ;; --branch) BR="${2:-}"; shift ;; *) usage ;; esac; shift; done
     [[ "$PR" =~ /pull/[0-9]+$ ]] || die "ledger handoff $ID: --pr must be a pull-request URL ending in /pull/<n> (got '$PR')"
     E=$(entry "$ID") || exit 1
+    handoff_refuse_merged "$ID" "$E"   # FR-005: a follow-up on a merged item is reopened first; ledger-lifecycle.sh
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger handoff $ID: owned by $OWNER — a session holds it; wait for its run to finish"
     K=$(jq -r '.blocked_on.kind // empty' <<<"$E")
@@ -773,8 +792,8 @@ case "$SUB" in
       github-project)
         URL=$(jq -r '.source.url // empty' <<<"$E")
         [ -n "$URL" ] || die "ledger publish $ID: a github-project entry needs source.url (ledger.sh init … --url <issue-url>)"
-        command -v gh >/dev/null 2>&1 || die "ledger publish $ID: gh not found — install GitHub CLI (https://cli.github.com)"
-        GHERR=$(gh issue comment "$URL" --body "ledger: $ID phase $(jq -r .phase <<<"$E") blocked_on $(jq -r '.blocked_on.kind // "none"' <<<"$E")" 2>&1 >/dev/null) \
+        command -v "$GH" >/dev/null 2>&1 || die "ledger publish $ID: gh not found — install GitHub CLI (https://cli.github.com)"
+        GHERR=$("$GH" issue comment "$URL" --body "ledger: $ID phase $(jq -r .phase <<<"$E") blocked_on $(jq -r '.blocked_on.kind // "none"' <<<"$E")" 2>&1 >/dev/null) \
           || die "ledger publish $ID: gh issue comment $URL failed: $(tail -1 <<<"$GHERR")"
         WHERE="$URL" ;;
       *) die "ledger publish $ID: unknown source kind '$(jq -r .source.kind <<<"$E")'" ;;
@@ -826,9 +845,9 @@ case "$SUB" in
     D=$(date -u +%Y-%m-%d)
     shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
     [ "${#FILES[@]}" -gt 0 ] || { echo '[]'; exit 0; }              # an empty ledger is an answer; an unreadable one is not
-    jq -s --arg ph "$PH" --argjson b "$BLOCKED" --argjson a "$ACTIVE" --argjson t "$TODAY" --arg d "$D" "
+    jq -s --arg ph "$PH" --argjson b "$BLOCKED" --argjson a "$ACTIVE" --argjson t "$TODAY" --arg d "$D" "$JQ_LIVE_OWNER
       map(select((\$ph == \"\" or .phase == \$ph) and (\$b == 0 or .blocked_on != null) and (\$a == 0 or .owner != null)
-                 and (\$t == 0 or (.updated | startswith(\$d))))) | $ID_SORT" "${FILES[@]}" \
+                 and (\$t == 0 or (.updated | startswith(\$d))))) | $ID_SORT | $JQ_OPS_APART | $JQ_LIST_STALE" "${FILES[@]}" \
       || die "ledger list: an entry in $DIR is not valid JSON — repair or remove it (jq . $DIR/*.json names it)" ;;
 
   next)
@@ -866,7 +885,7 @@ case "$SUB" in
     shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
     [ "${#FILES[@]}" -gt 0 ] || die "ledger metrics: no entries in $DIR"
     M=$(metrics_compute "$SINCE" "${FILES[@]}") || die "ledger metrics: an entry in $DIR is not valid JSON — repair or remove it (jq . $DIR/*.json names it)"
-    [ "$(jq '.entries' <<<"$M")" -gt 0 ] || die "ledger metrics: no entries${SINCE:+ created since $SINCE} in $DIR"
+    [ "$(jq '.entries + .ops.open + .ops.done + .ops.dropped' <<<"$M")" -gt 0 ] || die "ledger metrics: no entries${SINCE:+ created since $SINCE} in $DIR"   # an ops-only ledger shows its ops
     if [ "$JSON" = 1 ]; then echo "$M"; else metrics_render "$SINCE" <<<"$M"; fi ;;
 
   *) echo "ledger: unknown subcommand '$SUB'" >&2; usage ;;

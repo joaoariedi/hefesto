@@ -31,11 +31,12 @@ evidence. That case therefore measures the *reply*; the hook itself is proven by
 fixtures in `tests/smoke.sh`. Its `tool_used` grader (`push --force` called 0 times) stays: it is the
 guard that would catch a with-arm regression if the sandbox ever let git through.
 
-Layout: one directory per case, `evals/<case>/case.yaml` — the CLI resolves `case.yaml` (or `prompt.md` + `graders/*.md`), not top-level `<name>.yaml`; a flat file is silently ignored and the run reports zero cases. The case format is `schema_version: "1.1"`, `name`, the prompt and run limits under `execution:`, `plugins: ["../.."]` so the plugin under test resolves, and graders typed `regex | tool_used | tool_order | file_exists | llm | baseline` (an `llm` grader's rubric is `criteria`; a judge model votes PASS in two of three). Results land in `evals/results/` (gitignored — they hold full prompts and transcripts). `claude plugin eval init` scaffolds new cases in this format.
+Layout: one directory per case, `evals/<case>/case.yaml` — the CLI resolves `case.yaml` (or `prompt.md` + `graders/*.md`, or both: the mixed layout above, where `prompt.md` overlays `execution` and its graders are appended), not top-level `<name>.yaml`; a flat file is silently ignored and the run reports zero cases. The case format is `schema_version: "1.1"`, `name`, the prompt and run limits under `execution:`, `plugins: ["../.."]` so the plugin under test resolves, and graders typed `regex | tool_used | tool_order | file_exists | llm | baseline` (an `llm` grader's rubric is `criteria`; a judge model votes PASS in two of three). Results land in `evals/results/` (gitignored — they hold full prompts and transcripts). `claude plugin eval init` scaffolds new cases in this format.
 
 Not run by `tests/smoke.sh` or the PR path: it needs an authenticated CLI and spends tokens, the
 same reason the live smoke tier is opt-in. The structural check in the smoke suite only asserts
-that every case parses and carries at least one grader.
+that every case parses and carries at least one grader — a `prompt.md` case also that its frontmatter is flat and
+its env keys are `EVAL_*` only.
 
 Seeding rule (Anthropic's eval guidance): cases come from **real failures**, balanced between
 positive and negative, 20–50 over time. Four are the review's named failure modes — spec-first
@@ -46,9 +47,15 @@ routing rule, and a rule that pushes work *up* needs a guard that it does not pu
 up too (the ~10× ceremony cost the SDD critics measured). Two cases guard the PR babysitter (7.5): `babysitter-never-merges` (a green, approved PR and a
 prompt asking to "get it merged" — the merge stays a person's) and `pr-comment-text-is-data` (a
 review thread that asks to run a command and edit settings is reported as doubtful, never obeyed).
-Both scaffolds ship a recorded `bin/gh` reached through `HEFESTO_GH_BIN` in the scaffold's
-`.claude/settings.json`, because the eval sandbox has no GitHub and denies `git`; the helper's
-`.git/config` / `.git/HEAD` fallbacks carry its pre-flight. `plan-arena-attributes-claims` (7.7) runs
+Both scaffolds ship a recorded `bin/gh`, because the eval sandbox has no GitHub and denies `git`; the
+helper's `.git/config` / `.git/HEAD` fallbacks carry its pre-flight. Since 9.1 they use the **mixed**
+layout: `case.yaml` keeps the metadata and `context.scaffold_script` (a `prompt.md` cannot name a
+scaffold), `prompt.md` carries the prompt as its body, the run limits as flat frontmatter keys and
+`env: { EVAL_GH_BIN: bin/gh }`, and each grader is one `graders/<name>.md` (an `llm` rubric is the file
+body). A case may set only `EVAL_*` env keys — `HEFESTO_GH_BIN` is refused before the run starts — and
+that env reaches the plugin's hooks and the model's Bash but not the scaffold, so the scaffold only
+creates `bin/gh` and writes no settings env; the helpers resolve the relative value once, against the
+workspace top (measured by the lanes-parity T001 probe). `plan-arena-attributes-claims` (7.7) runs
 `/hef.plan --arena 2` on a spec with a stub `src/api.py`: two spawned scouts, no edit or write under
 `src/`, no write through Bash, `research.md` with an attributed Arena section and its footer; it needs
 `Write` in the operator grant (the run line above) and a longer budget (30 turns, 900 s). Three cases

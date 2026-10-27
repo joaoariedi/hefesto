@@ -113,8 +113,9 @@ for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
           "Bash($h/ledger.sh request:*)" "Bash($h/ledger.sh actions:*)" "Bash($h/ledger.sh action:*)" "Bash($h/ledger.sh op new:*)"
           "Bash($h/ledger.sh direct:*)" "Bash($h/ledger.sh directives:*)" "Bash($h/ledger.sh directive:*)" "Bash($h/ledger.sh note:*)"
           "Bash($h/ledger.sh park --all)" "Bash($h/ledger.sh lanes:*)" "Bash($h/ledger.sh dir)"
+          "Bash($h/ledger.sh deployed:*)"   # git decides, any lane (lanes-parity US3)
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/run-follow.sh:*)")
-  for c in unblock record claim advance handoff block revise answer approve release; do
+  for c in unblock record claim advance handoff block revise answer approve release drop fold supersede reopen "op close" "op drop"; do
     ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
   done
   # pr-watch's two verbs that write to GitHub (a reply, a comment) ask — the rest of it reads
@@ -212,6 +213,7 @@ if [ "$MODE" = check ]; then
   miss="$(jq -r --arg h "$me/hooks" '[
       (if ((.permissions.allow // []) | index(["Bash(\($h)/ledger.sh board:*)"])) then empty else "the helper allowlist" end),
       (if ((.permissions.ask // []) | index(["Bash(\($h)/ledger.sh unblock:*)"])) then empty else "the ask rules" end),
+      (["drop", "fold", "supersede", "reopen", "op close", "op drop"][] as $c | if ((.permissions.ask // []) | index(["Bash(\($h)/ledger.sh \($c):*)"])) then empty else "the ask rule for ledger.sh \($c)" end),
       (if ((.sandbox.excludedCommands // []) | index(["\($h)/session-launch.sh *"])) then empty else "the launcher sandbox exclusion" end),
       (if ((.sandbox.excludedCommands // []) | index(["\($h)/ledger.sh *"])) then empty else "the ledger.sh sandbox exclusion (hefesto 9 keeps the ledger outside the project)" end),
       (if ((.sandbox.excludedCommands // []) | index(["gh *"])) then empty else "gh outside the sandbox (so a merge is decided by the permission rules)" end),

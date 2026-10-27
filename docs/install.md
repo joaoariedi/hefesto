@@ -524,15 +524,21 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       `/hef.babysit` reports its red checks without ever fixing them.
     - **Environments, in order:** the last is the **final** branch.
       - `ledger.sh where <id>` shows how far a merged branch has travelled (`yes`, `no`, or `unknown`
-        when that branch exists neither locally nor on `origin`).
+        when that branch exists neither locally nor on `origin`; `yes (deployed <sha12>)` when a
+        recorded deployment is still in that environment).
       - `ledger.sh advance <id> released` waits for the final branch.
+      - `ledger.sh deployed <id> --env <env> --commit <sha>` records what a deployment actually
+        shipped (hefesto 9.1). The commit must be in `<env>` or `origin/<env>`. Recording the final
+        environment on a `merged` item advances it to `released`, so a release built from cherry-picked
+        commits, where the item's branch is not an ancestor of the final branch, is still released.
       - `/hef.release` tags the final branch's commit.
 
     A config file that is not valid JSON is an error, never "unconfigured". Without a `branches`
     block, PRs keep the repository's default branch as their base. Every promotion is still a
     person's merge. The remote is assumed to be named `origin`, and
     `where` and the `released` check assume merge commits: a squash promotion defeats the ancestry
-    test.
+    test (`deployed` is the way around it: the recorded commit is checked, not the item's branch).
+    On an external board (step 13), the block can live on the board instead.
 13. **External board** (optional, HEF-14). If the board is its own git repository and feeds several
     code repositories, keep two configs:
 
@@ -558,6 +564,21 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       branch model and `/hef.status` report it as before). Every `repos` path must exist on this
       machine, or every call refuses naming it. Only a `source: tasks-repo` board can be external:
       routing (`--item-repo`) reads item bodies, which a `github-project` board does not have here.
+    - **A branch model on the board** (hefesto 9.1). A `repos` value can be an object instead of a
+      path, so a code repo with no `.claude/project-status.json` of its own still gets a branch model:
+
+      ```json
+      { "repos": { "ops": { "path": "../api_service",
+                            "branches": { "integration": "dev", "environments": ["dev", "stg", "main"] } },
+                   "ui": "../web_app" } }
+      ```
+
+      The repo's own `branches` block, when present, wins; then the board's; then trunk on `main`.
+      `hooks/ledger.sh branches --repo ops` prints the effective model and its `source` (`repo file`,
+      `board` or `default`), and `branches --configured` answers 0 for a board block exactly as for a
+      repo-file one. An object without `path`, a key other than `path` and `branches`, or an invalid
+      `branches` block is refused, naming the repo and the board config; nothing falls back to trunk
+      silently. A plain string value works as before.
     - **The pointer is read through the main worktree.** If `.claude/` is ignored (globally, as some
       teams do), the pointer file is untracked and a linked worktree has none; `ledger.sh` reads it
       from `$(dirname "$(git rev-parse --git-common-dir)")`. Submodules and `--separate-git-dir`

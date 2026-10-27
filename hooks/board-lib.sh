@@ -46,15 +46,21 @@ cfg_role() { # $1 config → "pointer\t<path>", "board", or nothing (in-repo); d
   esac
 }
 board_repos() { # $1 board top, $2 board config → {"name": "/abs/path", …}, or die naming the field
-  local out='{}' name p abs
-  jq -e '.repos | type == "object" and length > 0 and all(.[]; type == "string" and length > 0)' "$2" >/dev/null 2>&1 \
-    || die "ledger board: .repos in $2 must be a non-empty object of name → path, e.g. {\"ops\": \"../api_service\"} (got $(jq -c .repos "$2" 2>/dev/null))"
+  # lanes-parity US6 (FR-012): a value is "<path>" or {path, branches}; anything else dies naming the repo and the
+  # file. The map stays name → path (cd_entry_repo, session-launch); board_repo_branches reads a block from $2.
+  local out='{}' name p abs bad
+  jq -e '.repos | type == "object" and length > 0' "$2" >/dev/null 2>&1 \
+    || die "ledger board: .repos in $2 must be a non-empty object of name → path (or {path, branches}), e.g. {\"ops\": \"../api_service\"} (got $(jq -c .repos "$2" 2>/dev/null))"
+  bad=$(jq -r '.repos | to_entries[] | select(.value | if type == "string" then length == 0
+      elif type == "object" then ((.path | type) != "string" or (.path | length) == 0 or ((keys - ["path", "branches"]) | length) > 0)
+      else true end) | .key' "$2" | head -1)
+  [ -z "$bad" ] || die "ledger board: repos.$bad in $2 must be a path string or {\"path\": \"../repo\", \"branches\": {…}} with no other key (got $(jq -c --arg n "$bad" '.repos[$n]' "$2"))"
   while IFS=$'\t' read -r name p; do
     [[ "$name" =~ ^[a-z0-9_-]+$ ]] || die "ledger board: repo name '$name' in $2 must match [a-z0-9_-]+"
     case "$p" in /*) abs="$p" ;; *) abs="$1/$p" ;; esac
     abs=$(cd "$abs" 2>/dev/null && pwd -P) || die "ledger board: repos.$name '$p' in $2 is not a directory (resolved against $1)"
     out=$(jq -c --arg n "$name" --arg p "$abs" '. + {($n): $p}' <<<"$out")
-  done < <(jq -r '.repos | to_entries[] | "\(.key)\t\(.value)"' "$2")
+  done < <(jq -r '.repos | to_entries[] | "\(.key)\t\(.value | if type == "object" then .path else . end)"' "$2")
   echo "$out"
 }
 board_top_check() { # $1 board top → the board config path, validated (exists, parses, no chained pointer, repos)
@@ -130,6 +136,60 @@ cd_entry_repo() { # $1 entry JSON: git checks for an entry run in ITS repo (exte
   [ -n "$p" ] || die "ledger: the entry records repo '$r', which the board does not feed ($(repo_names))"
   DIR=$(cd "$DIR" && pwd -P) || die "ledger: cannot resolve $DIR"   # writes stay put after the cd
   cd "$p" || die "ledger: cannot enter the entry's repo $p"
+}
+
+# --- branch models (lanes-parity US6: FR-012, FR-013, NR-005; plan Sketch 5, note 21) ----------------------------
+# ONE resolver for every consumer: the repo file's .branches first, then the board's repos.<name>.branches, then the
+# default. A line is "<source>␟<label for errors>␟<block JSON>" (␟ = \x1f: an IFS tab would merge empty fields).
+BR_SEP=$'\x1f'
+board_repo_branches() { # → "<name>␟<board config>␟<block>" for the repo we stand in NOW, or rc 1 (none)
+  # Called after cd_entry_repo, so it matches the current main top (pwd -P) against $BCTX.repos — never $BCTX.repo,
+  # which is the CALLER's repo, computed where board_ctx ran (plan Revision 4 #1).
+  [ -n "${BCTX:-}" ] && is_external || return 1
+  local top name cfg
+  top=$(main_top) || top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  top=$(cd "$top" 2>/dev/null && pwd -P) || return 1
+  name=$(jq -r --arg t "$top" '[.repos // {} | to_entries[] | select(.value == $t) | .key][0] // empty' <<<"$BCTX")
+  cfg=$(jq -r .config <<<"$BCTX"); [ -n "$name" ] || return 1
+  jq -e --arg n "$name" '.repos[$n] | type == "object" and .branches != null' "$cfg" >/dev/null 2>&1 || return 1
+  printf '%s%s%s%s%s\n' "$name" "$BR_SEP" "$cfg" "$BR_SEP" "$(jq -c --arg n "$name" '.repos[$n].branches' "$cfg")"
+}
+branches_block() { # → a branch-model line; rc 0 declared (repo file or board), 1 none (default), 2 the repo file is not JSON
+  local c b r
+  c=$(repo_config) || c=""   # the same file branches_model reads — never the board config (external-board)
+  if [ -n "$c" ]; then
+    # A config that does not PARSE is malformed, never "unconfigured" (code review B1): without this check the
+    # read below falls through to the defaults — dropping every protected branch on a typo.
+    jq empty "$c" 2>/dev/null || { echo "ledger branches: $c is not valid JSON" >&2; return 2; }
+    b=$(jq -c 'if type == "object" then .branches else null end' "$c" 2>/dev/null) || b=null
+    [ "${b:-null}" = null ] || { printf 'repo file%s%s%s%s\n' "$BR_SEP" "$c" "$BR_SEP" "$b"; return 0; }
+  fi
+  if r=$(board_repo_branches); then
+    IFS="$BR_SEP" read -r c b <<<"${r#*"$BR_SEP"}"
+    printf 'board%srepos.%s in %s%s%s\n' "$BR_SEP" "${r%%"$BR_SEP"*}" "$c" "$BR_SEP" "$b"; return 0
+  fi
+  printf 'default%s<no branches block>%snull\n' "$BR_SEP" "$BR_SEP"; return 1
+}
+branches_cli() { # `ledger.sh branches [--configured] [--repo <name>]` — answered before ledger_dir: ledger-free
+  # --configured: 0 declared (repo file or board), 1 none, 2 invalid (the file, the block) or an unresolvable board.
+  local conf=0 name="" p blk rc out
+  while [ $# -gt 0 ]; do case "$1" in
+    --configured) conf=1 ;;
+    --repo) name="${2:-}"; [ -n "$name" ] || { echo "ledger branches: --repo needs a repo name" >&2; return 2; }; shift ;;
+    *) echo "usage: ledger.sh branches [--configured] [--repo <name>]" >&2; return 2 ;;
+  esac; shift; done
+  BCTX=$(board_ctx) || return 2   # cannot resolve the board: rc 2 (loud), never rc 1 = "unconfigured" (NR-005)
+  if [ -n "$name" ]; then
+    is_external || { echo "ledger branches --repo $name: this board is in-repo — --repo names a repo an external board feeds" >&2; return 2; }
+    p=$(jq -r --arg n "$name" '.repos[$n] // empty' <<<"$BCTX")
+    if [ -z "$p" ]; then blk="default${BR_SEP}<no branches block>${BR_SEP}null"; rc=1   # missing from the map: says default
+    else cd "$p" || { echo "ledger branches: cannot enter repos.$name ($p)" >&2; return 2; }; fi
+  fi
+  [ -n "${blk:-}" ] || { blk=$(branches_block); rc=$?; }
+  [ "$rc" -ne 2 ] || return 2
+  out=$(branches_model "$blk") || { [ "$conf" = 1 ] && return 2; return 1; }
+  [ "$conf" = 1 ] && return "$rc"
+  echo "$out"
 }
 
 # The move from <git common dir>/hefesto/ledger (hefesto ≤ 8) to ledger_home, once, by the first call that can

@@ -72,7 +72,7 @@ scope_check() { # $1 scope file → the scope as one JSON line, validated (FR-00
 
 request_action() { # globals: ID; args parsed by the caller: TO SCOPE SUP
   local sc n aid a old
-  entry "$ID" >/dev/null || exit 1
+  op_closed_refuse "$ID" "request $ID"   # also the entry's existence check
   [[ "$TO" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die "ledger request $ID: --to must be a lane name (got '$TO')"
   if [ -n "${HEFESTO_LANE_MAP:-}" ]; then
     jq -e --arg t "$TO" '(.[$t] // "") as $r | $r != "" and $r != "orchestrator"' <<<"$HEFESTO_LANE_MAP" >/dev/null 2>&1 \
@@ -102,6 +102,7 @@ request_action() { # globals: ID; args parsed by the caller: TO SCOPE SUP
 approve_action() { # globals: AID SHA ATO ATITLE IRREV REVIEWED RBY
   local a h
   a=$(action_get "$AID") || exit 1; ID=$(jq -r .entry <<<"$a")
+  op_closed_refuse "$ID" "approve $AID"
   person_gate human:action approve
   [ "$(jq -r .status <<<"$a")" = pending ] || die "ledger approve $AID: it is $(jq -r .status <<<"$a") — only a pending action is approved"
   h=$(action_hash "$a"); [ "$h" = "$(jq -r .sha256 <<<"$a")" ] || die "ledger approve $AID: the stored scope no longer matches its hash — request it again"
@@ -120,6 +121,7 @@ approve_action() { # globals: AID SHA ATO ATITLE IRREV REVIEWED RBY
 action_cmd() { # $1 verb, then its arguments; globals: AID set by the caller
   local verb="$1" a r h f n; shift
   a=$(action_get "$AID") || exit 1
+  [ "$verb" = show ] || op_closed_refuse "$(jq -r .entry <<<"$a")" "action $verb $AID"
   case "$verb" in
     show)
       local nonce; nonce=$(od -An -N6 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
@@ -140,7 +142,7 @@ action_cmd() { # $1 verb, then its arguments; globals: AID set by the caller
       echo "$AID taken — check the heads first (action heads $AID), then follow the steps exactly; stop at any stop check" ;;
     heads)
       [ "$(jq -r .status <<<"$a")" = taken ] || die "ledger action heads $AID: take it first"
-      local gh="${HEFESTO_GH_BIN:-gh}" bad="" k repo pr want got
+      local gh="$GH" bad="" k repo pr want got
       command -v "$gh" >/dev/null 2>&1 || die "ledger action heads $AID: gh is not installed — the heads cannot be checked, so the action does not run"
       while IFS=$'\t' read -r k want; do
         [ -n "$k" ] || continue; repo="${k%%#*}"; pr="${k##*#}"
@@ -190,3 +192,68 @@ op_new() { # globals: OTITLE → prints the new OP-<n>
     budget: {usd_cap: null, usd_spent: 0}, runs: [], attempts: 0, created: (now | todate), updated: (now | todate)}' | write_entry "$id" || exit 1
   echo "$id"
 }
+
+# --- op close / op drop: the end of an op (lanes-parity US5, FR-011; plan Data Model "Op entry") ----------------------
+# An op is born queued and ends done (close, with its outcome) or dropped (with the reason) — the text is kept, with
+# its sha256. Never while one of its actions is approved or taken: that action is still the person's open decision,
+# or a lane is carrying it out. A PENDING action is withdrawn by the close instead: it has no other way out (only a
+# taken action is stopped), and refusing would leave the op open forever. Once ended, the op takes nothing more —
+# request, approve and take refuse (op_closed_refuse). Person-only: `op` is in is_person_sub, and setup writes the
+# ask rules.
+op_closed_refuse() { # $1 entry id, $2 the command → dies when $1 is an op that has ended (done or dropped)
+  local e; e=$(entry "$1") || exit 1
+  [ "$(jq -r '.item_kind == "op" and .phase != "queued"' <<<"$e")" != true ] \
+    || die "ledger $2: $1 is an op that is already $(jq -r .phase <<<"$e") — a closed op takes no more actions (open a new one: ledger.sh op new)"
+}
+op_withdraw_pending() { # $1 op id, $2 its end phase, $3 by → marks each pending action of $1 withdrawn; prints their aids
+  local f a out=""
+  for f in "$DIR"/actions/"$1"-A*.json; do
+    [ -f "$f" ] || continue; a=$(cat "$f")
+    [ "$(jq -r .status <<<"$a")" = pending ] || continue
+    jq --arg by "$3" --arg why "op $1 ended $2 before the person decided" \
+      '.status = "withdrawn" | .withdrawn = {by: $by, at: (now | todate), reason: $why}' <<<"$a" | action_put "$(jq -r .aid <<<"$a")" || exit 1
+    out="${out:+$out, }$(jq -r .aid <<<"$a")"
+  done
+  printf '%s\n' "$out"
+}
+op_open_actions() { # $1 op id → the aids of its approved or taken actions, comma-separated (empty when none)
+  set -- "$1" "$DIR"/actions/"$1"-A*.json; [ -f "$2" ] || return 0
+  local id="$1"; shift
+  jq -rs 'map(select(.status == "approved" or .status == "taken") | "\(.aid) (\(.status))") | join(", ")' "$@" \
+    || die "ledger op: an action of $id in $DIR/actions is not valid JSON — repair or remove it"
+}
+op_end_file_ok() { # $1 verb, $2 id, $3 flag, $4 file
+  [ -n "$4" ] || die "ledger op $1 $2: pass the $([ "$1" = close ] && echo outcome || echo reason) as a file ($3 <f>, written with the Write tool)"
+  [ -f "$4" ] || die "ledger op $1 $2: the file $4 does not exist"
+  [ -s "$4" ] || die "ledger op $1 $2: the file $4 is empty — say what the op came to"
+  [ "$(wc -c < "$4" | tr -d ' ')" -le 8192 ] || die "ledger op $1 $2: the file $4 is over 8 KB — keep it to the outcome"
+}
+op_end() { # op close <OP-n> --outcome-file <f> | op drop <OP-n> --reason-file <f>
+  local verb="${1:-}" id="${2:-}" want f="" e ph open by wd
+  case "$verb" in close) want=--outcome-file; ph="done" ;; drop) want=--reason-file; ph=dropped ;; *) usage ;; esac
+  [ -n "$id" ] || usage; shift 2
+  while [ $# -gt 0 ]; do
+    [ "$1" = "$want" ] || die "ledger op $verb $id: unexpected '$1' (op $verb takes $want <f>)"
+    f="${2:-}"; shift 2 || shift
+  done
+  e=$(entry "$id") || exit 1
+  [ "$(jq -r '.item_kind // empty' <<<"$e")" = op ] || die "ledger op $verb $id: $id is not an op entry (item_kind $(jq -r '.item_kind // "none"' <<<"$e")) — an item ends with drop, fold or supersede"
+  [ "$(jq -r .phase <<<"$e")" = queued ] || die "ledger op $verb $id: the op is already $(jq -r .phase <<<"$e") — a closed op stays closed (open a new one)"
+  open=$(op_open_actions "$id") || exit 1
+  [ -z "$open" ] || die "ledger op $verb $id: its action $open is still open — finish or stop it first (ledger.sh action done|stop), or let the person supersede it"
+  op_end_file_ok "$verb" "$id" "$want" "$f"
+  by="${USER:-$(id -un 2>/dev/null)}"
+  jq --arg p "$ph" --rawfile t "$f" --arg h "$(hef_sha256 < "$f")" --arg by "${by:-person}" '
+    .phase = $p | .outcome_sha256 = $h | .outcome = {kind: $p, text: $t, by_person: $by, at: (now | todate)}
+    | .events = ((.events // []) + [{kind: (if $p == "done" then "op-closed" else "op-dropped" end), at: (now | todate), by: $by, note: $p}])' <<<"$e" \
+    | write_entry "$id" || exit 1
+  # The op is written first: if a withdrawal then fails, the op is still closed and op_closed_refuse keeps its
+  # pending action from ever being approved — never the reverse, actions withdrawn on an op left open.
+  wd=$(op_withdraw_pending "$id" "$ph" "${by:-person}") || exit 1
+  echo "$id $ph${wd:+ (withdrew the pending $wd)}"
+}
+# list: the ops after the items (stable, so each group keeps the id order). metrics: an op is not an item.
+# shellcheck disable=SC2034,SC2016  # used by ledger.sh, which sources this part; jq programs, single-quoted on purpose
+JQ_OPS_APART='sort_by(.item_kind == "op")'
+# shellcheck disable=SC2034,SC2016
+JQ_OPS_COUNT='map(select(.item_kind == "op")) | {open: map(select(.phase == "queued")) | length, done: map(select(.phase == "done")) | length, dropped: map(select(.phase == "dropped")) | length}'

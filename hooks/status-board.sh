@@ -21,6 +21,15 @@ set -uo pipefail
 
 die() { echo "$*" >&2; exit 1; }
 
+# One gh resolution, at entry (FR-027): lane-lib.sh's gh_bin, sourced guarded as pr-watch.sh does. Without lane-lib.sh
+# beside this file the 9.0 seam stands — unless the eval seam is set, which only gh_bin may resolve.
+HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"
+# shellcheck source=hooks/lane-lib.sh
+[ -f "$HEF_LL" ] && . "$HEF_LL"
+if declare -F gh_bin >/dev/null; then GH=$(gh_bin) || exit 1
+elif [ -z "${EVAL_GH_BIN:-}" ]; then GH="${HEFESTO_GH_BIN:-gh}"
+else die "status-board: EVAL_GH_BIN=$EVAL_GH_BIN is set but $HEF_LL is missing — refusing to fall back to the real gh"; fi
+
 MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""; ADD_TITLE=""; ADD_INC=0; ADD_RFC=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -475,16 +484,16 @@ gh_preflight() {
   [ "$MODE" = "check" ] && echo "status-board preflight — GitHub Project #$PROJECT @ $OWNER:"
   ok "jq installed"; ok "config valid ($CONFIG)"
   local have_gh=0 authed=0 err
-  if command -v gh >/dev/null 2>&1; then ok "gh CLI installed"; have_gh=1; else miss "gh CLI not found" "install: https://cli.github.com"; fi
+  if command -v "$GH" >/dev/null 2>&1; then ok "gh CLI installed"; have_gh=1; else miss "gh CLI not found" "install: https://cli.github.com"; fi
   if [ $have_gh -eq 1 ]; then
-    if gh auth status >/dev/null 2>&1; then ok "gh authenticated"; authed=1; else miss "gh not authenticated" "run: gh auth login"; fi
+    if "$GH" auth status >/dev/null 2>&1; then ok "gh authenticated"; authed=1; else miss "gh not authenticated" "run: gh auth login"; fi
   fi
   if [ $authed -eq 1 ]; then
-    if err=$(gh project view "$PROJECT" --owner "$OWNER" --format json 2>&1 >/dev/null); then ok "Project #$PROJECT readable ($OWNER)"
+    if err=$("$GH" project view "$PROJECT" --owner "$OWNER" --format json 2>&1 >/dev/null); then ok "Project #$PROJECT readable ($OWNER)"
     elif printf '%s' "$err" | grep -qi 'read:project\|required scope\|missing.*scope'; then miss "gh token missing the 'read:project' scope" "run: gh auth refresh -s read:project"
     else miss "Project #$PROJECT not accessible to you" "need org membership / project visibility — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-100)"; fi
     if [ -n "$GREPO" ]; then
-      if gh repo view "$GREPO" --json name >/dev/null 2>&1; then ok "repo readable ($GREPO)"; else miss "repo $GREPO not accessible" "request access to the repository"; fi
+      if "$GH" repo view "$GREPO" --json name >/dev/null 2>&1; then ok "repo readable ($GREPO)"; else miss "repo $GREPO not accessible" "request access to the repository"; fi
     fi
   fi
   if [ -f "$ROADMAP" ]; then ok "roadmap found ($(basename "$ROADMAP"))"
@@ -493,7 +502,7 @@ gh_preflight() {
 
 gh_epic_tasks() { # epic-number repo → its sub-issues, one per line
   local num=$1 repo=$2 o="${2%%/*}" r="${2##*/}" nodes tn tstate ttitle tassignee st mark
-  nodes=$(gh api graphql -f query='
+  nodes=$("$GH" api graphql -f query='
     query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){
       issue(number:$n){ subIssues(first:50){ nodes{
         number state title assignees(first:5){ nodes{ login } } } } } } }' -F o="$o" -F r="$r" -F n="$num" 2>/dev/null \
@@ -523,7 +532,7 @@ source_github() {
     close=$(printf '%s' "$quarter" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
     [ -n "$close" ] && days="$(days_until "$close")"
   fi
-  board=$(gh project item-list "$PROJECT" --owner "$OWNER" --format json --limit 400) || die "status-board: gh project item-list failed"
+  board=$("$GH" project item-list "$PROJECT" --owner "$OWNER" --format json --limit 400) || die "status-board: gh project item-list failed"
   statuses=$(printf '%s' "$board" | jq -c '[.items[] | select(.content.type=="Issue")] | group_by(.status) | map({status:(.[0].status // "—"), n:length}) | sort_by(-.n)')
   total=$(printf '%s' "$statuses" | jq '[.[].n] | add // 0')
   done_n=$(printf '%s' "$statuses" | jq '(map(select(.status=="Done"))[0].n) // 0')
@@ -545,7 +554,7 @@ source_github() {
       [ -z "$num" ] && continue
       label=$(printf '%s' "$title" | sed -E 's/^[^(]*\(([^)]*)\): /\1 — /')
       # No pipeline here on purpose: a failed query must abort the board, not render "no tasks yet".
-      raw=$(gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){subIssuesSummary{total completed}}}}' \
+      raw=$("$GH" api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){subIssuesSummary{total completed}}}}' \
             -F o="${repo%%/*}" -F r="${repo##*/}" -F n="$num" 2>/dev/null) || die "status-board: gh api graphql failed for epic #$num ($repo) — the board would be wrong, not partial"
       sum=$(printf '%s' "$raw" | jq -r '(.data.repository.issue.subIssuesSummary // {completed:0,total:0}) | "\(.completed) \(.total)"')
       c=${sum%% *}; t=${sum##* }
