@@ -36,7 +36,11 @@ fi
 die() { echo "$*" >&2; exit 1; }
 usage() { sed -n '/^#   --check/,/^#   fixes/p' "$0" | sed 's/^#   /  /' >&2; echo "usage: pr-watch.sh <subcommand> …" >&2; exit 2; }
 
-GH="${HEFESTO_GH_BIN:-gh}"
+# One gh resolution, at entry (FR-027, lane-lib.sh gh_bin). A copy run without lane-lib.sh beside it (the mutation
+# fixtures) keeps the 9.0 seam — unless the eval seam is set, which only gh_bin may resolve.
+if declare -F gh_bin >/dev/null; then GH=$(gh_bin) || exit 1
+elif [ -z "${EVAL_GH_BIN:-}" ]; then GH="${HEFESTO_GH_BIN:-gh}"
+else die "pr-watch: EVAL_GH_BIN=$EVAL_GH_BIN is set but $HEF_LL is missing — refusing to fall back to the real gh"; fi
 MARKER='_hef.babysit_'
 FIX_RE='^fixed in [0-9a-f]{7,40}'
 CI_CONFIG_RE='^(\.github/|\.gitlab-ci\.yml$|\.circleci/|Jenkinsfile$|azure-pipelines\.yml$)'
@@ -45,8 +49,20 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # posted must not outlive the call (quality gate 2026-09-30).
 # ${a[@]+"${a[@]}"}: an empty array is "unbound" under set -u before bash 4.4 (macOS /bin/bash is 3.2).
 PW_TMP=(); trap 'rm -rf ${PW_TMP[@]+"${PW_TMP[@]}"}' EXIT
-tmpf() { local t; t="$(mktemp)"; PW_TMP+=("$t"); echo "$t"; }
-tmpd() { local t; t="$(mktemp -d)"; PW_TMP+=("$t"); echo "$t"; }
+# claude plugin eval (2.1.310) leaves $TMPDIR read-only to the model's Bash while /tmp/claude, Claude Code's sandbox
+# write path, stays writable (SC-004 runs, 2026-10-27): one retry there, then a stop naming both.
+# HEFESTO_TMP_FALLBACK replaces /tmp/claude in tests.
+pw_mktemp() { # [-d] → a new temp file or dir
+  local fb="${HEFESTO_TMP_FALLBACK:-/tmp/claude}"
+  # An explicit template in both calls: BSD mktemp with no template need not use $TMPDIR (the smoke-macos job created
+  # the file elsewhere with both dirs read-only, PR #151), so the directory is named rather than left to mktemp.
+  mktemp "$@" "${TMPDIR:-/tmp}/pw.XXXXXXXX" 2>/dev/null && return 0
+  # Only a directory this user owns: /tmp/claude is shared and predictable, and its owner could read or swap the files.
+  mkdir -p "$fb" 2>/dev/null; [ -O "$fb" ] && mktemp "$@" "$fb/pw.XXXXXXXX" 2>/dev/null && return 0
+  die "pr-watch: cannot create a temp file in ${TMPDIR:-/tmp} nor in $fb (writable and owned by you) — make one of them so"
+}
+tmpf() { local t; t="$(pw_mktemp)" || exit 1; PW_TMP+=("$t"); echo "$t"; }
+tmpd() { local t; t="$(pw_mktemp -d)" || exit 1; PW_TMP+=("$t"); echo "$t"; }
 
 # --- git, with the same fallback ledger.sh carries: the eval sandbox denies the git BINARY ------------
 have_git() { git rev-parse --git-dir >/dev/null 2>&1; }
@@ -78,14 +94,27 @@ need() {
 }
 
 # Untrusted text: strip HTML comments and wrap in per-call nonce delimiters BEFORE any model reads it —
-# the status-board.sh --item rule (a hidden instruction never reaches the babysitter). The first sed
-# removes any closed comment, including one containing `>` (status-board's `[^>]*` would leave it to the
-# second pass, which deletes whole lines to the END of the body — code review 2026-09-30); the second
-# pass still drops an UNCLOSED comment to the end, which loses text but never leaks it.
+# the status-board.sh --item rule (a hidden instruction never reaches the babysitter).
+# strip_html_comments removes each `<!--` up to the FIRST `-->` after it, whatever lies between: `>` (status-board's
+# `[^>]*` stops there — code review 2026-09-30), `--` (`--approve` defeated the old `([^-]|-[^-])*` pass, and its
+# line-deleting fallback then dropped the reviewer's visible words too — SC-004 eval runs, 2026-10-27) or newlines.
+# An UNCLOSED `<!--` drops everything after it, which loses text but never leaks it. POSIX awk: BSD and GNU alike.
+# The body is joined from its lines first and scanned ONCE: a record separator other than newline (an RS of \001)
+# split a comment at that byte and let the rest through (quality gate 2026-10-27).
+strip_html_comments() { # body on stdin → stdout
+  awk '{ s = (NR == 1 ? "" : s "\n") $0 }
+    END { out = ""
+      while ((i = index(s, "<!--")) > 0) {
+        out = out substr(s, 1, i - 1); s = substr(s, i + 4)
+        if ((j = index(s, "-->")) == 0) { s = ""; break }
+        s = substr(s, j + 3)
+      }
+      printf "%s", out s }'
+}
 sanitise() { # $1 label; body on stdin
   local body nonce; body=$(cat)
   nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
-  printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(sed -E 's/<!--([^-]|-[^-])*-->//g' <<<"$body" | sed '/<!--/,/-->/d')" "$nonce"
+  printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(strip_html_comments <<<"$body")" "$nonce"
 }
 # Header fields (path, login) are contributor-controlled too; outside the delimiters they get a safe charset.
 safe() { tr -cd 'A-Za-z0-9._/@:#-' <<<"$1" | head -c 200; }
@@ -283,7 +312,8 @@ cmd_ledger_id() {
   # through the MAIN worktree — so from a PR worktree (no untracked .claude/ there) it still reads the central ledger.
   local all id
   all=$(bash "$HERE/ledger.sh" list) || die "pr-watch ledger-id: ledger.sh list failed"
-  id=$(jq -r --arg u "$1" '.[] | select(.pr.url == $u) | .id' <<<"$all" | head -1) || die "pr-watch ledger-id: ledger.sh list returned invalid JSON"
+  # every PR the entry ever had (ledger-lifecycle.sh's ENTRY_PRS): after a reopen, an earlier PR still resolves
+  id=$(jq -r --arg u "$1" '.[] | select((.prs // ([.pr] | map(select(. != null)))) | any(.url == $u)) | .id' <<<"$all" | head -1) || die "pr-watch ledger-id: ledger.sh list returned invalid JSON"
   [ -n "$id" ] || { echo "pr-watch ledger-id: no ledger entry records $1" >&2; exit 3; }
   echo "$id"
 }

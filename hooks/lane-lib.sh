@@ -46,7 +46,7 @@ is_launcher_sub() { case "${1:-}" in run|claim) return 0 ;; esac; return 1; }
 is_person_sub() { # $1 subcommand, then its arguments → 0 when it records a person's decision
   local a
   case "${1:-}" in
-    approve|answer|revise|request|direct|op|unblock) return 0 ;;
+    approve|answer|revise|request|direct|op|unblock|drop|fold|supersede|reopen) return 0 ;;
     release|record) shift; for a in "$@"; do case "$a" in --reviewed-by-human|--body-file|--body-from-board|--rfc) return 0 ;; esac; done ;;
   esac
   return 1
@@ -98,4 +98,29 @@ hef_git_neutral() {
   local c="${GIT_CONFIG_COUNT:-}"; case "$c" in ''|*[!0-9]*) c=0 ;; esac
   export "GIT_CONFIG_KEY_$c=core.fsmonitor" "GIT_CONFIG_VALUE_$c=false" \
          "GIT_CONFIG_KEY_$((c + 1))=core.hooksPath" "GIT_CONFIG_VALUE_$((c + 1))=/dev/null" "GIT_CONFIG_COUNT=$((c + 2))"
+}
+
+# One gh resolution for every helper (lanes-parity FR-027, plan Sketch 10). HEFESTO_GH_BIN keeps its 9.0 meaning — a
+# path that does not exist is "gh absent", the merge gate's unverified path (ledger.sh gh_present) — so it passes
+# through untouched. EVAL_GH_BIN is the eval seam (prompt.md `env:` reaches Bash and hooks, never a settings file): a
+# relative value resolves against the workspace top captured HERE, at source time, so a later cd cannot break it;
+# set but not executable is a stop, never a fall back to the real gh. NR-007: gh_bin reads no file.
+# Resolve it once, at the helper's entry: `GH=$(gh_bin) || exit 1` — an inline "$(gh_bin)" would swallow the stop.
+case "${EVAL_GH_BIN:-}" in
+  ''|/*) ;;
+  *) [ -n "${HEFESTO_EVAL_ROOT:-}" ] || HEFESTO_EVAL_ROOT="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+       rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+     export HEFESTO_EVAL_ROOT ;;   # a child helper started after a cd resolves against the same top
+esac
+gh_bin() { # → the gh to run, or the reason on stderr + 1
+  [ -n "${HEFESTO_GH_BIN:-}" ] && { printf '%s\n' "$HEFESTO_GH_BIN"; return 0; }
+  [ -n "${EVAL_GH_BIN:-}" ] || { echo gh; return 0; }
+  local g="$EVAL_GH_BIN"
+  case "$g" in
+    /*) ;;
+    *) [ -n "${HEFESTO_EVAL_ROOT:-}" ] || { echo "hefesto: EVAL_GH_BIN=$g is relative and no workspace root is known" >&2; return 1; }
+       g="$HEFESTO_EVAL_ROOT/$g" ;;
+  esac
+  [ -f "$g" ] && [ -x "$g" ] || { echo "hefesto: EVAL_GH_BIN=$EVAL_GH_BIN is not an executable file ($g) — refusing to fall back to the real gh" >&2; return 1; }
+  printf '%s\n' "$g"
 }
