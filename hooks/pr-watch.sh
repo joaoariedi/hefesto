@@ -54,9 +54,11 @@ PW_TMP=(); trap 'rm -rf ${PW_TMP[@]+"${PW_TMP[@]}"}' EXIT
 # HEFESTO_TMP_FALLBACK replaces /tmp/claude in tests.
 pw_mktemp() { # [-d] → a new temp file or dir
   local fb="${HEFESTO_TMP_FALLBACK:-/tmp/claude}"
-  mktemp "$@" 2>/dev/null && return 0
+  # An explicit template in both calls: BSD mktemp with no template need not use $TMPDIR (the smoke-macos job created
+  # the file elsewhere with both dirs read-only, PR #151), so the directory is named rather than left to mktemp.
+  mktemp "$@" "${TMPDIR:-/tmp}/pw.XXXXXXXX" 2>/dev/null && return 0
   # Only a directory this user owns: /tmp/claude is shared and predictable, and its owner could read or swap the files.
-  mkdir -p "$fb" 2>/dev/null; [ -O "$fb" ] && TMPDIR="$fb" mktemp "$@" 2>/dev/null && return 0
+  mkdir -p "$fb" 2>/dev/null; [ -O "$fb" ] && mktemp "$@" "$fb/pw.XXXXXXXX" 2>/dev/null && return 0
   die "pr-watch: cannot create a temp file in ${TMPDIR:-/tmp} nor in $fb (writable and owned by you) — make one of them so"
 }
 tmpf() { local t; t="$(pw_mktemp)" || exit 1; PW_TMP+=("$t"); echo "$t"; }
