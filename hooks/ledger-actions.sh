@@ -204,7 +204,7 @@ action_cmd() { # $1 verb, then its arguments; globals: AID set by the caller
       n=""; f=""; local blk=""
       while [ $# -gt 0 ]; do case "$1" in --step) n="${2:-}"; shift ;; --evidence-file|--reason-file) f="${2:-}"; shift ;; --block) blk="${2:-}"; shift ;; [0-9]*) n="$1" ;; *) die "ledger action $verb: unexpected '$1'" ;; esac; shift; done
       merge_block_ok "$a" "$verb" "$blk"   # --block conflict: action stop on a merge action only (FR-023)
-      [ -f "$f" ] || die "ledger action $verb $AID: pass the text as a file (--evidence-file / --reason-file <f>, written with the Write tool)"
+      [ -f "$f" ] || die "ledger action $verb $AID: pass the text as a file (--evidence-file / --reason-file <f>, written with the Write tool in your session scratchpad)"
       [ "$(wc -c < "$f" | tr -d ' ')" -le 8192 ] || die "ledger action $verb $AID: over 8 KB — keep it to the evidence"
       case "$verb" in
         # one spelling per number: jq reads 01 as 1 while a shell compare does not, which let `step 01` skip a merge's
@@ -279,7 +279,7 @@ op_open_actions() { # $1 op id → the aids of its approved or taken actions, co
     || die "ledger op: an action of $id in $DIR/actions is not valid JSON — repair or remove it"
 }
 op_end_file_ok() { # $1 verb, $2 id, $3 flag, $4 file
-  [ -n "$4" ] || die "ledger op $1 $2: pass the $([ "$1" = close ] && echo outcome || echo reason) as a file ($3 <f>, written with the Write tool)"
+  [ -n "$4" ] || die "ledger op $1 $2: pass the $([ "$1" = close ] && echo outcome || echo reason) as a file ($3 <f>, written with the Write tool in your session scratchpad)"
   [ -f "$4" ] || die "ledger op $1 $2: the file $4 does not exist"
   [ -s "$4" ] || die "ledger op $1 $2: the file $4 is empty — say what the op came to"
   [ "$(wc -c < "$4" | tr -d ' ')" -le 8192 ] || die "ledger op $1 $2: the file $4 is over 8 KB — keep it to the outcome"

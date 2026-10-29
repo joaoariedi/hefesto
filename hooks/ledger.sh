@@ -653,6 +653,8 @@ case "$SUB" in
       --person-text-consumed)   # the launcher, after a plan run reported a real outcome: its answers and notes are done
         E=$(jq '(if .answers then .answers |= map(.consumed = true) else . end) | (if .revisions then .revisions |= map(.consumed = true) else . end)' <<<"$E") \
           || die "ledger record $ID: cannot mark the answers consumed" ;;
+      --followups-consumed)     # the launcher, after an implement run made the PR or asked a person: the reopen's follow-up is done
+        E=$(jq 'if .followups then .followups |= map(.consumed = true) else . end' <<<"$E") || die "ledger record $ID: cannot mark the follow-ups consumed" ;;
       --rfc) rfc_pin ;;
       --rfc-snapshot) [ -f "${2:-}" ] || die "ledger record $ID: --rfc-snapshot needs the launcher's copy of the RFC"; rfc_pin "$2"; shift ;;
       *) usage ;; esac; shift; done

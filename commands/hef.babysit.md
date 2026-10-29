@@ -143,16 +143,18 @@ means the ledger is unreadable — report it).
 5. **Questions, headless.** If `questions > 0` and AskUserQuestion was unavailable: `ledger-id`;
    exit 0 → `ledger.sh block <id> --kind human:intake` (a person must read the doubtful items).
 
-6. **The line.** Print exactly:
+6. **The brief, then the line — the line comes LAST.** Write the brief below first. Then end the reply
+   with exactly this line, with nothing after it:
    `babysit <number> <verdict> fixes=<fixes> questions=<questions>`
-   Then, when `--once` is **not** in **$ARGUMENTS** and the verdict is `review` or `pending`, print
-   the re-run line: `/loop 25m /hef.babysit <number> --once` (`review`) or
+   — except, when `--once` is **not** in **$ARGUMENTS** and the verdict is `review` or `pending`, the
+   re-run line follows it: `/loop 25m /hef.babysit <number> --once` (`review`) or
    `/loop 9m /hef.babysit <number> --once` (`pending`). `/loop` is the cadence; this command never
-   sleeps or polls in its own context. Stop.
+   sleeps or polls in its own context. Stop. (A line printed first, with the brief after it, is what
+   issue #150 measured: the reader and the eval judges look for it at the end.)
 
 ## What this pass reported
 
-Close with one short brief: the checks state, each fix (check or thread → sha), each doubtful item
-and what the person decided (or that it waits for one), the verdict, and — for `mergeable` — the
-PR URL and the after-merge steps (`git fetch origin`, `ledger.sh unblock <id>`,
+The brief step 6 writes BEFORE the line: the checks state, each fix (check or thread → sha), each
+doubtful item and what the person decided (or that it waits for one), the verdict, and — for
+`mergeable` — the PR URL and the after-merge steps (`git fetch origin`, `ledger.sh unblock <id>`,
 `ledger.sh advance <id> merged`, `git worktree remove` if any).

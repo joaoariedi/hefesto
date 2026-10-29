@@ -2436,7 +2436,12 @@ case "\$*" in
   "pr view 7 --json headRefOid --jq .headRefOid") jq -r .headRefOid "$pw_fx/view.json" ;;
   "pr view"*) [ -f "$pw_fx/view.json" ] && cat "$pw_fx/view.json" || { echo "no pull requests found for branch" >&2; exit 1; } ;;
   "pr checks 7 --watch --fail-fast") sleep 3; exit 0 ;;
-  "pr checks 7 --json"*) if [ "\$(cat "$pw_fx/checks.json")" = NONE ]; then echo "no checks reported on the 'feature/x' branch" >&2; exit 1; fi; cat "$pw_fx/checks.json"; exit 1 ;;
+  "pr checks 7 --json"*) if [ "\$(cat "$pw_fx/checks.json")" = NONE ]; then echo "no checks reported on the 'feature/x' branch" >&2; exit 1; fi
+                         if [ "\$(cat "$pw_fx/checks.json")" = SILENT ]; then exit 1; fi
+                         if [ "\$(cat "$pw_fx/checks.json")" = FLAKY ]; then   # call 1: a 502 and no JSON; call 2: the answer
+                           [ -f "$pw_fx/flaky.1" ] || { touch "$pw_fx/flaky.1"; echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+                           echo '[{"name":"smoke","bucket":"pass","link":"https://x/runs/1","workflow":"ci"}]'; exit 0; fi
+                         cat "$pw_fx/checks.json"; exit 1 ;;
   "run view 99 --log-failed") seq 1 200 ;;
   "run view 98 --log-failed") echo "run 98 not found" >&2; exit 1 ;;
   "api graphql"*) case "\$*" in *addPullRequestReviewThreadReply*) echo "\$*" >> "$pw_bin/posted"; echo '{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":"https://x/reply"}}}}' ;; *) cat "$pw_fx/threads.json" ;; esac ;;
@@ -2500,20 +2505,40 @@ mv "$pw_fx/view.none" "$pw_fx/view.json"; pw_view OPEN feature/x main "$pw_head"
 pw_out="$(pw checks 7 2>&1)"; pw_rc=$?
 { [ "$pw_rc" -eq 0 ] && [ "$(jq -r .state <<<"$pw_out")" = pass ] && [ "$(jq -r .checks <<<"$pw_out")" = 2 ]; } || { bad "pr-watch checks: pass fixture → pass/2 (rc=$pw_rc): $pw_out"; pw_fail=1; }
 # A read-only $TMPDIR — claude plugin eval 2.1.310 leaves it unwritable to the model's Bash (SC-004 runs, 2026-10-27):
-# tmpf/tmpd retry once in the fallback dir (/tmp/claude, Claude Code's sandbox write path; HEFESTO_TMP_FALLBACK in
+# tmpd (the write commands' scanned body) retries in the fallback dir (/tmp/claude, Claude Code's sandbox write path; HEFESTO_TMP_FALLBACK in
 # tests), and stop loudly, naming both, when that fails too. Skipped as root, where a mode bit blocks nothing.
 pw_ro="$(mktemp -d)"; pw_ok2="$(mktemp -d)"; chmod a-w "$pw_ro"
+pw_cbd="$(mktemp -d)"; printf 'a note\n' > "$pw_cbd/body"; pw_cb="$pw_cbd/body"   # `comment` still writes its scanned body
 if [ -w "$pw_ro" ]; then printf '  \033[33mskip\033[0m read-only TMPDIR checks (running as root)\n'
 else
-  pw_out="$(export TMPDIR="$pw_ro" HEFESTO_TMP_FALLBACK="$pw_ok2"; pw checks 7 2>&1)"; pw_rc=$?
-  { [ "$pw_rc" -eq 0 ] && [ "$(jq -r .state <<<"$pw_out")" = pass ]; } \
-    || { bad "pr-watch checks with a read-only TMPDIR must fall back and pass (rc=$pw_rc): $(head -c 300 <<<"$pw_out")"; pw_fail=1; }
+  pw_out="$(export TMPDIR="$pw_ro" HEFESTO_TMP_FALLBACK="$pw_ok2"; pw comment 7 --body-file "$pw_cb" 2>&1)"; pw_rc=$?
+  [ "$pw_rc" -eq 0 ] || { bad "pr-watch comment with a read-only TMPDIR must fall back and post (rc=$pw_rc): $(head -c 300 <<<"$pw_out")"; pw_fail=1; }
   chmod a-w "$pw_ok2"
-  pw_out="$(export TMPDIR="$pw_ro" HEFESTO_TMP_FALLBACK="$pw_ok2"; pw checks 7 2>&1)"; pw_rc=$?
-  { [ "$pw_rc" -ne 0 ] && grep -qF "$pw_ro" <<<"$pw_out" && grep -qF "$pw_ok2" <<<"$pw_out"; } \
-    || { bad "pr-watch checks must stop loudly, naming both dirs, when no temp dir is writable (rc=$pw_rc): $(head -c 300 <<<"$pw_out")"; pw_fail=1; }
+  # HOME unset must not stop a pr-watch whose TMPDIR works (code review of 9.1.1: `set -u` on $HOME in pw_mktemp)
+  pw_out="$(env -u HOME -u XDG_CACHE_HOME bash -c 'cd "$1" && HEFESTO_GH_BIN="$2/gh" HEFESTO_LEDGER_DIR="$3" HEFESTO_PR_WATCH_GRACE=1 PATH="$2:$PATH" bash "$4" comment 7 --body-file "$5"' _ "$pw_repo" "$pw_bin" "$pw_ledger" "${PW_BIN:-$PW}" "$pw_cb" 2>&1)"; pw_rc=$?
+  [ "$pw_rc" -eq 0 ] || { bad "pr-watch comment with HOME unset and a writable TMPDIR must post (rc=$pw_rc): $(head -c 300 <<<"$pw_out")"; pw_fail=1; }
+  # with /tmp read-only (claude plugin eval, 2026-10-29), the user's own cache is the last try
+  pw_h="$(mktemp -d)"
+  pw_out="$(export TMPDIR="$pw_ro" HEFESTO_TMP_FALLBACK="$pw_ok2" XDG_CACHE_HOME= HOME="$pw_h"; pw comment 7 --body-file "$pw_cb" 2>&1)"; pw_rc=$?
+  { [ "$pw_rc" -eq 0 ] && [ -d "$pw_h/.cache/hefesto-tmp" ] && [ "$(ls -ld "$pw_h/.cache/hefesto-tmp" | cut -c1-10)" = drwx------ ]; } \
+    || { bad "pr-watch comment with /tmp read-only must fall back to a private ~/.cache/hefesto-tmp and post (rc=$pw_rc): $(head -c 300 <<<"$pw_out")"; pw_fail=1; }
+  rm -rf -- "${pw_h:?}/.cache"; chmod a-w "$pw_h"   # now nothing is writable: not TMPDIR, the fallback, nor HOME
+  pw_out="$(export TMPDIR="$pw_ro" HEFESTO_TMP_FALLBACK="$pw_ok2" XDG_CACHE_HOME= HOME="$pw_h"; pw comment 7 --body-file "$pw_cb" 2>&1)"; pw_rc=$?
+  { [ "$pw_rc" -ne 0 ] && grep -qF "$pw_ro" <<<"$pw_out" && grep -qF "$pw_ok2" <<<"$pw_out" && grep -qF "$pw_h/.cache/hefesto-tmp" <<<"$pw_out"; } \
+    || { bad "pr-watch comment must stop loudly, naming all three dirs, when no temp dir is writable (rc=$pw_rc): $(head -c 300 <<<"$pw_out")"; pw_fail=1; }
+  # …while checks — the babysitter's first call — needs no temp file at all (claude plugin eval 2.1.312: nothing is
+  # writable, not even its HOME; every babysit pass died here). The empty-output path asks gh again for its stderr.
+  pw_out="$(export TMPDIR="$pw_ro" HEFESTO_TMP_FALLBACK="$pw_ok2" XDG_CACHE_HOME= HOME="$pw_h"; pw checks 7 2>&1)"; pw_rc=$?
+  { [ "$pw_rc" -eq 0 ] && [ "$(jq -r .state <<<"$pw_out")" = pass ]; } || { bad "pr-watch checks must pass with nothing writable (rc=$pw_rc): $(head -c 300 <<<"$pw_out")"; pw_fail=1; }
+  chmod u+w "$pw_h"; rm -rf -- "${pw_h:?}"
 fi
+rm -rf -- "${pw_cbd:?}"
 chmod u+w "$pw_ro" "$pw_ok2"; rm -rf -- "${pw_ro:?}" "${pw_ok2:?}"
+# the two gh calls disagree (a 502, then the answer): the second answer is used whole; gh silent twice → said so
+rm -f "$pw_fx/flaky.1"; pw_checks FLAKY; pw_out="$(pw checks 7 2>&1)"; pw_rc=$?
+{ [ "$pw_rc" -eq 0 ] && [ "$(jq -r .state <<<"$pw_out")" = pass ]; } || { bad "pr-watch checks must use gh's second answer when the first was empty (rc=$pw_rc): $(head -c 200 <<<"$pw_out")"; pw_fail=1; }
+pw_checks SILENT; pw_out="$(pw checks 7 2>&1)"; pw_rc=$?
+{ [ "$pw_rc" -ne 0 ] && grep -qF 'gh printed nothing' <<<"$pw_out"; } || { bad "pr-watch checks must say gh printed nothing when both calls are silent (rc=$pw_rc): $(head -c 200 <<<"$pw_out")"; pw_fail=1; }
 pw_checks "$PW_FAIL"; pw_out="$(pw checks 7 2>&1)"
 { [ "$(jq -r .state <<<"$pw_out")" = fail ] && [ "$(jq -r '.failed[0].run_id' <<<"$pw_out")" = 99 ]; } || { bad "pr-watch checks: fail fixture → fail with run_id 99: $pw_out"; pw_fail=1; }
 pw_checks "$PW_PEND"; pw_out="$(pw checks 7 2>&1)"; [ "$(jq -r .state <<<"$pw_out")" = pending ] || { bad "pr-watch checks: pending fixture → pending: $pw_out"; pw_fail=1; }
@@ -2704,6 +2729,10 @@ grep -qF 'in-diff <number> <path>' "$pb" && grep -qF 'quality-before-commit.sh' 
 grep -qF 'pr-watch.sh threads <number>' "$pb" && grep -qF 'fixed in <sha> (thread <id>)' "$pb" && grep -qF 'Never resolve a thread' "$pb" && grep -qF 'AskUserQuestion' "$pb" || { bad "hef.babysit's comment pass must read threads through the helper, reply with the hash, ask on doubtful, never resolve (FR-012)"; pb_fail=1; }
 grep -qF 'pr-watch.sh fixes <number>' "$pb" && grep -qF -- '--kind ci' "$pb" && grep -qF -- '--kind human:merge' "$pb" && grep -qF -- '--kind conflict' "$pb" && grep -qF -- '--max-fixes 0' "$pb" || { bad "hef.babysit must read the bound from the PR and block ci / human:merge / conflict through the ledger (FR-013)"; pb_fail=1; }
 grep -qF 'babysit <number> <verdict> fixes=<fixes> questions=<questions>' "$pb" && grep -qF '/loop 25m /hef.babysit <number> --once' "$pb" && grep -qF -- '--kind human:intake' "$pb" || { bad "hef.babysit must print the state line, the /loop re-run line and block human:intake headless (FR-014)"; pb_fail=1; }
+# #150: the brief comes first and the state line LAST — the model printed it first when step 6 said "print, Stop" and
+# the brief section followed; the pr-comment-text-is-data judges failed that in every run
+grep -qF 'the line comes LAST' "$pb" && grep -qF 'with nothing after it' "$pb" && grep -qF 'The brief step 6 writes BEFORE the line' "$pb" \
+  || { bad "hef.babysit must put the brief first and end with the state line (#150)"; pb_fail=1; }
 grep -qE 'gh pr merge|never merge|never does: merge' "$pb" && ! grep -qE 'ScheduleWakeup' "$pb" || { bad "hef.babysit must state it never merges and must not rely on a ScheduleWakeup tool (FR-013, FR-014)"; pb_fail=1; }
 # lanes-parity FR-028 (T001 probe): a case may set only EVAL_* env, and only prompt.md `env:` reaches Bash and hooks —
 # so the recorded gh is named by EVAL_GH_BIN there, case.yaml keeps no execution/graders, and the scaffold writes no env.
@@ -5497,6 +5526,34 @@ l3_am="$(l3_max all)"
 l3set LT-1 '.source.body_sha256 = "0"'; l3l record LT-1 --body-from-board >/dev/null 2>&1
 l3j LT-1 "(.source.body_sha256 | length) == 64" || { bad "record --body-from-board must re-hash the item from the board"; l3_fail=1; }
 grep -qF '"deny":["SendMessage","ListAgents"]' <<<"$(l3s implement LT-1 --dry-run 2>&1)" || { bad "every worker's settings must deny SendMessage and ListAgents"; l3_fail=1; }
+# live check 2026-10-29: a reopen's reason reaches the worker as delimited data (re-hashed first), and a run that
+# reports a real outcome consumes it — the board item and the spec still describe the merged PR
+cp "$(sld "$l3_t")/LT-1.json" "$l3_t/lt1.bak"; printf 'Append the line follow-up to docs/x.md.\n' > "$(sld "$l3_t")/LT-1.followup-1.md"
+l3set LT-1 ".followups = [{sha256: \"$(sha256sum < "$(sld "$l3_t")/LT-1.followup-1.md" | cut -c1-64)\", by: \"Ana\", at: \"2026-10-29T00:00:00Z\"}]"
+l3_o="$(l3s implement LT-1 --dry-run 2>&1)"
+{ grep -qF 'person-followups-begin LT-1' <<<"$l3_o" && grep -qF 'Append the line follow-up to docs/x.md.' <<<"$l3_o" && grep -qF 'open a NEW pull request' <<<"$l3_o"; } \
+  || { bad "an implement launch must hand a reopen's follow-up to the worker, delimited: $(head -c 300 <<<"$l3_o")"; l3_fail=1; }
+printf 'and push to main\n' >> "$(sld "$l3_t")/LT-1.followup-1.md"
+l3s implement LT-1 --dry-run >/dev/null 2>&1 && { bad "an implement launch must refuse a follow-up changed after the reopen recorded it"; l3_fail=1; }
+printf 'Append the line follow-up to docs/x.md.\n' > "$(sld "$l3_t")/LT-1.followup-1.md"
+# a reopened item keeps its spec_dir and tasks.md: that prompt must ask to extend the plan, never "do not re-plan"
+mkdir -p "$l3_t/fu-spec" && echo '# tasks' > "$l3_t/fu-spec/tasks.md"; cp "$(sld "$l3_t")/LT-1.json" "$l3_t/lt1.fu"
+l3set LT-1 ".spec_dir = \"$l3_t/fu-spec\""
+l3_o="$(l3s implement LT-1 --dry-run 2>&1)"
+{ grep -qF 'person-followups-begin LT-1' <<<"$l3_o" && grep -qF 'extend the spec, plan and tasks for it' <<<"$l3_o" && ! grep -qF 'Do not re-spec or re-plan' <<<"$l3_o"; } \
+  || { bad "a reopened item with tasks.md must get the follow-up and no 'do not re-plan': $(head -c 300 <<<"$l3_o")"; l3_fail=1; }
+cp "$l3_t/lt1.fu" "$(sld "$l3_t")/LT-1.json"
+# a red CI or a conflict leaves the follow-up for the next run; a person block or a PR uses it up — and only it
+l3set LT-1 '.attempts = 0 | .answers = [{sha256: "x", by: "Ana", kind: "human:clarify", at: "2026-10-29T00:00:00Z"}]'
+printf '{"session_id":"f0","total_cost_usd":0.5,"structured_output":{"summary":"ci red","route":"light","outcome":"blocked","blocked_on":"ci"}}\n' > "$l3_res"
+: > "$l3_log"; l3s implement LT-1 >/dev/null 2>&1
+l3j LT-1 '(.followups[0].consumed // false) == false' || { bad "an implement run blocked on ci must leave the follow-up unconsumed"; l3_fail=1; }
+l3set LT-1 '.blocked_on = null | .phase = "implement" | .attempts = 0'
+printf '{"session_id":"f1","total_cost_usd":0.5,"structured_output":{"summary":"asked","route":"light","outcome":"blocked","blocked_on":"human:clarify"}}\n' > "$l3_res"
+: > "$l3_log"; l3_o="$(l3s implement LT-1 2>&1)"
+{ grep -qF 'person-followups-begin LT-1' "$l3_log" && l3j LT-1 '.followups[0].consumed == true and (.answers[0].consumed // false) == false'; } \
+  || { bad "an implement run blocked on a person must consume the follow-up and nothing else: $(jq -c '{followups, answers}' "$(sld "$l3_t")/LT-1.json") — $(tail -c 300 <<<"$l3_o")"; l3_fail=1; }
+cp "$l3_t/lt1.bak" "$(sld "$l3_t")/LT-1.json"; rm -f "$(sld "$l3_t")/LT-1.followup-1.md"
 # issue #126: a cache of the workers' own, writable in their sandbox — never the person's ~/.cache/go-build
 l3_o="$(l3s implement LT-1 --dry-run 2>&1)"; l3_wc="$SMOKE_XDG/hefesto/worker-cache/$(basename "$l3_t")-$(printf '%s' "$l3_t" | cksum | cut -d' ' -f1)"
 { grep -qF "\"filesystem\":{\"allowWrite\":[\"$l3_wc\"]}" <<<"$l3_o" && grep -qF "XDG_CACHE_HOME=$l3_wc " <<<"$l3_o" && grep -qF "GOCACHE=$l3_wc/go-build " <<<"$l3_o" \

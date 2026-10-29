@@ -55,6 +55,12 @@ for lgr_c in "$lgr_ssh uptime" "docker ps"; do
     || { bad "the deny of '$lgr_c' must say it runs outside the sandbox and needs an approved action — got: $(cat "$lgr_t/why")"; x_fail=1; }
   lgr_want nolane "$lgr_c" deny
 done
+# live check 2026-10-29: a # inside a word is literal to bash, so the form /hef.ship writes passes; a word that
+# STARTS with # (a comment, which would hide the rest) is still refused. A multi-line gh is told to use --body-file.
+lgr_want deployer "$REPO/hooks/ledger.sh register HEF-9 --ref todo#HEF-9" none
+lgr_want deployer "$REPO/hooks/ledger.sh show HEF-9 #x" deny
+lgr_want deployer "$(printf 'gh pr create --title t --body "line one\nline two"')" deny
+grep -qF -- '--body-file' "$lgr_t/why" || { bad "the deny of a multi-line gh must point to --body-file — got: $(cat "$lgr_t/why")"; x_fail=1; }
 # gh reads and hefesto's helpers stay free (their own rules decide, as 9.0)
 for lgr_c in "gh pr view 7 --json title" "gh pr checks 7" "$REPO/hooks/pr-watch.sh state 7" "$REPO/hooks/status-board.sh --json" "$REPO/hooks/ledger.sh show HEF-1"; do
   lgr_want deployer "$lgr_c" none

@@ -53,7 +53,7 @@ terminal_phase() { case "$1" in drop) echo dropped ;; fold) echo folded ;; super
 
 # reason_ok <verb> <id> <file>: the reason is a file that exists, is not empty and is at most 8 KB (action stop's rule).
 reason_ok() {
-  [ -n "$3" ] || die "ledger $1 $2: pass the reason as a file (--reason-file <f>, written with the Write tool)"
+  [ -n "$3" ] || die "ledger $1 $2: pass the reason as a file (--reason-file <f>, written with the Write tool in your session scratchpad)"
   [ -f "$3" ] || die "ledger $1 $2: the reason file $3 does not exist"
   [ -s "$3" ] || die "ledger $1 $2: the reason file $3 is empty — say why the item ends here"
   [ "$(wc -c < "$3" | tr -d ' ')" -le 8192 ] || die "ledger $1 $2: the reason file $3 is over 8 KB — keep it to the reason"
@@ -143,8 +143,14 @@ reopen_cmd() {   # reopen <id> --reason-file <f>
     || die "ledger reopen $id: no merge evidence for the current PR (see above) — it cannot be closed out, so it is not reopened"
   case "$via" in "commit "*) read -r _ sha ver _ <<<"$via" ;; esac
   by="${USER:-$(id -un 2>/dev/null)}"
+  # The reason is the follow-up's only description: the board item and the spec still describe the merged PR, and a
+  # directive reaches the build LANE, never the worker it launches (live check 2026-10-29: the worker re-checked the
+  # merged PR and stopped). So it is copied beside the entry, hashed, and the implement launch hands it in as data.
+  local n dst; n=$(( $(jq '.followups // [] | length' <<<"$e") + 1 )); dst="$DIR/$id.followup-$n.md"
+  rm -f -- "$dst"; cp "$rfile" "$dst" || die "ledger reopen $id: cannot copy the reason to $dst"   # never through a link
   pr_stamp_merged "${via%% *}" "$sha" "$([ "$ver" = unverified ] && echo true || echo false)" <<<"$e" \
-    | jq --arg by "${by:-person}" --arg h "$(hef_sha256 < "$rfile")" '.phase = "implement" | .owner = null | .attempts = 0 | .blocked_on = null
+    | jq --arg by "${by:-person}" --arg h "$(hef_sha256 < "$dst")" '.phase = "implement" | .owner = null | .attempts = 0 | .blocked_on = null
+      | .followups = ((.followups // []) + [{sha256: $h, by: $by, at: (now | todate)}])
       | .events = ((.events // []) + [{kind: "reopen", at: (now | todate), by: $by, note: "for a follow-up PR", reason_sha256: $h}])' \
     | write_entry "$id" || exit 1
   rm -f "$DIR/$id.lease"; echo "$id merged → implement (reopened; the closing PR is stamped ${via%% *})"
