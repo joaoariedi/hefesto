@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased] - 9.1.1
+## [9.1.1] - 2026-10-29
 
 **What the 9.1 live checks found: a reopened item's follow-up now reaches the worker, and a stage lane writes its
 evidence where no permission dialog appears.**
