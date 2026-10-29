@@ -47,16 +47,44 @@ caller_lane_is() { # $1 the lane name the action is for; dies when a lanes sessi
   n=$(jq -r '.name // empty' "$f"); [ "$n" = "$1" ] || die "ledger action: this action is for the lane '$1', and this session is '${n:-not a lane}'"
 }
 
-scope_check() { # $1 scope file → the scope as one JSON line, validated (FR-003, review round 1 #6), or die
+# The 9.1 shape (plan Data Model, Sketches 8b and 14): kind/repo/pr/expects are kept, and commands normalise to
+# [{cmd, after_step}] — a bare string is after_step null — so the action hash covers the step a grant waits for.
+# shellcheck disable=SC2016  # a jq program: $n and $w are jq variables
+SCOPE_JQ_DEFS='
+  def strs($n): type == "array" and length <= $n and all(type == "string" and length <= 2000);
+  def cmd_ok: type == "string" and length > 0 and length <= 500 and (test("\n") | not) and (startswith("*") | not)
+    and (split(" ")[0] | contains("*") | not)
+    and ((split(" ")[0]) as $w | ["sh","bash","zsh","env","eval","exec","xargs","sudo","nohup","timeout","command","builtin"] | index([$w]) | not)
+    and ((" " + . + " ") | contains(" -c ") | not)
+    and (test("(ledger|session-launch|hefesto-setup|lane-guard)\\.sh") | not);
+  # NR-004: refusing `done` after a squash undoes nothing (the squash is on GitHub), so the refusal is at request.
+  # A token allowlist, not a deny list (T017 verifier, 2026-10-27): a deny list missed `--squash=true`, bundled `-sd`,
+  # `gh pr -R o/r merge`, `/usr/bin/gh`, and a trailing `*` that glob_re in lane-guard expands to `--squash` at run time.
+  # Any gh command with a merging token (a `merge` word, an `api …/merge(s)` path, a GraphQL merge mutation) must be
+  # exactly `gh pr merge` followed only by: a PR number or URL, --merge, --delete-branch/-d, --match-head-commit
+  # <40-hex>, -R/--repo <owner/repo> (also as --flag=value). No token may be a glob, so nothing can widen at run time.
+  def m_val($f): if $f == "--match-head-commit" then test("^[0-9a-f]{40}$") else test("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$") end;
+  def m_rest: if length == 0 then true
+    elif (.[0] | IN("--match-head-commit", "-R", "--repo")) then length >= 2 and (.[0] as $f | .[1] | m_val($f)) and (.[2:] | m_rest)
+    elif (.[0] | test("^--(match-head-commit|repo)=")) then (.[0] | capture("^(?<f>--[a-z-]+)=(?<v>.*)$") | .f as $f | .v | m_val($f)) and (.[1:] | m_rest)
+    elif (.[0] | IN("--merge", "--delete-branch", "-d")) or (.[0] | test("^([0-9]+|https://github\\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+)$"))
+      then .[1:] | m_rest
+    else false end;
+  def merge_ok: [splits("[ \t]+")] | map(select(length > 0)) as $t
+    | ($t | map(test("(^|/)gh$")) | index(true)) as $g
+    | if $g == null or ($t[$g + 1:] | any(test("^merge$|/merges?(/|$)|mergePullRequest|AutoMerge|mergeBranch"; "i")) | not) then true
+      else $g == 0 and $t[1] == "pr" and $t[2] == "merge" and ($t[3:] | m_rest) and ($t | index(["--merge"]) != null)
+        and ($t | any(. == "--match-head-commit" or startswith("--match-head-commit=")))
+      end;
+  def norm_cmd: if type == "string" then {cmd: ., after_step: null}
+    elif type == "object" and ((keys - ["cmd", "after_step"]) | length) == 0 then {cmd, after_step}
+    else {cmd: null, after_step: null} end;
+  def step_ok($n): . == null or (type == "number" and . == floor and . >= 1 and . <= $n);'
+scope_check() { # $1 scope file → the scope as one JSON line, validated (FR-003, FR-018, review round 1 #6), or die
   [ -f "$1" ] || die "ledger request: scope file not found: '$1'"
   [ "$(wc -c < "$1" | tr -d ' ')" -le 32768 ] || die "ledger request: the scope is over 32 KB — split the action"
   local out
-  out=$(jq -ce '
-    def strs($n): type == "array" and length <= $n and all(type == "string" and length <= 2000);
-    def cmd_ok: type == "string" and length > 0 and length <= 500 and (test("\n") | not) and (startswith("*") | not)
-      and ((split(" ")[0]) as $w | ["sh","bash","zsh","env","eval","exec","xargs","sudo","nohup","timeout","command","builtin"] | index([$w]) | not)
-      and ((" " + . + " ") | contains(" -c ") | not)
-      and (test("(ledger|session-launch|hefesto-setup|lane-guard)\\.sh") | not);
+  out=$(jq -ce "$SCOPE_JQ_DEFS"'
     if type != "object" then error("the scope must be a JSON object")
     elif (.title | type) != "string" or (.title | length) < 3 or (.title | length) > 200 or (.title | test("[\n\r]")) then error("title: one line of 3–200 characters")
     elif (.steps | strs(50)) != true or (.steps | length) == 0 then error("steps: a list of 1–50 strings")
@@ -64,9 +92,19 @@ scope_check() { # $1 scope file → the scope as one JSON line, validated (FR-00
       then error("heads: {\"<owner>/<repo>#<pr>\": \"<full 40-hex head sha>\"}")
     elif ((.stop_checks // []) | strs(50)) != true or ((.not_covered // []) | strs(50)) != true then error("stop_checks / not_covered: lists of strings")
     elif (.irreversible // false | type) != "boolean" then error("irreversible: true or false")
-    elif ((.commands // []) | type == "array" and length <= 50 and all(cmd_ok)) != true
-      then error("commands: up to 50 patterns, one line each, not starting with *, no shell or interpreter wrapper, no -c, no hefesto helper")
-    else {title, steps, heads: (.heads // {}), stop_checks: (.stop_checks // []), not_covered: (.not_covered // []), irreversible: (.irreversible // false), commands: (.commands // [])} end' "$1" 2>&1) || die "ledger request: the scope in $1 is not valid — ${out#jq: error*: }"
+    elif (.kind as $k | [null, "merge", "recipe", "train"] | index([$k])) == null then error("kind: \"merge\", \"recipe\", \"train\" or null")
+    elif (.repo | . == null or (type == "string" and test("^[A-Za-z0-9._-]{1,100}$"))) != true then error("repo: a board repo name or null")
+    elif (.pr | . == null or (type == "number" and . == floor and . >= 1)) != true then error("pr: a PR number or null")
+    elif (.expects // [] | type == "array" and all(. == null or (type == "string" and length <= 2000))) != true or ((.expects // []) | length) > (.steps | length)
+      then error("expects: a list of strings or null, at most one per step")
+    elif (.commands // [] | type == "array" and length <= 50) != true then error("commands: a list of up to 50 patterns")
+    else (.steps | length) as $n | ((.commands // []) | map(norm_cmd)) as $cs
+    | if ($cs | all(.cmd | cmd_ok)) != true
+        then error("commands: one line each, a string or {cmd, after_step}, no * in the program name, no shell or interpreter wrapper, no -c, no hefesto helper")
+      elif ($cs | all(.cmd | merge_ok)) != true then error("gh pr merge: --merge and --match-head-commit <40-hex sha> only")
+      elif ($cs | all(.after_step | step_ok($n))) != true then error("after_step: null or a step number in 1..\($n)")
+      else {title, steps, heads: (.heads // {}), stop_checks: (.stop_checks // []), not_covered: (.not_covered // []), irreversible: (.irreversible // false),
+            kind, repo, pr, expects: (.expects // []), commands: $cs} end end' "$1" 2>&1) || die "ledger request: the scope in $1 is not valid — ${out#jq: error*: }"
   printf '%s\n' "$out"
 }
 
@@ -80,6 +118,8 @@ request_action() { # globals: ID; args parsed by the caller: TO SCOPE SUP
   fi
   sc=$(scope_check "$SCOPE") || exit 1
   [ -n "$sc" ] || die "ledger request $ID: the scope in $SCOPE is not valid (jq . $SCOPE shows why)"
+  # FR-022: one merging action per repository (ledger-recipes.sh); the action this one supersedes gives up its slot
+  merge_exclusive "$sc" "${SUP:-}" "request $ID"
   if [ -n "$SUP" ]; then
     old=$(action_get "$SUP") || exit 1
     [ "$(jq -r .entry <<<"$old")" = "$ID" ] || die "ledger request $ID: --supersedes $SUP belongs to entry $(jq -r .entry <<<"$old")"
@@ -105,6 +145,7 @@ approve_action() { # globals: AID SHA ATO ATITLE IRREV REVIEWED RBY
   op_closed_refuse "$ID" "approve $AID"
   person_gate human:action approve
   [ "$(jq -r .status <<<"$a")" = pending ] || die "ledger approve $AID: it is $(jq -r .status <<<"$a") — only a pending action is approved"
+  merge_exclusive "$(jq -c .scope <<<"$a")" "$AID" "approve $AID"   # FR-022, re-checked at approve
   h=$(action_hash "$a"); [ "$h" = "$(jq -r .sha256 <<<"$a")" ] || die "ledger approve $AID: the stored scope no longer matches its hash — request it again"
   [[ "$SHA" =~ ^[0-9a-f]{8,64}$ ]] && [[ "$h" == "$SHA"* ]] || die "ledger approve $AID: --sha $SHA is not this scope's hash ($(cut -c1-12 <<<"$h")…) — show the scope again and ask"
   [ "$ATO" = "$(jq -r .to <<<"$a")" ] || die "ledger approve $AID: --to '$ATO' — the scope is for '$(jq -r .to <<<"$a")'"
@@ -138,35 +179,50 @@ action_cmd() { # $1 verb, then its arguments; globals: AID set by the caller
       [ "$h" = "$(jq -r .sha256 <<<"$a")" ] && [ "$h" = "$(jq -r .sha256 <<<"$r")" ] || die "ledger action take $AID: the scope changed after it was approved — stop and report it"
       [ "$(jq -r .to <<<"$r")" = "$(jq -r .to <<<"$a")" ] || die "ledger action take $AID: the approval names another lane"
       [ "$(jq -r '.consumed_at // empty' <<<"$r")" = "" ] || die "ledger action take $AID: the approval was already used ($(jq -r .consumed_by <<<"$r")) — one approval, one use"
+      scope_fetch "$a" take   # note 10: a merge's base is never stale (ledger-recipes.sh)
       jq '.status = "taken" | .taken_at = (now | todate)' <<<"$a" | action_put "$AID" || exit 1
       echo "$AID taken — check the heads first (action heads $AID), then follow the steps exactly; stop at any stop check" ;;
     heads)
       [ "$(jq -r .status <<<"$a")" = taken ] || die "ledger action heads $AID: take it first"
-      local gh="$GH" bad="" k repo pr want got
+      local gh="$GH" bad="" moved="" k repo pr want got
       command -v "$gh" >/dev/null 2>&1 || die "ledger action heads $AID: gh is not installed — the heads cannot be checked, so the action does not run"
+      scope_fetch "$a" heads
       while IFS=$'\t' read -r k want; do
         [ -n "$k" ] || continue; repo="${k%%#*}"; pr="${k##*#}"
         got=$("$gh" pr view "$pr" -R "$repo" --json headRefOid -q .headRefOid 2>/dev/null) || die "ledger action heads $AID: gh cannot read $repo#$pr — fails closed"
-        [ "$got" = "$want" ] || bad="${bad:+$bad; }$k is at $got, the approval names $want"
+        [ "$got" = "$want" ] || { bad="${bad:+$bad; }$k is at $got, the approval names $want"; moved="head moved from $want to $got"; }
       done < <(jq -r '.scope.heads | to_entries[] | "\(.key)\t\(.value)"' <<<"$a")
+      if [ -n "$bad" ] && [ "$(jq -r '.scope.kind // empty' <<<"$a")" = merge ]; then   # FR-023: the merge stops here
+        merge_stop "$a" 0 "$moved" "$bad"
+        die "ledger action heads $AID: head differs — $bad. The merge action is stopped; $(jq -r .entry <<<"$a") stays on human:merge"
+      fi
       [ -z "$bad" ] || die "ledger action heads $AID: head differs — $bad. Stop: ledger.sh action stop $AID --step 0 --reason-file <file>"
       jq '.heads_ok_at = (now | todate)' <<<"$a" | action_put "$AID" || exit 1
       echo "$AID heads match ($(jq -r '.scope.heads | length' <<<"$a")) — go on with the steps" ;;
     step|done|stop)
       [ "$(jq -r .status <<<"$a")" = taken ] || die "ledger action $verb $AID: it is $(jq -r .status <<<"$a") — only a taken action records progress"
-      n=""; f=""
-      while [ $# -gt 0 ]; do case "$1" in --step) n="${2:-}"; shift ;; --evidence-file|--reason-file) f="${2:-}"; shift ;; [0-9]*) n="$1" ;; *) die "ledger action $verb: unexpected '$1'" ;; esac; shift; done
+      n=""; f=""; local blk=""
+      while [ $# -gt 0 ]; do case "$1" in --step) n="${2:-}"; shift ;; --evidence-file|--reason-file) f="${2:-}"; shift ;; --block) blk="${2:-}"; shift ;; [0-9]*) n="$1" ;; *) die "ledger action $verb: unexpected '$1'" ;; esac; shift; done
+      merge_block_ok "$a" "$verb" "$blk"   # --block conflict: action stop on a merge action only (FR-023)
       [ -f "$f" ] || die "ledger action $verb $AID: pass the text as a file (--evidence-file / --reason-file <f>, written with the Write tool)"
       [ "$(wc -c < "$f" | tr -d ' ')" -le 8192 ] || die "ledger action $verb $AID: over 8 KB — keep it to the evidence"
       case "$verb" in
-        step) [[ "$n" =~ ^[0-9]+$ ]] || die "ledger action step $AID <n>: the step number"
+        # one spelling per number: jq reads 01 as 1 while a shell compare does not, which let `step 01` skip a merge's
+        # state read (code review of PR B)
+        step) [[ "$n" =~ ^[1-9][0-9]*$ ]] || die "ledger action step $AID <n>: the step number, 1 or more with no leading zero (got '$n')"
+              step_order "$a" "$n"                 # first: an out-of-order step is refused, never a stop that uses the approval
+              recipe_expect_check "$a" "$n" "$f"   # FR-017: a recipe's version check stops the run (ledger-recipes.sh)
+              merge_state_step "$a" "$n" "$f"      # note 11: a merge's step 1 is read here, and sets f to that state
               jq --argjson n "$n" --rawfile t "$f" '.steps_done += [{n: $n, evidence: $t, at: (now | todate)}]' <<<"$a" | action_put "$AID" || exit 1
               echo "$AID step $n recorded" ;;
-        done) jq --rawfile t "$f" '.status = "done" | .outcome = {kind: "done", evidence: $t, at: (now | todate)}' <<<"$a" | action_put "$AID" || exit 1
+        done) merge_done "$a"   # FR-021: a merge action's done records the merge, or is refused (ledger-recipes.sh)
+              jq --rawfile t "$f" '.status = "done" | .outcome = {kind: "done", evidence: $t, at: (now | todate)}' <<<"$a" | action_put "$AID" || exit 1
               store_consume "$AID" "done"; echo "$AID done — ring the orchestrator" ;;
-        stop) [[ "$n" =~ ^[0-9]+$ ]] || die "ledger action stop $AID --step <n>: the step where it stopped"
+        stop) [[ "$n" =~ ^(0|[1-9][0-9]*)$ ]] || die "ledger action stop $AID --step <n>: the step where it stopped, with no leading zero (got '$n')"
               jq --argjson n "$n" --rawfile t "$f" '.status = "stopped" | .outcome = {kind: "stopped", step: $n, reason: $t, at: (now | todate)}' <<<"$a" | action_put "$AID" || exit 1
-              store_consume "$AID" "stopped at step $n"; echo "$AID stopped at step $n — the orchestrator asks the person again" ;;
+              store_consume "$AID" "stopped at step $n"; [ -z "$blk" ] || merge_block_conflict "$a"
+              merge_stop_event "$a" "$AID stopped at step $n: $(head -c 300 "$f" | tr '\n' ' ')"
+              echo "$AID stopped at step $n — the orchestrator asks the person again" ;;
       esac ;;
     *) die "ledger action: unknown verb '$verb' (expected take, heads, step, done, stop or show)" ;;
   esac

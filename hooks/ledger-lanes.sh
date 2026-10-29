@@ -127,7 +127,8 @@ revise_item() { # $1 file|-
 # than five minutes (or, past a five-minute grace after the claim, missing): long against the renewal, so a
 # laptop waking from sleep does not lose a live claim before the next renewal. A file's age reads the same inside and outside a sandbox, where
 # a pid check does not: a sandboxed process lives in its own pid namespace and sees every launcher as dead.
-# Never from a launched worker. The released run is recorded as failed (exit 125).
+# Never from a launched worker. The release is recorded as {kind: "reaped", note} — not a failed run (exit 125 once
+# made `metrics` count it, FR-044 #152). A claim made by hand has no --pid, so it is interactive and never reaped.
 lease_stale() { # $1 entry file → 0 when its owner's lease (or the grace after the claim) has run out
   local id lease
   id=$(basename "$1" .json); lease="$DIR/$id.lease"
@@ -142,8 +143,8 @@ reap_dead_owners() { # every owned entry whose lease ran out → owner released 
     [ -f "$f" ] || continue
     [ "$(jq -r '.owner != null and .owner.mode != "interactive"' "$f" 2>/dev/null)" = true ] || continue   # a lane's claim has no lease (FR-016)
     lease_stale "$f" || continue
-    e=$(jq '.runs = ((.runs // []) + [{role: .owner.role, session_name: .owner.session_name, session_id: "", exit: 125, usd: 0, at: (now | todate), note: "the launcher stopped renewing its lease — the run was cut off"}]) | .owner = null' "$f") || continue
+    e=$(jq '.runs = ((.runs // []) + [{kind: "reaped", role: .owner.role, session_name: .owner.session_name, session_id: "", usd: 0, at: (now | todate), note: "the launcher stopped renewing its lease — the run was cut off"}]) | .owner = null' "$f") || continue
     write_entry "$(basename "$f" .json)" <<<"$e" && rm -f "$DIR/$(basename "$f" .json).lease" \
-      && echo "ledger: released $(basename "$f" .json) — its launcher stopped renewing the lease over five minutes ago; the run is recorded as failed (exit 125)" >&2
+      && echo "ledger: released $(basename "$f" .json) — its launcher stopped renewing the lease over five minutes ago; recorded as reaped, not as a failed run" >&2
   done
 }

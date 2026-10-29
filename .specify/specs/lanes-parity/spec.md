@@ -20,7 +20,7 @@ done"). `run` records a session and never moves a phase; the builder's own `adva
 
 ## Decisions taken before this spec (by the person, as forms, 2026-10-26)
 
-- **Release cut:** one spec, two releases: 9.1 = US1–US11 (FR-001–FR-028), 9.2 = US12–US20 (FR-029–FR-043).
+- **Release cut:** one spec, two releases: 9.1 = US1–US11 (FR-001–FR-028, plus FR-044 added 2026-10-27 for #152), 9.2 = US12–US20 (FR-029–FR-043).
 - **Recipe execution:** a deploy recipe run is a **lane action**. One form in the orchestrator approves the exact
   commands. The commands that must run outside the sandbox come only from setup's command line
   (`--unsandboxed-command`). In a `--lanes` project, lane-guard denies such a command unless an approved action grants
@@ -356,6 +356,7 @@ done"). `run` records a session and never moves a phase; the builder's own `adva
 | FR-041 | The quality-tooling skill carries the late-ack task-queue rule with detection patterns, and the e2e version-gate pattern | P3 | US20 |
 | FR-042 | `/hef.analyze` reports contradictions across lane documents with both quotes | P3 | US20 |
 | FR-043 | `docs/install.md` warns against one clone serving several environments | P3 | US20 |
+| FR-044 | A claim with no `--pid` is interactive (no lease, never reaped); a reap is recorded as kind `reaped` with its note, not as a failed run (added 2026-10-27, #152; ships in 9.1 PR B) | P1 | US4 |
 
 ## Negative requirements (must NOT happen)
 

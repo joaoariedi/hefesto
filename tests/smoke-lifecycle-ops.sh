@@ -220,3 +220,97 @@ for lc_w in 'ledger.sh deployed <id> --env <env> --commit <sha>' '"branches": { 
   grep -qF -- "$lc_w" "$REPO/docs/install.md" || { bad "docs/install.md must document $lc_w (US3, US6)"; x_fail=1; }
 done
 [ "$x_fail" -eq 0 ] && ok "docs: hooks.md names drop/fold/supersede/reopen/deployed/op close and branches' per-call cost; install.md shows deployed and the board {path, branches} form (US1 US3 US6)"
+
+# --- scope_check: the 9.1 scope shape and the merge-command rule (FR-018, FR-022, NR-004; Sketches 8b and 14) ------
+# kind/repo/pr/expects are kept (scope_check drops unknown keys); commands normalise to [{cmd, after_step}], a bare
+# string being after_step null, an after_step outside 1..len(steps) refused. Any `gh pr merge` must be a merge commit
+# pinned to a head: refusing `done` after a squash undoes nothing, so a --squash scope is refused at REQUEST.
+head_ "Lifecycle: scope_check (FR-018 NR-004)"
+x_fail=0
+lc_t="$(cd "$(mktemp -d)" && pwd -P)"; git -C "$lc_t" init -q -b main . && lc_git "$lc_t" commit -q --allow-empty -m init
+lc_entry_90 HEF-1 implement "hef-1" "7" null | lc_put "$lc_t" HEF-1
+lc_sh="0123456789abcdef0123456789abcdef01234567"
+lc_sc_refused() { # lc_sc_refused <text the refusal must name> <scope json>: request refused, no action written
+  local o; printf '%s\n' "$2" > "$lc_t/scope.json"
+  o="$(lc "$lc_t" request HEF-1 --to repo-deployer --scope-file "$lc_t/scope.json" 2>&1)" && { bad "request must refuse the scope $2 (FR-018 NR-004)"; x_fail=1; }
+  grep -qF -- "$1" <<<"$o" || { bad "the refusal of $2 must name '$1' — got: $(head -c 300 <<<"$o")"; x_fail=1; }
+  [ -z "$(find "$(sld "$lc_t")/actions" -name 'HEF-1-A*.json' 2>/dev/null)" ] || { bad "a refused request ($2) must write no action"; x_fail=1; }
+}
+lc_mrule='gh pr merge: --merge and --match-head-commit <40-hex sha> only'
+for lc_f in "--squash" "-s" "--rebase" "-r" "--auto" "--admin"; do
+  lc_sc_refused "$lc_mrule" "{\"title\": \"merge it\", \"steps\": [\"merge\"], \"commands\": [\"gh pr merge 7 --merge --match-head-commit $lc_sh $lc_f\"]}"
+done
+lc_sc_refused "$lc_mrule" '{"title": "merge it", "steps": ["merge"], "commands": ["gh pr merge 7 --squash"]}'
+lc_sc_refused "$lc_mrule" "{\"title\": \"merge it\", \"steps\": [\"merge\"], \"commands\": [{\"cmd\": \"gh pr merge 7 --squash --match-head-commit $lc_sh\", \"after_step\": 1}]}"
+lc_sc_refused "$lc_mrule" '{"title": "merge it", "steps": ["merge"], "commands": ["gh pr merge 7 --merge"]}'
+lc_sc_refused "$lc_mrule" '{"title": "merge it", "steps": ["merge"], "commands": ["gh pr merge 7 --merge --match-head-commit 0123abcd"]}'
+lc_sc_refused "$lc_mrule" "{\"title\": \"merge it\", \"steps\": [\"merge\"], \"commands\": [\"gh pr merge 7 --match-head-commit $lc_sh\"]}"
+# The T017 verifier's bypasses (2026-10-27): a deny list missed each of these; the allowlist refuses them all.
+for lc_c in "gh pr merge 7 --merge --match-head-commit $lc_sh *" "gh pr merge 7 --merge --match-head-commit $lc_sh --squash=true" \
+  "gh pr merge 7 --merge --match-head-commit $lc_sh --auto=true" "gh pr merge 7 --merge --match-head-commit $lc_sh -sd" \
+  "gh pr -R o/r merge 7 --squash" "/usr/bin/gh pr merge 7 --squash" "gh pr merge 7 --merge --match-head-commit=$lc_sh -s" \
+  "gh api -X PUT repos/o/r/pulls/7/merge -f merge_method=squash" "gh api graphql -f query=mutation{mergePullRequest}" \
+  "gh pr merge 7 --merge --match-head-commit $lc_sh --body x" "gh pr merge 7 --merge --match-head-commit ${lc_sh:0:39}?"; do
+  lc_sc_refused "$lc_mrule" "{\"title\": \"merge it\", \"steps\": [\"merge\"], \"commands\": [\"$lc_c\"]}"
+done
+lc_sc_refused 'no * in the program name' '{"title": "merge it", "steps": ["merge"], "commands": ["/usr/bin/g* pr merge 7 --squash"]}'
+lc_sc_refused 'after_step' '{"title": "two steps", "steps": ["a", "b"], "commands": [{"cmd": "make check", "after_step": 3}]}'
+lc_sc_refused 'after_step' '{"title": "two steps", "steps": ["a", "b"], "commands": [{"cmd": "make check", "after_step": 0}]}'
+lc_sc_refused 'after_step' '{"title": "two steps", "steps": ["a", "b"], "commands": [{"cmd": "make check", "after_step": "1"}]}'
+lc_sc_refused 'commands' '{"title": "two steps", "steps": ["a", "b"], "commands": [{"cmd": "bash -c x", "after_step": 1}]}'
+lc_sc_refused 'kind' '{"title": "two steps", "steps": ["a", "b"], "kind": "deploy"}'
+lc_sc_refused 'pr' '{"title": "two steps", "steps": ["a", "b"], "pr": "7"}'
+lc_sc_refused 'expects' '{"title": "two steps", "steps": ["a", "b"], "expects": [null, "ok", "extra"]}'
+# Accepted: the shape is kept and normalised, and the action hash covers it (after_step cannot move after approval).
+printf '%s\n' "{\"title\": \"merge HEF-1\", \"steps\": [\"state\", \"merge\"], \"kind\": \"merge\", \"repo\": \"app\", \"pr\": 7,
+  \"expects\": [\"mergeable\", null], \"heads\": {\"example/app#7\": \"$lc_sh\"}, \"unknown\": 1,
+  \"commands\": [\"pr-watch.sh state 7\", {\"cmd\": \"gh pr merge 7 -R example/app --merge --match-head-commit $lc_sh\", \"after_step\": 1},
+  \"gh pr view 7 --json mergeable,mergeStateStatus\", \"gh pr merge https://github.com/example/app/pull/7 --repo=example/app --merge -d --match-head-commit=$lc_sh\"]}" > "$lc_t/scope.json"
+lc_o="$(lc "$lc_t" request HEF-1 --to repo-deployer --scope-file "$lc_t/scope.json" 2>&1)" || { bad "a valid 9.1 merge scope must be accepted — got: $(head -c 300 <<<"$lc_o")"; x_fail=1; }
+jq -e --arg s "$lc_sh" '.scope | .kind == "merge" and .repo == "app" and .pr == 7 and .expects == ["mergeable", null] and (has("unknown") | not)
+  and .commands == [{cmd: "pr-watch.sh state 7", after_step: null}, {cmd: "gh pr merge 7 -R example/app --merge --match-head-commit \($s)", after_step: 1},
+    {cmd: "gh pr view 7 --json mergeable,mergeStateStatus", after_step: null},
+    {cmd: "gh pr merge https://github.com/example/app/pull/7 --repo=example/app --merge -d --match-head-commit=\($s)", after_step: null}]' \
+  "$(sld "$lc_t")/actions/HEF-1-A1.json" >/dev/null 2>&1 \
+  || { bad "scope_check must keep kind/repo/pr/expects and normalise commands to {cmd, after_step} — got: $(jq -c .scope "$(sld "$lc_t")/actions/HEF-1-A1.json" 2>&1 | head -c 400)"; x_fail=1; }
+printf '{"title": "a 9.0 scope", "steps": ["x"]}\n' > "$lc_t/scope.json"
+lc "$lc_t" request HEF-1 --to repo-deployer --scope-file "$lc_t/scope.json" >/dev/null 2>&1 \
+  && jq -e '.scope | .kind == null and .repo == null and .pr == null and .expects == [] and .commands == []' "$(sld "$lc_t")/actions/HEF-1-A2.json" >/dev/null 2>&1 \
+  || { bad "a 9.0-shaped scope must still be accepted, with kind/repo/pr null — got: $(jq -c .scope "$(sld "$lc_t")/actions/HEF-1-A2.json" 2>&1 | head -c 300)"; x_fail=1; }
+rm -rf -- "${lc_t:?}"
+[ "$x_fail" -eq 0 ] && ok "scope_check keeps kind/repo/pr/expects, normalises commands to {cmd, after_step} (1..len(steps)), and refuses any gh pr merge that is not --merge --match-head-commit <40-hex> or carries any other token (=value, bundled flags, -R before merge, a gh path, gh api merges, a glob), at request (FR-018 FR-022 NR-004)"
+
+# --- hand-run claims are never reaped; a reap is not a failed run (US4, FR-044, #152) --------------------------------
+# A claim made by hand (no --pid) has no launcher to renew a lease, so it is interactive: the reaper never takes it.
+# A launched claim whose lease ran out is still released, recorded as {kind: "reaped", note} — not exit 125 — so
+# metrics never counts it as a run (a reaped verify run would have been "verified" and diluted the FAIL rate).
+head_ "Lifecycle: hand claims are never reaped; a reap is not a failed run (FR-044)"
+x_fail=0
+lc_t="$(cd "$(mktemp -d)" && pwd -P)"; git -C "$lc_t" init -q -b main . && lc_git "$lc_t" commit -q --allow-empty -m init
+for lc_i in 1 2 4; do lc_entry_90 "HEF-$lc_i" queued "" "" null | lc_put "$lc_t" "HEF-$lc_i"; done
+lc_entry_90 HEF-3 verify hef-3 "" '{"session_name":"hef-verify-HEF-3","role":"verify","pid":1,"started":"2026-01-01T00:00:00Z"}' | lc_put "$lc_t" HEF-3
+: > "$(sld "$lc_t")/HEF-3.lease"   # alive for the first claim; its lease dies before the second
+lc_entry_90 HEF-5 merged hef-5 "" null | jq '.runs = [{role: "verify", session_name: "v", exit: 0, usd: 0, at: "2026-10-21T00:00:00Z"}]
+  | .verdicts = [{gate: "verify", verdict: "FAIL", by: "v", at: "2026-10-21T00:00:00Z"}]' | lc_put "$lc_t" HEF-5
+lc_o="$(lc "$lc_t" claim HEF-1 --session hand-1 --role plan 2>&1)" || { bad "a bare hand claim must succeed — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }
+lc_jq "$lc_t" HEF-1 '.owner.session_name == "hand-1" and .owner.mode == "interactive" and (.owner | has("pid") | not)' \
+  || { bad "a claim with no --pid must be interactive (FR-044) — got: $(jq -c .owner "$(lc_entry "$lc_t" HEF-1)")"; x_fail=1; }
+# five minutes on, with no lease: another claim must leave it alone (and reap HEF-3, whose lease is now dead)
+jq '.owner.started = "2026-01-01T00:00:00Z"' "$(lc_entry "$lc_t" HEF-1)" > "$lc_t/h1.json" && lc_put "$lc_t" HEF-1 < "$lc_t/h1.json"
+touch -t 202601010000 "$(sld "$lc_t")/HEF-3.lease"
+lc_o="$(lc "$lc_t" claim HEF-2 --session s2 --role implement --pid $$ 2>&1)" || { bad "the second claim must succeed — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }
+lc_jq "$lc_t" HEF-1 '.owner.session_name == "hand-1" and .runs == []' \
+  || { bad "a hand claim must survive another claim after five minutes (FR-044, #152) — got: $(jq -c '{owner, runs}' "$(lc_entry "$lc_t" HEF-1)")"; x_fail=1; }
+lc_jq "$lc_t" HEF-3 '.owner == null and (.runs[-1] | .kind == "reaped" and (.note | length > 0) and (has("exit") | not) and .role == "verify")' \
+  || { bad "a launched claim with a dead lease must be reaped and recorded as kind reaped, with no exit (FR-044) — got: $(jq -c '{owner, runs}' "$(lc_entry "$lc_t" HEF-3)")"; x_fail=1; }
+grep -qF 'released HEF-3' <<<"$lc_o" || { bad "the reap must still be announced — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }
+grep -qF 'exit 125' <<<"$lc_o" && { bad "the reap must no longer be announced as a failed run (exit 125) — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }
+# the --pid + --mode interactive refusal stays
+lc_o="$(lc "$lc_t" claim HEF-4 --session s4 --role deploy --pid $$ --mode interactive 2>&1)" && { bad "--pid with --mode interactive must still be refused"; x_fail=1; }
+lc_jq "$lc_t" HEF-4 '.owner == null' || { bad "a refused claim must write no owner"; x_fail=1; }
+# metrics: the reaped verify run is not a verify run — HEF-5 is the only one verified, and it FAILed
+lc_o="$(lc "$lc_t" metrics --json 2>&1)"
+jq -e '.verified == 1 and .verify_fail_rate == 1' <<<"$lc_o" >/dev/null 2>&1 \
+  || { bad "metrics must ignore a reaped run: verified 1, FAIL rate 100% (FR-044) — got: $(jq -c '{verified, verify_fail_rate}' <<<"$lc_o" 2>&1 | head -c 200)"; x_fail=1; }
+rm -rf -- "${lc_t:?}"
+[ "$x_fail" -eq 0 ] && ok "a claim with no --pid is interactive and survives the reaper; a launched claim with a dead lease is reaped as kind reaped (no exit 125); metrics' verified count and FAIL rate ignore the reap (FR-044)"

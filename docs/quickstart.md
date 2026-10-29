@@ -87,6 +87,28 @@ Start with the single lane; the same project can add the three stage lanes later
   confirm the dialog. The lane does exactly that, with no dialog in its own pane, and reports done or where it
   stopped. A head that moved, or anything the scope didn't cover, comes back to you as a new form. The status line
   shows each one waiting on you (`⏸ DET-7-A2 · action: merge PR #726`).
+- **Deploy recipes.** Write a deploy once, per environment, under `orchestrate.deploy.recipes` in
+  `.claude/project-status.json`: ordered steps, each a title and its commands, with `{version}`, `{sha}` and `{env}`
+  filled in when you ask. A step with `"expect": "{version}"` stops the run when the version it reads back differs.
+  ```json
+  "deploy": { "recipes": { "stg": { "steps": [
+    { "title": "deploy",  "commands": ["/usr/bin/ssh deploy@stg-host ./deploy.sh {version}"] },
+    { "title": "version", "commands": ["/usr/bin/curl -fsS https://stg-host/api/version/"], "expect": "{version}" } ] } } }
+  ```
+  A command that leaves the sandbox (ssh, docker, an internal host) is added once with
+  `hefesto-setup.sh --lanes --unsandboxed-command "/usr/bin/ssh deploy@stg-host"` (an absolute path). Then say "deploy
+  stg 1.4.2" in the orchestrator: it shows one form with every command written out, you approve it, and the deployer
+  runs exactly those, step by step, with no dialog in its pane. Editing the recipe later changes nothing already
+  approved.
+- **Release trains.** To promote several repos together, name them under `orchestrate.deploy.trains`
+  (`"app": {"repos": ["api", "ui"], "order": ["api", "ui"]}`), open one promotion PR per repo, and ask the
+  orchestrator to "promote app to stg". It is one form; the deployer goes repo by repo in that order — the PR's state,
+  the checks, then the merge — and a failure in one repo stops it before the next is touched.
+- **Merges by the deployer.** With `"merge_by": "lane"` under `orchestrate`, the merge form gains **Merge**: the
+  deployer re-reads the PR (clean, CI green, head still the SHA you saw), runs your `orchestrate.merge.checks` (for
+  instance `changelog-check.sh -C {repo_path} placement --base origin/{base}`, by absolute path), then merges with a
+  merge commit at that exact head and records it. A head that moved, a red check or a conflict comes back to you as a
+  form. One merge per repository at a time. The default, `"merge_by": "person"`, is unchanged: you merge on GitHub.
 - **Lane names** come from the project: `"lane_prefix": "myproduct"` under `orchestrate` (lanes
   `myproduct-orchestrator`, `-planner`, `-builder`, `-deployer`), or an explicit `"lanes": {"orchestrator": "…",
   "plan": "…", "build": ["…", "…"], "deploy": "…"}`. Run the setup again after changing them.
@@ -102,8 +124,17 @@ Start with the single lane; the same project can add the three stage lanes later
 - **When something looks wrong**, run `/hef.doctor`, copy the exact message, and ask your lead.
 
 **Security in one paragraph.** The lanes keep Claude Code's sandbox, and commands inside it run without asking.
-Outside it run only hefesto's own helpers and `gh`, each called as one plain command. The ledger, your approvals and
+Outside it run only hefesto's own helpers, `gh` and the commands you added with `--unsandboxed-command`, each called
+as one plain command; in a four-lane project those added commands run only as an approved action. The ledger, your approvals and
 the record of which session is which lane live in `~/.cache/hefesto`, where no sandboxed command and no file edit
 can reach them. The commands that record your decisions run only in the orchestrator, behind a dialog, and
 `gh pr merge` never runs without an approved action or your dialog. A lane reads item and RFC text that others
 wrote, so read each form and dialog before you answer it.
+
+## Upgrading
+
+**To 9.1, in a four-lane project:** a lane now runs a command that leaves the sandbox only as an approved action —
+every command in setup's `--unsandboxed-command` list and any `excludedCommands` in your other Claude Code settings.
+`gh` (its reads stay free) and hefesto's own helpers are unchanged. If a lane used such a command on its own in 9.0,
+it is now denied with a message naming it: ask the orchestrator for an action (a recipe makes a repeated one a single
+form). After the wizard, run the setup command again and restart the lanes, so each session reads the list afresh.

@@ -90,14 +90,25 @@ resolve_lane_map() { # $1 board config (may not exist), $2 the main folder → t
       | map(. as [$k,$r] | $s[$k] | select(nm) | {(.): $r}) | add // {} end' <<<"$cfg"
 }
 
-# Every hefesto hook runs outside the sandbox, in a repository a lane can write: its git calls ignore the two config
-# keys that run a program on a plain read (core.fsmonitor, core.hooksPath) — plan Revision 1 #1, code review of PR A.
-# Appended after any GIT_CONFIG_* the person set. (Claude Code's sandbox also mounts .git/config read-only, and
-# block-sensitive-files.sh blocks edits under .git/ — this is the line that holds if either is ever off.)
+# Every hefesto hook runs outside the sandbox, in a repository a lane can write: its git calls ignore the config keys
+# that run a program on a plain read (core.fsmonitor, core.hooksPath) — plan Revision 1 #1, code review of PR A — and,
+# since 9.1 fetches origin unsandboxed at a merge or train take (forensic review of PR B), the ones that run a program
+# on a fetch: the ext:: transport (also what a url.*.insteadOf would rewrite origin to), core.sshCommand, and the
+# git:// transport, whose core.gitProxy is a program (hefesto never fetches over git://). A
+# remote.origin.uploadpack (run locally for a path remote) is not pinned here — a config key for it would make every
+# repo appear to have an origin, and the repo's own value still won — so hefesto fetches through hef_fetch_origin,
+# whose --upload-pack does override it. A credential.helper is left alone: resetting it would break
+# the person's fetch of a private repo. Appended after any GIT_CONFIG_* the person set. (Claude Code's sandbox also
+# mounts .git/config read-only, and block-sensitive-files.sh blocks edits under .git/ — this is the line that holds
+# if either is ever off.)
+HEF_GIT_NEUTRAL="core.fsmonitor=false core.hooksPath=/dev/null protocol.ext.allow=never core.sshCommand=ssh protocol.git.allow=never"
 hef_git_neutral() {
-  local c="${GIT_CONFIG_COUNT:-}"; case "$c" in ''|*[!0-9]*) c=0 ;; esac
-  export "GIT_CONFIG_KEY_$c=core.fsmonitor" "GIT_CONFIG_VALUE_$c=false" \
-         "GIT_CONFIG_KEY_$((c + 1))=core.hooksPath" "GIT_CONFIG_VALUE_$((c + 1))=/dev/null" "GIT_CONFIG_COUNT=$((c + 2))"
+  local c="${GIT_CONFIG_COUNT:-}" kv; case "$c" in ''|*[!0-9]*) c=0 ;; esac
+  for kv in $HEF_GIT_NEUTRAL; do export "GIT_CONFIG_KEY_$c=${kv%%=*}" "GIT_CONFIG_VALUE_$c=${kv#*=}"; c=$((c + 1)); done
+  export "GIT_CONFIG_COUNT=$c"
+}
+hef_fetch_origin() { # git fetch --prune origin in the current repo, never with the repo's own upload-pack program
+  git fetch --upload-pack=git-upload-pack --prune origin
 }
 
 # One gh resolution for every helper (lanes-parity FR-027, plan Sketch 10). HEFESTO_GH_BIN keeps its 9.0 meaning — a

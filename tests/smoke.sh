@@ -5342,7 +5342,7 @@ l3_own() { l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pi
 l3_claim11() { l3set LT-11 '.owner = null'; (cd "$l3_t" && ${1:+env "$1"} bash "${L3_LG:-$LG}" claim LT-11 --session s --role plan --pid $$) 2>&1; }
 l3_own 2026-01-01T00:00:00Z; rm -f "$L3LD/LT-9.lease"; l3l list --active >/dev/null 2>&1; l3l next --stage plan >/dev/null 2>&1
 l3j LT-9 '.owner != null' || { bad "list and next must stay read-only: only a claim releases a claim"; l3_fail=1; }
-l3_o="$(l3_claim11)"; { l3j LT-9 '.owner == null and .runs[-1].exit == 125' && grep -qF 'released LT-9' <<<"$l3_o"; } \
+l3_o="$(l3_claim11)"; { l3j LT-9 '.owner == null and .runs[-1].kind == "reaped"' && grep -qF 'released LT-9' <<<"$l3_o"; } \
   || { bad "a claim with no lease, past its grace, must be released by the next claim: $l3_o"; l3_fail=1; }
 l3_own 2026-01-01T00:00:00Z; : > "$L3LD/LT-9.lease"; l3_claim11 >/dev/null
 l3j LT-9 '.owner != null' || { bad "a claim whose lease is fresh must stay"; l3_fail=1; }
@@ -5652,6 +5652,10 @@ la deployer action take LT-2-A4 >/dev/null 2>&1 || { bad "mutation survived: the
 l3_mut ledger-actions.sh 's/^      \[ "$(jq -r ..consumed_at \/\/ empty. <<<"$r")" = "" \] || die/      true || die/'
 jq '.status = "approved"' "$(sld "$l3_t")/actions/LT-2-A1.json" > "$l3_t/x.json" && cp "$l3_t/x.json" "$(sld "$l3_t")/actions/LT-2-A1.json"
 la deployer action take LT-2-A1 >/dev/null 2>&1 || { bad "mutation survived: the one-use check removed, yet the used approval was refused"; la_fail=1; }; l3_restore ledger-actions.sh
+# the mutations above leave LT-2-A1 and A4 open on o/r: closed again, or FR-022 (one merging action per repository)
+# refuses the next request before the check under test is reached
+la_close() { local a; for a in "$@"; do jq '.status = "stopped"' "$(sld "$l3_t")/actions/$a.json" > "$l3_t/x.json" && cp "$l3_t/x.json" "$(sld "$l3_t")/actions/$a.json"; done; }
+la_close LT-2-A1 LT-2-A4
 l3_mut ledger-actions.sh 's/^  \[ "$ATO" = "$(jq -r .to <<<"$a")" \] || die/  true || die/'
 la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/sc.json" >/dev/null 2>&1; la_h6="$(jq -r .sha256 "$(sld "$l3_t")/actions/LT-2-A5.json")"
 la_appr orchestrator LT-2-A5 "${la_h6:0:8}" repo-builder >/dev/null 2>&1 || { bad "mutation survived: the --to check removed, yet the wrong lane was refused"; la_fail=1; }; l3_restore ledger-actions.sh; LA_LG=""
@@ -5660,6 +5664,7 @@ jq '.status = "taken" | del(.heads_ok_at)' "$(sld "$l3_t")/actions/LT-2-A1.json"
 [ "$(gd deployer "$la_cmd")" = allow ] || { bad "mutation survived: the grant's checks removed, yet the used, unchecked action was not granted"; la_fail=1; }; l3_restore lane-guard.sh; LG_GD=""
 [ "$(gd deployer "$la_cmd")" = deny ] || { bad "a used approval without a heads check grants nothing (denied)"; la_fail=1; }
 # the status line shows a request waiting on the person (FR-027)
+la_close LT-2-A1 LT-2-A5
 la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/sc.json" >/dev/null 2>&1; la_last="$(ls "$(sld "$l3_t")"/actions/ | sed -n 's/^\(LT-2-A[0-9]*\)\.json$/\1/p' | sort -t A -k2 -n | tail -1)"
 la_gauge() { jq -nc --arg d "$l3_t" '{context_window: {used_percentage: 10}, workspace: {current_dir: $d, project_dir: $d}}' | bash "${1:-$REPO/hooks/context-gauge.sh}"; }
 grep -qF "⏸ $la_last · action: merge PR #7" <<<"$(la_gauge)" || { bad "the status line must show the pending action $la_last: $(la_gauge)"; la_fail=1; }
@@ -6162,6 +6167,11 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 # lanes-parity (9.1): this file is over the 500-line limit, so the new checks live in a sourced part.
 . "$REPO/tests/smoke-lifecycle.sh"
 . "$REPO/tests/smoke-lifecycle-ops.sh"   # part 2: ops, board branch models, docs
+. "$REPO/tests/smoke-lane-grants.sh"     # part 3: lane-guard grants for excluded commands (FR-015, NR-002)
+. "$REPO/tests/smoke-changelog-check.sh"  # part 4: CHANGELOG placement and version (FR-025, FR-026, NR-006)
+. "$REPO/tests/smoke-recipes.sh"          # part 5: deploy recipes as one lane action (US7, FR-014, FR-017, FR-018, NR-003)
+. "$REPO/tests/smoke-merge.sh"            # part 6: the lane merge on the person's form answer (US9, FR-020–FR-023, NR-004)
+. "$REPO/tests/smoke-train.sh"            # part 7: a release train over several repos in order (US8, FR-019)
 
 # --- Result --------------------------------------------------------------------------
 rmdir "$SMOKE_NO_GH_DIR" 2>/dev/null

@@ -87,14 +87,19 @@ if [ "$MODE" != run ]; then
 fi
 
 # lanes-v3 FR-022: this launcher is the one command a lane runs outside its sandbox, so it treats what a
-# sandboxed session can write as hostile. Every git it runs — and every helper it calls — ignores the two config
-# keys that execute a program on an ordinary read (core.fsmonitor, core.hooksPath); the worker gets them unset,
-# its git hooks are the project's business. Nothing here runs git inside a worktree (wt_branch below).
+# sandboxed session can write as hostile. Every git it runs — and every helper it calls — ignores the config keys
+# that execute a program on an ordinary read (core.fsmonitor, core.hooksPath) or on a fetch (the ext:: and git://
+# transports, core.sshCommand — the list lane-lib.sh's HEF_GIT_NEUTRAL pins for ledger.sh; this file does not source
+# it), and its fetches pass --upload-pack (GIT_FETCH_SAFE); the worker gets the keys unset, its git hooks are the
+# project's business. Nothing here runs git inside a worktree (wt_branch below).
 # Appended after any GIT_CONFIG_* the person set; the worker gets exactly theirs back (WORKER_ENV, below).
 GC0="${GIT_CONFIG_COUNT:-}"; case "$GC0" in ''|*[!0-9]*) GCN=0 ;; *) GCN="$GC0" ;; esac
-export "GIT_CONFIG_KEY_$GCN=core.fsmonitor" "GIT_CONFIG_VALUE_$GCN=false" \
-       "GIT_CONFIG_KEY_$((GCN + 1))=core.hooksPath" "GIT_CONFIG_VALUE_$((GCN + 1))=/dev/null" "GIT_CONFIG_COUNT=$((GCN + 2))"
-WORKER_ENV=(-u "GIT_CONFIG_KEY_$GCN" -u "GIT_CONFIG_VALUE_$GCN" -u "GIT_CONFIG_KEY_$((GCN + 1))" -u "GIT_CONFIG_VALUE_$((GCN + 1))")
+WORKER_ENV=()
+for kv in core.fsmonitor=false core.hooksPath=/dev/null protocol.ext.allow=never core.sshCommand=ssh protocol.git.allow=never; do
+  export "GIT_CONFIG_KEY_$GCN=${kv%%=*}" "GIT_CONFIG_VALUE_$GCN=${kv#*=}"; WORKER_ENV+=(-u "GIT_CONFIG_KEY_$GCN" -u "GIT_CONFIG_VALUE_$GCN")
+  GCN=$((GCN + 1))
+done; export "GIT_CONFIG_COUNT=$GCN"
+GIT_FETCH_SAFE=(fetch --upload-pack=git-upload-pack)   # a path remote's upload-pack runs here; the repo's own value never does
 if [ -n "$GC0" ]; then WORKER_ENV+=("GIT_CONFIG_COUNT=$GC0"); else WORKER_ENV+=(-u GIT_CONFIG_COUNT); fi
 # Lane mode: setup's settings set HEFESTO_TRUSTED_TOP for every session in a set-up project, so this is the
 # launcher running for a sandboxed lane — the case the checks below defend. From a terminal or the test suite
@@ -536,7 +541,7 @@ EOF
       if [ "$DRY" = 1 ]; then
         echo "# deploy $ID: first checks whether PR #$PRN is merged (ledger.sh unblock); if so records it and launches nothing" >&2
       else
-        git -C "$TOP" fetch -q --prune origin 2>/dev/null || true   # offline: unblock still asks gh for the PR's merge commit
+        git -C "$TOP" "${GIT_FETCH_SAFE[@]}" -q --prune origin 2>/dev/null || true   # offline: unblock still asks gh for the PR's merge commit
         if "$LEDGER" unblock "$ID" >/dev/null 2>&1; then
           "$LEDGER" advance "$ID" merged >/dev/null || die "session-launch deploy $ID: the merge was recorded but advance to merged failed — run: ledger.sh advance $ID merged"
           # A worktree with its own config.worktree (read under extensions.worktreeConfig) could carry a filter
@@ -578,7 +583,7 @@ if [ "$MODE" = prepare ]; then
       if [ -e "$WT" ] || [ -L "$WT" ]; then
         [ "$LANE_MODE" = 0 ] || { [ ! -L "$WT" ] && wt_branch "$WT" >/dev/null; } || undo "session-launch $ROLE $ID --prepare: $WT is not a worktree of this repository (a symlink, or its git pointer was changed) — remove it and run again"
       else
-        git -C "$TOP" fetch -q origin 2>/dev/null || true
+        git -C "$TOP" "${GIT_FETCH_SAFE[@]}" -q origin 2>/dev/null || true
         BASE="origin/$INTEG"; git -C "$TOP" rev-parse -q --verify "$BASE^{commit}" >/dev/null 2>&1 || BASE=HEAD
         if git -C "$TOP" rev-parse -q --verify "refs/heads/worktree-$ID" >/dev/null 2>&1; then
           git -C "$TOP" worktree add -q "$WT" "worktree-$ID" >/dev/null 2>&1 || undo "session-launch $ROLE $ID --prepare: cannot add the worktree $WT on worktree-$ID"
@@ -619,7 +624,7 @@ case "$ROLE" in
       cd "$WT" || die "session-launch: cannot enter existing worktree $WT"; else cd "$TOP" || die "session-launch: cannot enter $TOP"; CMD+=(-w "$ID")
       # a new worktree starts from the remote's branch as this checkout last saw it: fetch first, or an item
       # planned after a merge starts from before it (lanes-v3 trial 2026-10-22). Offline: as before.
-      [ "$DRY" = 1 ] || git -C "$TOP" fetch -q origin 2>/dev/null || true; fi
+      [ "$DRY" = 1 ] || git -C "$TOP" "${GIT_FETCH_SAFE[@]}" -q origin 2>/dev/null || true; fi
     if [ "$ROLE" = plan ]; then CMD+=(--permission-mode default); else CMD+=(--permission-mode acceptEdits); fi ;;
   verify)
     [ "$LANE_MODE" = 0 ] || { [ ! -L "$WORKTREE" ] && wt_branch "$WORKTREE" >/dev/null; } || die "session-launch verify $ID: $WORKTREE is not a worktree of this repository (a symlink, or its git pointer was changed)"

@@ -35,6 +35,79 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased] - 9.1.0
+
+**A deploy, a release train or a merge is one form in the orchestrator, carried out by the deployer step by step.
+The ledger closes items without releasing them, holds several PRs per item, and records cherry-picked releases.**
+
+### Added
+
+- **Deploy recipes** (#136). `orchestrate.deploy.recipes.<env>` in `.claude/project-status.json` holds a deploy's
+  ordered steps: a title, its commands, `{version}`, `{sha}` and `{env}` placeholders, optional stop checks. Asking for
+  "deploy `<env>` `<version>`" drafts one lane action (`ledger.sh request <OP-n> --recipe <env> --version <v>`) with
+  every command written out in the form. Steps are recorded in order, and a step's commands are granted only once the
+  steps before it are recorded. A step with `"expect": "{version}"` stops the run when the version read back
+  differs, with both values as evidence. A recipe with an unknown placeholder, an empty step or a refused command is
+  refused at request time, naming it; an unknown env lists the configured ones. Editing a recipe after approval
+  changes nothing: the action carries the approved scope.
+- **Release trains** (#136). `orchestrate.deploy.trains.<name>` (`repos`, `order`) promotes several repos as one action
+  on an op (`request <OP-n> --train <name> --env <env> --pr <repo>=<n> …`, each PR targeting `<env>`): heads pinned per PR, and per repo, in
+  order, the PR's state, the checks (`-C {repo_path}`), then its merge. A failure in one repo stops the action before
+  the next is touched; `done` checks the merge of every head in its own repo.
+- **Merges by the deployer** (#137). With `orchestrate.merge_by: lane`, the `human:merge` form shows a drafted merge
+  action (`request <id> --merge`): the pinned SHA, a state step (`pr-watch.sh state`: clean, green, head unchanged),
+  every `orchestrate.merge.checks` command verbatim, and the hash. **Merge** approves it; the deployer runs the checks
+  and only `gh pr merge <n> -R <owner/repo> --merge --match-head-commit <sha>`, and `action done` records the merge
+  through the existing evidence check and advances the item to `merged`. A moved head, a red check or a conflict stops
+  it before the merge and comes back as a form. Its steps are recorded in order, so the state step is never skipped.
+  One merging action per repository (a merge, a train, or any action with a `gh pr merge`; one with no `-R` counts for
+  every repository) is approved or taken at a time; superseding it frees the slot. Any
+  `gh pr merge` in a scope must be `--merge --match-head-commit <40-hex>`, never `--squash`, `--rebase`, `--auto` or
+  `--admin`. `merge_by: person`, the default, is unchanged.
+- **`hooks/changelog-check.sh`** (#137): `placement --base <ref> [--cut <X.Y.Z>]` fails when a released section of a
+  Keep-a-Changelog file changed or new text sits outside `[Unreleased]` and the section being cut, and exits 2 —
+  never 0 — when it cannot compare. `version` prints the version to cut. `/hef.release` in a project repo reads that
+  repo's own CHANGELOG with it and moves `[Unreleased]` into the new section.
+- **Item lifecycle**: `drop`, `fold --into` and `supersede --by` close an item without releasing it (person-only, with
+  a hashed reason); `reopen` takes a merged item back to `implement` for a follow-up PR. An item holds every PR it had
+  (`.prs[]`), and `merged` needs every earlier PR stamped merged.
+- **`ledger.sh deployed <id> --env <env> --commit <sha>`**: a release record per environment, checked against that
+  environment's branch, which `where` and `advance released` accept in place of branch ancestry (a cherry-picked
+  release).
+- **`op close` / `op drop`** end an op; ops are listed and counted apart from items.
+- **Branch models on an external board**: a board's `repos.<name>` may be `{"path": …, "branches": {…}}`; `ledger.sh
+  branches --repo <name>` prints the effective model and its source. A malformed block fails loudly, naming the repo
+  and the file — it never falls back to trunk.
+- **Grants follow the steps**: a scope command may carry `after_step: k`, granted only once step `k` is recorded.
+
+### Changed
+
+- **In a `--lanes` project, every command that leaves the sandbox runs only as an approved action** (FR-015): setup's
+  `--unsandboxed-command` list and any `excludedCommands` in your other settings, in every permission mode. `gh` and
+  hefesto's own helpers keep their own rules. The list lane-guard reads is copied into the session record at
+  SessionStart, from settings files a lane cannot write.
+- An owner on `merged`, `released` or a closed phase no longer counts toward claim limits; a launched owner is released.
+- A claim with no `--pid` is interactive: no lease, never reaped; a reap is recorded as `reaped`, not as a failed run
+  (#152).
+- The git calls hefesto's hooks make outside the sandbox now also ignore `protocol.ext.allow` and `core.sshCommand`
+  from the repository, and their `git fetch origin` never runs the repository's own `uploadpack` program (merges and
+  trains fetch at take).
+- The gh the helpers call resolves as `HEFESTO_GH_BIN`, else `EVAL_GH_BIN`, else `gh`, never from a file; the two
+  evals that need a recorded gh reach it again.
+
+### Fixed
+
+- `pr-watch.sh`: a hidden HTML comment containing `--` no longer drops the reviewer's visible text; its temp files
+  fall back to a user-owned directory when `$TMPDIR` is read-only.
+- The stray empty `[Unreleased]` heading at the end of the 3.0.0 entry is gone.
+
+### Upgrading
+
+Run the wizard, then the setup command again, and restart the lanes. **In a four-lane project**, a lane that ran an
+unsandboxed command (other than `gh` and hefesto's helpers) on its own in 9.0 is now denied, with a message naming the
+command: ask the orchestrator for an approved action, or write a recipe for one you repeat. A project set up without
+`--lanes` behaves as in 9.0.1. Actions approved before the upgrade keep their grants.
+
 ## [9.0.1] - 2026-10-26
 
 **In a four-lane project, a lane can no longer write to GitHub without an approved action, whatever the permission
@@ -1804,15 +1877,6 @@ agent, a new hook, a new rule, and a new skill.
 - **Quality Consistency**: Standardized quality enforcement across all projects
 - **Context Switching**: Reduced cognitive load through specialized agent delegation
 - **Planning Overhead**: Automated comprehensive planning reduces setup time
-
-## [Unreleased]
-
-### Added
-### Changed  
-### Deprecated
-### Removed
-### Fixed
-### Security
 
 ## [2.1.0] - 2025-01-09
 
