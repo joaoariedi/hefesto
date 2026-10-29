@@ -51,7 +51,7 @@ is deploy: recipes, trains, the lane merge and placement, and it is the trust-be
 ## Phase 7: Polish PR B and release
 - [x] T026 [US7] [US8] [US9] Docs: `docs/quickstart.md` (recipes, trains, `merge_by: lane`, and **Upgrading**: in a lane, every excluded command except gh and hefesto's helpers now needs an approved action), `docs/hooks.md` (`changelog-check.sh`, grants by step, the `try_grant` cost). `CHANGELOG.md` 9.1.0, removing the stray `[Unreleased]` at `:1808`. `docs/quickstart.md`
 - [x] T027 [SC-002] The PR B mutation pass: `merge_ok`, `after_step` in `try_grant`, the excluded-command deny, the basename helper match, exclusivity at approve, the `expects` stop, the `done` evidence, the train base check and fail-closed, placement (new section, link refs, exit 2), placeholder refusal. Each must go red. `tests/smoke-lifecycle.sh`
-- [ ] T028 PR B: smoke on bash 5 and 3.2, `/hef.verify` (FR-014–026, FR-044, NR-002–006), `/hef.quality`, `/hef.scan` and a `forensic-specialist` pass (the trust-bearing PR), `/hef.review` (code, fresh context), `/hef.pr`. Merge on the person's word. `CHANGELOG.md`
+- [x] T028 PR B: smoke on bash 5 and 3.2, `/hef.verify` (FR-014–026, FR-044, NR-002–006), `/hef.quality`, `/hef.scan` and a `forensic-specialist` pass (the trust-bearing PR), `/hef.review` (code, fresh context), `/hef.pr`. Merge on the person's word. `CHANGELOG.md`
 - [ ] T029 [SC-003] [SC-004] Release 9.1.0 (`/hef.release`, tag, GitHub release). Write the live-check script and lane steps for the person: a fold, a reopen with a second PR, a cherry-pick `deployed`, a train, a lane merge. Zero inputs outside the orchestrator, zero dialogs in a stage lane, judged from transcripts. Run the four evals. `CHANGELOG.md`
 
 ---

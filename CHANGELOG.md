@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased] - 9.1.0
+## [9.1.0] - 2026-10-29
 
 **A deploy, a release train or a merge is one form in the orchestrator, carried out by the deployer step by step.
 The ledger closes items without releasing them, holds several PRs per item, and records cherry-picked releases.**
