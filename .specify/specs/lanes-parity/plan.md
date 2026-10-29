@@ -611,6 +611,7 @@ is recorded, and the train test must go red. `expect` stays a stop check; orderi
 | Board path matching (`board_repo_branches`) misses a repo reached through a symlink or a worktree | Silent trunk model | Match by `pwd -P` of the main worktree top; a repo on an external board with no match and no file says `default` in `branches --repo`, never silently |
 | Denying every non-gh, non-helper exclusion in lanes breaks a project that relied on a global exclusion there | A lane that worked in 9.0 is denied | The CHANGELOG and `docs/quickstart.md` say so under **Upgrading**; the deny names the command and says to ask for an approved action |
 | `try_grant` reads every `actions/*.json` per Bash call in a lane (`lane-guard.sh:163`) | Slower guard with thousands of actions | Fine at hundreds; `docs/hooks.md` notes it |
+| A merge action's state and check verdicts are the lane's report (note 11) | A lane could record a red PR as mergeable | Mechanical where it fits: `action step <aid> 1` runs `pr-watch.sh state` itself and records only `mergeable` at the pinned head (a moved head or any other verdict stops the action; `conflict` blocks the entry `conflict`). The check verdicts stay the lane's report, ordered by `after_step`; the head pin is enforced by GitHub (`--match-head-commit`), and `done` records the merge only through `merge_evidence` |
 | `action heads` for a train uses one gh call per PR | A slow `take` | At most a handful of repos per train; heads are checked once per take, as today |
 
 ## Quick Start

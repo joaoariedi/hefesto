@@ -139,7 +139,7 @@ reopen_cmd() {   # reopen <id> --reason-file <f>
     || die "ledger reopen $id: only a merged item reopens (it is $ph) — a follow-up after released is a new item"
   reason_ok reopen "$id" "$rfile"
   # In a subshell: merge_evidence dies on a refusal, and its cd_entry_repo must not move this process.
-  via=$(cd_entry_repo "$e" && { git fetch --prune origin >/dev/null 2>&1; merge_evidence "$e" "$(jq -r '.pr.merge_sha // empty' <<<"$e")" recorded; }) \
+  via=$(cd_entry_repo "$e" && { hef_fetch_origin >/dev/null 2>&1; merge_evidence "$e" "$(jq -r '.pr.merge_sha // empty' <<<"$e")" recorded; }) \
     || die "ledger reopen $id: no merge evidence for the current PR (see above) — it cannot be closed out, so it is not reopened"
   case "$via" in "commit "*) read -r _ sha ver _ <<<"$via" ;; esac
   by="${USER:-$(id -un 2>/dev/null)}"
@@ -186,7 +186,7 @@ deployed_cmd() {   # deployed <id> --env <env> --commit <sha>
   [[ "$bk" != human:* ]] || die "ledger deployed $id: blocked on $bk — a person clears it first (ledger.sh unblock $id)"
   is_terminal_entry "$e" && die "ledger deployed $id: the entry is $(jq -r .phase <<<"$e") — a closed item is never deployed"
   cd_entry_repo "$e" || exit 1   # external-board: the entry's repo, its own model and branches
-  git fetch --prune origin >/dev/null 2>&1   # no origin (a local repo) is fine: the local branches still answer
+  hef_fetch_origin >/dev/null 2>&1   # no origin (a local repo) is fine: the local branches still answer
   full=$(deployed_check "$id" "$env" "$sha") || exit 1
   fin=$(branches_model | jq -r .final) || exit 1; ph=$(jq -r '.phase // ""' <<<"$e")
   [ "$env" = "$fin" ] && [ "$ph" = merged ] && to=released

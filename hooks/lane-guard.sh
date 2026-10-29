@@ -142,6 +142,14 @@ glob_re() { # $1 pattern → an anchored ERE
     case "$ch" in '*') out+='[^;&|`$()<>{}]*' ;; [][\\.^\$+?\(\)\{\}\|]) out+="\\$ch" ;; *) out+="$ch" ;; esac
   done; printf '^%s$' "$out"
 }
+# Sketch 14: a command {cmd, after_step: k} is grantable only once step k is in steps_done; a pre-9.1 bare string is
+# {cmd, after_step: null} (note 8), so an action taken before the upgrade keeps its grant. Every step 1..k must be
+# recorded, not k alone: the ledger records steps in order, and this holds even when steps_done does not (FR-023).
+granted_cmds() { # action JSON on stdin → the command patterns grantable now, one per line
+  jq -r '[.steps_done[]?.n] as $done | .scope.commands[]?
+    | if type == "string" then {cmd: ., after_step: null} else . end
+    | select(.after_step as $k | $k == null or all(range(1; $k + 1); . as $i | $done | index($i) != null)) | .cmd // empty | strings'
+}
 try_grant() { # → allow (and exit) when CMD is a command of an action this lane holds; else return
   local LD a aid st h pat re
   [ -n "$NAME" ] || return 0
@@ -159,11 +167,23 @@ try_grant() { # → allow (and exit) when CMD is a command of an action this lan
     while IFS= read -r pat; do
       [ -n "$pat" ] || continue; re="$(glob_re "$pat")"
       [[ "$CMD" =~ $re ]] && allow "approved action $aid ($(jq -r .scope.title <<<"$a" | cut -c1-80)), approved by $(jq -r .by <<<"$st")"
-    done < <(jq -r '.scope.commands[]?' <<<"$a")
+    done < <(granted_cmds <<<"$a")
   done < <(jq -c --arg n "$NAME" 'select(.to == $n and .status == "taken")' "$@" 2>/dev/null)
   return 0
 }
 try_grant
+
+# FR-015 (Sketch 6): every other excluded command runs only when granted — try_grant above exits on a grant. gh keeps
+# its own rule below (reads stay free); hefesto's helpers keep their role rules. Helpers are known by basename, never by
+# this hook's directory: setup points the record at ${CLAUDE_PLUGIN_ROOT:-clone}/hooks, which differs from the
+# per-profile plugin cache this hook may run from (plan change 1).
+is_hefesto_helper() { case "$1" in */ledger.sh|*/session-launch.sh|*/pr-watch.sh|*/status-board.sh) return 0 ;; *) return 1 ;; esac; }
+if [ -n "$EXCL_HIT" ] && [ "$EXCL_HIT" != gh ] && ! is_hefesto_helper "$EXCL_HIT"; then
+  # every command here starts with the bare word: one that names it elsewhere was denied by the plain-words rule above
+  what="$EXCL_HIT runs outside the sandbox, so in a --lanes project it"
+  if [ -n "$NAME" ]; then deny "$what runs only as an approved action — ask the orchestrator for one (a recipe run, a train, or a merge; the person approves it as a form)"
+  else deny "$what runs only as an approved action of a lane — this session is no lane, so it cannot hold one"; fi
+fi
 
 # gh in a --lanes project (9.0.1, live check 6): a gh that is not a read form, a PR creation or a granted command is
 # DENIED here, not left to the permission rules — in auto mode a command no rule matches is the classifier's call, and

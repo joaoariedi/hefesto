@@ -249,9 +249,7 @@ caller_gate() {
   fi
   return 0
 }
-GC0="${GIT_CONFIG_COUNT:-}"; case "$GC0" in ''|*[!0-9]*) GCN=0 ;; *) GCN="$GC0" ;; esac
-export "GIT_CONFIG_KEY_$GCN=core.fsmonitor" "GIT_CONFIG_VALUE_$GCN=false" \
-       "GIT_CONFIG_KEY_$((GCN + 1))=core.hooksPath" "GIT_CONFIG_VALUE_$((GCN + 1))=/dev/null" "GIT_CONFIG_COUNT=$((GCN + 2))"
+hef_git_neutral   # lane-lib.sh: the git config keys that run a program are pinned for every git call below
 
 phase_index() { # name → index, or die
   local i; for i in "${!PHASES[@]}"; do [ "${PHASES[$i]}" = "$1" ] && { echo "$i"; return; }; done
@@ -292,7 +290,8 @@ metrics_compute() { # $1 since (or ""), $@ files → one JSON object on stdout
       def hours($a; $b): (($b | fromdate) - ($a | fromdate)) / 3600;
       def median: if length == 0 then null else (sort | .[(length / 2) | floor]) end;
       def r1: if . == null then null else ((. * 10) | round) / 10 end;
-      (map(select($since == "" or .created >= $since)) | '"$JQ_OPS_COUNT"') as $ops | map(select(($since == "" or .created >= $since) and .item_kind != "op")) as $e   # FR-011: an op is not an item
+      (map(select($since == "" or .created >= $since)) | '"$JQ_OPS_COUNT"') as $ops | map(select(($since == "" or .created >= $since) and .item_kind != "op"))
+        | map(.runs = ((.runs // []) | map(select(.kind != "reaped")))) as $e   # FR-011: an op is not an item; FR-044: a reap is not a run
       | ($e | map(select(.phase == "merged" or .phase == "released"))) as $m
       | ($e | map(select((.phase == "pr" or .phase == "merged" or .phase == "released" or .pr != null) and (.phase as $x | $tp | index([$x]) | not)))) as $p
       | ($e | map(select(any(.runs[]?; .role == "verify")))) as $v
@@ -419,6 +418,8 @@ case "$SUB" in
     # no lease, never reaped; it ends with --finish, or a person's ledger.sh release
     case "$CMODE" in ""|interactive) ;; *) die "ledger claim $ID: --mode must be interactive (or absent), got '$CMODE'" ;; esac
     [ -z "$CMODE" ] || [ -z "$CPID" ] || die "ledger claim $ID: an interactive claim has no --pid (it is a lane, not a launcher)"
+    # FR-044 (#152): no --pid means no launcher renews a lease, so a hand claim is interactive — never reaped
+    [ -n "$CPID" ] || CMODE=interactive
     [ -z "$CPID" ] || [[ "$CPID" =~ ^[0-9]+$ ]] || die "ledger claim $ID: --pid must be a process id (got '$CPID')"
     [ -n "$SESSION" ] && [ -n "$ROLE" ] || die "ledger claim $ID: --session <name> and --role <role> are required"
     in_list "$ROLE" "plan implement verify deploy" || die "ledger claim $ID: --role must be plan, implement, verify or deploy (got '$ROLE') — each stage has its own limit"
@@ -665,10 +666,13 @@ case "$SUB" in
     if [ "$VERB" = answer ]; then answer_item "$TXT"; else revise_item "$TXT"; fi ;;
   request)   # lanes-interactive FR-003 — the orchestrator's proposal; ledger-actions.sh
     # shellcheck disable=SC2034 # read by ledger-actions.sh
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; TO=""; SCOPE=""; SUP=""
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; TO=""; SCOPE=""; SUP=""; RENV=""; RVER=""; RSHA=""; RMERGE=0; RTRAIN=""; RTENV=""; RPRS=""
     # shellcheck disable=SC2034 # read by ledger-actions.sh (a directive covers one command: this loop assigns them)
-    while [ $# -gt 0 ]; do case "$1" in --to) TO="${2:-}"; shift ;; --scope-file) SCOPE="${2:-}"; shift ;; --supersedes) SUP="${2:-}"; shift ;; *) usage ;; esac; shift; done
-    request_action ;;
+    while [ $# -gt 0 ]; do case "$1" in --to) TO="${2:-}"; shift ;; --scope-file) SCOPE="${2:-}"; shift ;; --supersedes) SUP="${2:-}"; shift ;;
+      --recipe) RENV="${2:-}"; shift ;; --version) RVER="${2:-}"; shift ;; --sha) RSHA="${2:-}"; shift ;; --merge) RMERGE=1 ;;
+      --train) RTRAIN="${2:-}"; shift ;; --env) RTENV="${2:-}"; shift ;; --pr) RPRS="${RPRS:+$RPRS }${2:-}"; shift ;; *) usage ;; esac; shift; done
+    [ "$RMERGE" = 0 ] || [ -z "$RTRAIN$RTENV$RPRS" ] || die "ledger request $ID: --merge and --train draft different scopes — pass one"
+    if [ "$RMERGE" = 1 ]; then request_merge; elif [ -n "$RTRAIN$RTENV$RPRS" ]; then request_train; elif [ -n "$RENV$RVER$RSHA" ]; then request_recipe; else request_action; fi ;;   # ledger-recipes.sh (US7, US9)
   approve)   # FR-005 — person-only, in the ask rules: its dialog is the person's signature
     # shellcheck disable=SC2034 # read by ledger-actions.sh
     AID="${1:-}"; [ -n "$AID" ] || usage; shift; SHA=""; ATO=""; ATITLE=""; IRREV=0; REVIEWED=0; RBY=""

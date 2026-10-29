@@ -31,6 +31,40 @@
 #   --configured rc 2             BCTX=$(board_ctx) || return 1                           an unresolvable board: branches --configured must exit 2
 #   the loud EVAL_GH_BIN          not executable → echo gh; return 0                      a non-executable EVAL_GH_BIN=… must fail (FR-027), all three
 #   board object validation       `[ -z "$bad" ] || die` → `true || die`                  an unknown key in repos.api must be refused (NR-005)
+#
+# PR B mutation pass (T027, SC-002), 2026-10-28: the same method, against parts 1–7, on a copy of the tree. 29 mutants,
+# 29 red. The five marked * stayed GREEN on the first run — no part tested them — and the T027 section at the end of
+# this file is what sends them red now.
+#   guard                         mutant                                                  went red
+#   merge_ok                      scope_check's merge_ok call → `elif false`               a 9.0-shaped scope …; request --merge must draft …
+#                                 the --match-head-commit requirement removed              (the same; a pinless merge in a scope is refused)
+#                                 the --merge requirement → true                           (the same)
+#                                 m_rest's last arm `else false` → `else true`             (the same)
+#   after_step in try_grant       granted_cmds' after_step select → select(true)           a check must not be granted before step 1 is recorded
+#   the excluded-command deny     `if [ -n "$EXCL_HIT" ] … ; then` → `if false; then`      a stopped recipe action must grant nothing more
+#   the basename helper match     */ledger.sh|… → "$HERE"/ledger.sh|… (the hook's dir)     lane-guard (deployer): '<clone>/hooks/pr-watch.sh state 7' must be none
+#                                 is_hefesto_helper → return 1                             (the same)
+#   exclusivity at approve        merge_exclusive at approve → :                           approving a second merge action on acme/app must be refused
+#                                 merge_exclusive at request → :                           a merge action on a repo an approved train holds …
+#                                 merge_exclusive keyed on kind merge only (not train)     (the same)
+#   the expects stop              recipe_expect_check's match → return 0                   a stopped recipe action must grant nothing more
+#   the done evidence             `done) merge_done "$a"` → `done) true`                   a merge action's done must stamp the PR's merge commit …
+#                                 `[ "$st" = MERGED ] && [ "$oid" != - ] ||` → `true ||`   done before the PR is merged: the refusal must name 'OPEN'
+#                               * `|| die "… no merge evidence …"` → `|| true`             a refused done must leave HEF-1-A1 taken and HEF-1 unchanged
+#   train base check              in_branch rc 1 → echo, not die                           done while ui's merge commit is only in main …
+#                               * rc 2 (base resolves nowhere) → echo, not die             action done OP-1-A1 must be refused (base qa resolves nowhere)
+#                                 the pinned-head compare → true                           done when a PR merged another head than the pinned one …
+#                               * the MERGED compare → true                                … must name 'acme/api#5 is OPEN, not merged'
+#   train fail-closed             gh_present → true                                        the no-gh refusal must name gh
+#                               * `|| die "… gh cannot read …"` → `|| true`                … must name 'gh cannot read acme/api#5'
+#                                 the git fetch in each repo → skipped                     done once both merge commits are in stg must pass
+#   placement: new section        new_sections' `has … && continue` → `continue`           a new ## [1.1.0-rc1] section and --cut 1.2.0: want exit 1
+#              kept sections      compare_kept skips every key                             a stacked-train auto-merge edits ## [1.0.0]: want exit 1
+#              link refs          the `/^\[[^]]+\]: / { next }` line removed               (new section): output must name '## [1.2.0]'
+#              exit 2             cannot() exits 0                                         a base with no CHANGELOG.md: want exit 2, got 0
+#                                 the base-has-no-CHANGELOG arm → return 0                 (the same)
+#   placeholder refusal           recipe_validate's unknown-placeholder die → true          an edit to the recipe must not change the approved action
+#                               * merge_checks_get's unknown-placeholder die → true         a merge check with {branch} must be refused
 
 # Fail loudly when the part is run on its own, or after smoke.sh stopped providing what it relies on: a part that
 # silently defines nothing would report "0 failed" for every test in it. Inside smoke.sh the refusal is a counted
@@ -587,3 +621,58 @@ jq -e 'length == 8 and all(.[]; .owner == null or (.owner | has("stale") | not))
 [ "$(cat "$(sld "$lc_t")"/*.json | sha256sum)" = "$lc_sum0" ] || { bad "list must never write .owner.stale back to an entry"; x_fail=1; }
 rm -rf -- "${lc_t:?}"
 [ "$x_fail" -eq 0 ] && ok "list --active marks .owner.stale true on merged/released/dropped/folded/superseded and false on implement/verify, computed and never written (US4 FR-009)"
+
+# --- PR B mutation pass: the done and placeholder refusals no other part sent red (T027, SC-002) --------------------
+# Five PR B mutants stayed green against parts 3–7 (the table at the top of this file): the merge done's evidence
+# refusal, a train done's not-merged / unreadable-gh / unresolvable-base refusals, and the merge checks' placeholder
+# refusal. Each case below is the one that sends its mutant red: a refusal naming its cause, the action left taken
+# and the entry unchanged. The actions are hand-written as `take` leaves them: `done` reads only the status.
+head_ "Lifecycle: merge and train done refuse without evidence; merge checks refuse an unknown placeholder (T027)"
+x_fail=0
+lc_t="$(cd "$(mktemp -d)" && pwd -P)"; lc_a="$lc_t/api"; git init -q --bare -b main "$lc_t/api.git" && git init -q -b main "$lc_a"
+lc_git "$lc_a" commit -q --allow-empty -m init && git -C "$lc_a" remote add origin "$lc_t/api.git" && git -C "$lc_a" checkout -q -b feat \
+  && lc_git "$lc_a" commit -q --allow-empty -m feat && git -C "$lc_a" push -q origin main feat 2>/dev/null && git -C "$lc_a" checkout -q main
+lc_head="$(git -C "$lc_a" rev-parse feat)"; mkdir -p "$lc_t/bin" "$lc_a/.claude"; printf 'merged\n' > "$lc_t/ev.md"
+# FakeGhDone: `pr view` answers from $lc_t/pr.json through -q/--jq; with no file there, gh cannot read the PR.
+cat > "$lc_t/bin/gh" <<EOF
+#!/bin/bash
+[ "\$1 \$2" = "pr view" ] && [ -f "$lc_t/pr.json" ] || exit 1
+q=""; while [ \$# -gt 0 ]; do case "\$1" in -q|--jq) q="\$2"; shift ;; esac; shift; done
+if [ -n "\$q" ]; then jq -r "\$q" "$lc_t/pr.json"; else cat "$lc_t/pr.json"; fi
+EOF
+chmod +x "$lc_t/bin/gh"
+# lc_pr <state> <base> <merge commit|"">: the fake PR acme/api#5, its head the feat commit
+lc_pr() { jq -n --arg st "$1" --arg b "$2" --arg mc "$3" --arg h "$lc_head" '{number: 5, url: "https://github.com/acme/api/pull/5", state: $st,
+  headRefName: "feat", baseRefName: $b, headRefOid: $h, mergeCommit: (if $mc == "" then null else {oid: $mc} end)}' > "$lc_t/pr.json"; }
+lcd() { local d="$1"; shift; (cd "$d" && env -u CLAUDE_CODE_SESSION_ID HEFESTO_GH_BIN="$lc_t/bin/gh" bash "$LC_LG" "$@"); }
+# lc_taken <repo dir> <aid> <entry> <scope JSON>: a taken action, as take leaves it
+lc_taken() { mkdir -p "$(sld "$1")/actions" && jq -n --arg a "$2" --arg e "$3" --argjson sc "$4" '{aid: $a, entry: $e, to: "repo-deployer",
+  status: "taken", at: "2026-10-28T00:00:00Z", sha256: "0000", scope: $sc, steps_done: [], taken_at: "2026-10-28T00:00:00Z"}' > "$(sld "$1")/actions/$2.json"; }
+lc_done_no() { # lc_done_no <repo dir> <aid> <entry> <text the refusal must name>: refused, the action taken, the entry unchanged
+  local f o before; f="$(sld "$1")/$3.json"; before="$(sha256sum < "$f")"
+  o="$(lcd "$1" action "done" "$2" --evidence-file "$lc_t/ev.md" 2>&1)" && { bad "action done $2 must be refused ($4)"; x_fail=1; }
+  grep -qF -- "$4" <<<"$o" || { bad "the refusal of action done $2 must name '$4' — got: $(head -c 300 <<<"$o")"; x_fail=1; }
+  jq -e '.status == "taken"' "$(sld "$1")/actions/$2.json" >/dev/null 2>&1 && [ "$(sha256sum < "$f")" = "$before" ] \
+    || { bad "a refused done must leave $2 taken and $3 unchanged"; x_fail=1; }
+}
+# lc_scope <kind> <pr|null> <steps JSON>: the scope request drafts, pinned to the feat head
+lc_scope() { jq -nc --arg h "$lc_head" --arg k "$1" --argjson pr "$2" --argjson st "$3" '{title: "\($k) acme/api#5", kind: $k, repo: null, pr: $pr, steps: $st,
+  heads: {"acme/api#5": $h}, commands: [{cmd: "gh pr merge 5 -R acme/api --merge --match-head-commit \($h)", after_step: 1}], expects: []}'; }
+lc_entry_90 HEF-1 pr feat 5 null | jq '.pr.url = "https://github.com/acme/api/pull/5" | .blocked_on = {kind: "human:merge", since: "2026-10-27T00:00:00Z"}' | lc_put "$lc_a" HEF-1
+# FR-020, note 16: a merge check's placeholder outside {repo_path} and {base} is refused at request, and no action written
+jq -n '{name: "api", orchestrate: {merge_by: "lane", merge: {checks: ["changelog-check.sh -C {repo_path} placement --base origin/{branch}"]}}}' > "$lc_a/.claude/project-status.json"
+lc_pr OPEN main ""; lc_o="$(lcd "$lc_a" request HEF-1 --to repo-deployer --merge 2>&1)" && { bad "a merge check with {branch} must be refused"; x_fail=1; }
+grep -qF 'unknown placeholder {branch}' <<<"$lc_o" || { bad "the merge-check refusal must name {branch} — got: $(head -c 300 <<<"$lc_o")"; x_fail=1; }
+[ ! -e "$(sld "$lc_a")/actions/HEF-1-A1.json" ] || { bad "a refused request --merge must write no action"; x_fail=1; }
+# FR-021, note 4: gh says MERGED, but the merge commit is not in the integration branch — done records nothing
+lc_taken "$lc_a" HEF-1-A1 HEF-1 "$(lc_scope merge 5 '["state", "merge"]')"; lc_pr MERGED main "$lc_head"; lc_done_no "$lc_a" HEF-1-A1 HEF-1 "no merge evidence"
+# FR-019, note 19: a train's done checks every head through gh and its base, and fails closed on each missing fact
+lc_bd="$lc_t/board"; git init -q -b main "$lc_bd" && lc_git "$lc_bd" commit -q --allow-empty -m init; mkdir -p "$lc_bd/.claude"
+jq -n '{name: "board", repos: {api: {path: "../api", branches: {integration: "main", environments: ["stg", "main"]}}}}' > "$lc_bd/.claude/project-status.json"
+[ "$(lcd "$lc_bd" op new --title "promote api to stg" 2>&1)" = OP-1 ] || { bad "op new must create OP-1 on the board"; x_fail=1; }
+lc_taken "$lc_bd" OP-1-A1 OP-1 "$(lc_scope train null '["api: state of acme/api#5", "api: merge acme/api#5"]')"
+lc_pr OPEN stg ""; lc_done_no "$lc_bd" OP-1-A1 OP-1 "acme/api#5 is OPEN, not merged"
+rm -f "$lc_t/pr.json"; lc_done_no "$lc_bd" OP-1-A1 OP-1 "gh cannot read acme/api#5"
+lc_pr MERGED qa "$lc_head"; lc_done_no "$lc_bd" OP-1-A1 OP-1 "base qa resolves nowhere"
+rm -rf -- "${lc_t:?}"
+[ "$x_fail" -eq 0 ] && ok "a merge check's unknown placeholder is refused at request; a merge done with no merge evidence and a train done on an unmerged PR, an unreadable PR or a base that resolves nowhere are refused, the action taken and the entry unchanged (T027 SC-002 FR-019 FR-020 FR-021)"
