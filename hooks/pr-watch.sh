@@ -53,13 +53,16 @@ PW_TMP=(); trap 'rm -rf ${PW_TMP[@]+"${PW_TMP[@]}"}' EXIT
 # write path, stays writable (SC-004 runs, 2026-10-27): one retry there, then a stop naming both.
 # HEFESTO_TMP_FALLBACK replaces /tmp/claude in tests.
 pw_mktemp() { # [-d] → a new temp file or dir
-  local fb="${HEFESTO_TMP_FALLBACK:-/tmp/claude}"
+  local fb="${HEFESTO_TMP_FALLBACK:-/tmp/claude}" hb="${XDG_CACHE_HOME:-${HOME:-/nonexistent}/.cache}/hefesto-tmp"
   # An explicit template in both calls: BSD mktemp with no template need not use $TMPDIR (the smoke-macos job created
   # the file elsewhere with both dirs read-only, PR #151), so the directory is named rather than left to mktemp.
   mktemp "$@" "${TMPDIR:-/tmp}/pw.XXXXXXXX" 2>/dev/null && return 0
   # Only a directory this user owns: /tmp/claude is shared and predictable, and its owner could read or swap the files.
   mkdir -p "$fb" 2>/dev/null; [ -O "$fb" ] && mktemp "$@" "$fb/pw.XXXXXXXX" 2>/dev/null && return 0
-  die "pr-watch: cannot create a temp file in ${TMPDIR:-/tmp} nor in $fb (writable and owned by you) — make one of them so"
+  # Last, under the user's own cache: `claude plugin eval` (2026-10-29) denies every write under /tmp, its own TMPDIR
+  # included, and leaves only the eval's HOME writable — every babysit pass stopped at its first checks call.
+  (umask 077; mkdir -p "$hb") 2>/dev/null; [ -O "$hb" ] && chmod 700 "$hb" 2>/dev/null && mktemp "$@" "$hb/pw.XXXXXXXX" 2>/dev/null && return 0
+  die "pr-watch: cannot create a temp file in ${TMPDIR:-/tmp}, $fb nor $hb (writable and owned by you) — make one of them so"
 }
 tmpf() { local t; t="$(pw_mktemp)" || exit 1; PW_TMP+=("$t"); echo "$t"; }
 tmpd() { local t; t="$(pw_mktemp -d)" || exit 1; PW_TMP+=("$t"); echo "$t"; }
@@ -128,9 +131,16 @@ pr_json() { # $1 pr or ""
 
 # --- checks: the buckets are the answer, never the exit code (gh exits 8 while pending, 1 on a failure, and prints JSON either way)
 checks_json() { # $1 pr → the raw array; "no checks reported" → []
-  local err out; err="$(tmpf)"; out="$("$GH" pr checks "$1" --json name,bucket,link,workflow 2>"$err")"
+  # No temp file: `claude plugin eval` 2.1.312 leaves nothing writable at all (its HOME and TMPDIR included), and every
+  # babysit pass died here. stdout alone is the answer; only when it is empty is gh asked again, for its stderr.
+  # The second answer is used whole: a check registered, or a transient error cleared, between the calls (code review
+  # of 9.1.1: the stop was blank when they disagreed).
+  local again out; out="$("$GH" pr checks "$1" --json name,bucket,link,workflow 2>/dev/null)"
   if [ -z "$out" ]; then
-    if grep -qi 'no checks reported' "$err"; then out='[]'; else die "pr-watch checks $1: $(cat "$err")"; fi
+    again="$("$GH" pr checks "$1" --json name,bucket,link,workflow 2>&1)"
+    if jq -e 'type == "array"' <<<"$again" >/dev/null 2>&1; then out="$again"
+    elif grep -qi 'no checks reported' <<<"$again"; then out='[]'
+    else die "pr-watch checks $1: ${again:-gh printed nothing}"; fi
   fi
   printf '%s' "$out"
 }
@@ -235,7 +245,9 @@ cmd_fixes() {
 # --- the only two write calls in the file --------------------------------------------------------------
 post() { # $1 pr, $2 thread id or "", $3 body file
   [ -f "$3" ] || die "pr-watch: body file '$3' not found"
-  local d url; d="$(tmpd)"; { cat "$3"; printf '\n\n%s\n' "$MARKER"; } > "$d/body.md"
+  # `|| exit 1`: a $(…) only ends its subshell — without it a failed tmpd left d empty and the body was posted
+  # unscanned from /body.md (found by the 9.1.1 nothing-writable test)
+  local d url; d="$(tmpd)" || exit 1; { cat "$3"; printf '\n\n%s\n' "$MARKER"; } > "$d/body.md" || die "pr-watch: cannot write the body to $d"
   # CSA's recommendation after Comment-and-Control (report 17 §5e): scan agent-posted content before publication.
   if command -v gitleaks >/dev/null 2>&1; then
     gitleaks detect --no-git --source "$d" --no-banner >/dev/null 2>&1 || die "pr-watch: refused — gitleaks found a secret in $3; nothing posted"

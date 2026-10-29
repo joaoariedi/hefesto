@@ -97,7 +97,7 @@ if [ -n "$EXCL_HIT" ]; then
   starts_bare() { local q; q="$(re_quote "$EXCL_HIT")"; [[ "$1" =~ ^[[:space:]]*${q}([[:space:]]|$) ]]; }
   if ! { plain_words "$CMD" && starts_bare "$CMD"; } && ! heredoc_ok; then
     case "$EXCL_HIT" in
-      gh) deny "gh runs outside the sandbox in this project, so a command naming it must be exactly one plain gh command — no pipe, redirect, chain, \$(…), keyword or wrapper around it. Use gh's own --jq/-q to filter, the Write tool to save output, and the Grep tool to search for the word" ;;
+      gh) deny "gh runs outside the sandbox in this project, so a command naming it must be exactly one plain gh command — no pipe, redirect, chain, \$(…), keyword or wrapper around it. Use gh's own --jq/-q to filter, the Write tool to save output, and the Grep tool to search for the word. A multi-line --body or --title goes in a file: write it with the Write tool and pass --body-file <f>" ;;
       *) deny "$EXCL_HIT runs outside the sandbox in this project, so the call must be one plain word list exactly as the guide writes it — no pipe, redirect, chain, \$(…), wrapper or leading assignment (pass text with a file argument)" ;;
     esac
   fi

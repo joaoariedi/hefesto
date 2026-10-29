@@ -494,6 +494,10 @@ lc_jq "$lc_t" HEF-7 '.phase == "implement" and .owner == null and .attempts == 0
   and (.prs | length) == 1 and .prs[0].merged.merge_sha == "'"$lc_sha"'" and .pr == .prs[-1]
   and (.events[-1] | .kind == "reopen" and (.by | type == "string" and length > 0))' \
   || { bad "reopen must stamp the PR with the recorded sha, land at implement with no owner and attempts 0, and log a reopen event (FR-005, note 1) — got: $(jq -c '{phase, owner, attempts, prs, events}' "$(lc_entry "$lc_t" HEF-7)" | head -c 400)"; x_fail=1; }
+# live check 2026-10-29: the reason is the follow-up's only description, so reopen keeps a hashed copy for the worker
+lc_fu="$(sld "$lc_t")/HEF-7.followup-1.md"
+{ cmp -s "$lc_fu" "$lc_w/why.md" && lc_jq "$lc_t" HEF-7 '(.followups | length) == 1 and .followups[0].sha256 == "'"$(sha256sum < "$lc_w/why.md" | cut -c1-64)"'" and (.followups[0].consumed // false) == false'; } \
+  || { bad "reopen must copy the reason to HEF-7.followup-1.md and record its hash, unconsumed (FR-005) — got: $(jq -c .followups "$(lc_entry "$lc_t" HEF-7)")"; x_fail=1; }
 # A reopened entry is claimable again (attempts 0: the claim is attempt 1, never a stall).
 lc_o="$(lc "$lc_t" claim HEF-7 --session s7 --role implement 2>&1)" && grep -qF 'attempt 1' <<<"$lc_o" \
   || { bad "a reopened entry must be claimable as attempt 1 (note 1) — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }

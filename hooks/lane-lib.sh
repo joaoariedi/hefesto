@@ -28,7 +28,12 @@ setup_settings() { # $1 a folder in the project → the settings JSON of its mai
 # A plain word list: one command, its words unquoted or in quotes with nothing the shell would expand or chain.
 # What an excluded (unsandboxed) command line must be — a redirection would leave the sandbox with it (plan review
 # round 3: `gh pr view 7 --json body -q .body > <store>/<aid>.json`).
-PLAIN_WORD="([^][[:space:]'\"\$\`;&|<>(){}\\\\*?!#~]+|'[^']*'|\"[^\"\$\`\\\\!]*\")+"
+# A `#` starts a comment only at the start of a word, so inside one it is literal: `--ref todo#DET-24`, the form
+# /hef.ship writes, was denied (live check 2026-10-29). A word still never STARTS with `#` (or `~`).
+PLAIN_UNQ="[^][[:space:]'\"\$\`;&|<>(){}\\\\*?!~]"
+PLAIN_QUO="'[^']*'|\"[^\"\$\`\\\\!]*\""
+PLAIN_UNQ0="[^][[:space:]'\"\$\`;&|<>(){}\\\\*?!~#]"   # the first character of an unquoted word: never a #
+PLAIN_WORD="(${PLAIN_UNQ0}${PLAIN_UNQ}*|${PLAIN_QUO})(${PLAIN_UNQ}+|${PLAIN_QUO})*"
 plain_words() { # $1 command → 0 when it is one plain word list
   local re="^[[:space:]]*${PLAIN_WORD}([[:space:]]+${PLAIN_WORD})*[[:space:]]*\$"
   [[ "$1" != *$'\n'* ]] && [[ "$1" =~ $re ]]

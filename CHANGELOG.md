@@ -35,6 +35,35 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased] - 9.1.1
+
+**What the 9.1 live checks found: a reopened item's follow-up now reaches the worker, and a stage lane writes its
+evidence where no permission dialog appears.**
+
+### Fixed
+
+- **A reopen's follow-up never reached the worker** (live check, 2026-10-29). In worker mode the build lane only
+  launches a headless session, whose prompt carried the board item and the spec, which still described the merged
+  PR; a directive reaches the lane, not the worker. The worker re-checked the merged PR and stopped. Now `reopen`
+  keeps a hashed copy of the reason, and the implement launch hands it in as delimited data ("bring the spec in line,
+  then open a new pull request"), re-hashed first; a run that reports a real outcome uses it up.
+- **A stage lane's evidence files raised a permission dialog.** The deployer wrote them into the project's `.claude`
+  folder, as "in your worktree or the project" allowed. `/hef.orchestrate` and the helpers' messages now say: the
+  session scratchpad.
+- **`ledger.sh register <id> --ref todo#<id>` was denied in a lane**, the form `/hef.ship` writes: lane-guard refused
+  any `#`, though bash reads one as a comment only at the start of a word. A word that starts with `#` is still
+  refused.
+- **A multi-line `gh pr create --body` was denied twice before the worker found `--body-file`**: the deny message now
+  says so.
+- **Every babysit pass stopped at its first `pr-watch.sh checks` call under `claude plugin eval`** (2.1.312 leaves
+  nothing writable, not even the eval's HOME), and two evals failed with it. `checks` now needs no temp file; the
+  write commands fall back, last, to a private `${XDG_CACHE_HOME:-~/.cache}/hefesto-tmp` (in a launched worker, its
+  own writable cache).
+- **`/hef.babysit` printed its state line first** (#150): step 6 said "print the line, stop" and the brief section came
+  after it, so every run wrote the line, then the brief. The command now writes the brief first and ends with the line.
+- **`pr-watch.sh reply|comment` posted the body unscanned when no temp directory could be made**: a failed `tmpd`
+  inside `$(…)` did not stop it. It now stops before posting.
+
 ## [9.1.0] - 2026-10-29
 
 **A deploy, a release train or a merge is one form in the orchestrator, carried out by the deployer step by step.
