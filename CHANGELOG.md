@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased] - 9.1.2
+## [9.1.2] - 2026-10-30
 
 **A launched verifier no longer reports before its review gate.**
 
