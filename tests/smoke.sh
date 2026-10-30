@@ -5851,7 +5851,7 @@ mp_rb() { # $1 script, then its args → $mp_o, $mp_rc, $mp_s (whole seconds it 
 mp_rb "$RB" 5 sh -c 'exit 3';        [ "$mp_rc" = 3 ] || { bad "run-bounded must pass the command's exit code through (got $mp_rc)"; mp_fail=1; }
 mp_rb "$RB" 1 sleep 8;               { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 4 ]; } || { bad "run-bounded 1 sleep 8 must stop it with 124 within seconds (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
 mp_o="$(printf 'from stdin\n' | "$RB" 5 cat)"; [ "$mp_o" = 'from stdin' ] || { bad "run-bounded must hand the caller's stdin to the command (got '$mp_o')"; mp_fail=1; }
-mp_rb "$RB" 30 echo quick;           { [ "$mp_o" = quick ] && [ "$mp_s" -le 3 ]; } || { bad "run-bounded inside \$(…) must return when the command does, not when its watchdog sleeps out (${mp_s}s)"; mp_fail=1; }
+mp_rb "$RB" 30 echo quick;           { [ "$mp_o" = quick ] && [ "$mp_s" -le 3 ]; } || { bad "run-bounded inside \$(…) must return when the command does, not when its watchdog sleeps out (${mp_s}s), printing only its command's output (got $(printf '%q' "$mp_o"))"; mp_fail=1; }
 # bash -c, not sh -c: Linux's sh (dash) execs the last command and hides a grandchild; macOS's sh does not.
 mp_rb "$RB" -k 1 1 bash -c 'trap "" TERM; sleep 9'; { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 5 ]; } || { bad "run-bounded -k 1 must KILL a command that ignores TERM (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
 mp_rb "$RB" 1 bash -c 'sleep 9 & wait'; { [ "$mp_rc" = 124 ] && [ "$mp_s" -le 4 ]; } || { bad "run-bounded must stop the command's children too, or one holds the caller's pipe (rc=$mp_rc, ${mp_s}s)"; mp_fail=1; }
