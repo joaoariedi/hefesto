@@ -20,6 +20,15 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Every temp file and fixture of the run lives in ONE directory, removed on exit: many tests make a `mktemp -d` and
+# never remove it, and a run used to leave a few hundred tmp.* in $TMPDIR — thousands over a day of runs filled the
+# Claude Code sandbox's shared temp directory to its quota (2026-10-30). Write-protected leftovers are made writable
+# first (the read-only TMPDIR tests chmod a-w their dirs). A template, because BSD mktemp ignores $TMPDIR without one.
+SMOKE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/hefesto-smoke.XXXXXXXX")" || { echo "smoke: cannot create a temp dir" >&2; exit 1; }
+SMOKE_TMP_OUTER="${TMPDIR:-/tmp}"
+smoke_cleanup() { chmod -R u+w "$SMOKE_TMP" 2>/dev/null; rm -rf -- "${SMOKE_TMP:?}"; }
+trap smoke_cleanup EXIT
+export TMPDIR="$SMOKE_TMP"
 # The launcher keeps a run's files under ~/.cache (where no sandboxed session writes); the suite gets its own.
 SMOKE_XDG="$(mktemp -d)"; export XDG_CACHE_HOME="$SMOKE_XDG"
 HELPER="$REPO/hooks/speckit-helper.sh"
@@ -699,7 +708,7 @@ if [ "${SMOKE_LIVE:-0}" = "1" ]; then
   head_ "Live install (isolated config)"
 
   CFG="$(mktemp -d)"
-  trap 'rm -rf "$CFG"' EXIT
+  trap 'rm -rf "$CFG"; smoke_cleanup' EXIT   # keeps the run's own temp dir cleanup
   export CLAUDE_CONFIG_DIR="$CFG"   # never touch the user's real ~/.claude
 
   claude plugin marketplace add "$REPO" >/dev/null 2>&1
@@ -2646,6 +2655,10 @@ pw_out="$(pw reply 7 --thread T1 --body-file "$pw_bin/body-bad" 2>&1)"; pw_rc=$?
 { [ "$pw_rc" -ne 0 ] && grep -qF 'gitleaks' <<<"$pw_out" && [ ! -s "$pw_bin/posted" ]; } || { bad "pr-watch reply must refuse a body gitleaks flags and post nothing (rc=$pw_rc)"; pw_fail=1; }
 pw_out="$(pw comment 7 --body-file "$pw_bin/body-ok" 2>&1)"; pw_rc=$?
 { [ "$pw_rc" -eq 0 ] && [ "$(tail -1 "$pw_bin/comment-body")" = '_hef.babysit_' ]; } || { bad "pr-watch comment must post the body with the marker as its last line (rc=$pw_rc)"; pw_fail=1; }
+# a post leaves no temp dir behind: tmpd's own cleanup entry was made inside $(…) and lost (2026-10-30)
+pw_tq="$(mktemp -d)"; pw_out="$(export TMPDIR="$pw_tq"; pw comment 7 --body-file "$pw_bin/body-ok" 2>&1)"; pw_rc=$?
+{ [ "$pw_rc" -eq 0 ] && [ -z "$(ls -A "$pw_tq")" ]; } || { bad "pr-watch comment must remove its temp dir (rc=$pw_rc, left: $(ls -A "$pw_tq" | head -3 | tr '\n' ' '))"; pw_fail=1; }
+rm -rf -- "${pw_tq:?}"
 # static: the write surface has no merge/approve/auto-merge/force-push/resolve path — on the code lines (comments may name them)
 pw_code="$(grep -vE '^\s*#' "$PW")"
 [ -n "$pw_code" ] || { bad "pr-watch.sh is unreadable or empty — the static assertion would be vacuous"; pw_fail=1; }

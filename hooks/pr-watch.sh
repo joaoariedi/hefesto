@@ -247,7 +247,9 @@ post() { # $1 pr, $2 thread id or "", $3 body file
   [ -f "$3" ] || die "pr-watch: body file '$3' not found"
   # `|| exit 1`: a $(…) only ends its subshell — without it a failed tmpd left d empty and the body was posted
   # unscanned from /body.md (found by the 9.1.1 nothing-writable test)
-  local d url; d="$(tmpd)" || exit 1; { cat "$3"; printf '\n\n%s\n' "$MARKER"; } > "$d/body.md" || die "pr-watch: cannot write the body to $d"
+  # PW_TMP+= here, in this shell: tmpd's own append happens inside $(…), a subshell, so the EXIT trap never saw it and
+  # every post left its directory behind (2026-10-30: a babysitter posts on each pass)
+  local d url; d="$(tmpd)" || exit 1; PW_TMP+=("$d"); { cat "$3"; printf '\n\n%s\n' "$MARKER"; } > "$d/body.md" || die "pr-watch: cannot write the body to $d"
   # CSA's recommendation after Comment-and-Control (report 17 §5e): scan agent-posted content before publication.
   if command -v gitleaks >/dev/null 2>&1; then
     gitleaks detect --no-git --source "$d" --no-banner >/dev/null 2>&1 || die "pr-watch: refused — gitleaks found a secret in $3; nothing posted"
