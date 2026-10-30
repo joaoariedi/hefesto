@@ -37,7 +37,14 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased] - 9.1.3
 
-**No temp files left behind: by a babysitter's posts, or by the test suite.**
+**No temp files left behind — by a babysitter's posts or by the test suite — and the doctor says when Claude Code's
+temp directory sits on a RAM-backed `/tmp` that is filling up.**
+
+### Added
+
+- **`/hef.doctor` checks Claude Code's temp directory** (`hooks/doctor-tmp.sh`): a warning when it sits on a
+  RAM-backed tmpfs over 80% full, naming the fix; `docs/install.md` explains pointing `CLAUDE_CODE_TMPDIR` at a disk
+  directory, with an optional weekly cleanup.
 
 ### Fixed
 

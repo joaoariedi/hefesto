@@ -2389,6 +2389,29 @@ grep -qE "\b$dc_cmds \`hef\.\*\` commands" "$REPO/README.md" || { bad "README.md
 grep -qiE "$(dc_words "$dc_hooks") hooks" "$REPO/README.md" && grep -qiE "$(dc_words "$dc_hooks") hooks" "$REPO/docs/hooks.md" || { bad "README.md and docs/hooks.md must say '$(dc_words "$dc_hooks") hooks'"; dc_fail=1; }
 [ "$dc_fail" -eq 0 ] && ok "doc counts match the tree: $dc_cmds commands, $dc_hooks hooks, $dc_subs helper subcommands (SC-006)"
 
+# --- doctor-tmp: Claude Code's temp directory on a near-full tmpfs (2026-10-30: EDQUOT lost every command's output) --
+head_ "Doctor: Claude Code's temp directory"
+dt_fail=0; dt_b="$(mktemp -d)"; dt_d="$(mktemp -d)"
+# FakeStatFs / FakeDfP: the filesystem type and the Use% the check reads, from two files
+cat > "$dt_b/stat" <<DTEOF
+#!/bin/bash
+cat "$dt_b/fs"
+DTEOF
+cat > "$dt_b/df" <<DTEOF
+#!/bin/bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\nfake 100 0 0 %s%% /x\n' "\$(cat "$dt_b/pct")"
+DTEOF
+chmod +x "$dt_b/stat" "$dt_b/df"
+dt() { echo "$1" > "$dt_b/fs"; echo "$2" > "$dt_b/pct"; CLAUDE_CODE_TMPDIR="$dt_d" PATH="$dt_b:$PATH" bash "$REPO/hooks/doctor-tmp.sh" 2>&1; }
+dt_o="$(dt tmpfs 91)"; { grep -qF "status: WARN a RAM-backed tmpfs at 91%" <<<"$dt_o" && grep -qF 'CLAUDE_CODE_TMPDIR' <<<"$dt_o"; } || { bad "doctor-tmp must WARN on a tmpfs at 91% and name CLAUDE_CODE_TMPDIR: $dt_o"; dt_fail=1; }
+dt_o="$(dt tmpfs 40)"; grep -qF 'status: OK (a tmpfs, 40% used' <<<"$dt_o" || { bad "doctor-tmp: a tmpfs under the threshold is OK, with the note: $dt_o"; dt_fail=1; }
+dt_o="$(dt ext2/ext3 95)"; grep -qx 'status: OK' <<<"$dt_o" || { bad "doctor-tmp: a disk filesystem is OK however full (not this check's business): $dt_o"; dt_fail=1; }
+dt_o="$(HEFESTO_TMP_WARN_PCT=50 dt tmpfs 60)"; grep -qF 'status: WARN' <<<"$dt_o" || { bad "doctor-tmp must honour HEFESTO_TMP_WARN_PCT: $dt_o"; dt_fail=1; }
+grep -qF 'doctor-tmp.sh' "$REPO/commands/hef.doctor.md" && grep -qF 'CLAUDE_CODE_TMPDIR' "$REPO/docs/install.md" \
+  || { bad "/hef.doctor must run doctor-tmp.sh and docs/install.md must explain CLAUDE_CODE_TMPDIR"; dt_fail=1; }
+rm -rf -- "${dt_b:?}" "${dt_d:?}"
+[ "$dt_fail" -eq 0 ] && ok "doctor-tmp: WARN on a near-full tmpfs (the threshold configurable), OK on disk or below it; the doctor runs it and the install doc explains CLAUDE_CODE_TMPDIR"
+
 # --- doctor-copies: the doctor measures the copy that RUNS ---------------------------------
 # Measured 2026-09-23: the running copy is the per-profile cache (a plain copy, no .git); the
 # doctor used to rev-parse it, get "not a git clone", and skip — while three profiles disagreed.
