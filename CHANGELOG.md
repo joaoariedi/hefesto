@@ -35,6 +35,18 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased] - 9.1.3
+
+**No temp files left behind: by a babysitter's posts, or by the test suite.**
+
+### Fixed
+
+- **`pr-watch.sh reply|comment` left a temp directory behind on every post**: `tmpd` registered it for cleanup inside
+  `$(…)`, a subshell, so the exit trap never saw it — a babysitter posts on each pass, into the lane's temp space.
+- **The smoke suite leaked a few hundred `tmp.*` entries per run into `$TMPDIR`**, which filled Claude Code's shared
+  sandbox temp directory to its quota (2026-10-30). The suite now runs in one temp directory of its own and removes
+  it on exit.
+
 ## [9.1.2] - 2026-10-30
 
 **A launched verifier no longer reports before its review gate.**
@@ -46,11 +58,6 @@ it is what caught the hand-bumped era:
   waiting for it; a headless run ends with its turn, so Claude Code demanded the structured output there, `/hef.review`
   never ran, and the required review gate failed a one-line docs change. Every launched prompt now says to spawn
   agents in the foreground and use their result in the same turn.
-- **`pr-watch.sh reply|comment` left a temp directory behind on every post**: `tmpd` registered it for cleanup inside
-  `$(…)`, a subshell, so the exit trap never saw it — a babysitter posts on each pass, into the lane's temp space.
-- **The smoke suite leaked a few hundred `tmp.*` entries per run into `$TMPDIR`**, which filled Claude Code's shared
-  sandbox temp directory to its quota (2026-10-30). The suite now runs in one temp directory of its own and removes
-  it on exit.
 
 ## [9.1.1] - 2026-10-29
 
