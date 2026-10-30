@@ -298,14 +298,18 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
      decision of yours goes in the outcome (`blocked`), never asked here.
    - Write the structured outcome the prompt describes as one JSON object (Write tool, in your session scratchpad), then
      run the `finish:` line.
-     Its `--outcome-file` is that file.
+     Its `--outcome-file` is that file. **Check it before you say anything about the outcome** (#160): it must exit 0
+     and print `finished: <id> <role> → phase <p>, blocked_on <kind>`, and for a `blocked` outcome that kind must be
+     the one you reported. If the Write or the finish failed, the decision is NOT recorded: say so in this pane,
+     write the file again and re-run the finish — never tell the person a decision waits in the orchestrator until
+     that line shows it.
    - **build**: after `implement` finishes with a PR, `session-launch.sh verify <id> --prepare --lane <your name>`, then
      `/hef.verify` and `/hef.review` (their fresh-context reviewers judge the change, not you), the outcome with one
      verdict per gate, and its `--finish`.
    - Keep a note for your next start: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh note <id> --file <f>` at each natural
      break (what is done, what is next). After a compaction the session start tells you what you hold.
    - `ExitWorktree` (keep) before the next item: `--prepare` runs from the project's main folder or that item's own worktree.
-   Then ring the orchestrator `<your name>: done <stage> <id>`, and stop.
+   Then — only once the `finished:` line holds — ring the orchestrator `<your name>: done <stage> <id>`, and stop.
 
 3. **Launch** (worker mode, the default) — ONE Bash call **with `run_in_background: true`**: a plan or a build runs for many minutes, and
    a call that outlives its tool limit is moved to the background anyway, unwatched. Started in the background,

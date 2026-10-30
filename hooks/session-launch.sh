@@ -462,6 +462,8 @@ if [ "$MODE" = finish ]; then
   "$LEDGER" run "$ID" --role "$ROLE" --exit 0 --usd 0 --session-id in-lane --note in-lane >/dev/null || exit 1
   transcribe
   rm -f "$PF" "$LDF/$ID.prompt.md"
+  # #160: one line the lane quotes before it tells the person where a decision waits — read back from the ledger
+  "$LEDGER" show "$ID" | jq -r --arg r "$ROLE" '"finished: \(.id) \($r) → phase \(.phase), blocked_on \(.blocked_on.kind // "none")"'
   "$LEDGER" show "$ID"; exit 0
 fi
 

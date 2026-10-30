@@ -50,6 +50,10 @@ temp directory sits on a RAM-backed `/tmp` that is filling up.**
 
 - **`pr-watch.sh reply|comment` left a temp directory behind on every post**: `tmpd` registered it for cleanup inside
   `$(…)`, a subshell, so the exit trap never saw it — a babysitter posts on each pass, into the lane's temp space.
+- **An interactive lane said a decision waited in the orchestrator when nothing was recorded** (#160): its outcome
+  write or `--finish` had failed (the temp volume was full) and it went on. `--finish` now prints the outcome as the
+  ledger holds it (`finished: <id> <role> → phase <p>, blocked_on <kind>`), and `/hef.orchestrate` has the lane check
+  that line before it points the person anywhere, and say so in its own pane when it is missing.
 - **The smoke suite leaked a few hundred `tmp.*` entries per run into `$TMPDIR`**, which filled Claude Code's shared
   sandbox temp directory to its quota (2026-10-30). The suite now runs in one temp directory of its own and removes
   it on exit.

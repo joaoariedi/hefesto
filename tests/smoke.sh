@@ -5822,6 +5822,11 @@ im_o="$(IM_CWD="$im_wt" HEFESTO_TRUSTED_TOP="$l3_t" im planner plan LT-4 --finis
 { l3j LT-4 '.owner == null and .phase == "plan-review" and .blocked_on.kind == "human:plan-approval" and (.runs[-1] | .usd == 0 and .note == "in-lane" and .session_name == "repo-planner") and (.spec_dir | endswith("LT-4/.specify/specs/l4"))' \
   && [ ! -f "$(sld "$l3_t")/LT-4.prompt.md" ]; } || { bad "--finish from the worktree must transcribe like a run (plan-review, plan approval, a \$0 in-lane run) and release: $im_o / $(jq -c '{owner,phase,blocked_on,run:.runs[-1]}' "$(sld "$l3_t")/LT-4.json")"; im_fail=1; }
 [ -s "$l3_log" ] && { bad "an interactive stage starts no session: the fake claude was called"; im_fail=1; }
+# #160: --finish prints the outcome as the ledger now holds it, the line a lane quotes before it points at the orchestrator
+grep -qxF 'finished: LT-4 plan → phase plan-review, blocked_on human:plan-approval' <<<"$im_o" \
+  || { bad "--finish must print the ledger's outcome line (#160): $(head -c 300 <<<"$im_o")"; im_fail=1; }
+grep -qF "never tell the person a decision waits in the orchestrator until" "$REPO/commands/hef.orchestrate.md" && grep -qF 'only once the `finished:` line holds' "$REPO/commands/hef.orchestrate.md" \
+  || { bad "/hef.orchestrate must make a lane check its --finish before naming the orchestrator (#160)"; im_fail=1; }
 # mutations, beside the real helpers
 l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", started: "2026-01-01T00:00:00Z"} | .blocked_on = null | .phase = "intake"'
 jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare"
