@@ -35,6 +35,18 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased] - 9.1.2
+
+**A launched verifier no longer reports before its review gate.**
+
+### Fixed
+
+- **A headless worker that waited on a background agent was made to report before its remaining steps** (live re-run,
+  2026-10-30). `/hef.verify` spawned its spec-compliance reviewer in the background and the worker ended its turn
+  waiting for it; a headless run ends with its turn, so Claude Code demanded the structured output there, `/hef.review`
+  never ran, and the required review gate failed a one-line docs change. Every launched prompt now says to spawn
+  agents in the foreground and use their result in the same turn.
+
 ## [9.1.1] - 2026-10-29
 
 **What the 9.1 live checks found: a reopened item's follow-up now reaches the worker, and a stage lane writes its

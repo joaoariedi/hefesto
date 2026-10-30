@@ -627,6 +627,12 @@ if [ "$MODE" = prepare ]; then
 fi
 
 # --- the command line (FR-009) -------------------------------------------------------------------
+# A headless run ends when its turn ends: Claude Code then demands the structured output at once. A turn that stops to
+# wait on a BACKGROUND agent (the reviewer /hef.verify and /hef.review spawn) is forced to report there, with its later
+# gates never run (live re-run 2026-10-30: a verify run reported before /hef.review, a FAIL that blocked the merge).
+PROMPT="$PROMPT
+
+This is a headless run: it ends when your turn ends. Spawn every agent in the foreground (the Agent / Task tool with run_in_background: false) and use its result in the same turn; never end a turn to wait for a background agent or task — you would be made to report before the remaining steps run."
 case "$ROLE" in implement) NAME="impl-$ID" ;; verify) NAME="verify-$ID" ;; plan) NAME="plan-$ID" ;; deploy) NAME="deploy-$ID" ;; esac
 CMD=(env "${WORKER_ENV[@]}" HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS" --max-budget-usd "$USD_CAP"
      --output-format stream-json --verbose --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)

@@ -5526,6 +5526,10 @@ l3_am="$(l3_max all)"
 l3set LT-1 '.source.body_sha256 = "0"'; l3l record LT-1 --body-from-board >/dev/null 2>&1
 l3j LT-1 "(.source.body_sha256 | length) == 64" || { bad "record --body-from-board must re-hash the item from the board"; l3_fail=1; }
 grep -qF '"deny":["SendMessage","ListAgents"]' <<<"$(l3s implement LT-1 --dry-run 2>&1)" || { bad "every worker's settings must deny SendMessage and ListAgents"; l3_fail=1; }
+# live re-run 2026-10-30 (F8): a headless run ends with its turn, so a worker that waited on a background agent was
+# made to report before its last gates — every launched prompt tells it to spawn agents in the foreground
+grep -qF 'Spawn every agent in the foreground (the Agent / Task tool with run_in_background: false)' <<<"$(l3s implement LT-1 --dry-run 2>&1)" \
+  || { bad "a launched worker's prompt must say to spawn agents in the foreground (F8)"; l3_fail=1; }
 # live check 2026-10-29: a reopen's reason reaches the worker as delimited data (re-hashed first), and a run that
 # reports a real outcome consumes it — the board item and the spec still describe the merged PR
 cp "$(sld "$l3_t")/LT-1.json" "$l3_t/lt1.bak"; printf 'Append the line follow-up to docs/x.md.\n' > "$(sld "$l3_t")/LT-1.followup-1.md"
