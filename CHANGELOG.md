@@ -58,8 +58,9 @@ temp directory sits on a RAM-backed `/tmp` that is filling up.**
   not leave the sandbox in Claude Code. `/hef.orchestrate` now writes the person's words to its scratchpad and runs
   `ledger.sh answer|revise … --file <f>`, and both print back exactly what they recorded, for the person to see.
 - **A lane in a linked worktree read that worktree's committed, older `.claude/project-status.json`** (#160): a lane
-  saw `lane_mode: worker` after the person had switched to interactive. The board config is now always the main
-  checkout's.
+  saw `lane_mode: worker` after the person had switched to interactive. The ledger's config reads (`lane_mode`, the
+  in-repo board) now take the main checkout's file. An action's scope never contains `git worktree add` (a lane's
+  sandbox mounts `.git/config` read-only); lanes get their worktree from `--prepare`.
 - **The smoke suite leaked a few hundred `tmp.*` entries per run into `$TMPDIR`**, which filled Claude Code's shared
   sandbox temp directory to its quota (2026-10-30). The suite now runs in one temp directory of its own and removes
   it on exit.

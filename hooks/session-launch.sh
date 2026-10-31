@@ -463,7 +463,7 @@ if [ "$MODE" = finish ]; then
   transcribe
   rm -f "$PF" "$LDF/$ID.prompt.md"
   # #160: one line the lane quotes before it tells the person where a decision waits — read back from the ledger
-  "$LEDGER" show "$ID" | jq -r --arg r "$ROLE" '"finished: \(.id) \($r) → phase \(.phase), blocked_on \(.blocked_on.kind // "none")"'
+  "$LEDGER" show "$ID" | jq -r --arg r "$ROLE" '"finished: \(.id) \($r) → phase \(.phase), blocked_on \(.blocked_on.kind // "none")"' || exit 1
   "$LEDGER" show "$ID"; exit 0
 fi
 

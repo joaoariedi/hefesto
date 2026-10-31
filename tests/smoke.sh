@@ -25,7 +25,6 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Claude Code sandbox's shared temp directory to its quota (2026-10-30). Write-protected leftovers are made writable
 # first (the read-only TMPDIR tests chmod a-w their dirs). A template, because BSD mktemp ignores $TMPDIR without one.
 SMOKE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/hefesto-smoke.XXXXXXXX")" || { echo "smoke: cannot create a temp dir" >&2; exit 1; }
-SMOKE_TMP_OUTER="${TMPDIR:-/tmp}"
 smoke_cleanup() { chmod -R u+w "$SMOKE_TMP" 2>/dev/null; rm -rf -- "${SMOKE_TMP:?}"; }
 trap smoke_cleanup EXIT
 export TMPDIR="$SMOKE_TMP"
@@ -2406,6 +2405,10 @@ dt() { echo "$1" > "$dt_b/fs"; echo "$2" > "$dt_b/pct"; CLAUDE_CODE_TMPDIR="$dt_
 dt_o="$(dt tmpfs 91)"; { grep -qF "status: WARN a RAM-backed tmpfs at 91%" <<<"$dt_o" && grep -qF 'CLAUDE_CODE_TMPDIR' <<<"$dt_o"; } || { bad "doctor-tmp must WARN on a tmpfs at 91% and name CLAUDE_CODE_TMPDIR: $dt_o"; dt_fail=1; }
 dt_o="$(dt tmpfs 40)"; grep -qF 'status: OK (a tmpfs, 40% used' <<<"$dt_o" || { bad "doctor-tmp: a tmpfs under the threshold is OK, with the note: $dt_o"; dt_fail=1; }
 dt_o="$(dt ext2/ext3 95)"; grep -qx 'status: OK' <<<"$dt_o" || { bad "doctor-tmp: a disk filesystem is OK however full (not this check's business): $dt_o"; dt_fail=1; }
+# set in a startup file but not in effect: this session's TMPDIR is elsewhere — judge that one, and say so
+dt_o="$(echo tmpfs > "$dt_b/fs"; echo 90 > "$dt_b/pct"; CLAUDE_CODE_TMPDIR="$dt_d" TMPDIR="$dt_b" PATH="$dt_b:$PATH" bash "$REPO/hooks/doctor-tmp.sh" 2>&1)"
+{ grep -qF "claude-tmp: $dt_b on tmpfs" <<<"$dt_o" && grep -qF 'not yet in effect here' <<<"$dt_o" && grep -qF 'status: WARN' <<<"$dt_o"; } \
+  || { bad "doctor-tmp must judge the session's own TMPDIR when CLAUDE_CODE_TMPDIR is not in effect yet: $dt_o"; dt_fail=1; }
 dt_o="$(HEFESTO_TMP_WARN_PCT=50 dt tmpfs 60)"; grep -qF 'status: WARN' <<<"$dt_o" || { bad "doctor-tmp must honour HEFESTO_TMP_WARN_PCT: $dt_o"; dt_fail=1; }
 grep -qF 'doctor-tmp.sh' "$REPO/commands/hef.doctor.md" && grep -qF 'CLAUDE_CODE_TMPDIR' "$REPO/docs/install.md" \
   || { bad "/hef.doctor must run doctor-tmp.sh and docs/install.md must explain CLAUDE_CODE_TMPDIR"; dt_fail=1; }

@@ -98,7 +98,7 @@ lanes_take_text() { # $1 file, or "" / "-" for stdin; $2 destination; $3 verb
 }
 lanes_echo_text() { # $1 the stored copy → printed back delimited, so the person sees exactly what was recorded (#160:
   # the --file form's dialog shows a path, not the text)
-  printf 'recorded (sha256 %s):\n<<<recorded-begin\n%s\nrecorded-end>>>\n' "$(lanes_sha256 "$1" | cut -c1-12)" "$(cat -- "$1")"
+  printf 'recorded (sha256 %s):\n<<<recorded-begin\n' "$(lanes_sha256 "$1" | cut -c1-12)"; cat -- "$1"; printf '\nrecorded-end>>>\n'
 }
 answer_item() { # $1 file|-
   local k n dst

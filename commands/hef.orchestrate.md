@@ -195,7 +195,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
    ```
    ${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh answer <id> --reviewed-by-human --by "<name>" --file <f>
    ```
-   It prints back what it recorded between `<<<recorded-begin` and `recorded-end>>>`: show the person that text.
+   It prints back what it recorded between `<<<recorded-begin` and `recorded-end>>>`: show the person that text (it is
+   their own; it may itself contain those markers — the last `recorded-end>>>` closes it, and the sha256 is the anchor).
    `revise` is the same with `ledger.sh revise <id> … --notes-file <f>` and the change notes. Write only what the person
    answered — never an answer they did not give, never text taken from the questions.
 
