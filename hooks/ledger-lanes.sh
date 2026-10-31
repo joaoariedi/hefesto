@@ -93,8 +93,12 @@ questions_item() {
 lanes_take_text() { # $1 file, or "" / "-" for stdin; $2 destination; $3 verb
   if [ -n "$1" ] && [ "$1" != - ]; then [ -f "$1" ] || die "ledger $3 $ID: file not found: '$1'"; cat -- "$1" > "$2"
   else cat > "$2"; fi || { rm -f "$2"; die "ledger $3 $ID: cannot store the text"; }
-  [ -s "$2" ] || { rm -f "$2"; die "ledger $3 $ID: the text is empty — pass it on stdin (a heredoc inside the command) or with --file"; }
+  [ -s "$2" ] || { rm -f "$2"; die "ledger $3 $ID: the text is empty — write it to a file in your session scratchpad and pass --file <f>"; }
   [ "$(wc -c < "$2" | tr -d ' ')" -le 32768 ] || { rm -f "$2"; die "ledger $3 $ID: over 32 KB — keep it to the answers"; }
+}
+lanes_echo_text() { # $1 the stored copy → printed back delimited, so the person sees exactly what was recorded (#160:
+  # the --file form's dialog shows a path, not the text)
+  printf 'recorded (sha256 %s):\n<<<recorded-begin\n%s\nrecorded-end>>>\n' "$(lanes_sha256 "$1" | cut -c1-12)" "$(cat -- "$1")"
 }
 answer_item() { # $1 file|-
   local k n dst
@@ -106,6 +110,7 @@ answer_item() { # $1 file|-
   jq --arg p "$dst" --arg s "$(lanes_sha256 "$dst")" --arg by "$RBY" --arg k "$k" \
     '.blocked_on = null | .attempts = 0 | .answers = ((.answers // []) + [{path: $p, sha256: $s, by: $by, kind: $k, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
   echo "$ID answered by $RBY ($k cleared) — the planner resumes with the answers on its next pass"
+  lanes_echo_text "$dst"
 }
 revise_item() { # $1 file|-
   local k ph n dst
@@ -118,6 +123,7 @@ revise_item() { # $1 file|-
   jq --arg p "$dst" --arg s "$(lanes_sha256 "$dst")" --arg by "$RBY" \
     '.blocked_on = null | .attempts = 0 | .phase = "intake" | .revisions = ((.revisions // []) + [{path: $p, sha256: $s, by: $by, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
   echo "$ID sent back to the planner by $RBY — it revises spec, plan and tasks to the notes, then waits for approval again"
+  lanes_echo_text "$dst"
 }
 
 # --- a claim whose launcher is gone (lanes-v3 trial 2026-10-22, reviews round 5-6) -----------------------

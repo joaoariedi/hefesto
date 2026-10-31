@@ -166,6 +166,9 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
      the change itself into it.
    - **Later** → nothing.
 
+   An action's scope never contains `git worktree add` (a lane's sandbox mounts `.git/config` read-only, so it fails
+   there): a lane gets its worktree from `session-launch.sh --prepare`, which creates it outside the sandbox.
+
    **A recipe run or a train** — when the person asks to deploy a version, or to promote several repos together, hang
    it on an op (`ledger.sh op new --title "<what>"` prints its `OP-<n>`) and draft it — the helper writes the scope from
    `orchestrate.deploy` and refuses an unknown env, train, repo or placeholder, naming it:
@@ -186,14 +189,14 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
    person approves exactly the scope shown: never approve a hash you did not show in this form. After an approval,
    ring the lane: `<orchestrator>: action <aid>`.
 
-   **Answers and notes go inside the command** so the dialog shows exactly what is recorded — a quoted
-   heredoc whose terminator is a fresh random word (e.g. `ANS_<8 random hex>`) that does not occur in the text:
+   **Answers and notes go in a file**: write the person's words, exactly as they gave them in the form, with the Write
+   tool to a file in your session scratchpad, then run the one-line command — a heredoc inside the command does not
+   leave the sandbox in Claude Code, so its write into the ledger fails (#160):
    ```
-   ${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh answer <id> --reviewed-by-human --by "<name>" <<'ANS_3f9c01ab'
-   <the person's answers, one per question, in their words>
-   ANS_3f9c01ab
+   ${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh answer <id> --reviewed-by-human --by "<name>" --file <f>
    ```
-   `revise` is the same with `ledger.sh revise <id> …` and the change notes. Write only what the person
+   It prints back what it recorded between `<<<recorded-begin` and `recorded-end>>>`: show the person that text.
+   `revise` is the same with `ledger.sh revise <id> … --notes-file <f>` and the change notes. Write only what the person
    answered — never an answer they did not give, never text taken from the questions.
 
 3. **Send each stage its work.** First, a build whose verifier never ran: an entry in phase `verify` with no

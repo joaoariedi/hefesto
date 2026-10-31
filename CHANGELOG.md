@@ -54,6 +54,12 @@ temp directory sits on a RAM-backed `/tmp` that is filling up.**
   write or `--finish` had failed (the temp volume was full) and it went on. `--finish` now prints the outcome as the
   ledger holds it (`finished: <id> <role> → phase <p>, blocked_on <kind>`), and `/hef.orchestrate` has the lane check
   that line before it points the person anywhere, and say so in its own pane when it is missing.
+- **`ledger.sh answer … <<'HEREDOC'` failed with "Read-only file system"** (#160): a heredoc inside the command does
+  not leave the sandbox in Claude Code. `/hef.orchestrate` now writes the person's words to its scratchpad and runs
+  `ledger.sh answer|revise … --file <f>`, and both print back exactly what they recorded, for the person to see.
+- **A lane in a linked worktree read that worktree's committed, older `.claude/project-status.json`** (#160): a lane
+  saw `lane_mode: worker` after the person had switched to interactive. The board config is now always the main
+  checkout's.
 - **The smoke suite leaked a few hundred `tmp.*` entries per run into `$TMPDIR`**, which filled Claude Code's shared
   sandbox temp directory to its quota (2026-10-30). The suite now runs in one temp directory of its own and removes
   it on exit.
