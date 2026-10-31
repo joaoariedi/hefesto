@@ -162,6 +162,23 @@ than run unconfined.
   updating the installed plugin clone or a dotfiles checkout from inside a session needs the `!`
   prefix, which runs the command outside the sandbox.
 
+#### Claude Code's temp directory on a RAM-backed `/tmp`
+
+Claude Code keeps every session's scratch files, background-task output and the sandbox's `TMPDIR` under one
+directory: `CLAUDE_CODE_TMPDIR`, else `/tmp/claude-<uid>`. Where `/tmp` is a tmpfs (RAM, often with a per-user
+quota), a day of sessions and test runs can fill it, and from then on every command's output is lost (`EDQUOT`) and
+commits fail. Point it at a disk directory instead, in your shell's startup file, then restart the sessions:
+
+```bash
+mkdir -p ~/.cache/claude-tmp && chmod 700 ~/.cache/claude-tmp
+echo 'export CLAUDE_CODE_TMPDIR="$HOME/.cache/claude-tmp"' >> ~/.zshenv   # or ~/.bashrc / ~/.profile
+```
+
+Optional, on systemd: clear entries untouched for a week with a user tmpfiles rule,
+`~/.config/user-tmpfiles.d/claude.conf` holding `d %h/.cache/claude-tmp 0700 - - 7d`, and
+`systemctl --user enable --now systemd-tmpfiles-clean.timer`. `/hef.doctor` warns when the temp directory sits on a
+tmpfs over 80% full (`HEFESTO_TMP_WARN_PCT`).
+
 ### 3️⃣ Verify the Installation
 
 ```bash

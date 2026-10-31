@@ -44,6 +44,14 @@ output) piped to `diff - ~/.claude/rules/<file>` (or `HEAD:` if the clone has no
 on one side only, and report `readlink ~/.claude/rules` / `readlink ~/.claude/rules/<file>` so
 the user can see whether stow manages them.
 
+### Claude Code's temp directory
+Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/doctor-tmp.sh`
+
+Report its two lines. A `WARN` means Claude Code's temp directory (`CLAUDE_CODE_TMPDIR`, else `/tmp/claude-<uid>`)
+sits on a RAM-backed tmpfs that is nearly full: when it fills, every command's output is lost and commits fail. The
+remedy, in the warning and in `docs/install.md`, is the person's to apply — a line in their shell's startup file —
+so report it and never edit their dotfiles from here.
+
 ## 2. The hooks
 
 Run with the Bash tool: `for f in "${CLAUDE_PLUGIN_ROOT}"/hooks/*.sh; do bash -n "$f" || echo "SYNTAX: $f"; done`

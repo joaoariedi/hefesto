@@ -314,3 +314,18 @@ jq -e '.verified == 1 and .verify_fail_rate == 1' <<<"$lc_o" >/dev/null 2>&1 \
   || { bad "metrics must ignore a reaped run: verified 1, FAIL rate 100% (FR-044) — got: $(jq -c '{verified, verify_fail_rate}' <<<"$lc_o" 2>&1 | head -c 200)"; x_fail=1; }
 rm -rf -- "${lc_t:?}"
 [ "$x_fail" -eq 0 ] && ok "a claim with no --pid is interactive and survives the reaper; a launched claim with a dead lease is reaped as kind reaped (no exit 125); metrics' verified count and FAIL rate ignore the reap (FR-044)"
+
+# --- #160: a linked worktree's committed config never decides — the main checkout's does --------------------------
+# Each worktree carries the .claude/project-status.json of its branch; a lane in one read `lane_mode: worker` after the
+# person had switched the build stage to interactive, and tried a headless launch.
+head_ "Lifecycle: the config is the main checkout's, never a worktree's (#160)"
+x_fail=0; wc_t="$(cd "$(mktemp -d)" && pwd -P)"
+( cd "$wc_t" && git init -q -b main . && mkdir -p .claude && printf '{"orchestrate":{"lane_mode":"worker"}}\n' > .claude/project-status.json \
+  && git add -f .claude/project-status.json && git -c user.email=t@t -c user.name=t commit -qm cfg && git worktree add -q -b wt "$wc_t/wt" ) >/dev/null 2>&1
+printf '{"orchestrate":{"lane_mode":{"build":"interactive"}}}\n' > "$wc_t/.claude/project-status.json"
+for wc_d in "$wc_t" "$wc_t/wt"; do
+  wc_o="$(cd "$wc_d" && HEFESTO_LEDGER_DIR="$wc_t/led" bash "$REPO/hooks/ledger.sh" lanes --modes 2>&1)"
+  jq -e '.build == "interactive"' <<<"$wc_o" >/dev/null 2>&1 || { bad "lanes --modes from ${wc_d#"$wc_t"} must read the main checkout's config (build interactive) — got: $wc_o"; x_fail=1; }
+done
+rm -rf -- "${wc_t:?}"
+[ "$x_fail" -eq 0 ] && ok "lanes --modes reads the main checkout's config from the main folder and from a linked worktree whose committed copy is older (#160)"
