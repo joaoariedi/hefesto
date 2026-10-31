@@ -35,6 +35,36 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased] - 9.1.3
+
+**No temp files left behind — by a babysitter's posts or by the test suite — and the doctor says when Claude Code's
+temp directory sits on a RAM-backed `/tmp` that is filling up.**
+
+### Added
+
+- **`/hef.doctor` checks Claude Code's temp directory** (`hooks/doctor-tmp.sh`): a warning when it sits on a
+  RAM-backed tmpfs over 80% full, naming the fix; `docs/install.md` explains pointing `CLAUDE_CODE_TMPDIR` at a disk
+  directory, with an optional weekly cleanup.
+
+### Fixed
+
+- **`pr-watch.sh reply|comment` left a temp directory behind on every post**: `tmpd` registered it for cleanup inside
+  `$(…)`, a subshell, so the exit trap never saw it — a babysitter posts on each pass, into the lane's temp space.
+- **An interactive lane said a decision waited in the orchestrator when nothing was recorded** (#160): its outcome
+  write or `--finish` had failed (the temp volume was full) and it went on. `--finish` now prints the outcome as the
+  ledger holds it (`finished: <id> <role> → phase <p>, blocked_on <kind>`), and `/hef.orchestrate` has the lane check
+  that line before it points the person anywhere, and say so in its own pane when it is missing.
+- **`ledger.sh answer … <<'HEREDOC'` failed with "Read-only file system"** (#160): a heredoc inside the command does
+  not leave the sandbox in Claude Code. `/hef.orchestrate` now writes the person's words to its scratchpad and runs
+  `ledger.sh answer|revise … --file <f>`, and both print back exactly what they recorded, for the person to see.
+- **A lane in a linked worktree read that worktree's committed, older `.claude/project-status.json`** (#160): a lane
+  saw `lane_mode: worker` after the person had switched to interactive. The ledger's config reads (`lane_mode`, the
+  in-repo board) now take the main checkout's file. An action's scope never contains `git worktree add` (a lane's
+  sandbox mounts `.git/config` read-only); lanes get their worktree from `--prepare`.
+- **The smoke suite leaked a few hundred `tmp.*` entries per run into `$TMPDIR`**, which filled Claude Code's shared
+  sandbox temp directory to its quota (2026-10-30). The suite now runs in one temp directory of its own and removes
+  it on exit.
+
 ## [9.1.2] - 2026-10-30
 
 **A launched verifier no longer reports before its review gate.**

@@ -8,7 +8,9 @@
 project_config() { # the board config the launcher and the board read: <toplevel>/.claude/project-status.json
   # external-board FR-001: an external board's config lives in the board repo, resolved once by board_ctx.
   if [ -n "${BCTX:-}" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; then jq -r .config <<<"$BCTX"; return 0; fi
-  local top; top=$(git rev-parse --show-toplevel 2>/dev/null) || top="$PWD"
+  # The MAIN checkout's file, never a linked worktree's: each worktree carries its own committed copy, as old as the
+  # branch, and a lane in one read `lane_mode: worker` after the person had switched to interactive (#160).
+  local top; top=$(main_top 2>/dev/null) || top=$(git rev-parse --show-toplevel 2>/dev/null) || top="$PWD"
   [ -f "$top/.claude/project-status.json" ] && echo "$top/.claude/project-status.json"
 }
 main_top() { # the MAIN worktree's top. Where .claude/ is ignored globally, the pointer file is untracked and
@@ -123,7 +125,7 @@ board_ctx() { # → {"mode","board_top","config","ledger_dir","repos","repo"} as
     btop=$(cd "$HEFESTO_BOARD_TOP" 2>/dev/null && pwd -P) || die "ledger board: HEFESTO_BOARD_TOP '$HEFESTO_BOARD_TOP' is not a directory"
   else
     role=$(cfg_role "${main:-$top}/.claude/project-status.json") || exit 1
-    [ -n "$role" ] || { board_inrepo_json "$top"; return 0; }
+    [ -n "$role" ] || { board_inrepo_json "${main:-$top}"; return 0; }   # the main checkout's config and board (#160)
     btop=$(board_top_of "$role" "$top" "$main") || exit 1
   fi
   board_external_json "$btop" "$main"

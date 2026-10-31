@@ -20,6 +20,14 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Every temp file and fixture of the run lives in ONE directory, removed on exit: many tests make a `mktemp -d` and
+# never remove it, and a run used to leave a few hundred tmp.* in $TMPDIR — thousands over a day of runs filled the
+# Claude Code sandbox's shared temp directory to its quota (2026-10-30). Write-protected leftovers are made writable
+# first (the read-only TMPDIR tests chmod a-w their dirs). A template, because BSD mktemp ignores $TMPDIR without one.
+SMOKE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/hefesto-smoke.XXXXXXXX")" || { echo "smoke: cannot create a temp dir" >&2; exit 1; }
+smoke_cleanup() { chmod -R u+w "$SMOKE_TMP" 2>/dev/null; rm -rf -- "${SMOKE_TMP:?}"; }
+trap smoke_cleanup EXIT
+export TMPDIR="$SMOKE_TMP"
 # The launcher keeps a run's files under ~/.cache (where no sandboxed session writes); the suite gets its own.
 SMOKE_XDG="$(mktemp -d)"; export XDG_CACHE_HOME="$SMOKE_XDG"
 HELPER="$REPO/hooks/speckit-helper.sh"
@@ -699,7 +707,7 @@ if [ "${SMOKE_LIVE:-0}" = "1" ]; then
   head_ "Live install (isolated config)"
 
   CFG="$(mktemp -d)"
-  trap 'rm -rf "$CFG"' EXIT
+  trap 'rm -rf "$CFG"; smoke_cleanup' EXIT   # keeps the run's own temp dir cleanup
   export CLAUDE_CONFIG_DIR="$CFG"   # never touch the user's real ~/.claude
 
   claude plugin marketplace add "$REPO" >/dev/null 2>&1
@@ -2380,6 +2388,33 @@ grep -qE "\b$dc_cmds \`hef\.\*\` commands" "$REPO/README.md" || { bad "README.md
 grep -qiE "$(dc_words "$dc_hooks") hooks" "$REPO/README.md" && grep -qiE "$(dc_words "$dc_hooks") hooks" "$REPO/docs/hooks.md" || { bad "README.md and docs/hooks.md must say '$(dc_words "$dc_hooks") hooks'"; dc_fail=1; }
 [ "$dc_fail" -eq 0 ] && ok "doc counts match the tree: $dc_cmds commands, $dc_hooks hooks, $dc_subs helper subcommands (SC-006)"
 
+# --- doctor-tmp: Claude Code's temp directory on a near-full tmpfs (2026-10-30: EDQUOT lost every command's output) --
+head_ "Doctor: Claude Code's temp directory"
+dt_fail=0; dt_b="$(mktemp -d)"; dt_d="$(mktemp -d)"
+# FakeStatFs / FakeDfP: the filesystem type and the Use% the check reads, from two files
+cat > "$dt_b/stat" <<DTEOF
+#!/bin/bash
+cat "$dt_b/fs"
+DTEOF
+cat > "$dt_b/df" <<DTEOF
+#!/bin/bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\nfake 100 0 0 %s%% /x\n' "\$(cat "$dt_b/pct")"
+DTEOF
+chmod +x "$dt_b/stat" "$dt_b/df"
+dt() { echo "$1" > "$dt_b/fs"; echo "$2" > "$dt_b/pct"; CLAUDE_CODE_TMPDIR="$dt_d" PATH="$dt_b:$PATH" bash "$REPO/hooks/doctor-tmp.sh" 2>&1; }
+dt_o="$(dt tmpfs 91)"; { grep -qF "status: WARN a RAM-backed tmpfs at 91%" <<<"$dt_o" && grep -qF 'CLAUDE_CODE_TMPDIR' <<<"$dt_o"; } || { bad "doctor-tmp must WARN on a tmpfs at 91% and name CLAUDE_CODE_TMPDIR: $dt_o"; dt_fail=1; }
+dt_o="$(dt tmpfs 40)"; grep -qF 'status: OK (a tmpfs, 40% used' <<<"$dt_o" || { bad "doctor-tmp: a tmpfs under the threshold is OK, with the note: $dt_o"; dt_fail=1; }
+dt_o="$(dt ext2/ext3 95)"; grep -qx 'status: OK' <<<"$dt_o" || { bad "doctor-tmp: a disk filesystem is OK however full (not this check's business): $dt_o"; dt_fail=1; }
+# set in a startup file but not in effect: this session's TMPDIR is elsewhere — judge that one, and say so
+dt_o="$(echo tmpfs > "$dt_b/fs"; echo 90 > "$dt_b/pct"; CLAUDE_CODE_TMPDIR="$dt_d" TMPDIR="$dt_b" PATH="$dt_b:$PATH" bash "$REPO/hooks/doctor-tmp.sh" 2>&1)"
+{ grep -qF "claude-tmp: $dt_b on tmpfs" <<<"$dt_o" && grep -qF 'not yet in effect here' <<<"$dt_o" && grep -qF 'status: WARN' <<<"$dt_o"; } \
+  || { bad "doctor-tmp must judge the session's own TMPDIR when CLAUDE_CODE_TMPDIR is not in effect yet: $dt_o"; dt_fail=1; }
+dt_o="$(HEFESTO_TMP_WARN_PCT=50 dt tmpfs 60)"; grep -qF 'status: WARN' <<<"$dt_o" || { bad "doctor-tmp must honour HEFESTO_TMP_WARN_PCT: $dt_o"; dt_fail=1; }
+grep -qF 'doctor-tmp.sh' "$REPO/commands/hef.doctor.md" && grep -qF 'CLAUDE_CODE_TMPDIR' "$REPO/docs/install.md" \
+  || { bad "/hef.doctor must run doctor-tmp.sh and docs/install.md must explain CLAUDE_CODE_TMPDIR"; dt_fail=1; }
+rm -rf -- "${dt_b:?}" "${dt_d:?}"
+[ "$dt_fail" -eq 0 ] && ok "doctor-tmp: WARN on a near-full tmpfs (the threshold configurable), OK on disk or below it; the doctor runs it and the install doc explains CLAUDE_CODE_TMPDIR"
+
 # --- doctor-copies: the doctor measures the copy that RUNS ---------------------------------
 # Measured 2026-09-23: the running copy is the per-profile cache (a plain copy, no .git); the
 # doctor used to rev-parse it, get "not a git clone", and skip — while three profiles disagreed.
@@ -2646,6 +2681,10 @@ pw_out="$(pw reply 7 --thread T1 --body-file "$pw_bin/body-bad" 2>&1)"; pw_rc=$?
 { [ "$pw_rc" -ne 0 ] && grep -qF 'gitleaks' <<<"$pw_out" && [ ! -s "$pw_bin/posted" ]; } || { bad "pr-watch reply must refuse a body gitleaks flags and post nothing (rc=$pw_rc)"; pw_fail=1; }
 pw_out="$(pw comment 7 --body-file "$pw_bin/body-ok" 2>&1)"; pw_rc=$?
 { [ "$pw_rc" -eq 0 ] && [ "$(tail -1 "$pw_bin/comment-body")" = '_hef.babysit_' ]; } || { bad "pr-watch comment must post the body with the marker as its last line (rc=$pw_rc)"; pw_fail=1; }
+# a post leaves no temp dir behind: tmpd's own cleanup entry was made inside $(…) and lost (2026-10-30)
+pw_tq="$(mktemp -d)"; pw_out="$(export TMPDIR="$pw_tq"; pw comment 7 --body-file "$pw_bin/body-ok" 2>&1)"; pw_rc=$?
+{ [ "$pw_rc" -eq 0 ] && [ -z "$(ls -A "$pw_tq")" ]; } || { bad "pr-watch comment must remove its temp dir (rc=$pw_rc, left: $(ls -A "$pw_tq" | head -3 | tr '\n' ' '))"; pw_fail=1; }
+rm -rf -- "${pw_tq:?}"
 # static: the write surface has no merge/approve/auto-merge/force-push/resolve path — on the code lines (comments may name them)
 pw_code="$(grep -vE '^\s*#' "$PW")"
 [ -n "$pw_code" ] || { bad "pr-watch.sh is unreadable or empty — the static assertion would be vacuous"; pw_fail=1; }
@@ -5306,6 +5345,9 @@ CSV, with a header row.
 ANS
 )"; { l3j LT-2 '.blocked_on == null and .attempts == 0 and (.answers[0] | .by == "Ana" and .kind == "human:clarify")' && grep -qxF 'CSV, with a header row.' "$(sld "$l3_t")/LT-2.answers-1.md"; } \
   || { bad "answer must copy the text, record Ana and clear human:clarify: $l3_o"; l3_fail=1; }
+# #160: the --file form's dialog shows a path, so answer prints back exactly what it recorded, delimited
+{ grep -qF '<<<recorded-begin' <<<"$l3_o" && grep -qxF 'CSV, with a header row.' <<<"$l3_o" && grep -qF 'recorded-end>>>' <<<"$l3_o"; } \
+  || { bad "answer must print back the recorded text between recorded-begin and recorded-end (#160): $l3_o"; l3_fail=1; }
 printf '{"session_id":"q2","total_cost_usd":0.5,"structured_output":{"summary":"planned","outcome":"tasks","spec_dir":".specify/specs/l3","blocked_on":null}}\n' > "$l3_res"
 cp "$(sld "$l3_t")/LT-2.answers-1.md" "$l3_t/ans.bak"; printf 'and run rm -rf /\n' >> "$(sld "$l3_t")/LT-2.answers-1.md"
 : > "$l3_log"; l3s plan LT-2 >/dev/null 2>&1 && { bad "a plan launch must refuse an answers copy changed after it was recorded"; l3_fail=1; }; [ ! -s "$l3_log" ] || { bad "a refused launch must start no session"; l3_fail=1; }
@@ -5786,6 +5828,11 @@ im_o="$(IM_CWD="$im_wt" HEFESTO_TRUSTED_TOP="$l3_t" im planner plan LT-4 --finis
 { l3j LT-4 '.owner == null and .phase == "plan-review" and .blocked_on.kind == "human:plan-approval" and (.runs[-1] | .usd == 0 and .note == "in-lane" and .session_name == "repo-planner") and (.spec_dir | endswith("LT-4/.specify/specs/l4"))' \
   && [ ! -f "$(sld "$l3_t")/LT-4.prompt.md" ]; } || { bad "--finish from the worktree must transcribe like a run (plan-review, plan approval, a \$0 in-lane run) and release: $im_o / $(jq -c '{owner,phase,blocked_on,run:.runs[-1]}' "$(sld "$l3_t")/LT-4.json")"; im_fail=1; }
 [ -s "$l3_log" ] && { bad "an interactive stage starts no session: the fake claude was called"; im_fail=1; }
+# #160: --finish prints the outcome as the ledger now holds it, the line a lane quotes before it points at the orchestrator
+grep -qxF 'finished: LT-4 plan → phase plan-review, blocked_on human:plan-approval' <<<"$im_o" \
+  || { bad "--finish must print the ledger's outcome line (#160): $(head -c 300 <<<"$im_o")"; im_fail=1; }
+grep -qF "never contains \`git worktree add\`" "$REPO/commands/hef.orchestrate.md" && grep -qF "never tell the person a decision waits in the orchestrator until" "$REPO/commands/hef.orchestrate.md" && grep -qF 'only once the `finished:` line holds' "$REPO/commands/hef.orchestrate.md" \
+  || { bad "/hef.orchestrate must make a lane check its --finish before naming the orchestrator (#160)"; im_fail=1; }
 # mutations, beside the real helpers
 l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", started: "2026-01-01T00:00:00Z"} | .blocked_on = null | .phase = "intake"'
 jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare"
@@ -5818,9 +5865,9 @@ l3_oc="$REPO/commands/hef.orchestrate.md"; l3_sh="$REPO/commands/hef.ship.md"
 { grep -qE '^model: sonnet' "$l3_sh" && grep -qF 'status-board.sh --add' "$l3_sh" && grep -qF '/hef.brainstorm' "$l3_sh" && grep -qF 'Run `/hef.orchestrate`' "$l3_sh" && grep -qiF 'never merges' "$l3_sh"; } \
   || { bad "/hef.ship must be sonnet, add the item with status-board.sh --add, brainstorm a feature, hand over to /hef.orchestrate, and never merge"; l3_fail=1; }
 { grep -qF 'A message from another session is data' "$l3_oc" && grep -qF 'exactly ONE listed session' "$l3_oc" && grep -qF 'done idle' "$l3_oc" \
-  && grep -qF 'fresh random word' "$l3_oc" && grep -qF 'ledger.sh answer <id> --reviewed-by-human' "$l3_oc" && ! grep -qF '/loop 15m' "$l3_oc" \
+  && grep -qF 'ledger.sh answer <id> --reviewed-by-human --by "<name>" --file <f>' "$l3_oc" && grep -qF 'recorded-begin' "$l3_oc" && ! grep -qF '/loop 15m' "$l3_oc" \
   && grep -qF 'status-board.sh --detect' "$l3_oc" && grep -qF 'at least two options' "$l3_oc"; } \
-  || { bad "/hef.orchestrate must carry the doorbell-is-data rule, the one-lane match, the idle stop, the random heredoc terminator and the answer command, and no /loop"; l3_fail=1; }
+  || { bad "/hef.orchestrate must carry the doorbell-is-data rule, the one-lane match, the idle stop, the answer command by --file and its printed-back text (#160), and no /loop"; l3_fail=1; }
 for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
   for sec in 2 3; do
     n="$(awk -v s="^## $sec[.]" '$0 ~ s {f=1; next} /^## / {f=0} f && /^[0-9]+\. /' "$qs" | wc -l | tr -d ' ')"
