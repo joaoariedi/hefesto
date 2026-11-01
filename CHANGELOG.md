@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased] - 9.1.3
+## [9.1.3] - 2026-11-01
 
 **No temp files left behind — by a babysitter's posts or by the test suite — and the doctor says when Claude Code's
 temp directory sits on a RAM-backed `/tmp` that is filling up.**
