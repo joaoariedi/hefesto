@@ -100,7 +100,8 @@ if [ -f "$HERE/ledger.sh" ]; then
   # (TO is empty then, and an empty array is "unbound" under set -u on bash 3.2: hence the +-expansion)
   BCTX="$(cd "$CWD" 2>/dev/null && ${TO[@]+"${TO[@]}"} bash "$HERE/ledger.sh" board 2>/dev/null)" || BCTX=""
   LDIR="$(jq -r '.ledger_dir // empty' <<<"$BCTX" 2>/dev/null)"
-  if [ "$(jq -r '.mode // empty' <<<"$BCTX" 2>/dev/null)" = external ]; then PCFG="$(jq -r .config <<<"$BCTX")"; fi
+  # In-repo too: `.config` is the main checkout's file, not this worktree's committed copy (#162, the #160 class).
+  BCFG="$(jq -r '.config // empty' <<<"$BCTX" 2>/dev/null)"; [ -z "$BCFG" ] || PCFG="$BCFG"
 fi
 # The session record (FR-001), for every session in a set-up project — written here, outside the sandbox, and read
 # by lane-guard.sh on each tool call. Records older than 30 days are pruned.

@@ -74,10 +74,15 @@ if [ -f "$HERE/ledger.sh" ]; then BCTX="$(bash "$HERE/ledger.sh" board)" || exit
 if [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; then
   ROOT="$(jq -r .board_top <<<"$BCTX")"; [ -n "$CONFIG" ] || CONFIG="$(jq -r .config <<<"$BCTX")"
 fi
+# In-repo too, the config is the board's answer: the MAIN checkout's file, never a linked worktree's committed copy
+# of its branch (#162, the #160 class). ROOT stays this worktree's top.
+[ -n "$CONFIG" ] || [ -z "$BCTX" ] || CONFIG="$(jq -r '.config // empty' <<<"$BCTX")"
 [ -n "$CONFIG" ] || CONFIG="$ROOT/.claude/project-status.json"
 
 # lanes-v3 trial 2026-10-22: --detect lists the boards a project already seems to use, one JSON object per
 # line, so the orchestrator can ask which to adopt instead of creating its own. Read-only; never the network.
+# From a linked worktree the config's path is ABSOLUTE on purpose: it is the main checkout's file (#162), outside
+# ROOT, and naming it relative would point at the worktree's copy, the one that does not decide.
 if [ "$MODE" = detect ]; then
   command -v jq >/dev/null 2>&1 || { echo "status-board --detect: jq not found" >&2; exit 1; }
   [ -f "$CONFIG" ] && jq -cn --arg c "${CONFIG#"$ROOT"/}" '{kind: "config", path: $c}'

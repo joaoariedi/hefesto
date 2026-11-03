@@ -35,6 +35,14 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased] - 9.1.4
+
+### Fixed
+
+- **In a linked worktree, the session start's pane map and `status-board.sh` read the worktree's own config**
+  (#162, the #160 class): the kind→pane names on the `ledger:` lines and the board's config came from the branch's
+  committed `.claude/project-status.json`, not the main checkout's. Both now take `ledger.sh board`'s `.config`.
+
 ## [9.1.3] - 2026-11-01
 
 **No temp files left behind — by a babysitter's posts or by the test suite — and the doctor says when Claude Code's

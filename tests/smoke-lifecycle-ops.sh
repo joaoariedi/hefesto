@@ -329,3 +329,24 @@ for wc_d in "$wc_t" "$wc_t/wt"; do
 done
 rm -rf -- "${wc_t:?}"
 [ "$x_fail" -eq 0 ] && ok "lanes --modes reads the main checkout's config from the main folder and from a linked worktree whose committed copy is older (#160)"
+
+# #162 (S2, the #160 class): the session start's kind→pane map and status-board's config came from the CURRENT
+# worktree's copy. Both now take `ledger.sh board`'s `.config`. Each is mutated back and must go red.
+x_fail=0; wc_t="$(cd "$(mktemp -d)" && pwd -P)"
+( cd "$wc_t" && git init -q -b main . && mkdir -p .claude && printf '{"source":"tasks-repo","orchestrate":{"panes":{}}}\n' > .claude/project-status.json \
+  && git add -f .claude/project-status.json && git -c user.email=t@t -c user.name=t commit -qm cfg && git worktree add -q -b wt "$wc_t/wt" ) >/dev/null 2>&1
+printf '{"source":"tasks-repo","orchestrate":{"panes":{"deploy":["verdict"]}}}\n' > "$wc_t/.claude/project-status.json"
+mkdir -p "$wc_t/led"; printf '{"id":"X-1","blocked_on":{"kind":"verdict","since":"2026-11-03T00:00:00Z"}}\n' > "$wc_t/led/X-1.json"
+wc_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$wc_md/$(basename "$f")"; done
+wc_ss() { printf '{"cwd":"%s","source":"startup"}' "$wc_t/wt" | HEFESTO_LEDGER_DIR="$wc_t/led" bash "$1/session-start-context.sh" 2>/dev/null | grep 'ledger: X-1'; }
+wc_sb() { (cd "$wc_t/wt" && HEFESTO_LEDGER_DIR="$wc_t/led" bash "$1/status-board.sh" --detect 2>/dev/null | jq -r 'select(.kind == "config") | .path'); }
+grep -qF '→ deploy pane' <<<"$(wc_ss "$REPO/hooks")" || { bad "#162: the session start in a worktree must name the main checkout's pane for verdict (deploy) — got: $(wc_ss "$REPO/hooks")"; x_fail=1; }
+[ "$(wc_sb "$REPO/hooks")" = "$wc_t/.claude/project-status.json" ] || { bad "#162: status-board in a worktree must read the main checkout's config — got: $(wc_sb "$REPO/hooks")"; x_fail=1; }
+rm "$wc_md/session-start-context.sh"; sed 's/BCFG="$(jq -r .\.config \/\/ empty. <<<"$BCTX" 2>\/dev\/null)"; \[ -z "$BCFG" \] || PCFG="$BCFG"/:/' "$REPO/hooks/session-start-context.sh" > "$wc_md/session-start-context.sh"
+cmp -s "$REPO/hooks/session-start-context.sh" "$wc_md/session-start-context.sh" && { bad "#162 session-start mutation did not apply"; x_fail=1; }
+grep -qF '→ deploy pane' <<<"$(wc_ss "$wc_md")" && { bad "#162 mutation survived: the worktree's own config read again, yet the main checkout's pane was named"; x_fail=1; }
+rm "$wc_md/status-board.sh"; sed '/^\[ -n "$CONFIG" \] || \[ -z "$BCTX" \] ||/d' "$REPO/hooks/status-board.sh" > "$wc_md/status-board.sh"
+cmp -s "$REPO/hooks/status-board.sh" "$wc_md/status-board.sh" && { bad "#162 status-board mutation did not apply"; x_fail=1; }
+[ "$(wc_sb "$wc_md")" = "$wc_t/.claude/project-status.json" ] && { bad "#162 mutation survived: status-board's in-repo config line removed, yet the main checkout's config was read"; x_fail=1; }
+rm -rf -- "${wc_t:?}" "${wc_md:?}"
+[ "$x_fail" -eq 0 ] && ok "the session start's pane map and status-board read the main checkout's config from a linked worktree; 2 mutations caught (#162)"
