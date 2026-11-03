@@ -887,6 +887,64 @@ ipg_case 2 "denies jest -u (snapshot regeneration) with no phase active"      "$
 ipg_case 2 "denies pytest --snapshot-update"                                  "$(ipg_bash 'pytest --snapshot-update')"
 ipg_case 0 "allows the visible bypass CLAUDE_ALLOW_SNAPSHOT_UPDATE=1"         "$(ipg_bash 'CLAUDE_ALLOW_SNAPSHOT_UPDATE=1 npx jest -u')"
 ipg_case 0 "allows git add -u (not a snapshot flag)"                          "$(ipg_bash 'git add -u && git commit -m x')"
+# #164: six false positives in two days. The runner word and the -u were matched ANYWHERE in the command, each on
+# its own, heredoc bodies included. The flag now counts only in the runner's own argv; a heredoc body counts only
+# when a local shell runs it. One case per reported command, then the real positives, which must stay blocked.
+ipg_case 0 "#164 allows shred -u in an ssh heredoc that mentions java"         "$(ipg_bash $'ssh host bash <<EOF\n# keep java available\nshred -u /srv/dump.sql\nEOF')"
+ipg_case 0 "#164 allows npm update vitest beside git add -u"                   "$(ipg_bash 'npm update vitest @vitest/coverage-v8 && git add -u')"
+ipg_case 0 "#164 allows pytest --co -o … with sort -u in the pipe"            "$(ipg_bash 'pytest --co -o console_output_style=classic -q | sort -u')"
+ipg_case 0 "#164 allows env -u VAR pytest"                                     "$(ipg_bash 'env -u DATABASE_HOST pytest -q')"
+ipg_case 0 "#164 allows heredoc TEXT that quotes env -u … pytest"              "$(ipg_bash $'python3 - <<EOF\ns = "run env -u X pytest"\nEOF')"
+ipg_case 0 "#164 allows a commit message that names jest -u"                   "$(ipg_bash 'git commit -m "docs: never run jest -u to go green"')"
+ipg_case 0 "#164 allows pip install -U pytest (a package, not a runner)"       "$(ipg_bash 'pip install -U pytest && uv add pytest -u')"
+ipg_case 2 "#164 denies vitest --update (vitest's own long flag)"              "$(ipg_bash 'npx vitest run --update')"
+ipg_case 2 "#164 denies npm test -- -u"                                        "$(ipg_bash 'cd web && npm test -- -u')"
+ipg_case 2 "#164 denies env -u VAR npx vitest -u"                              "$(ipg_bash 'env -u X npx vitest -u')"
+ipg_case 2 "#164 denies UPDATE_SNAPSHOTS=1 npm test"                           "$(ipg_bash 'UPDATE_SNAPSHOTS=1 npm test')"
+ipg_case 2 "#164 denies vitest -u inside bash -c"                              "$(ipg_bash 'bash -c "npx vitest -u"')"
+ipg_case 2 "#164 denies vitest -u inside \$(…)"                               "$(ipg_bash 'echo "$(npx vitest -u)"')"
+ipg_case 2 "#164 denies vitest -u in a heredoc a LOCAL shell runs"             "$(ipg_bash $'bash <<EOF\ncd web\nnpx vitest -u\nEOF')"
+ipg_case 2 "#164 denies jest -u after a heredoc ends"                          "$(ipg_bash $'cat > f.txt <<EOF\nshred -u x\nEOF\nnpx jest -u')"
+ipg_case 0 "#164 allows a test run on a REMOTE host (an ssh heredoc)"          "$(ipg_bash $'ssh host bash <<EOF\ncd /srv/app && npx jest -u\nEOF')"
+ipg_case 0 "#164 allows an unquoted heredoc doc text naming npx jest -u"       "$(ipg_bash $'cat > notes.md <<\'EOF\'\nNever run npx jest -u to go green.\nEOF')"
+# The #164 review's fail-open findings: versioned and file-path runners, wrappers before the shell, a `)` quoted in
+# `$(…)`, a redirect before the flag, the short npm forms, and a command over Linux's 128 KiB env-string limit.
+ipg_case 2 "#164 denies npx vitest@latest -u"                                  "$(ipg_bash 'npx vitest@latest -u')"
+ipg_case 2 "#164 denies node …/jest.js -u"                                     "$(ipg_bash 'node node_modules/jest/bin/jest.js -u')"
+ipg_case 2 "#164 denies timeout 120 bash -c \"npx vitest -u\""                 "$(ipg_bash 'timeout 120 bash -c "npx vitest -u"')"
+ipg_case 2 "#164 denies jest -u after a \$(…) that quotes a )"                 "$(ipg_bash 'N=$(grep -c ")" f) && npx jest -u')"
+ipg_case 2 "#164 denies npx jest 2>&1 -u"                                      "$(ipg_bash 'npx jest 2>&1 -u')"
+ipg_case 2 "#164 denies npm t -- -u"                                           "$(ipg_bash 'npm t -- -u')"
+ipg_case 2 "#164 denies a local bash heredoc after an ssh command"            "$(ipg_bash $'ssh host true; bash <<EOF\nnpx jest -u\nEOF')"
+ipg_case 2 "#164 denies jest -u after an arithmetic << shift"                 "$(ipg_bash $'(( x = 1 << 2 ))\nnpx jest -u')"
+ipg_case 2 "#164 denies jest -u after an unterminated quote (fails closed)"   "$(ipg_bash 'echo "unterminated && npx jest -u')"
+ipg_case 2 "#164 denies jest -u in an unterminated heredoc (fails closed)"    "$(ipg_bash $'cat <<EOF\nhello\nEOF \nnpx jest -u')"
+ipg_case 0 "#164 allows cat <<EOF | grep (a pipe, not a shell)"               "$(ipg_bash $'cat <<EOF | grep x\nnpx jest -u\nEOF')"
+ipg_case 2 "#164 denies cat <<EOF | bash (the pipe runs the body)"            "$(ipg_bash $'cat <<EOF | bash\nnpx jest -u\nEOF')"
+ipg_case 2 "#164 denies cat <<EOF |& bash (|& is a pipe too)"                  "$(ipg_bash $'cat <<EOF |& bash\nnpx jest -u\nEOF')"
+ipg_big="$(mktemp)"; { printf 'cat > f <<EOF\n'; head -c 150000 /dev/zero | tr '\0' 'x' | fold -w 100; printf '\nEOF\nnpx jest -u\n'; } > "$ipg_big"
+ipg_case 2 "#164 denies jest -u in a command over 128 KiB (no fail-open)"      "$(jq -nc --arg c "$ipg_t" --rawfile k "$ipg_big" '{tool_name:"Bash",cwd:$c,tool_input:{command:$k}}')"
+rm -f "$ipg_big"
+ipg_fk="$(mktemp -d)"; printf '#!/bin/sh\nexit 1\n' > "$ipg_fk/awk"; chmod +x "$ipg_fk/awk"
+ipg_rc=0; ipg_bash 'npx jest -u' | PATH="$ipg_fk:$PATH" bash "$IPG" >/dev/null 2>&1 || ipg_rc=$?
+[ "$ipg_rc" = 2 ] && ok "#164 an awk that fails to run still blocks npx jest -u" || bad "#164 an awk that fails to run let npx jest -u through (rc=$ipg_rc)"
+rm -rf "$ipg_fk"
+# Mutants, each applied to a copy and required to turn one case above red (#164).
+ipg_md="$(mktemp -d)"
+ipg_mut() { # sed-expression  expected-exit-of-the-REAL-hook  command  description
+  local rc=0
+  sed "$1" "$IPG" > "$ipg_md/g.sh"
+  if cmp -s "$IPG" "$ipg_md/g.sh"; then bad "#164 mutant did not apply: $4"; return; fi
+  ipg_bash "$3" | bash "$ipg_md/g.sh" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$2" ]; then bad "#164 mutant survived: $4"; else ok "#164 mutant caught: $4"; fi
+}
+ipg_mut 's/if (HDX\[d, k\]) lex(body/if (1) lex(body/' 0 $'cat > notes.md <<\'EOF\'\nNever run npx jest -u to go green.\nEOF' "every heredoc body lexed as commands"
+ipg_mut 's/{ LR\[d\] = 1; return }/{ return }/' 0 $'ssh host bash <<EOF\ncd /srv/app && npx jest -u\nEOF' "ssh no longer marks the heredoc remote"
+ipg_mut 's/-u|--update) \[ "$runner" = 1 \] \&\&/-u|--update) true \&\&/' 0 'env -u DATABASE_HOST pytest -q' "-u counted outside the runner's argv"
+ipg_mut 's/ci) pm=1 ;;/ci) pm=0 ;;/' 0 'pip install -U pytest && uv add pytest -u' "a package name read as a runner"
+ipg_mut 's/lex(substr(s, i + 2, e - i - 2), d + 1); i = e/i = e/' 2 'echo "$(npx vitest -u)"' "\$(…) not lexed"
+ipg_mut 's/if (w\[k\] ~ \/\[ \\t;|&\]\/) lex(w\[k\], d + 1)/if (0) lex(w[k], d + 1)/' 2 'bash -c "npx vitest -u"' "bash -c's string not lexed"
+rm -rf "$ipg_md"
 # Phase-gated: nothing without the marker…
 ipg_case 0 "allows an assertion-removing edit when no implement phase is active" "$(ipg_edit tests/test_a.py $'assert a\nassert b' 'assert a')"
 ipg_case 0 "allows rm of a test file when no implement phase is active"          "$(ipg_bash 'rm tests/test_a.py')"
@@ -1176,6 +1234,12 @@ gl_cdash() { # [hook] [command] → $gl_out $gl_rc; the session's cwd is $REPO, 
 gl_cdash; { [ "$gl_rc" = 2 ] && grep -qF 'Secrets detected' <<<"$gl_out"; } || { bad "a 'git -C <repo> commit' with a staged secret must be scanned in that repo and blocked (rc=$gl_rc: $gl_out)"; gl_fail=1; }
 gl_cdash "$QBC" "CLAUDE_X=1 git -c core.quotepath=off -C $gl_t commit -m \"feat: x\""; [ "$gl_rc" = 2 ] || { bad "a leading VAR=value and a -c option must not hide the commit from the scan (rc=$gl_rc)"; gl_fail=1; }
 gl_cdash "$QBC" 'git -C "$HOME/x" commit -m "feat: x"'; { [ "$gl_rc" = 2 ] && grep -qF 'literal path' <<<"$gl_out"; } || { bad "a -C folder the hook cannot resolve must block and say so (rc=$gl_rc: $gl_out)"; gl_fail=1; }
+# #164 case 5: the refusal ran before the subcommand was known, so `git -C $W status` (no commit) was refused too.
+for gl_c in 'git -C $W status' 'git -C "$W" log --oneline -1' 'git -C "$W" add -u'; do
+  gl_cdash "$QBC" "$gl_c"; [ "$gl_rc" = 0 ] || { bad "#164: '$gl_c' commits nothing and must pass (rc=$gl_rc: $gl_out)"; gl_fail=1; }
+done
+sed 's/^if \[ -n "$C_UNRESOLVED" \]; then/if false; then/' "$QBC" > "$gl_md/qbc.sh"; cmp -s "$QBC" "$gl_md/qbc.sh" && { bad "#164 unresolved -C mutation did not apply"; gl_fail=1; }
+gl_cdash "$gl_md/qbc.sh" 'git -C "$HOME/x" commit -m "feat: x"'; grep -qF 'literal path' <<<"$gl_out" && { bad "mutation survived: the moved -C refusal disabled, yet the unresolvable commit still said 'literal path'"; gl_fail=1; }
 ( cd "$gl_t" && echo x > a && git add a ) >/dev/null 2>&1; gl_cdash; [ "$gl_rc" = 0 ] || { bad "a clean 'git -C' commit must pass (rc=$gl_rc: $gl_out)"; gl_fail=1; }
 ( cd "$gl_t" && echo LEAK > a && git add a ) >/dev/null 2>&1
 sed 's/^    -C) d=/    -Cx) d=/' "$QBC" > "$gl_md/qbc.sh"; cmp -s "$QBC" "$gl_md/qbc.sh" && { bad "git -C mutation did not apply"; gl_fail=1; }

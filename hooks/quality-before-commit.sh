@@ -22,13 +22,12 @@ ci=0
 while [[ "${CW[ci]:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do ci=$((ci + 1)); done
 [ "${CW[ci]:-}" = git ] || exit 0
 ci=$((ci + 1))
+C_UNRESOLVED=""
 while :; do
   case "${CW[ci]:-}" in
     -C) d="${CW[ci + 1]:-}"; d="${d#[\"\']}"; d="${d%[\"\']}"
         case "$d" in \~|\~/*) d="$HOME${d#\~}" ;; esac
-        if [[ "$d" == *'$'* || -z "$d" ]]; then
-          echo "Pre-commit quality checks failed: cannot tell which repository 'git -C ${CW[ci + 1]:-}' commits to — write the folder as a literal path." >&2; exit 2
-        fi
+        if [[ "$d" == *'$'* || -z "$d" ]]; then C_UNRESOLVED="${CW[ci + 1]:-}"; fi
         case "$d" in /*) CWD="$d" ;; *) CWD="$CWD/$d" ;; esac
         ci=$((ci + 2)) ;;
     -c) ci=$((ci + 2)) ;;
@@ -36,6 +35,10 @@ while :; do
   esac
 done
 [ "${CW[ci]:-}" = commit ] || exit 0
+# Refused only once it IS a commit (#164): `git -C $W status` commits nothing and was refused too.
+if [ -n "$C_UNRESOLVED" ]; then
+  echo "Pre-commit quality checks failed: cannot tell which repository 'git -C $C_UNRESOLVED' commits to — write the folder as a literal path." >&2; exit 2
+fi
 [ -d "$CWD" ] || { echo "Pre-commit quality checks failed: git -C folder $CWD does not exist." >&2; exit 2; }
 
 ERRORS=""
