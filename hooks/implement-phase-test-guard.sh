@@ -53,16 +53,153 @@ count_asserts() {
   grep -oE 'assert[A-Za-z_]*\b|expect\(|\.should\b|\.to(Be|Equal|Throw|Have|Match)[A-Za-z]*\(|t\.(Error|Fatal|Errorf|Fatalf)\(|require\.[A-Za-z]+\(|assert_eq!|assert!' <<<"$1" 2>/dev/null | wc -l
 }
 
+# The command split into simple commands, one per line, tokens joined by \034, quotes removed (#164). Before, a
+# runner word and a `-u` were matched ANYWHERE, each on its own: `env -u X pytest`, `… | sort -u`, `shred -u` in an
+# ssh heredoc, heredoc TEXT quoting `env -u` — six false positives in two days — while `bash -c "vitest -u"` passed
+# (the quote after -u is not a space). So: quotes keep a string one token; `$(…)`, backticks and the strings a
+# shell runs (`bash -c "…"`) are lexed as commands; a heredoc body is lexed only when a local shell consumes it,
+# never for ssh (a remote host) or `python3 -` (text). POSIX awk: it runs on macOS's awk too.
+# shellcheck disable=SC2016
+SEG_AWK='
+function base(w) { sub(/.*\//, "", w); return w }
+function isshell(w) { w = base(w); return w == "bash" || w == "sh" || w == "zsh" || w == "dash" || w == "ksh" }
+function flushtok(d) {
+  if (TOK[d] != "" || HQ[d]) { gsub(/\n/, " ", TOK[d]); SEG[d] = SEG[d] (NT[d] ? "\034" : "") TOK[d]; NT[d]++ }
+  TOK[d] = ""; HQ[d] = 0
+}
+function flushseg(d,   w, nw, k, fw, s) {
+  flushtok(d); if (!NT[d]) return
+  s = SEG[d]; SEG[d] = ""; NT[d] = 0; nw = split(s, w, "\034"); fw = 0
+  for (k = 1; k <= nw; k++) { if (isshell(w[k])) LS[d] = 1; if (!fw && w[k] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) fw = k }
+  print s
+  if (!fw) return
+  if (base(w[fw]) == "ssh") { LR[d] = 1; return }
+  for (k = fw; k <= nw; k++) if (isshell(w[k]) || w[k] == "eval") break   # `timeout 120 bash -c …`: the shell, wherever
+  for (k++; k <= nw; k++) if (w[k] ~ /[ \t;|&]/) lex(w[k], d + 1)
+}
+function closing(s, i, n,   dp, c, q) {
+  dp = 1
+  for (; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (q != "") { if (c == q) q = ""; else if (c == "\\" && q == "\"") i++; continue }
+    if (c == "\047" || c == "\"") q = c; else if (c == "\\") i++; else if (c == "(") dp++; else if (c == ")" && --dp == 0) return i
+  }
+  return n + 1
+}
+function hdmark(s, j, n, d,   st, dl, c, qq) {
+  flushtok(d); if (substr(s, j, 1) == "-") { st = 1; j++ }
+  while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
+  for (; j <= n; j++) {
+    c = substr(s, j, 1)
+    if (qq != "") { if (c == qq) qq = ""; else dl = dl c; continue }
+    if (c == "\047" || c == "\"") { qq = c; continue }
+    if (c == "\\") continue
+    if (index(" \t\n;|&<>()", c)) break
+    dl = dl c
+  }
+  HN[d]++; HDD[d, HN[d]] = dl; HDS[d, HN[d]] = st
+  return j - 1
+}
+function flat(s) { gsub(/[ \t\n]+/, "\034", s); print s }   # the old flat word match: what fails closed falls back to
+function pipeend(d,   k) {   # a heredoc runs locally when its own pipeline has a shell and no ssh (`cat <<EOF | bash`)
+  for (k = HP[d] + 1; k <= HN[d]; k++) HDX[d, k] = LS[d] && !LR[d]
+  HP[d] = HN[d]; LS[d] = 0; LR[d] = 0
+}
+function hdbodies(s, p, n, d,   k, e, ln, t, body, found) {
+  for (k = 1; k <= HN[d]; k++) {
+    body = ""; found = 0
+    while (p <= n) {
+      for (e = p; e <= n && substr(s, e, 1) != "\n"; e++) ;   # a scan, not index(substr(s, p)): that copied per line
+      ln = substr(s, p, e - p); p = e + 1
+      t = ln; if (HDS[d, k]) sub(/^\t+/, "", t)
+      if (t == HDD[d, k]) { found = 1; break }
+      body = body ln "\n"
+    }
+    if (HDX[d, k]) lex(body, d + 1); else if (!found) flat(body)   # no terminator: fail closed
+  }
+  HN[d] = 0; HP[d] = 0
+  return p
+}
+function lex(s, d,   i, n, c, nx, e, q) {
+  if (d > 8) { flat(s); return }   # too deep: the flat word list, never nothing
+  n = length(s); TOK[d] = ""; SEG[d] = ""; NT[d] = 0; HQ[d] = 0; HN[d] = 0; HP[d] = 0; LS[d] = 0; LR[d] = 0; AR[d] = 0
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1); nx = substr(s, i + 1, 1)
+    if (q == "\047") { if (c == "\047") q = ""; else TOK[d] = TOK[d] c; continue }
+    if (c == "$" && nx == "(") { e = closing(s, i + 2, n); lex(substr(s, i + 2, e - i - 2), d + 1); i = e; continue }
+    if (c == "`") { e = index(substr(s, i + 1), "`"); e = e ? i + e : n + 1; lex(substr(s, i + 1, e - i - 1), d + 1); i = e; continue }
+    if (q == "\"") { if (c == "\\") { TOK[d] = TOK[d] nx; i++ } else if (c == "\"") q = ""; else TOK[d] = TOK[d] c; continue }
+    if (c == "\\") { if (nx != "\n") TOK[d] = TOK[d] nx; i++; continue }
+    if (c == "\047" || c == "\"") { q = c; HQ[d] = 1; continue }
+    if (c == " " || c == "\t") { flushtok(d); continue }
+    if (c == "#" && TOK[d] == "") { while (i < n && substr(s, i + 1, 1) != "\n") i++; continue }
+    if (c == "(" && nx == "(") { AR[d]++; flushseg(d); i++; continue }   # (( … )): `<<` is a shift there, not a heredoc
+    if (c == ")" && nx == ")" && AR[d] > 0) { AR[d]--; flushseg(d); i++; continue }
+    if (c == "<" && nx == "<" && substr(s, i + 2, 1) != "<" && !AR[d]) { i = hdmark(s, i + 2, n, d); continue }
+    if (c == "\n") { flushseg(d); pipeend(d); i = hdbodies(s, i + 1, n, d) - 1; continue }
+    if (c == "&" && (nx == ">" || substr(s, i - 1, 1) == ">")) { TOK[d] = TOK[d] c; continue }   # 2>&1, &>: a redirect
+    if (c == "&" && substr(s, i - 1, 1) == "|") continue   # |& is a pipe (stderr too), not a list
+    if (index(";|&()", c)) { flushseg(d); if (c != "|" || nx == "|" || substr(s, i - 1, 1) == "|") pipeend(d); continue }
+    TOK[d] = TOK[d] c
+  }
+  flushseg(d)
+  if (q != "") flat(s)   # an unterminated quote: fail closed
+}
+{ s = s $0 "\n" }
+END { lex(s, 0) }'
+
+# One simple command's tokens → 0 when it asks its test runner to rewrite snapshots. An ambiguous flag (-u,
+# --update) counts only AFTER the runner in the same command; a runner named as a package (`npm update vitest`,
+# `pip install pytest`) is not a runner. Sets SNAP_RUNNER / SNAP_ENV for the UPDATE_SNAPSHOTS=1 forms.
+seg_snapshot_update() {
+  local runner=0 pm=0 prev="" tok
+  for tok in "$@"; do
+    case "$tok" in
+      UPDATE_SNAPSHOTS=1|SNAPSHOT_UPDATE=1) SNAP_ENV=1 ;;
+      --update-snapshot|--update-snapshots|--snapshot-update|--force-update-snapshot|--force-update-snapshots|--updateSnapshot) return 0 ;;
+      -u|--update) [ "$runner" = 1 ] && return 0 ;;
+    esac
+    case "${prev##*/}" in
+      npm|yarn|pnpm|bun|pip|pip3|uv|poetry|pipx)
+        case "$tok" in install|i|add|update|up|upgrade|remove|rm|uninstall|un|outdated|why|info|view|ci) pm=1 ;; esac ;;
+    esac
+    if [ "$pm" = 0 ]; then
+      case "${tok##*/}" in
+        jest|jest@*|jest.js|jest-cli|jest-cli@*|vitest|vitest@*|vitest.mjs|pytest|py.test|ava|ava@*|--snapshot*) runner=1 ;;
+      esac
+      case "${prev##*/}:$tok" in npm:test*|npm:t|yarn:test*|pnpm:test*|bun:test*|run:test*) runner=1 ;; esac
+    fi
+    prev="$tok"
+  done
+  [ "$runner" = 0 ] || SNAP_RUNNER=1
+  return 1
+}
+
+snapshot_update_cmd() { # $1 the Bash command → 0 when a test runner in it is asked to rewrite its snapshots
+  local line segs
+  local -a t
+  SNAP_RUNNER=0; SNAP_ENV=0
+  # On stdin, not in the environment: one env string over 128 KiB makes awk fail to exec on Linux (#164 review).
+  # Fail closed: the pre-filter already matched, so an awk that cannot run is a block, never a pass.
+  segs="$(printf '%s' "$1" | awk "$SEG_AWK")" || return 0
+  while IFS= read -r line; do
+    IFS=$'\034' read -r -a t <<<"$line"
+    seg_snapshot_update ${t[@]+"${t[@]}"} && return 0
+  done <<<"$segs"
+  [ "$SNAP_RUNNER" = 1 ] && [ "$SNAP_ENV" = 1 ]
+}
+
 case "$TOOL" in
   Bash)
     CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
     [ -z "$CMD" ] && exit 0
 
     # --- Unconditional: snapshot-update flags on a test runner ---
+    # The broad match is only a pre-filter, so most commands never start awk; the lexer decides (#164).
     if [[ "$CMD" != *"CLAUDE_ALLOW_SNAPSHOT_UPDATE=1"* ]] \
-       && [[ "$CMD" =~ (jest|vitest|pytest|ava|bun[[:space:]]+test|npm[[:space:]]+(run[[:space:]]+)?test|npx|yarn[[:space:]]+test|pnpm[[:space:]]+test|--snapshot) ]] \
-       && [[ "$CMD" =~ (^|[[:space:]])(-u|--update-snapshots?|--snapshot-update|--force-update-snapshots?|--updateSnapshot)([[:space:]]|$) \
-            || "$CMD" =~ (^|[[:space:]])(UPDATE_SNAPSHOTS|SNAPSHOT_UPDATE)=1 ]]; then
+       && [[ "$CMD" =~ (jest|vitest|pytest|ava|(npm|yarn|pnpm|bun)[[:space:]]+(run[[:space:]]+)?t|--snapshot) ]] \
+       && [[ "$CMD" =~ -u|--update|--snapshot-update|--updateSnapshot|UPDATE_SNAPSHOTS=1|SNAPSHOT_UPDATE=1 ]] \
+       && snapshot_update_cmd "$CMD"; then
       echo "Blocked: this test command REGENERATES snapshots/baselines instead of checking them." >&2
       echo "  A snapshot updated to match new output is a test that can no longer fail. Review the diff first." >&2
       echo "  If the new baseline is genuinely intended, re-run with the bypass visible: CLAUDE_ALLOW_SNAPSHOT_UPDATE=1 <command>" >&2
