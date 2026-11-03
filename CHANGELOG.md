@@ -37,8 +37,22 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased] - 9.1.4
 
+**The snapshot guard blocks a snapshot regeneration, not a `-u` that belongs to another program (#164).**
+
 ### Fixed
 
+- **`implement-phase-test-guard.sh` blocked harmless commands as snapshot regenerations**: six times in two days in
+  one project (`shred -u` in an ssh heredoc, `env -u VAR pytest`, `pytest … | sort -u`, `npm update vitest` beside
+  `git add -u`, heredoc text quoting `env -u`). It matched a runner word and a `-u` anywhere in the command, each on
+  its own. It now splits the command into simple commands and counts `-u` / `--update` only after the runner in the
+  same one; a package name (`npm update vitest`, `pip install pytest`) is not a runner; a heredoc body counts only
+  when a local shell runs it, never on an ssh host or as text. The same pass closes three misses: `vitest --update`,
+  `bash -c "npx vitest -u"` and `$(npx vitest -u)` were not blocked. Versioned and file-path runners
+  (`npx vitest@latest -u`, `node …/jest.js -u`) are matched, and the guard fails closed: an awk that cannot run, an
+  unterminated quote or heredoc, or nesting deeper than 8 falls back to the old flat word match, which blocks.
+- **`quality-before-commit.sh` refused `git -C $W status`** (and any other git command with a `-C` folder in a
+  variable): the "write the folder as a literal path" refusal ran before the hook knew the command was a commit. It
+  now refuses only a commit.
 - **In a linked worktree, the session start's pane map and `status-board.sh` read the worktree's own config**
   (#162, the #160 class): the kind→pane names on the `ledger:` lines and the board's config came from the branch's
   committed `.claude/project-status.json`, not the main checkout's. Both now take `ledger.sh board`'s `.config`.
