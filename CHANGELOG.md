@@ -53,6 +53,9 @@ it is what caught the hand-bumped era:
 - **`quality-before-commit.sh` refused `git -C $W status`** (and any other git command with a `-C` folder in a
   variable): the "write the folder as a literal path" refusal ran before the hook knew the command was a commit. It
   now refuses only a commit.
+- **In a linked worktree, the session start's pane map and `status-board.sh` read the worktree's own config**
+  (#162, the #160 class): the kind→pane names on the `ledger:` lines and the board's config came from the branch's
+  committed `.claude/project-status.json`, not the main checkout's. Both now take `ledger.sh board`'s `.config`.
 
 ## [9.1.3] - 2026-11-01
 
