@@ -38,11 +38,15 @@ overwrites) and `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --detailed`.
    - **Feature:** run with the Bash tool `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --add "<title>" --rfc` —
      it prints the new id and adds `rfc: <rfc_dir>/<id>.md` under it. Then run `/hef.brainstorm <the person's
      text> for <id>` here, with the person: the design it approves is saved as that RFC.
-   - **Bug fix:** `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --add "<title>" --incident` (a 🐞 item: the
-     builder writes a failing regression test first, and no planner runs), then append the person's
-     description, the steps to reproduce and what they expected, under the new heading in the todo column.
-   Then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh register <id> --ref <column>#<id>`. The board and RFC files
-   are the person's to commit; say so in the brief.
+   - **Bug fix:** write the person's description, the steps to reproduce and what they expected to a file in
+     the session's scratch folder, then run `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --add "<title>" --incident --body-file <that file>`
+     (a 🐞 item: the builder writes a failing regression test first, and no planner runs). The description goes
+     in with the item, in one write; never edit the board afterwards. A line starting with `##` is refused on a
+     tasks board, because it would make a second item: indent it.
+   Then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh register <id> --ref <column>#<id>`. On a tasks board, the board
+   and RFC files are the person's to commit; say so in the brief. On a GitHub Project board (`source:
+   github-project`), the item is a new issue on the Project, with its Status set to the todo column, and only
+   the RFC file is the person's to commit.
 
 4. **Drive it.** Run `/hef.orchestrate` (the orchestrator pass). It asks every decision as a form, runs the
    stages here or rings the open stage lanes, and repeats until the item waits on something outside this

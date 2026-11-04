@@ -29,8 +29,19 @@ HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"
 if declare -F gh_bin >/dev/null; then GH=$(gh_bin) || exit 1
 elif [ -z "${EVAL_GH_BIN:-}" ]; then GH="${HEFESTO_GH_BIN:-gh}"
 else die "status-board: EVAL_GH_BIN=$EVAL_GH_BIN is set but $HEF_LL is missing — refusing to fall back to the real gh"; fi
+# The setup modes and the github-project board live in sourced siblings (status-board.sh is at its size limit). A test
+# mirror may symlink this file alone, so a sibling is also looked for beside the link's target (one level: macOS
+# before 13 has no readlink -f). A mode that needs a missing one refuses, naming it.
+hef_sib() { # $1 file name → its path beside this script
+  local d l; d="$(dirname "${BASH_SOURCE[0]}")"
+  if [ ! -f "$d/$1" ] && l="$(readlink "${BASH_SOURCE[0]}" 2>/dev/null)"; then case "$l" in /*) d="$(dirname "$l")" ;; *) d="$d/$(dirname "$l")" ;; esac; fi
+  printf '%s/%s' "$d" "$1"
+}
+# shellcheck source=/dev/null
+for HEF_F in board-setup.sh board-github.sh; do HEF_F="$(hef_sib "$HEF_F")"; [ -f "$HEF_F" ] && . "$HEF_F"; done
+need_fn() { declare -F "$1" >/dev/null || die "status-board: $1 is missing — hooks/$2 must sit beside status-board.sh"; }
 
-MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""; ADD_TITLE=""; ADD_INC=0; ADD_RFC=0
+MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""; ADD_TITLE=""; ADD_INC=0; ADD_RFC=0; LIST_COL=""; SET_STATE=""; NOTE_FILE=""; BODY_FILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --check|-c) MODE="check" ;;
@@ -49,11 +60,12 @@ while [ $# -gt 0 ]; do
     --incident) ADD_INC=1 ;;
     --rfc) ADD_RFC=1 ;;
     --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --item-repo <id> | --item-rfc <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
-    *) echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --item-rfc <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2 ;;
+    *) n=0; if declare -F ghb_parse_arg >/dev/null; then ghb_parse_arg "$@"; n=$?; fi   # board-github.sh: count consumed
+       if [ "$n" -gt 1 ]; then shift $((n - 1)); elif [ "$n" -eq 0 ]; then echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --item-rfc <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2; fi ;;
   esac
   shift
 done
-case "$MODE" in item|item-raw|mark|item-kind|item-repo|item-rfc)
+case "$MODE" in item|item-raw|mark|item-kind|item-repo|item-rfc|item-url|item-trust|set-status|as-untrusted)
   [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
   [ "$MODE" != mark ] || [ -n "$MARK" ] || { echo "status-board: --mark needs <id> <marker> (or - for no marker)" >&2; exit 2; }
   # A marker is ONE token with no backslash: a space would stack under the next mark, a backslash or a
@@ -64,6 +76,7 @@ case "$MODE" in item|item-raw|mark|item-kind|item-repo|item-rfc)
   # the id becomes an awk regex atom and a file-name stem downstream: one shape only
   [[ "$ITEM_ID" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || { echo "status-board: invalid item id '$ITEM_ID' (expected [A-Za-z][A-Za-z0-9_-]*, e.g. HEF-12)" >&2; exit 2; } ;;
 esac
+[ "$MODE" != list ] || [[ "$LIST_COL" =~ ^(todo|doing|review|done|backlog)$ ]] || { echo "status-board: --list needs a column: todo, doing, review, done or backlog (got '$LIST_COL')" >&2; exit 2; }
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # external-board FR-002: which board this repo reads is ledger.sh's answer (`board`), never re-derived here.
@@ -79,47 +92,8 @@ fi
 [ -n "$CONFIG" ] || [ -z "$BCTX" ] || CONFIG="$(jq -r '.config // empty' <<<"$BCTX")"
 [ -n "$CONFIG" ] || CONFIG="$ROOT/.claude/project-status.json"
 
-# lanes-v3 trial 2026-10-22: --detect lists the boards a project already seems to use, one JSON object per
-# line, so the orchestrator can ask which to adopt instead of creating its own. Read-only; never the network.
-# From a linked worktree the config's path is ABSOLUTE on purpose: it is the main checkout's file (#162), outside
-# ROOT, and naming it relative would point at the worktree's copy, the one that does not decide.
-if [ "$MODE" = detect ]; then
-  command -v jq >/dev/null 2>&1 || { echo "status-board --detect: jq not found" >&2; exit 1; }
-  [ -f "$CONFIG" ] && jq -cn --arg c "${CONFIG#"$ROOT"/}" '{kind: "config", path: $c}'
-  for d in tasks board kanban; do
-    n=0; for c in TODO DOING DONE BACKLOG; do [ -f "$ROOT/$d/$c.md" ] && n=$((n + 1)); done
-    [ "$n" -gt 0 ] && jq -cn --arg r "$d" --argjson n "$n" '{kind: "tasks-folder", root: $r, columns_found: $n}'
-  done
-  while IFS= read -r f; do
-    n=$(grep -cE '^#{2,3} .*[A-Z][A-Z0-9]+-[0-9]+' "$f" 2>/dev/null || true)
-    [ "${n:-0}" -ge 2 ] && jq -cn --arg p "${f#"$ROOT"/}" --argjson n "$n" '{kind: "items-file", path: $p, items: $n}'
-  done < <(find "$ROOT" -maxdepth 2 -name '*.md' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path "$ROOT/tasks/*" 2>/dev/null | sort)
-  u="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
-  case "$u" in *github.com[:/]*) r="${u#*github.com[:/]}"; r="${r%.git}"; jq -cn --arg r "$r" '{kind: "github", repo: $r, note: "a GitHub Project can back /hef.status; dispatch needs a tasks board"}' ;; esac
-  exit 0
-fi
-
-# lanes-v3 FR-024: --init creates what a board needs and is missing — never overwriting a file — so a single
-# lane can start on a project with no board: the default config asks a person to approve every plan.
-if [ "$MODE" = init ]; then
-  { [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; } && { echo "status-board --init: the board is external ($ROOT) — set it up there" >&2; exit 1; }
-  made=""; troot="$ROOT/tasks"
-  if [ ! -f "$CONFIG" ]; then
-    mkdir -p "$(dirname "$CONFIG")" && jq -n '{source: "tasks-repo", root: "tasks", orchestrate: {usd_cap: 20, daily_usd_cap: 100, plan_review: "human", plan_first: true, rfc_dir: "docs/rfcs"}}' > "$CONFIG" \
-      || { echo "status-board --init: cannot write $CONFIG" >&2; exit 1; }
-    made="$made ${CONFIG#"$ROOT"/}"
-  else
-    jq -e '.source == "tasks-repo"' "$CONFIG" >/dev/null 2>&1 || { echo "status-board --init: $CONFIG is not a tasks-repo board — nothing to create" >&2; exit 1; }
-    troot="$ROOT/$(jq -r '.root // "tasks"' "$CONFIG")"
-  fi
-  for c in todo:TODO doing:DOING done:DONE backlog:BACKLOG; do
-    f="$troot/$(jq -r --arg k "${c%%:*}" --arg d "${c#*:}.md" '.columns[$k] // $d' "$CONFIG")"
-    [ -f "$f" ] || { mkdir -p "$(dirname "$f")" && printf '# %s\n' "${c#*:}" > "$f" && made="$made ${f#"$ROOT"/}"; }
-  done
-  rd="$ROOT/$(jq -r '.orchestrate.rfc_dir // "docs/rfcs"' "$CONFIG")"; [ -d "$rd" ] || { mkdir -p "$rd" && made="$made ${rd#"$ROOT"/}/"; }
-  if [ -n "$made" ]; then echo "created:$made"; else echo "nothing to create: the board is in place"; fi
-  exit 0
-fi
+[ "$MODE" = detect ] && { need_fn board_detect board-setup.sh; board_detect; }   # both exit
+[ "$MODE" = init ] && { need_fn board_init board-setup.sh; board_init; }
 
 # --- config (FR-001, FR-002) -----------------------------------------------------------------
 if [ ! -f "$CONFIG" ]; then
@@ -212,6 +186,11 @@ column_items() {
 # judgement, so a hidden instruction never reaches the orchestrator (report 17 §1f). `--item-raw`
 # prints the text as written; that is what the ledger hashes to detect an item edited after claim.
 strip_comments() { sed -E 's/<!--[^>]*-->//g' | sed '/<!--/,/-->/d'; }   # what --item shows and --item-repo routes on
+as_untrusted() { # $1 id, stdin the raw text → the comment-stripped block between per-call nonce markers (both sources)
+  local nonce body; nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"; body="$(printf '%s\n' "$(strip_comments)")"
+  printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$body" "$nonce"
+}
+body_of() { if [ "$SOURCE" = github-project ]; then ghb_text "$1"; else item_body "$1" raw; fi; }   # the raw text, either source
 item_body() { # $1 id, $2 raw|clean
   local col f body
   for col in todo doing backlog 'done'; do
@@ -224,8 +203,7 @@ item_body() { # $1 id, $2 raw|clean
     if [ "$2" = raw ]; then printf '%s\n' "$body"; return 0; fi
     # A per-call nonce on both markers: a body that contains the literal closing marker cannot end
     # the block early and smuggle text out of it (quality gate 2026-09-27, advisory A1).
-    local nonce; nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
-    printf '<<<untrusted-begin %s %s\n%s\nuntrusted-end %s>>>\n' "$1" "$nonce" "$(strip_comments <<<"$body")" "$nonce"
+    as_untrusted "$1" <<<"$body"
     return 0
   done
   die "status-board --item $1: no such item in $COL_todo, $COL_doing, $COL_backlog or $COL_done under $TROOT"
@@ -344,7 +322,7 @@ item_rfc() { # $1 id
   dir="$(cfg '.orchestrate.rfc_dir // "docs/rfcs"')"; dir="${dir%/}"
   { [[ "$dir" =~ $re ]] && [[ "/$dir/" != */../* ]] && [[ "/$dir/" != */./* ]]; } \
     || die "status-board --item-rfc $1: orchestrate.rfc_dir must be a relative folder like docs/rfcs, with no '..' (got '$(safe_name "$dir")')"
-  body="$(item_body "$1" raw)" || exit 1
+  body="$(body_of "$1")" || exit 1
   rel="$(strip_comments <<<"$body" | rfc_lines | sed '/^$/d')" || true
   n="$(grep -c . <<<"$rel")"
   [ "$n" -gt 0 ] || return 0
@@ -493,6 +471,7 @@ gh_preflight() {
   if [ $have_gh -eq 1 ]; then
     if "$GH" auth status >/dev/null 2>&1; then ok "gh authenticated"; authed=1; else miss "gh not authenticated" "run: gh auth login"; fi
   fi
+  [ $authed -eq 0 ] || ! declare -F ghb_scope_check >/dev/null || ghb_scope_check
   if [ $authed -eq 1 ]; then
     if err=$("$GH" project view "$PROJECT" --owner "$OWNER" --format json 2>&1 >/dev/null); then ok "Project #$PROJECT readable ($OWNER)"
     elif printf '%s' "$err" | grep -qi 'read:project\|required scope\|missing.*scope'; then miss "gh token missing the 'read:project' scope" "run: gh auth refresh -s read:project"
@@ -574,10 +553,21 @@ source_github() {
 }
 
 # lanes-v3 FR-016: one new item in the todo column, with the next free id; never touches an existing item.
-add_item() {
-  local f ids prefix n
+# The title and description rules both sources share (github-project-board FR-008): a feature gets an RFC line, a bug
+# fix its description — never both; on a tasks board a description line that starts a heading would forge an item.
+add_title_ok() {
+  # a github board sets no ID_PATTERN; a default inside ${…:-} would end at the regex's own '}'
+  [ -n "${ID_PATTERN:-}" ] || ID_PATTERN='[A-Z][A-Z0-9]+(-[A-Z0-9]+){1,4}'
   [[ "$ADD_TITLE" =~ ^[^#$'\r\n']{3,120}$ ]] || die "status-board --add: the title must be one line of 3–120 characters with no '#' (got '$(safe_name "$ADD_TITLE")')"
   ! grep -qE "$ID_PATTERN" <<<"$ADD_TITLE" || die "status-board --add: the title names an item id ($(grep -oE "$ID_PATTERN" <<<"$ADD_TITLE" | head -1)) — that would make two items answer to it; reword it"
+  [ "$ADD_RFC" = 0 ] || [ -z "$BODY_FILE" ] || die "status-board --add: --rfc and --body-file are exclusive (a feature gets an RFC line, a bug fix its description)"
+  [ -z "$BODY_FILE" ] || [ -f "$BODY_FILE" ] || die "status-board --add: --body-file $BODY_FILE not found"
+  [ -z "$BODY_FILE" ] || [ "$SOURCE" != tasks-repo ] || ! grep -qE "$ITEM_HEADING" "$BODY_FILE" \
+    || die "status-board --add: a --body-file line starts a heading (item_heading) — it would forge a second item; indent it"
+}
+add_item() {
+  local f ids prefix n
+  add_title_ok
   # ids on the board AND in the ledger: an entry outlives its board item (merged, pruned), and reusing its id
   # would leave the new item behind the old entry, never run (code review 2026-10-22)
   local ld; ld="$( [ -f "$HERE/ledger.sh" ] && bash "$HERE/ledger.sh" dir 2>/dev/null)" || ld=""
@@ -591,17 +581,31 @@ add_item() {
   n="$( { grep -E "^$prefix-[0-9]+$" <<<"$ids" || true; } | sed -E 's/.*-//' | sort -n | tail -1)"; n=$(( ${n:-0} + 1 ))
   f="$TROOT/$(col todo)"; [ -f "$f" ] || die "status-board --add: no todo column at $f — run status-board.sh --init"
   { printf '\n## %s%s — %s\n' "$([ "$ADD_INC" = 1 ] && printf '🐞 ')" "$prefix-$n" "$ADD_TITLE"
-    if [ "$ADD_RFC" = 1 ]; then printf 'rfc: %s/%s.md\n' "$(cfg '.orchestrate.rfc_dir // "docs/rfcs"' | sed 's:/*$::')" "$prefix-$n"; fi; } >> "$f" || die "status-board --add: cannot write $f"
+    if [ "$ADD_RFC" = 1 ]; then printf 'rfc: %s/%s.md\n' "$(cfg '.orchestrate.rfc_dir // "docs/rfcs"' | sed 's:/*$::')" "$prefix-$n"; fi
+    [ -z "$BODY_FILE" ] || tr -d '\r' < "$BODY_FILE"; } >> "$f" || die "status-board --add: cannot write $f"
   echo "$prefix-$n"
 }
 
+[ "$MODE" != as-untrusted ] || { as_untrusted "$ITEM_ID"; exit $?; }
 case "$SOURCE" in
   tasks-repo)
     tasks_config
+    [ "$MODE" = list ] && { [ "$LIST_COL" != review ] || die "status-board --list review: a tasks board has no review column"; column_items "$TROOT/$(col "$LIST_COL")" | cut -f1; exit 0; }
+    case "$MODE" in item-url|item-trust|set-status) die "status-board --$MODE: a github-project board mode (this board is tasks-repo)" ;; esac
     [ "$MODE" = add ] && { add_item; exit $?; }
     case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
-    case "$MODE" in item|item-raw|item-kind|item-repo|item-rfc|add|detect) die "status-board --$MODE: unsupported for github-project in Phase 1 (tasks-repo only)" ;; mark) die "status-board --mark: a github-project board is published with ledger.sh publish (an issue comment), not by editing a file" ;; esac
+    case "$MODE" in
+      list|item|item-raw|item-kind|item-rfc|item-url|item-trust|add|set-status) need_fn ghb_config board-github.sh; ghb_config ;;
+      item-repo) die "status-board --item-repo: a github-project board is in-repo only — there is no repo to route to" ;;
+      mark) die "status-board --mark: a github-project board is published with ledger.sh publish (--set-status), not by editing a file" ;;
+    esac
+    case "$MODE" in
+      list) ghb_list "$LIST_COL"; exit $? ;; item) ghb_text "$ITEM_ID" | as_untrusted "$ITEM_ID"; exit "${PIPESTATUS[0]}" ;;
+      item-raw) ghb_text "$ITEM_ID"; exit $? ;; item-kind) ghb_kind "$ITEM_ID"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;;
+      item-url) ghb_url "$ITEM_ID"; exit $? ;; item-trust) ghb_trust "$ITEM_ID"; exit $? ;;
+      add) ghb_add; exit $? ;; set-status) ghb_set_status "$ITEM_ID" "$SET_STATE" "$NOTE_FILE"; exit $? ;;
+    esac
     source_github ;;
 esac
