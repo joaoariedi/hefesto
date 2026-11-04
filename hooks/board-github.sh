@@ -183,8 +183,9 @@ ghb_add() { # one new issue in the todo column; prints its id (FR-008)
   else url="$("$GH" issue create -R "$GREPO" --title "$ADD_TITLE" --body-file "$bf" 2>"$err")"; fi \
     || { local m; m="$(tail -1 "$err" | cut -c1-200)"; rm -f "$tmp" "$err"; die "status-board --add: gh issue create failed: $m"; }
   url="$(tail -1 <<<"$url")"
+  [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._/-]+/issues/([0-9]+)$ ]] \
+    || { rm -f "$tmp" "$err"; die "status-board --add: gh issue create answered '$(safe_label "$url")', not an issue URL — check gh issue list -R $GREPO for a stray issue"; }
   ghb_fail() { rm -f "$tmp" "$err"; die "status-board --add: the issue $url exists but is not on the board: $1"; }
-  [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._/-]+/issues/([0-9]+)$ ]] || ghb_fail "gh issue create answered something that is not an issue URL"
   [ "$(printf '%s' "${url%/issues/*}" | tr '[:upper:]' '[:lower:]')" = "https://github.com/$(printf '%s' "$GREPO" | tr '[:upper:]' '[:lower:]')" ] \
     || ghb_fail "it was created in another repo than $GREPO"
   n="${BASH_REMATCH[1]}"; id="$PREFIX-$n"
@@ -216,12 +217,13 @@ ghb_check_config() { # --check on a github board: the lane config and every mapp
     printf '  [warn]    no "repo" and "id_prefix": this board serves /hef.status only, not the lanes (docs/install.md §14)\n'; return 0
   fi
   local res st k n o
+  SFIELD="$(cfg '.status_field // "Status"')"   # read here: what the subshell sets never reaches the report lines
   res="$( (ghb_config; gh_project_ids
-    for k in $(jq -r --argjson d "$GHB_COLUMNS_DEFAULT" '(.columns // $d) | keys_unsorted[]' "$CONFIG"); do
-      n="$(ghb_colname "$k")"
+    while IFS= read -r k; do
+      n="$(ghb_colname "$k")" || exit 1
       if jq -e --arg n "$n" 'has($n)' <<<"$OPTS" >/dev/null; then printf 'ok\t%s\t%s\n' "$k" "$n"
       else printf 'miss\t%s\t%s\t%s\n' "$k" "$n" "$(jq -r 'keys_unsorted[]' <<<"$OPTS" | safe_labels)"; fi
-    done) 2>&1)" || { miss "the lane config: $(tail -1 <<<"$res")"; return 0; }
+    done < <(jq -r --argjson d "$GHB_COLUMNS_DEFAULT" '(.columns // $d) | keys_unsorted[]' "$CONFIG")) 2>&1)" || { miss "the lane config: $(tail -1 <<<"$res")"; return 0; }
   while IFS=$'\t' read -r st k n o; do
     case "$st" in
       ok) ok "column $k = '$(safe_label "$n")' is a $(safe_label "$SFIELD") option" ;;

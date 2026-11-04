@@ -58,6 +58,7 @@ case "\$1 \$2" in
   "project view") echo '{"id":"PVT_7","title":"App board"}' ;;
   "repo view") exit 0 ;;
   "issue create") [ -f "\$FX/create.fail" ] && { echo "gh: create failed" >&2; exit 1; }
+    [ -f "\$FX/create.text" ] && { cat "\$FX/create.text"; exit 0; }
     n=\$(cat "\$FX/next"); r=app; [ -f "\$FX/create.badurl" ] && r=other; echo "https://github.com/acme/\$r/issues/\$n" ;;
   "issue edit") [ -f "\$FX/edit.fail" ] && { echo "gh: edit failed" >&2; exit 1; }; exit 0 ;;
   "issue comment") [ -f "\$FX/comment.fail" ] && { echo "gh: comment failed" >&2; exit 1; }; exit 0 ;;
@@ -396,6 +397,15 @@ gb_o="$(gb --check 2>&1)"; gb_rc=$?
   || { bad "--check refuses a mapped column the Project does not have, listing its options (FR-011, FR-012) — rc=$gb_rc: $gb_o"; x_fail=1; }
 gb_cfg; gb_o="$(gb --check 2>&1)"; gb_rc=$?
 { [ "$gb_rc" -eq 0 ] && grep -qF "column doing = 'In Progress'" <<<"$gb_o"; } || { bad "--check passes a correct column map and says so (FR-012) — rc=$gb_rc: $gb_o"; x_fail=1; }
+{ grep -qF "column doing = 'In Progress' is a Status option" <<<"$gb_o" && ! grep -qF 'unbound' <<<"$gb_o"; } \
+  || { bad "--check's report names the field and holds no shell error (review round 2) — got: $gb_o"; x_fail=1; }
+gb_cfg '| .columns = {"todo": "Todo", "my col": "Nope"}'; gb_o="$(gb --check 2>&1)"
+{ grep -qF "column my col = 'Nope' is not a Status option" <<<"$gb_o" && grep -qF 'use one of: Todo, In Progress' <<<"$gb_o"; } \
+  || { bad "--check reads a column key with a space as one key (review round 2) — got: $gb_o"; x_fail=1; }
+gb_cfg; printf 'not a url\n' > "$gb_fx/create.text"
+gb_no "an answer that is no URL is shown filtered and named as such, never as a created issue (FR-008)" "not an issue URL" --add "Export notes"
+grep -qF 'exists but is not on the board' "$gb_t/err" && { bad "a non-URL answer must not be called an issue that exists (review round 2): $(cat "$gb_t/err")"; x_fail=1; }
+rm -f "$gb_fx/create.text"
 t_check() { gb_cfg '| .columns.doing = "In progress"'; gb --check >/dev/null 2>&1 && x_fail=1; gb_cfg; }
 gb_mut "--check without the column map check (FR-011)" 's/^  \[ "\$MODE" = check \] || return 0$/  return 0/' board-github.sh t_check
 gb_cfg '| del(.repo) | del(.id_prefix)'; gb_o="$(gb --check 2>&1)"
