@@ -254,8 +254,8 @@ fi
 SKIP_LANG=0
 LL="$(cd "$(dirname "$0")" && pwd)/lane-lib.sh"
 # shellcheck source=hooks/lane-lib.sh
-if [ -f "$LL" ] && . "$LL" && lanes_project "$CWD"; then
-  SKIP_LANG=1; ADVISORY="${ADVISORY:+$ADVISORY; }quality gate: the language linters and type checks were skipped — they run project-defined programs and this hook runs outside the sandbox (a --lanes project); run them yourself"
+if [ -f "$LL" ] && . "$LL" && project_code_stands_down "$CWD"; then
+  SKIP_LANG=1; ADVISORY="${ADVISORY:+$ADVISORY; }quality gate: the language linters and type checks were skipped — they run project-defined programs and this hook runs outside the sandbox (a --lanes project or a launched worker); run them yourself"
 fi
 
 # JavaScript / TypeScript

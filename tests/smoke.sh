@@ -5369,11 +5369,43 @@ l3_mut lane-guard.sh 's/^  for sub in ledger approvals sessions; do$/  for sub i
 LG_GD=""
 l3_mut ledger.sh 's/^  valid_sid "$sid" || return 0; f=$(session_file "$sid")/  return 0; f=$(session_file "$sid")/'
 lg_o="$(cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-builder-0001 bash "$l3_md/ledger.sh" answer LT-2 --reviewed-by-human --by Ana </dev/null 2>&1)"; grep -qF 'only in the orchestrator lane' <<<"$lg_o" && { bad "mutation survived: the second gate removed, yet it still refused"; lg_fail=1; }; l3_restore ledger.sh
-l3_mut run-tests-after-edit.sh 's/lanes_project "$CWD"; then echo/false; then echo/'
+l3_mut run-tests-after-edit.sh 's/project_code_stands_down "$CWD"; then echo/false; then echo/'
 lg_o="$(jq -nc --arg d "$l3_t" '{tool_name: "Edit", tool_input: {file_path: ($d + "/a.js")}, cwd: $d}' | bash "$l3_md/run-tests-after-edit.sh" 2>&1 >/dev/null)"
 grep -qF 'stands down' <<<"$lg_o" && { bad "mutation survived: the stand-down removed, yet it still stood down"; lg_fail=1; }; l3_restore run-tests-after-edit.sh
 rm -f "$l3_t/package.json" "$l3_t/RAN" "$HOME/.cache/hefesto/sessions/sid-repo-single-0001.json"; rm -rf -- "${lg_h2:?}"
 [ "$lg_fail" -eq 0 ] && ok "lane guard: person-only commands from the orchestrator only; excluded commands (gh, ledger.sh, the launcher) as one plain word list in every lane and in single-lane mode — no redirect, pipe, chain, wrapper, assignment or CLAUDE_CODE_SESSION_ID; the orchestrator heredoc only for answer/revise/direct; --prepare/--finish only as the caller's own lane; no record → silent; file tools denied on hefesto's state directly, through a symlink and by the physical path; ledger.sh's own session check; project-command hooks stand down; gh behind a keyword, quote or backslash denied; the hooks ignore a planted core.fsmonitor; a gh that writes is denied in lanes unless granted; 8 mutations caught"
+
+# #169: in a single-lane project a launched worker's hooks ran project code (written by the sandboxed worker)
+# outside the sandbox. Each of the four project-command hooks stands down for HEFESTO_WORKER=1, as in --lanes.
+head_ "A launched worker's hooks run no project code outside the sandbox (#169)"
+wk_fail=0; wk_t="$(cd "$(mktemp -d)" && pwd -P)"; git init -q -b main "$wk_t"
+printf '{"scripts":{"test":"touch %s/RAN","lint":"touch %s/LINTED"}}\n' "$wk_t" "$wk_t" > "$wk_t/package.json"
+wk_edit() { jq -nc --arg d "$wk_t" '{tool_name: "Edit", tool_input: {file_path: ($d + "/a.js")}, cwd: $d}'; }
+wk_run() { # $1 hook dir, $2 hook, $3 worker flag ("" or 1) → its stderr
+  local in; case "$2" in
+    verify-before-task-complete.sh) in="$(jq -nc --arg d "$wk_t" '{cwd: $d, task_subject: "x"}')" ;;
+    quality-before-commit.sh) in="$(jq -nc --arg d "$wk_t" '{tool_input: {command: "git commit -m \"feat: x\""}, cwd: $d}')" ;;
+    *) in="$(wk_edit)" ;;
+  esac
+  printf '%s' "$in" | (cd "$wk_t" && HEFESTO_WORKER="$3" bash "$1/$2") 2>&1 >/dev/null
+}
+for wk_h in run-tests-after-edit.sh format-after-edit.sh verify-before-task-complete.sh; do
+  wk_o="$(wk_run "$REPO/hooks" "$wk_h" 1)"
+  grep -qF 'stands down in a --lanes project or a launched worker' <<<"$wk_o" || { bad "#169: $wk_h must stand down in a launched worker's session — got: $(head -c 200 <<<"$wk_o")"; wk_fail=1; }
+done
+( cd "$wk_t" && echo 'x' > a.js && git add a.js ) >/dev/null 2>&1
+wk_o="$(wk_run "$REPO/hooks" quality-before-commit.sh 1)"
+[ -f "$wk_t/LINTED" ] && { bad "#169: the commit gate ran the project's lint script in a launched worker's session"; wk_fail=1; }
+rm -f "$wk_t/RAN"; wk_run "$REPO/hooks" run-tests-after-edit.sh 1 >/dev/null
+[ -f "$wk_t/RAN" ] && { bad "#169: run-tests-after-edit ran the project's tests in a launched worker's session"; wk_fail=1; }
+wk_o="$(wk_run "$REPO/hooks" run-tests-after-edit.sh "")"
+grep -qF 'stands down' <<<"$wk_o" && { bad "#169: outside a worker, in a single-lane project, the after-edit test hook must still run — got: $wk_o"; wk_fail=1; }
+wk_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$wk_md/$(basename "$f")"; done
+rm "$wk_md/lane-lib.sh"; sed 's/^  \[ -n "\${HEFESTO_WORKER:-}" \] && \[ "\$HEFESTO_WORKER" != 0 \] && return 0$/  :/' "$REPO/hooks/lane-lib.sh" > "$wk_md/lane-lib.sh"
+cmp -s "$REPO/hooks/lane-lib.sh" "$wk_md/lane-lib.sh" && { bad "#169 mutation did not apply"; wk_fail=1; }
+grep -qF 'stands down' <<<"$(wk_run "$wk_md" run-tests-after-edit.sh 1)" && { bad "#169 mutation survived: the worker clause removed, yet the hook still stood down"; wk_fail=1; }
+rm -rf -- "${wk_t:?}" "${wk_md:?}"
+[ "$wk_fail" -eq 0 ] && ok "in a single-lane project, a launched worker's after-edit tests, formatter, task-completion gate and commit-gate language checks stand down (HEFESTO_WORKER), and the after-edit tests still run outside a worker; 1 mutation caught (#169)"
 
 # FR-016/017/024 the board: --init on a fresh repo, --add with the next id, an incident fix built without a plan
 l3_n="$(mktemp -d)/shop-app"; mkdir -p "$l3_n"; git -C "$l3_n" init -q

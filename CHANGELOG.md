@@ -35,6 +35,20 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased] - 9.1.5
+
+**A launched worker's hooks no longer run the project's code outside the sandbox (#169).**
+
+### Fixed
+
+- **In a single-lane project, a launched worker's hooks ran project-defined programs outside the sandbox.** Hooks
+  run outside the Bash sandbox, and four of them run project code: the after-edit tests and formatter, the
+  task-completion test gate, and the commit gate's language checks. They already stood down in a `--lanes` project,
+  where a lane edits the project. A worker started by `session-launch.sh` edits it too, sandboxed, and in a project
+  set up without `--lanes` the next hook then ran that code unsandboxed. The four hooks now also stand down in a
+  worker's session (`HEFESTO_WORKER`, which the launcher sets for every worker); the worker runs its own checks,
+  sandboxed.
+
 ## [9.1.4] - 2026-11-03
 
 **Fewer false stops: the snapshot guard blocks a snapshot regeneration, not a `-u` that belongs to another program
