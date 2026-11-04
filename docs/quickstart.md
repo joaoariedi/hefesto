@@ -120,6 +120,10 @@ Start with the single lane; the same project can add the three stage lanes later
   `.claude/project-status.json`.
 - **A board you already have** is adopted, not replaced: with no config yet, `/hef.orchestrate` lists what the
   project uses (a `tasks/` folder, a backlog file, a GitHub repo) and asks which one.
+- **A GitHub Project as the board.** The lanes can take their items from a GitHub Project: each issue of the repo
+  is an item (`BC-42` for issue #42), and its Status is the column. `/hef.orchestrate` offers the repo's Projects
+  when you adopt a board, `/hef.ship` adds issues to it, and each state change moves the card. Issues from
+  accounts outside the team wait for you to read them first. Setup and scopes: [`install.md`](install.md) §14.
 - **After a hefesto update**, run the setup command again (a lane's first lines say so when it is due).
 - **When something looks wrong**, run `/hef.doctor`, copy the exact message, and ask your lead.
 

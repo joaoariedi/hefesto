@@ -26,7 +26,7 @@ usage() {
 usage: ledger.sh <subcommand> …
   dir                                                   print the ledger directory
   board                                                 the resolved board as JSON: mode (in-repo|external), board_top, config, ledger_dir, repos, repo
-  init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability] [--repo <name>]   (--repo: required on an external board)
+  init <id> --kind <tasks-repo|github-project> --ref <ref> [--url <u>] [--body-file <f>] [--item-kind feature|incident|vulnerability] [--repo <name>] [--intake-file <f>]   (--repo: required on an external board; --intake-file: born blocked human:intake)
   claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; implement attempts > 2 → stall (a person's clear starts the count again); releases claims whose lease (<id>.lease, renewed by the launcher) is over 5 min old
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
@@ -381,10 +381,10 @@ case "$SUB" in
 
   init)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift
-    KIND=""; REF=""; URL=""; BODY=""; IKIND="feature"; RNAME=""; HAVE_REPO=0
+    KIND=""; REF=""; URL=""; BODY=""; IKIND="feature"; RNAME=""; HAVE_REPO=0; INTAKE=""
     while [ $# -gt 0 ]; do case "$1" in
       --kind) KIND="${2:-}"; shift ;; --ref) REF="${2:-}"; shift ;; --url) URL="${2:-}"; shift ;; --body-file) BODY="${2:-}"; shift ;;
-      --item-kind) IKIND="${2:-}"; shift ;; --repo) RNAME="${2:-}"; HAVE_REPO=1; shift ;;
+      --item-kind) IKIND="${2:-}"; shift ;; --repo) RNAME="${2:-}"; HAVE_REPO=1; shift ;; --intake-file) INTAKE="${2:-}"; shift ;;
       *) usage ;; esac; shift; done
     valid_id "$ID" || exit 1
     # external-board FR-003: the entry's repo, checked against the board's repos map. An EMPTY --repo is the
@@ -403,10 +403,14 @@ case "$SUB" in
     [ -n "$REF" ] || die "ledger init $ID: --ref is required (e.g. tasks/TODO.md#$ID)"
     SHA=null
     if [ -n "$BODY" ]; then [ -f "$BODY" ] || die "ledger init $ID: body file not found: $BODY"; SHA="\"$({ sha256sum 2>/dev/null || shasum -a 256; } < "$BODY" | cut -c1-64)\""; fi
-    jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" --arg ik "$IKIND" --arg repo "$RNAME" '{
+    # github-project-board FR-007: an untrusted author's entry is BORN blocked human:intake, in this one write — never
+    # created and then blocked, which a failure in between would leave unblocked. A failed copy refuses first.
+    QP=""; if [ -n "$INTAKE" ]; then QP="$DIR/$ID.intake.md"; cp "$INTAKE" "$QP" 2>/dev/null || die "ledger init $ID: cannot write the intake reason to $QP"; fi
+    jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" --arg ik "$IKIND" --arg repo "$RNAME" --arg qp "$QP" '{
       id: $id, source: {kind: $kind, ref: $ref, url: (if $url == "" then null else $url end), body_sha256: $sha},
       item_kind: $ik, route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
-      verdicts: [], blocked_on: null, budget: {usd_cap: null, usd_spent: 0}, runs: [], attempts: 0,
+      verdicts: [], blocked_on: (if $qp == "" then null else {kind: "human:intake", since: (now | todate), question_path: $qp} end),
+      budget: {usd_cap: null, usd_spent: 0}, runs: [], attempts: 0,
       created: (now | todate), updated: (now | todate) } + (if $repo == "" then {} else {repo: $repo} end)' | write_entry "$ID" || exit 1
     echo "$DIR/$ID.json" ;;
 
@@ -777,14 +781,18 @@ case "$SUB" in
     [ "$(cfgp '.orchestrate.publish // false')" = true ] || die "ledger publish $ID: publish is off — set orchestrate.publish to true in .claude/project-status.json"
     E=$(entry "$ID") || exit 1
     MAP=$(jq -c --argjson d "$PUBLISH_MARKERS_DEFAULT" '$d + ((.orchestrate.publish_markers // {}) | if type == "object" then . else {} end)' "$(project_config)") || die "ledger publish: cannot read the publish markers"
-    M=$(jq -r --argjson m "$MAP" '
-      if .blocked_on != null then (if (.blocked_on.kind | startswith("human:")) then $m.human_block else $m.block end)
+    # The state KEY first (github-project-board R1 #9): a github card moves by key; a tasks heading gets the key's marker.
+    K=$(jq -r 'if .blocked_on != null then (if (.blocked_on.kind | startswith("human:")) then "human_block" else "block" end)
       else ({queued: null, intake: "plan", spec: "plan", plan: "plan", "plan-review": "plan", tasks: "plan",
-             implement: "build", verify: "build", quality: "build", security: "build", pr: "pr", merged: "done", released: "done"}[.phase]) as $k
-           | if $k == null then null else $m[$k] end end // empty' <<<"$E")
+             implement: "build", verify: "build", quality: "build", security: "build", pr: "pr", merged: "done", released: "done"}[.phase]) end // empty' <<<"$E")
+    M=$(jq -r --argjson m "$MAP" --arg k "$K" 'if $k == "" then empty else $m[$k] // empty end' <<<"{}")
+    SK=$(jq -r .source.kind <<<"$E"); ST="$M"; [ "$SK" != github-project ] || ST="$K"   # what published.state records
+    if [ "$SK" = github-project ] && [ "$(jq -r '.blocked_on.kind // ""' <<<"$E")" = human:intake ] && [ "$(jq -r .phase <<<"$E")" = queued ]; then
+      echo "$ID publish: skipped — it waits on a person's intake read, so its issue is left alone"; exit 0   # R2 #2: github only
+    fi
     PREV=$(jq -r 'if has("published") then (.published.state // "-") else "unset" end' <<<"$E")
-    if [ "$PREV" = "${M:--}" ]; then echo "$ID publish: unchanged (${M:-no marker})"; exit 0; fi
-    case "$(jq -r .source.kind <<<"$E")" in
+    if [ "$PREV" = "${ST:--}" ]; then echo "$ID publish: unchanged (${ST:-no marker})"; exit 0; fi
+    case "$SK" in
       tasks-repo)
         SB="$HERE/status-board.sh"; T=$(mktemp) || die "ledger publish: mktemp failed"
         bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: the board has no item $ID"; }
@@ -795,18 +803,19 @@ case "$SUB" in
         bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: cannot re-read the item after marking"; }
         "$0" record "$ID" --body-file "$T" >/dev/null || { rm -f "$T"; exit 1; }
         rm -f "$T"; WHERE="the board"; case "$MARKED" in *"not marked"*) WHERE="not marked — the item is in DONE" ;; esac ;;
-      github-project)
+      github-project)   # the card's Status, then one comment, through the board's one write path (FR-010)
         URL=$(jq -r '.source.url // empty' <<<"$E")
         [ -n "$URL" ] || die "ledger publish $ID: a github-project entry needs source.url (ledger.sh init … --url <issue-url>)"
-        command -v "$GH" >/dev/null 2>&1 || die "ledger publish $ID: gh not found — install GitHub CLI (https://cli.github.com)"
-        GHERR=$("$GH" issue comment "$URL" --body "ledger: $ID phase $(jq -r .phase <<<"$E") blocked_on $(jq -r '.blocked_on.kind // "none"' <<<"$E")" 2>&1 >/dev/null) \
-          || die "ledger publish $ID: gh issue comment $URL failed: $(tail -1 <<<"$GHERR")"
-        WHERE="$URL" ;;
+        [ -n "$K" ] || { echo "$ID publish: unchanged (no state to show)"; exit 0; }
+        T=$(mktemp) || die "ledger publish: mktemp failed"
+        printf 'ledger: %s phase %s blocked_on %s\n' "$ID" "$(jq -r .phase <<<"$E")" "$(jq -r '.blocked_on.kind // "none"' <<<"$E")" > "$T"
+        bash "$HERE/status-board.sh" --set-status "$ID" "$K" --note-file "$T" >/dev/null || { rm -f "$T"; exit 1; }
+        rm -f "$T"; WHERE="$URL" ;;
       *) die "ledger publish $ID: unknown source kind '$(jq -r .source.kind <<<"$E")'" ;;
     esac
     E=$(entry "$ID") || exit 1
-    jq --arg s "$M" '.published = {state: (if $s == "" then null else $s end), at: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
-    echo "$ID published ${M:-no marker} ($WHERE)" ;;
+    jq --arg s "$ST" '.published = {state: (if $s == "" then null else $s end), at: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
+    echo "$ID published ${ST:-no marker} ($WHERE)" ;;
 
   # escalate: report 17's single message type. Lists human:* blocks older than the threshold that were
   # not yet escalated for THIS block, one `<session>\t<pointer>` line each; the command sends the

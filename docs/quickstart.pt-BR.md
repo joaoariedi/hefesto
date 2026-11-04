@@ -100,6 +100,11 @@ Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois.
   `"allowed_domains": ["registry.npmjs.org"]` em `orchestrate` no `.claude/project-status.json`.
 - **Um quadro que você já tem** é adotado, não substituído: sem configuração ainda, o `/hef.orchestrate` lista o
   que o projeto usa (uma pasta `tasks/`, um arquivo de backlog, um repositório no GitHub) e pergunta qual usar.
+- **Um GitHub Project como quadro.** As lanes podem tirar seus itens de um GitHub Project: cada issue do
+  repositório é um item (`BC-42` para a issue #42), e o Status dela é a coluna. O `/hef.orchestrate` oferece os
+  Projects do repositório quando você adota um quadro, o `/hef.ship` adiciona issues a ele, e cada mudança de
+  estado move o cartão. Issues de contas de fora do time esperam você lê-las primeiro. Preparação e escopos:
+  [`install.md`](install.md) §14.
 - **Depois de atualizar o hefesto**, rode o comando de preparação de novo (as primeiras linhas de uma
   sessão avisam quando for preciso).
 - **Se algo parecer errado**, rode `/hef.doctor`, copie a mensagem exata e mande para o seu líder.

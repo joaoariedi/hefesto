@@ -23,13 +23,30 @@ register_item() { # $1 id, $2 ref
   fi
   k=$("$sb" --item-kind "$id" 2>"$REG_ERR") || die "$(cat "$REG_ERR")"
   "$sb" --item-raw "$id" > "$REG_TMP" 2>"$REG_ERR" || die "$(cat "$REG_ERR")"
-  if [ -n "$r" ]; then
-    bash "$HERE/ledger.sh" init "$id" --kind tasks-repo --ref "$ref" --body-file "$REG_TMP" --item-kind "$k" --repo "$r" >/dev/null || exit 1
-    echo "$id registered (kind $k, repo $r)"
-  else
-    bash "$HERE/ledger.sh" init "$id" --kind tasks-repo --ref "$ref" --body-file "$REG_TMP" --item-kind "$k" >/dev/null || exit 1
-    echo "$id registered (kind $k)"
-  fi
+  local src g=()
+  src=$(jq -r '.source // "tasks-repo"' "$(project_config)" 2>/dev/null)   # anything but github-project is tasks-repo (below)
+  REG_WHY=""
+  if [ "$src" = github-project ]; then register_gh_args "$id" "$sb"; g=("${REG_GH[@]}"); else src=tasks-repo; fi   # REG_GH, REG_WHY
+  [ -z "$r" ] || g+=(--repo "$r")
+  bash "$HERE/ledger.sh" init "$id" --kind "$src" --ref "$ref" --body-file "$REG_TMP" --item-kind "$k" ${g[@]+"${g[@]}"} >/dev/null || { rm -f "$REG_TMP.intake"; exit 1; }
+  rm -f "$REG_TMP.intake"
+  echo "$id registered (kind $k${r:+, repo $r})${REG_WHY:+ — blocked human:intake: $REG_WHY}"
+}
+
+# github-project-board FR-006/FR-007: the issue's url, and its author's trust — read BEFORE init, so an untrusted
+# author's entry is born blocked (init --intake-file) and a trust read that fails leaves no entry at all.
+register_gh_args() { # $1 id, $2 status-board.sh → REG_GH=(--url <u> [--intake-file <f>]), REG_WHY (the reason, or empty)
+  local u t trc=0
+  REG_GH=(); REG_WHY=""
+  u=$("$2" --item-url "$1" 2>"$REG_ERR") || die "$(cat "$REG_ERR")"
+  t=$("$2" --item-trust "$1" 2>"$REG_ERR") || trc=$?
+  case "$trc" in
+    0) ;;
+    3) printf '%s\n' "$t" > "$REG_TMP.intake" || die "ledger register $1: cannot write the intake reason"
+       REG_GH=(--intake-file "$REG_TMP.intake"); REG_WHY="$t" ;;
+    *) die "$(cat "$REG_ERR")" ;;
+  esac
+  REG_GH+=(--url "$u")
 }
 
 # The intake gate's rules for any person-only clear: never from inside a launched worker, and a name. The
