@@ -622,6 +622,36 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       `where` and `advance … released` check git in the entry's repo.
     - **Publish** marks the item in the board repo's file. Commit it yourself; committing
       automatically is board item HEF-16.
+14. **A GitHub Project as the lane board** (optional, hefesto 9.2). The lanes can run from a GitHub Project (v2)
+    instead of a `tasks/` folder. Each item is an issue of one repo on the Project, and its Status is the column:
+
+    ```json
+    { "source": "github-project", "owner": "acme", "project": 7, "repo": "acme/app", "id_prefix": "BC",
+      "columns": { "todo": "Todo", "doing": "In Progress", "review": "In Review", "done": "Done", "backlog": "Backlog" },
+      "status_field": "Status", "kinds_labels": { "bug": "incident", "security": "vulnerability" },
+      "orchestrate": { "rfc_dir": "docs/rfcs", "publish": true } }
+    ```
+
+    - **Ids** are `<id_prefix>-<issue number>` (issue #42 is `BC-42`). Only `repo`'s issues are items. Draft
+      items, pull requests and other repos' issues on the same Project are ignored. One repo per board, and the
+      board is in-repo only.
+    - **Columns** map the keys hefesto uses to the Project's Status options. A name the Project does not have is
+      refused, with the options it has, so a typo never reads as an empty column. `review` is optional: without
+      it, an item with an open PR stays in `doing`.
+    - **The RFC** is still a file in the repo, linked from the issue body by an `rfc: docs/rfcs/<ID>.md` line.
+      `/hef.ship` writes that line.
+    - **Kinds** come from labels (`kinds_labels`; by default `bug` and `incident` → incident, `security` →
+      vulnerability).
+    - **Author trust.** An issue opened by an account that is not an owner, member or collaborator of the repo,
+      or last edited by someone other than its author who is not a collaborator, is registered already blocked
+      `human:intake`. You read it before any stage takes it. Widen the set with
+      `orchestrate.trusted_associations` (for example adding `CONTRIBUTOR`); `NONE` is never accepted.
+    - **Card moves.** With `orchestrate.publish`, each state change sets the card's Status (plan and build →
+      `doing`, PR → `review`, merged → `done`) and posts one short comment on the issue. An issue waiting on
+      your intake read is left alone.
+    - **Scopes.** Reads need gh's `read:project` scope; `/hef.ship`'s add and publish need `project`
+      (`gh auth refresh -s project`). `status-board.sh --check` says which is missing.
+    - **Every gh failure refuses** with its cause; nothing reads an error as "no items".
 
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the

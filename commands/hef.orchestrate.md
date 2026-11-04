@@ -84,12 +84,20 @@ as a backlog), `github` (the repo's remote). Ask the person in one form which to
 - `tasks-folder` → `{"source":"tasks-repo","root":"<root>"}`; `items-file` → `{"source":"tasks-repo","root":"<its
   folder>","columns":{"todo":"<its file>"}}` (warn: every item heading in it is treated as open work, so resolved
   sections must move out first); **New tasks/ board** → nothing to write, `--init` writes it;
-- `github` → the board can only be *read* (`/hef.status`); dispatch needs a tasks board — say so, and offer a
-  tasks folder beside it.
+- `github` with `projects` → each listed Project can be the lane board: offer one option per Project (`#<number>
+  <title>`). For the one picked, write `{"source":"github-project","owner":"<its owner>","project":<number>,
+  "repo":"<the candidate's repo>","id_prefix":"<2–4 capitals>","columns":{"todo":"Todo","doing":"In Progress",
+  "done":"Done"}}`, then run `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --check`. Fix any column name it
+  refuses to the Status option names it lists, and add `"review"` and `"backlog"` when the Project has such
+  options. Items are that repo's issues on the Project; ids are `<id_prefix>-<issue number>`. Reads need the gh
+  scope `read:project`; `--add` and publish need `project`. `--check` warns when the scope is missing.
+  `github` without `projects` → its `note` says why gh could not list them; say so, and offer the fix or a tasks
+  board.
 Add `"orchestrate":{"usd_cap":20,"daily_usd_cap":100,"plan_review":"human","plan_first":true}` and, when the
 repository integrates on a branch other than its default (`git symbolic-ref refs/remotes/origin/HEAD`), a
-`"branches"` block naming it. Then run `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --init`: it creates only
-the board files that are missing, never overwriting one — also when the config exists but its columns do not.
+`"branches"` block naming it. For a tasks board, then run `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --init`:
+it creates only the board files that are missing, never overwriting one — also when the config exists but its
+columns do not. A github-project board needs no `--init`.
 
 ### Which board
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh board`
@@ -109,8 +117,12 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
 
 ## The orchestrator pass (no `--stage`)
 
-1. **Register and screen the todo items.** For every id under `todo` with no ledger entry, run (one call per id):
+1. **Register and screen the todo items.** The ids under `todo` are what `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --list todo`
+   prints, one per line, for either kind of board. A non-zero exit is a refusal: report its line and register
+   nothing; it is never an empty column. For every id with no ledger entry, run (one call per id):
    `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh register <id> --ref <column>#<id>`
+   On a GitHub Project board, an issue whose author is not an owner, member or collaborator (or that someone
+   else last edited) is registered already blocked `human:intake`: it is read by the person before any stage.
    A routing refusal on an external board is reported by id and skipped; an existing entry is left untouched
    (re-hashing an edited item is a person's decision — step 2). An entry whose id is no longer on the board
    is **orphaned**: report it by id and leave it — never delete a ledger entry. Then read **every entry still

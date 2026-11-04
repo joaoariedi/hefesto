@@ -35,9 +35,37 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased] - 9.1.5
+## [Unreleased] - 9.2.0
 
-**A launched worker's hooks no longer run the project's code outside the sandbox (#169).**
+**The lanes can run from a GitHub Project: its issues are the items, its Status field the columns, and each state
+change moves the card.**
+
+### Added
+
+- **A GitHub Project (v2) as a lane board** (`source: "github-project"` with `repo` and `id_prefix`;
+  `docs/install.md` §14).
+  - The item modes the lanes call (`--item`, `--item-raw`, `--item-kind`, `--item-rfc`, `--add`) now work on it,
+    with the tasks board's output shapes. An item is an issue of the configured repo on the Project, with the id
+    `<prefix>-<issue number>`; the RFC stays a repo file, linked by an `rfc:` line in the issue.
+  - `ledger.sh register` records the issue's url.
+  - An issue opened or last edited by an account outside the repo's owners, members and collaborators is
+    **registered already blocked `human:intake`**, in the same write that creates the entry, so a failure can
+    never leave it unblocked.
+  - `ledger.sh publish` sets the card's Status and leaves one comment, and skips an issue waiting on intake.
+  - `/hef.orchestrate` offers the repo's Projects when it adopts a board.
+  - Every gh failure refuses with its cause; a Project's items are read page by page to the end, and a column
+    name the Project does not have is refused, never read as an empty column.
+- **`status-board.sh --list <column>`**, for both kinds of board: the ids the orchestrator registers.
+- **`status-board.sh --add … --body-file <f>`**: a bug fix's description goes in with the item, in one write. On a
+  tasks board a description line that would start a heading is refused (it would forge a second item).
+
+### Changed
+
+- **The launcher reads an item once**: the text it hashes and the text it shows are the same bytes. Before, two
+  reads let an item edited between them pass the changed-since-claim check with one text and show another.
+- `--detect` and `--init` moved to `hooks/board-setup.sh`, and the launcher's item readers to
+  `hooks/launch-item.sh` (sourced; no behaviour change), so `status-board.sh` and `session-launch.sh` stay under
+  the file limit.
 
 ### Fixed
 
@@ -48,6 +76,7 @@ it is what caught the hand-bumped era:
   set up without `--lanes` the next hook then ran that code unsandboxed. The four hooks now also stand down in a
   worker's session (`HEFESTO_WORKER`, which the launcher sets for every worker); the worker runs its own checks,
   sandboxed.
+
 
 ## [9.1.4] - 2026-11-03
 
