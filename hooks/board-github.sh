@@ -56,7 +56,7 @@ gql() { # $1 query, then -F vars → the response JSON; refuses on a gh failure,
 }
 
 gh_id_parse() { # $1 id → GQ_REPO GQ_NUM
-  [[ "$1" =~ ^${PREFIX}-([0-9]{1,9})$ ]] || die "status-board: $1 is not an item of this board (its ids are $PREFIX-<issue number> in $GREPO)"
+  [[ "$1" =~ ^${PREFIX}-([1-9][0-9]{0,8})$ ]] || die "status-board: $1 is not an item of this board (its ids are $PREFIX-<issue number> in $GREPO)"
   GQ_REPO="$GREPO"; GQ_NUM="${BASH_REMATCH[1]}"
 }
 
@@ -95,7 +95,7 @@ ghb_trust() { # $1 id → "trusted" (0), "untrusted: <why>" (3); any other non-z
   local a au ed err
   gh_issue_q "$1"
   a="$(jq -r '.authorAssociation // "NONE"' <<<"$GQ_JSON")"; au="$(jq -r '.author.login // ""' <<<"$GQ_JSON")"; ed="$(jq -r '.editor.login // ""' <<<"$GQ_JSON")"
-  ghb_assoc_ok "$a" || { echo "untrusted: author $(safe_label "$au") is $(safe_label "$a"), not in orchestrate.trusted_associations"; return 3; }
+  ghb_assoc_ok "$a" || { echo "untrusted: author $(if [ -n "$au" ]; then safe_label "$au"; else echo '(deleted)'; fi) is $(safe_label "$a"), not in orchestrate.trusted_associations"; return 3; }
   [ -n "$ed" ] && [ "$ed" != "$au" ] || { echo trusted; return 0; }
   # GraphQL gives no editor association: an editor other than the author must be a collaborator (204; 404 = not)
   [[ "$ed" =~ ^[A-Za-z0-9-]+$ ]] || die "status-board --item-trust $1: the editor login has an unexpected shape"
@@ -146,7 +146,7 @@ ghb_list() { # $1 column key → the ids of its items, every page (FR-001)
     raw="$(gql "$q" -F l="$OWNER" -F p="$PROJECT" -F f="$SFIELD" ${c:+-F c="$c"})" || exit 1
     jq -e '.data.owner.projectV2.items.nodes | type == "array"' <<<"$raw" >/dev/null || die "status-board --list $1: the Project's item page has no nodes"
     # collected, printed only once every page is read: a later failed page must not leave a short list on stdout
-    ids+="$(jq -r --arg r "$GREPO" --arg n "$name" --arg p "$PREFIX" '.data.owner.projectV2.items.nodes[] | select(.content.__typename == "Issue" and .content.repository.nameWithOwner == $r and .fieldValueByName.name == $n) | "\($p)-\(.content.number)"' <<<"$raw")"$'\n'
+    ids+="$(jq -r --arg r "$GREPO" --arg n "$name" --arg p "$PREFIX" '.data.owner.projectV2.items.nodes[] | select(.content.__typename == "Issue" and (.content.repository.nameWithOwner | ascii_downcase) == ($r | ascii_downcase) and .fieldValueByName.name == $n) | "\($p)-\(.content.number)"' <<<"$raw")"$'\n'
     more="$(jq -r '.data.owner.projectV2.items.pageInfo.hasNextPage' <<<"$raw")"; c="$(jq -r '.data.owner.projectV2.items.pageInfo.endCursor // empty' <<<"$raw")"
     [ "$more" = true ] || break
     [ -n "$c" ] || die "status-board --list $1: a page says there is more but gives no cursor"
@@ -183,9 +183,11 @@ ghb_add() { # one new issue in the todo column; prints its id (FR-008)
   else url="$("$GH" issue create -R "$GREPO" --title "$ADD_TITLE" --body-file "$bf" 2>"$err")"; fi \
     || { local m; m="$(tail -1 "$err" | cut -c1-200)"; rm -f "$tmp" "$err"; die "status-board --add: gh issue create failed: $m"; }
   url="$(tail -1 <<<"$url")"
-  [[ "$url" =~ ^https://github\.com/${GREPO}/issues/([0-9]+)$ ]] || { rm -f "$tmp" "$err"; die "status-board --add: gh issue create answered '$(safe_label "$url")', not an issue URL of $GREPO"; }
-  n="${BASH_REMATCH[1]}"; id="$PREFIX-$n"
   ghb_fail() { rm -f "$tmp" "$err"; die "status-board --add: the issue $url exists but is not on the board: $1"; }
+  [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._/-]+/issues/([0-9]+)$ ]] || ghb_fail "gh issue create answered something that is not an issue URL"
+  [ "$(printf '%s' "${url%/issues/*}" | tr '[:upper:]' '[:lower:]')" = "https://github.com/$(printf '%s' "$GREPO" | tr '[:upper:]' '[:lower:]')" ] \
+    || ghb_fail "it was created in another repo than $GREPO"
+  n="${BASH_REMATCH[1]}"; id="$PREFIX-$n"
   if [ "$ADD_RFC" = 1 ]; then
     printf 'rfc: %s/%s.md\n' "$(cfg '.orchestrate.rfc_dir // "docs/rfcs"' | sed 's:/*$::')" "$id" > "$tmp"
     "$GH" issue edit "$n" -R "$GREPO" --body-file "$tmp" >/dev/null 2>"$err" || ghb_fail "gh issue edit failed: $(tail -1 "$err" | cut -c1-200)"
@@ -206,4 +208,24 @@ ghb_projects() { # $1 owner/name → [{number, title, owner}] of the Projects li
 ghb_scope_check() { # --check: reads need read:project; --add and publish write, and need project (FR-012)
   if "$GH" auth status 2>&1 | grep -qF "'project'"; then ok "gh token has the project scope (--add and ledger.sh publish write to the Project)"
   elif [ "$MODE" = check ]; then printf '  [warn]    gh token lacks the project scope: --add and ledger.sh publish cannot write — gh auth refresh -s project\n'; fi
+}
+
+ghb_check_config() { # --check on a github board: the lane config and every mapped column (code review 2026-11-04)
+  [ "$MODE" = check ] || return 0
+  if [ -z "$(cfg '.repo // empty')" ] || [ -z "$(cfg '.id_prefix // empty')" ]; then
+    printf '  [warn]    no "repo" and "id_prefix": this board serves /hef.status only, not the lanes (docs/install.md §14)\n'; return 0
+  fi
+  local res st k n o
+  res="$( (ghb_config; gh_project_ids
+    for k in $(jq -r --argjson d "$GHB_COLUMNS_DEFAULT" '(.columns // $d) | keys_unsorted[]' "$CONFIG"); do
+      n="$(ghb_colname "$k")"
+      if jq -e --arg n "$n" 'has($n)' <<<"$OPTS" >/dev/null; then printf 'ok\t%s\t%s\n' "$k" "$n"
+      else printf 'miss\t%s\t%s\t%s\n' "$k" "$n" "$(jq -r 'keys_unsorted[]' <<<"$OPTS" | safe_labels)"; fi
+    done) 2>&1)" || { miss "the lane config: $(tail -1 <<<"$res")"; return 0; }
+  while IFS=$'\t' read -r st k n o; do
+    case "$st" in
+      ok) ok "column $k = '$(safe_label "$n")' is a $(safe_label "$SFIELD") option" ;;
+      miss) miss "column $k = '$(safe_label "$n")' is not a $(safe_label "$SFIELD") option of Project #$PROJECT" "use one of: $o" ;;
+    esac
+  done <<<"$res"
 }

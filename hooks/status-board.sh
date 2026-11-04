@@ -471,7 +471,7 @@ gh_preflight() {
   if [ $have_gh -eq 1 ]; then
     if "$GH" auth status >/dev/null 2>&1; then ok "gh authenticated"; authed=1; else miss "gh not authenticated" "run: gh auth login"; fi
   fi
-  [ $authed -eq 0 ] || ! declare -F ghb_scope_check >/dev/null || ghb_scope_check
+  [ $authed -eq 0 ] || ! declare -F ghb_scope_check >/dev/null || { ghb_scope_check; ghb_check_config; }
   if [ $authed -eq 1 ]; then
     if err=$("$GH" project view "$PROJECT" --owner "$OWNER" --format json 2>&1 >/dev/null); then ok "Project #$PROJECT readable ($OWNER)"
     elif printf '%s' "$err" | grep -qi 'read:project\|required scope\|missing.*scope'; then miss "gh token missing the 'read:project' scope" "run: gh auth refresh -s read:project"
@@ -602,7 +602,7 @@ case "$SOURCE" in
       mark) die "status-board --mark: a github-project board is published with ledger.sh publish (--set-status), not by editing a file" ;;
     esac
     case "$MODE" in
-      list) ghb_list "$LIST_COL"; exit $? ;; item) ghb_text "$ITEM_ID" | as_untrusted "$ITEM_ID"; exit "${PIPESTATUS[0]}" ;;
+      list) ghb_list "$LIST_COL"; exit $? ;; item) GT="$(ghb_text "$ITEM_ID")" || exit 1; as_untrusted "$ITEM_ID" <<<"$GT"; exit $? ;;
       item-raw) ghb_text "$ITEM_ID"; exit $? ;; item-kind) ghb_kind "$ITEM_ID"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;;
       item-url) ghb_url "$ITEM_ID"; exit $? ;; item-trust) ghb_trust "$ITEM_ID"; exit $? ;;
       add) ghb_add; exit $? ;; set-status) ghb_set_status "$ITEM_ID" "$SET_STATE" "$NOTE_FILE"; exit $? ;;

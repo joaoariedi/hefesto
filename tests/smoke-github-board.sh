@@ -58,7 +58,7 @@ case "\$1 \$2" in
   "project view") echo '{"id":"PVT_7","title":"App board"}' ;;
   "repo view") exit 0 ;;
   "issue create") [ -f "\$FX/create.fail" ] && { echo "gh: create failed" >&2; exit 1; }
-    n=\$(cat "\$FX/next"); echo "https://github.com/acme/app/issues/\$n" ;;
+    n=\$(cat "\$FX/next"); r=app; [ -f "\$FX/create.badurl" ] && r=other; echo "https://github.com/acme/\$r/issues/\$n" ;;
   "issue edit") [ -f "\$FX/edit.fail" ] && { echo "gh: edit failed" >&2; exit 1; }; exit 0 ;;
   "issue comment") [ -f "\$FX/comment.fail" ] && { echo "gh: comment failed" >&2; exit 1; }; exit 0 ;;
   "project item-add") [ -f "\$FX/item-add.fail" ] && { echo "gh: your token has not been granted the required scopes: project" >&2; exit 1; }
@@ -377,6 +377,36 @@ gb_md="$(mktemp -d)"; sed 's|"Bash($h/status-board.sh --init)"|"Bash($h/status-b
 gb_red="$(x_fail=0; t_nr004s "$gb_md/s.sh" >/dev/null 2>&1; echo "$x_fail")"; [ "$gb_red" = 1 ] || { bad "mutant survived: an allow rule for --set-status added to setup"; x_fail=1; }
 cmp -s "$REPO/hooks/hefesto-setup.sh" "$gb_md/s.sh" && { bad "the allow-set mutant did not apply"; x_fail=1; }; rm -rf "$gb_md"
 [ "$x_fail" -eq 0 ] && ok "no allow rule in hefesto-setup.sh admits status-board.sh --set-status (its one caller is ledger.sh publish); 1 mutation caught (NR-004)"
+
+# --- code review 2026-11-04: the adoption path — repo case, --check, a failed --item, a padded id ----------------------
+head_ "GitHub Project board: a repo named in another case, --check on the lane config, and two sharp edges (FR-001, FR-008, FR-009, FR-011, FR-012)"
+x_fail=0
+gb_cfg '| .repo = "Acme/App"'   # what --detect copies from a remote URL written in another case
+gb_ok "--list matches the repo case-insensitively (FR-001, NR-001)" $'BC-41\nBC-42\nBC-43' --list todo
+echo 51 > "$gb_fx/next"
+gb_ok "--add accepts the issue URL GitHub prints in its own case (FR-008)" BC-51 --add "Export receipts" --rfc
+t_case() { gb_cfg '| .repo = "Acme/App"'; gb_ok "case" $'BC-41\nBC-42\nBC-43' --list todo; gb_cfg; }
+gb_mut "the case-insensitive repo match dropped (NR-001)" 's/(.content.repository.nameWithOwner | ascii_downcase) == ($r | ascii_downcase)/.content.repository.nameWithOwner == $r/' board-github.sh t_case
+gb_cfg; : > "$gb_fx/create.badurl"; echo 52 > "$gb_fx/next"
+gb_no "an issue created but answered with another repo's URL is named intact, not stranded silently (FR-008)" "https://github.com/acme/other/issues/52 exists but is not on the board" --add "Export credit notes" --rfc
+rm -f "$gb_fx/create.badurl"
+gb_cfg '| .columns.doing = "In progress"'
+gb_o="$(gb --check 2>&1)"; gb_rc=$?
+{ [ "$gb_rc" -ne 0 ] && grep -qF "'In progress'" <<<"$gb_o" && grep -qF 'Todo, In Progress, In Review, Done' <<<"$gb_o"; } \
+  || { bad "--check refuses a mapped column the Project does not have, listing its options (FR-011, FR-012) — rc=$gb_rc: $gb_o"; x_fail=1; }
+gb_cfg; gb_o="$(gb --check 2>&1)"; gb_rc=$?
+{ [ "$gb_rc" -eq 0 ] && grep -qF "column doing = 'In Progress'" <<<"$gb_o"; } || { bad "--check passes a correct column map and says so (FR-012) — rc=$gb_rc: $gb_o"; x_fail=1; }
+t_check() { gb_cfg '| .columns.doing = "In progress"'; gb --check >/dev/null 2>&1 && x_fail=1; gb_cfg; }
+gb_mut "--check without the column map check (FR-011)" 's/^  \[ "\$MODE" = check \] || return 0$/  return 0/' board-github.sh t_check
+gb_cfg '| del(.repo) | del(.id_prefix)'; gb_o="$(gb --check 2>&1)"
+grep -qF '[warn]' <<<"$gb_o" && grep -qF 'repo' <<<"$gb_o" || { bad "--check on a status-only github board warns it cannot serve the lanes (FR-012): $gb_o"; x_fail=1; }
+gb_cfg; : > "$gb_t/out"
+gb --item BC-77 > "$gb_t/out" 2>/dev/null && { bad "--item on a missing issue must fail (FR-009)"; x_fail=1; }
+[ -s "$gb_t/out" ] && { bad "--item on a failed read prints nothing — not an empty delimited block (FR-009, NR-001): $(head -c 200 "$gb_t/out")"; x_fail=1; }
+gb_no "a zero-padded id is not a second name for an issue (FR-002)" "not an item of this board" --item-raw BC-041
+gb_issue 53 "Deleted author" 'x' NONE ""
+gb_tr "a deleted author is named as deleted (FR-007)" BC-53 3 "author (deleted) is NONE"
+[ "$x_fail" -eq 0 ] && ok "a repo named in another case lists and adds; an issue answered with an unexpected URL is named; --check refuses a column the Project lacks and passes a good map; a failed --item prints nothing; BC-041 is not issue 41; a deleted author is named; 2 mutations caught (code review 2026-11-04)"
 
 # --- FR-008 / FR-011: the command text ---------------------------------------------------------------------------------
 head_ "The orchestrator and /hef.ship text: a GitHub Project is a lane board (FR-008, FR-011)"
