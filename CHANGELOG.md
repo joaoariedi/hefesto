@@ -35,9 +35,10 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased] - 9.1.4
+## [9.1.4] - 2026-11-03
 
-**The snapshot guard blocks a snapshot regeneration, not a `-u` that belongs to another program (#164).**
+**Fewer false stops: the snapshot guard blocks a snapshot regeneration, not a `-u` that belongs to another program
+(#164), and a linked worktree reads the main checkout's config for its pane names and board (#162).**
 
 ### Fixed
 
