@@ -1974,6 +1974,9 @@ printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-statu
 sl_mo="$(cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1)"
 grep -qE '^env .* claude -p ' <<<"$sl_mo" || { bad "launcher env-pair mutant did not produce a claude line: $(head -c 200 <<<"$sl_mo")"; sl_fail=1; }
 grep -qE '^env .* HEFESTO_WORKER=1 claude -p ' <<<"$sl_mo" && { bad "mutation survived: env pair removed, dry run still shows it"; sl_fail=1; }
+# #169: the worker flag rides in the worker's own --settings, which outranks a project settings `env`
+grep -qF '"env":{"HEFESTO_WORKER":"1"}' <<<"$(sl implement HEF-1 --dry-run 2>&1)" \
+  || { bad "#169: the launcher pins HEFESTO_WORKER=1 in the worker's --settings (it outranks a project settings env)"; sl_fail=1; }
 rm -rf "$sl_t" "$sl_cfg" "$sl_md"
 [ "$sl_fail" -eq 0 ] && ok "session-launch --dry-run: flags per role, sanitised prompt, no claim, no transcript flags, tier rank, model-id refusal, defaults, sandboxed-host refusal (FR-009 FR-010 FR-012 FR-020)"
 
@@ -5394,8 +5397,12 @@ for wk_h in run-tests-after-edit.sh format-after-edit.sh verify-before-task-comp
   grep -qF 'stands down in a --lanes project or a launched worker' <<<"$wk_o" || { bad "#169: $wk_h must stand down in a launched worker's session — got: $(head -c 200 <<<"$wk_o")"; wk_fail=1; }
 done
 ( cd "$wk_t" && echo 'x' > a.js && git add a.js ) >/dev/null 2>&1
-wk_o="$(wk_run "$REPO/hooks" quality-before-commit.sh 1)"
+wk_run "$REPO/hooks" quality-before-commit.sh 1 >/dev/null
 [ -f "$wk_t/LINTED" ] && { bad "#169: the commit gate ran the project's lint script in a launched worker's session"; wk_fail=1; }
+if command -v npm >/dev/null 2>&1; then   # the control: outside a worker the gate does reach the lint script
+  wk_run "$REPO/hooks" quality-before-commit.sh "" >/dev/null
+  [ -f "$wk_t/LINTED" ] || { bad "#169: outside a worker the commit gate must run the lint script — else the assertion above is vacuous"; wk_fail=1; }
+fi
 rm -f "$wk_t/RAN"; wk_run "$REPO/hooks" run-tests-after-edit.sh 1 >/dev/null
 [ -f "$wk_t/RAN" ] && { bad "#169: run-tests-after-edit ran the project's tests in a launched worker's session"; wk_fail=1; }
 wk_o="$(wk_run "$REPO/hooks" run-tests-after-edit.sh "")"
