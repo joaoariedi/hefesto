@@ -589,6 +589,7 @@ if [ "$MODE" = prepare ]; then
   {
     echo "You are the $LANE lane, doing this stage in your own conversation. Work in $WT (switch into it with EnterWorktree, path $WT); call every hefesto helper as one plain command. When you stop, write the structured output below as one JSON object to a file with the Write tool, then run: $FIN"
     [ "$ROLE" = verify ] && echo "Run each gate through its /hef.* command: the review gates spawn a fresh-context code-reviewer — report their verdicts, never your own judgement of the change."
+    echo "Run builds and tests through the lanes' build cache: $HERE/lane-build.sh <command> (the sandbox makes the usual caches read-only)."
     echo "Structured output schema: $SCHEMA"
     echo
     printf '%s\n' "$PROMPT"

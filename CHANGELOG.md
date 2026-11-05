@@ -59,6 +59,13 @@ change moves the card.**
 - **`status-board.sh --add … --body-file <f>`**: a bug fix's description goes in with the item, in one write. On a
   tasks board a description line that would start a heading is refused (it would forge a second item).
 
+- **A build cache for the lanes** (#162): `hooks/lane-build.sh <command>` runs a build or test with the toolchain caches
+  (Go, npm, pip, yarn, bun, XDG) in `~/.cache/hefesto/lane-cache/<repo key>/`, which `hefesto-setup.sh --lanes` adds to
+  the sandbox's write list. Before, a lane's first compile failed on the read-only `~/.cache/go-build`. The wrapper runs
+  only inside the sandbox, and setup sets no session-wide cache variable, so a hook or an approved unsandboxed action
+  never builds with what a lane wrote. lane-guard, `ledger.sh request` and `--unsandboxed-command` refuse to take the
+  wrapper or the cache outside the sandbox.
+
 ### Changed
 
 - **The launcher reads an item once**: the text it hashes and the text it shows are the same bytes. Before, two

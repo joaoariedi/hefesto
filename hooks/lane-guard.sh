@@ -78,6 +78,14 @@ while IFS= read -r e; do
   { [[ "$CMD" =~ $re ]] || [[ "${CMD//\\/}" =~ $re ]]; } && { EXCL_HIT="$w"; break; }
 done < <(jq -r '.excluded[]? // empty' <<<"$REC")
 
+# #162: the lanes' build cache is written by sandboxed commands, so nothing that runs outside the sandbox may build with
+# it or run its wrapper — an excluded command (an approved action's included: this comes before any grant) or a retry
+# with the sandbox disabled. "lane-cache" as a substring catches a relative spelling of the path too.
+DDS="$(jq -r '.tool_input.dangerouslyDisableSandbox // false' <<<"$IN")"
+if { [ -n "$EXCL_HIT" ] || [ "$DDS" = true ]; } && [[ "$CMD" == *lane-build* || "$CMD" == *lane-cache* ]]; then
+  deny "this command runs outside the sandbox and names the lane build cache or lane-build.sh — they are for sandboxed commands only (#162). Run the build sandboxed: <hooks>/lane-build.sh <command>. If the words only appear in text (a PR title, say), reword it."
+fi
+
 # The orchestrator's person-only heredoc: `<ledger.sh> answer|revise|direct … <<'WORD'`, the body, then WORD alone.
 heredoc_ok() {
   local first last word head

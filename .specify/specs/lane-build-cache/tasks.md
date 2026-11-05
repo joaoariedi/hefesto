@@ -8,7 +8,7 @@ Every task is test-first: the test cites its FR/NR id, fails first, then passes,
 
 ## Phase 1: Setup
 
-- [ ] T001 [FR-001] `tests/smoke-lane-cache.sh`, sourced from `tests/smoke.sh` as part 9. Fixture:
+- [x] T001 [FR-001] `tests/smoke-lane-cache.sh`, sourced from `tests/smoke.sh` as part 9. Fixture:
   - a fake HOME, with the lane cache at `.cache/hefesto/lane-cache/<32 hex>` (C#4) and the probe folder;
   - a canary program that writes its environment to a file;
   - "sandboxed" is simulated by making the probe folder read-only (`chmod 555`), "unsandboxed" by leaving it
@@ -17,7 +17,7 @@ Every task is test-first: the test cites its FR/NR id, fails first, then passes,
 
 ## Phase 2: Foundational
 
-- [ ] T002 [FR-001] [FR-002] [NR-002] `hooks/lane-build.sh` (Sketch 1, R1 #4). It refuses with exit 2, naming the
+- [x] T002 [FR-001] [FR-002] [NR-002] `hooks/lane-build.sh` (Sketch 1, R1 #4). It refuses with exit 2, naming the
   cause and the fix, in these cases:
   - no `HEFESTO_LANE_CACHE`;
   - a path not of the shape `^$(hef_cache)/lane-cache/[0-9a-f]{32}$` (a `..` spelling included);
@@ -33,7 +33,7 @@ Every task is test-first: the test cites its FR/NR id, fails first, then passes,
 
 ### P1 — Must Have
 
-- [ ] T003 [FR-003] [FR-004] [NR-003] `hefesto-setup.sh --lanes` (Sketch 3, R1 #5, C#1).
+- [x] T003 [FR-003] [FR-004] [NR-003] `hefesto-setup.sh --lanes` (Sketch 3, R1 #5, C#1).
   - It sources `board-lib.sh`; the key is `ledger_key "$CDIR"`.
   - It creates the lane cache (0700) and the probe folder.
   - It checks, unsandboxed, that the probe folder is writable, and dies otherwise.
@@ -50,7 +50,7 @@ Every task is test-first: the test cites its FR/NR id, fails first, then passes,
   - mutant: setup writing `GOCACHE` into `env` goes red.
 
   `hooks/hefesto-setup.sh`
-- [ ] T004 [FR-006] [NR-004] `cmd_ok` gains `lane-build.sh` among the wrapper basenames (R1 #2), and the lane cache
+- [x] T004 [FR-006] [NR-004] `cmd_ok` gains `lane-build.sh` among the wrapper basenames (R1 #2), and the lane cache
   joins the `writable` list before patterns are checked. Tests:
   - `--allow-command "<h>/lane-build.sh *"` and `--unsandboxed-command "<h>/lane-build.sh make"` are refused;
   - a `--unsandboxed-command` program under the lane cache is refused;
@@ -58,7 +58,7 @@ Every task is test-first: the test cites its FR/NR id, fails first, then passes,
     red (R1 #1).
 
   `hooks/hefesto-setup.sh`
-- [ ] T005 [FR-005] [NR-001] lane-guard (Sketch 2, R1 #3, C#4).
+- [x] T005 [FR-005] [NR-001] lane-guard (Sketch 2, R1 #3, C#4).
   - When the command leaves the sandbox (`EXCL_HIT`, or `tool_input.dangerouslyDisableSandbox == true`), deny it if
     it names `lane-build.sh` or `lane-cache`.
   - The check comes before the lanes-only exit; the deny text names the rule and the reword for an incidental
@@ -66,20 +66,20 @@ Every task is test-first: the test cites its FR/NR id, fails first, then passes,
 
   Tests: an excluded `gh` command naming the wrapper; a retry with the sandbox disabled; a relative spelling of the
   cache; a sandboxed wrapper call left alone. One mutant per branch. `hooks/lane-guard.sh`
-- [ ] T006 [FR-005] `SCOPE_JQ_DEFS.cmd_ok` refuses a scope command naming `lane-build` or `lane-cache` (C#2). Test:
+- [x] T006 [FR-005] `SCOPE_JQ_DEFS.cmd_ok` refuses a scope command naming `lane-build` or `lane-cache` (C#2). Test:
   `ledger.sh request` with such a scope is refused, with a mutant. `hooks/ledger-actions.sh`
 
 ### P2 — Should Have
 
-- [ ] T007 [FR-007] The `--prepare` header for implement, verify and deploy, and the stage pass in
+- [x] T007 [FR-007] The `--prepare` header for implement, verify and deploy, and the stage pass in
   `hef.orchestrate.md`: builds and tests go through `<hooks>/lane-build.sh <command>`; a read-only cache error means
   the wrapper was skipped. Phrase tests. `commands/hef.orchestrate.md`
   owns: commands/hef.orchestrate.md, hooks/session-launch.sh
-- [ ] T008 [P] [FR-008] Docs (R1 #7): the lane cache and the wrapper; why no session-wide variable is set; that
+- [x] T008 [P] [FR-008] Docs (R1 #7): the lane cache and the wrapper; why no session-wide variable is set; that
   workers share the cache (two sandboxed writers, no unsandboxed reader); that `--strict` asks for every wrapper
   call; that an approved action cannot carry it. `docs/install.md`
   owns: docs/install.md
-- [ ] T009 [P] [FR-008] CHANGELOG `[Unreleased] - 9.2.0`, Added. `CHANGELOG.md`
+- [x] T009 [P] [FR-008] CHANGELOG `[Unreleased] - 9.2.0`, Added. `CHANGELOG.md`
   owns: CHANGELOG.md
 
 ## Phase 4: Polish

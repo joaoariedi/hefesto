@@ -272,6 +272,12 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
 
 ## A stage pass (`--stage plan|build|deploy`)
 
+**Builds and tests run through the lanes' build cache** (#162): `${CLAUDE_PLUGIN_ROOT}/hooks/lane-build.sh <command>`, for
+example `lane-build.sh make check` or `lane-build.sh npm test`, run as a normal (sandboxed) command. The sandbox makes
+the usual toolchain caches read-only, so a build run without it fails on its first compile; a "read-only file system"
+error from a cache means the wrapper was skipped. The wrapper refuses outside the sandbox, and an approved action may
+never contain it.
+
 0. **Approved actions and directives first** (four lanes; your name is the one the session start printed). For each
    line of `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --to <your name> --status approved`: `ledger.sh action take <aid>`,
    then `ledger.sh action show <aid>` and — when it has heads — `ledger.sh action heads <aid>` (a mismatch: stop). Follow

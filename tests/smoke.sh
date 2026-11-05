@@ -5765,7 +5765,8 @@ la_aj() { jq -e "$2" "$(sld "$l3_t")/actions/$1.json" >/dev/null 2>&1; }
 la_st="$HOME/.cache/hefesto/approvals/$(basename "$(sld "$l3_t")")"
 la_scope "$l3_t/sc.json" "merge PR #7"
 # invalid scopes
-for la_bad in '.heads = {"o/r#7": "abc"}' '.commands = ["bash -c x"]' '.commands = ["/x/hooks/ledger.sh approve A"]' 'del(.title)' '.commands = ["*"]'; do
+for la_bad in '.heads = {"o/r#7": "abc"}' '.commands = ["bash -c x"]' '.commands = ["/x/hooks/ledger.sh approve A"]' 'del(.title)' '.commands = ["*"]' \
+    '.commands = ["/usr/bin/ssh host /x/hooks/lane-build.sh make"]' '.commands = ["/usr/bin/rsync -a ~/.cache/hefesto/lane-cache/k/ x"]'; do   # the lanes' build cache (#162, FR-005)
   jq "$la_bad" "$l3_t/sc.json" > "$l3_t/bad.json"; la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/bad.json" >/dev/null 2>&1 && { bad "request must refuse the scope: $la_bad"; la_fail=1; }
 done
 la orchestrator request LT-2 --to repo-orchestrator --scope-file "$l3_t/sc.json" >/dev/null 2>&1 && { bad "a request for the orchestrator itself must be refused"; la_fail=1; }
@@ -6386,6 +6387,7 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-merge.sh"            # part 6: the lane merge on the person's form answer (US9, FR-020–FR-023, NR-004)
 . "$REPO/tests/smoke-train.sh"            # part 7: a release train over several repos in order (US8, FR-019)
 . "$REPO/tests/smoke-github-board.sh"     # part 8: a GitHub Project as a lane board (github-project-board FR-001..FR-012)
+. "$REPO/tests/smoke-lane-cache.sh"        # part 9: the lanes' build cache, only inside the sandbox (lane-build-cache, #162)
 
 # --- Result --------------------------------------------------------------------------
 rmdir "$SMOKE_NO_GH_DIR" 2>/dev/null
