@@ -35,10 +35,10 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased] - 9.2.0
+## [9.2.0] - 2026-11-05
 
-**The lanes can run from a GitHub Project: its issues are the items, its Status field the columns, and each state
-change moves the card.**
+**The lanes can run from a GitHub Project, build with a cache of their own, and a launched worker's hooks no longer
+run its code outside the sandbox.**
 
 ### Added
 
