@@ -37,10 +37,11 @@ is_test_file() {
   case "$1" in
     *"/.specify/"*) return 1 ;;
     *"/tests/"*|*"/test/"*|*"/__tests__/"*|*"/spec/"*) return 0 ;;
+    tests/*|test/*|__tests__/*|spec/*) return 0 ;;   # a relative path from the project root (#171 review)
     *_test.go|*_test.py|*_test.rs|*_test.rb|*.bats) return 0 ;;
   esac
   local base
-  base="$(basename "$1")"
+  base="$(basename -- "$1")"   # --: a token such as --arg is a path here, not basename's option (#171)
   case "$base" in
     *test*|*spec*) return 0 ;;
   esac
@@ -175,6 +176,35 @@ seg_snapshot_update() {
   return 1
 }
 
+# $1 the Bash command → prints a test file it removes, and 0; else 1 (#171). A removal is a simple command holding an
+# `rm` word (rm, git rm, sudo rm …); only its arguments after that word, options aside, are checked. Before, `rm` and a
+# test path anywhere — heredoc text, a commit message, another command — blocked. An awk that cannot run falls back to
+# the old whole-line scan, which blocks (fail closed).
+# An `rm` with no path of its own — its paths come from a glob, $(…), xargs, find -exec or a variable — falls back to
+# the whole-command scan: main blocked those, and they are the obvious way to delete a failing test (#171 review).
+whole_scan() { # $1 the command → prints a test-file token anywhere in it, and 0; globbing off, so the hook's cwd plays no part
+  local tok; set -f
+  for tok in $1; do is_test_file "$tok" && { set +f; printf '%s' "$tok"; return 0; }; done
+  set +f; return 1
+}
+removed_test_file() {
+  local segs line tok after own noarg=0
+  local -a t
+  segs="$(printf '%s' "$1" | awk "$SEG_AWK")" || { whole_scan "$1"; return; }
+  while IFS= read -r line; do
+    IFS=$'\034' read -r -a t <<<"$line"; after=0; own=0
+    for tok in ${t[@]+"${t[@]}"}; do
+      [ "${tok##*/}" = rm ] && { after=1; continue; }
+      [ "$after" = 1 ] || continue
+      case "$tok" in -*|'{}'|';'|'+'|'$'*|'') continue ;; esac
+      own=1; is_test_file "$tok" && { printf '%s' "$tok"; return 0; }
+    done
+    [ "$after" = 0 ] || [ "$own" = 1 ] || noarg=1
+  done <<<"$segs"
+  [ "$noarg" = 1 ] && whole_scan "$1" && return 0
+  return 1
+}
+
 snapshot_update_cmd() { # $1 the Bash command → 0 when a test runner in it is asked to rewrite its snapshots
   local line segs
   local -a t
@@ -208,14 +238,13 @@ case "$TOOL" in
 
     # --- Phase-gated: deleting a test file ---
     [ -f "$MARKER" ] || exit 0
-    if [[ "$CMD" =~ (^|[[:space:]]|&&|;)(git[[:space:]]+)?rm[[:space:]] ]]; then
-      for tok in $CMD; do
-        if is_test_file "$tok"; then
-          echo "Blocked: /hef.implement is active and this removes a test file ($tok)." >&2
-          echo "  Tests may grow during implementation, never shrink. End the phase first: speckit-helper.sh implement-phase-end" >&2
-          exit 2
-        fi
-      done
+    # a pre-filter wider than before (`"rm` inside bash -c counts): the lexer decides (#171)
+    if [[ "$CMD" =~ (^|[^A-Za-z0-9_.-])rm([^A-Za-z0-9_.-]|$) ]]; then
+      tok="$(removed_test_file "$CMD")" && {
+        echo "Blocked: /hef.implement is active and this removes a test file ($tok)." >&2
+        echo "  Tests may grow during implementation, never shrink. End the phase first: speckit-helper.sh implement-phase-end" >&2
+        exit 2
+      }
     fi
     exit 0
     ;;
