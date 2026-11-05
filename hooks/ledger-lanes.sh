@@ -22,6 +22,10 @@ register_item() { # $1 id, $2 ref
     r="${r%%$'\t'*}"
   fi
   k=$("$sb" --item-kind "$id" 2>"$REG_ERR") || die "$(cat "$REG_ERR")"
+  # monorepo-spec-roots FR-008: the app: line, checked against the code repository BEFORE init — an undeclared name
+  # leaves no entry (a half-made one would reach the app form, which would override the item's own line)
+  local app; app=$("$sb" --item-app "$id" 2>"$REG_ERR") || die "$(cat "$REG_ERR")"
+  [ -z "$app" ] || spec_root_folder "$(entry_repo_top "" "$r")" "$app" >/dev/null || exit 1
   "$sb" --item-raw "$id" > "$REG_TMP" 2>"$REG_ERR" || die "$(cat "$REG_ERR")"
   local src g=()
   src=$(jq -r '.source // "tasks-repo"' "$(project_config)" 2>/dev/null)   # anything but github-project is tasks-repo (below)
@@ -30,6 +34,7 @@ register_item() { # $1 id, $2 ref
   [ -z "$r" ] || g+=(--repo "$r")
   bash "$HERE/ledger.sh" init "$id" --kind "$src" --ref "$ref" --body-file "$REG_TMP" --item-kind "$k" ${g[@]+"${g[@]}"} >/dev/null || { rm -f "$REG_TMP.intake"; exit 1; }
   rm -f "$REG_TMP.intake"
+  [ -z "$app" ] || bash "$HERE/ledger.sh" record "$id" --spec-root "$app" >/dev/null || exit 1
   echo "$id registered (kind $k${r:+, repo $r})${REG_WHY:+ — blocked human:intake: $REG_WHY}"
 }
 
@@ -100,7 +105,7 @@ questions_item() {
   local k sd qp body="" nonce
   k=$(jq -r '.blocked_on.kind // empty' <<<"$E")
   case "$k" in human:clarify|human:plan-review) ;; *) die "ledger questions $ID: it waits on ${k:-nothing} — questions come with human:clarify or human:plan-review" ;; esac
-  sd=$(jq -r '.spec_dir // empty' <<<"$E"); qp=$(jq -r '.blocked_on.question_path // empty' <<<"$E")
+  sd=$(entry_spec_dir "$E"); qp=$(jq -r '.blocked_on.question_path // empty' <<<"$E")
   [ -n "$sd" ] && [ -f "$sd/spec.md" ] && body="$(lanes_strip < "$sd/spec.md" | grep -n 'NEEDS CLARIFICATION' | head -40)"
   [ -n "$qp" ] && [ -f "$qp" ] && body="$body${body:+$'\n'}$(lanes_strip < "$qp" | head -c 8000)"
   [ -n "$body" ] || die "ledger questions $ID: no open question found (spec_dir '${sd:-none}', question file '${qp:-none}') — read the item's folder"
@@ -170,4 +175,45 @@ reap_dead_owners() { # every owned entry whose lease ran out → owner released 
     write_entry "$(basename "$f" .json)" <<<"$e" && rm -f "$DIR/$(basename "$f" .json).lease" \
       && echo "ledger: released $(basename "$f" .json) — its launcher stopped renewing the lease over five minutes ago; recorded as reaped, not as a failed run" >&2
   done
+}
+
+# monorepo-spec-roots (#172): an item's owning app. spec_roots belongs to the CODE repository: on an external board
+# that is the entry's repo (.repos[$r] of the board context), never the board's own config (plan review round 2).
+entry_repo_top() { # $1 entry JSON or "", $2 repo name or "" → the code repository's top
+  local r="${2:-}" p
+  [ -n "$r" ] || [ -z "${1:-}" ] || r=$(jq -r '.repo // empty' <<<"$1")
+  if [ -n "$r" ]; then
+    p=$(jq -r --arg r "$r" '.repos[$r] // empty' <<<"$BCTX"); [ -n "$p" ] || die "ledger: repo '$r' is not one the board feeds ($(repo_names))"
+    git -C "$p" rev-parse --show-toplevel
+  else main_top 2>/dev/null || git rev-parse --show-toplevel; fi
+}
+spec_root_set() { # $1 a declared app or . (the top) → .spec_root in E (record --spec-root)
+  local sd; sd=$(jq -r '.spec_dir // empty' <<<"$E")
+  [ -z "$sd" ] || die "ledger record $ID: --spec-root cannot change once spec_dir is recorded ($sd) — the spec would be orphaned"
+  if [ "$1" != . ]; then spec_root_folder "$(entry_repo_top "$E")" "$1" >/dev/null || exit 1; fi
+  E=$(jq --arg v "$1" '.spec_root = $v' <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set spec_root"
+}
+spec_dir_set() { # $1 the spec folder → .spec_dir in E: absolute (as 9.2.0 stored it), or relative — to the worktree,
+  # or to the repository top on an entry that has none (a hand-run item, as 9.2.0 read it)
+  case "$1" in */../*|../*|*/..|..) die "ledger record $ID: --spec-dir must not contain '..' (got '$1')" ;; esac
+  E=$(jq --arg v "$1" '.spec_dir = $v' <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set spec_dir"
+}
+entry_spec_dir() { # $1 entry JSON → its spec folder, absolute (spec_dir_abs, with the entry repository's top)
+  spec_dir_abs "$1" "$(entry_repo_top "$1" 2>/dev/null)"
+}
+spec_roots_of_entry() { # ledger spec-roots <id> → {"declared": [names], "spec_root": value}; exit 1 when none declared
+  local j; j=$(spec_roots_json "$(entry_repo_top "$E")") || exit 1
+  [ "$(jq 'length' <<<"$j")" -gt 0 ] || die "ledger spec-roots $ID: the repository declares no spec_roots — every item is owned by the top"
+  jq -n --argjson j "$j" --argjson e "$E" '{declared: ($j | keys), spec_root: $e.spec_root}'
+}
+undecided_app_list() { # ledger list --undecided-app → the entries a launch would refuse: no spec_root, no spec_dir, live, in a repository with apps
+  local f e out='[]'
+  for f in "$DIR"/*.json; do
+    [ -f "$f" ] || continue
+    e=$(cat "$f")
+    jq -e --argjson tp "$TERMINAL_PHASES" '.spec_root == null and (.spec_dir // "") == "" and .item_kind != "op" and (.phase as $p | (["merged","released"] + $tp) | index($p) | not)' <<<"$e" >/dev/null 2>&1 || continue
+    [ "$(spec_roots_json "$(entry_repo_top "$e")" 2>/dev/null | jq 'length' 2>/dev/null)" -gt 0 ] 2>/dev/null || continue
+    out=$(jq --argjson e "$e" '. + [$e]' <<<"$out")
+  done
+  jq "$ID_SORT" <<<"$out"
 }

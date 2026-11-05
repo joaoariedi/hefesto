@@ -74,6 +74,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh plan`
 3. **Task format rules**:
    - ID format: `T001`, `T002`, etc. (zero-padded 3 digits)
    - `[P]` marks tasks that can run in parallel with adjacent tasks
+   - In a repository with several apps, a task that changes a file in **another** app than the one owning the spec
+     names that path in the task line, so the reviewer sees the reach
    - A `[P]` task **declares what it owns**: `owns: path/a, path/b` after the target path — every
      file it will create or modify. Two `[P]` tasks in one phase may not own the same file; if
      they would, split by file or drop `[P]` from one. 42% of agent merge conflicts are add/add or

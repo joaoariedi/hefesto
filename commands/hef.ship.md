@@ -34,7 +34,10 @@ overwrites) and `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --detailed`.
    reproduction (an error, a crash, a wrong result) → **Bug fix**; anything that adds or changes behaviour →
    **Feature**. Then a one-line title (≤120 characters, no `#`, no item id) from the person's words.
 
-3. **Put it on the board.**
+3. **Put it on the board.** When the repository declares several apps (`spec_roots` in
+   `.claude/project-status.json`), first ask one form question, "Which app owns it?": each declared name, plus
+   **The repository root**. Add `--app <name>` to the `--add` call below for an app (nothing for the root); the
+   item then carries an `app: <name>` line, and the planner and builder work in that app's folder.
    - **Feature:** run with the Bash tool `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --add "<title>" --rfc` —
      it prints the new id and adds `rfc: <rfc_dir>/<id>.md` under it. Then run `/hef.brainstorm <the person's
      text> for <id>` here, with the person: the design it approves is saved as that RFC.

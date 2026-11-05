@@ -666,6 +666,35 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       (`gh auth refresh -s project`). `status-board.sh --check` says which is missing.
     - **Every gh failure refuses** with its cause; nothing reads an error as "no items".
 
+15. **Several apps in one repository** (optional, hefesto 9.3, #172). A monorepo can keep a `.specify/` per app
+    (`backend/.specify/`, `apps/web/.specify/`), each with its own constitution and specs, under one board.
+    - **Discovery.** Every spec command and guard uses the nearest folder holding `.specify/`, the way git finds
+      `.git`, and never looks above the repository top. Run the commands from the app's folder, or any folder
+      under it. `/hef.init` in an app folder creates that app's `.specify/`. A single-app repository behaves as
+      before, and a subfolder of it now uses the top `.specify/` instead of creating a stray one.
+    - **Declare the apps** in the code repository's own `.claude/project-status.json`:
+      `"spec_roots": {"backend": "backend", "web": "apps/web"}`. A name is lower case (`a-z`, `0-9`, `-`); a
+      folder is a plain path from the repository top (no `.`, `..` or `.claude`). On an external board the code
+      repository declares them, not the board.
+    - **Each item has one owning app.** It names the app with an `app: backend` line in its body
+      (`/hef.ship` asks and writes it). An item without the line gets one form in the orchestrator ("Which app
+      owns it?", or the repository root). The launcher refuses to plan an undecided item, and refuses an app
+      folder with no `.specify/` or one that is a link out of the repository. An item planned before the apps
+      were declared keeps the app its spec folder names.
+    - **Where the work runs.** Background sessions start in `<worktree>/<app folder>`. An interactive lane's
+      `--prepare` prints an extra `app:` line, and the lane works from that folder. The planner may write only that
+      app's `.specify/` (an interactive plan lane is held to any `.specify/` by the plan write-block, as before).
+      A file in another app is allowed; the plan and the tasks name it, so the review sees the reach.
+    - **The constitution is inherited.** A top `.specify/memory/constitution.md` applies under every app's own,
+      as `CLAUDE.md` files nest; `speckit-helper.sh constitution` prints both, the top one marked inherited.
+    - **Checks.** Tests, lint and types run in the app folder with that app's commands. Secrets, `.github/`
+      workflows and a root `Makefile` are checked once from the top. `req-coverage` and `spec-cite-probe` read the
+      owning app's specs (requirement ids repeat across apps).
+    - **The ledger** stores `spec_dir` relative to the item's worktree. Entries written by 9.2 keep their absolute
+      path. `ledger.sh spec-roots <id>` and `ledger.sh list --undecided-app` show what the app form asks.
+    - **The board's epics** (`epics.specs`) list each app's features as `<app>/<feature>`. On an external board
+      they stay the board's own, as before.
+
 Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the
 `runs[]` on each entry.

@@ -49,7 +49,7 @@ usage() { echo "usage: session-launch.sh <plan|implement|verify|deploy> <id> [--
 HERE="$(cd "$(dirname "$0")" && pwd)"; LEDGER="$HERE/ledger.sh"; BOARD="$HERE/status-board.sh"
 [ -f "$HERE/launch-item.sh" ] || { echo "session-launch: hooks/launch-item.sh is missing beside it" >&2; exit 1; }
 # shellcheck source=hooks/launch-item.sh
-. "$HERE/launch-item.sh"   # item_as_data, rfc_as_data
+. "$HERE/launch-item.sh"   # item_as_data, rfc_as_data, and an app's folder: app_dir, app_enter, wt_add (#172)
 # lanes-interactive: ledger.sh refuses a person's decision from a session that is not the orchestrator lane
 # (CLAUDE_CODE_SESSION_ID, its second gate). This launcher's own ledger calls — the RFC pin at a plan launch, the
 # transcription — are hefesto's, not the lane's, so the caller's id is kept only for the --lane check below.
@@ -219,7 +219,7 @@ CAP_MSG="session-launch $ROLE $ID: daily cap $DAILY_CAP USD would be exceeded (s
 CAP_HIT=0; awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' && CAP_HIT=1
 # deploy checks the cap after its merge record (below), which launches nothing and costs nothing
 [ "$CAP_HIT" = 0 ] || [ "$ROLE" = deploy ] || [ "$MODE" != run ] || die "$CAP_MSG"   # in-lane work spends no USD (FR-019)
-PHASE="$(jq -r .phase <<<"$E")"; SPEC_DIR="$(jq -r '.spec_dir // empty' <<<"$E")"
+PHASE="$(jq -r .phase <<<"$E")"; SPEC_DIR="$(spec_dir_abs "$E" "$TOP")"   # relative to the worktree since #172
 # The item's kind (item-kinds FR-004, FR-005; report 18 #6): an incident or vulnerability fix carries one
 # extra sentence for the worker and one REQUIRED gate for the verifier. Empty for a feature, so a feature
 # prompt is byte-identical to before.
@@ -249,6 +249,15 @@ if [ "$LANE_MODE" = 1 ] && [ -n "$WORKTREE" ]; then
   [ "$WORKTREE" = "$TOP/.claude/worktrees/$ID" ] || die "session-launch $ROLE $ID: the entry records the worktree $WORKTREE, not $TOP/.claude/worktrees/$ID — the ledger was edited; fix it with a person"
 fi
 WT="$TOP/.claude/worktrees/$ID"
+# monorepo-spec-roots (#172): an app's item works in its app folder. No spec_roots: APPDIR is empty, and every line
+# below is as in 9.2.0 (tests/fixtures/launch-920.txt).
+APPDIR=""; APP_CWD=""; case "$ROLE" in plan|implement|verify) app_dir ;; esac
+WHERE_RULE="run every command from this worktree's root — never cd into a subfolder"; APP_RULE=""
+if [ -n "$APPDIR" ]; then
+  WHERE_RULE="run every command from the app folder $APPDIR/ of this worktree (its own .specify/) — never cd out of it"
+  APP_RULE="This item is owned by the app in $APPDIR/: you start in that folder, and its tests, lint and types are the ones to run; a path in another app is allowed when tasks.md lists it. "
+  [ "$ROLE" != plan ] || ALLOWED="$(tools plan "$(jq -nc --arg a "Edit(/$TOP/.claude/worktrees/$ID/$APPDIR/.specify/**)" '["Read","Glob","Grep","Skill","Agent","Edit(.specify/**)",$a,"Bash(git *)"]')")"
+fi
 
 # --- settings (validated: -p ignores an invalid file silently) --------------------------------
 # lanes-v3 FR-018: a worker reads untrusted text and never rings a lane — the doorbells are the orchestrator's
@@ -345,7 +354,8 @@ record_worktree() { # $1 extra --route or ""
   if [ "$LANE_MODE" = 0 ]; then br="$(git -C "$WT" branch --show-current 2>/dev/null)" || die "session-launch $ROLE $ID: worktree $WT unreadable"
   else br="$(wt_branch "$WT")" || die "session-launch $ROLE $ID: worktree $WT does not point at this repository's git dir (its .git file or commondir was changed, or it is on no branch) — remove it and re-run"; fi
   args=(--worktree "$WT" --branch "$br"); [ -n "$1" ] && args+=(--route "$1")
-  s="$(jq -r '.spec_dir // empty' <<<"$SO")"; case "$s" in "") ;; /*) args+=(--spec-dir "$s") ;; *) args+=(--spec-dir "$WT/$s") ;; esac
+  # #172: stored relative to the worktree — a relative outcome is the session's folder's (the app's, or the root)
+  s="$(jq -r '.spec_dir // empty' <<<"$SO")"; case "$s" in "") ;; "$WT"/*) args+=(--spec-dir "${s#"$WT"/}") ;; /*) args+=(--spec-dir "$s") ;; *) args+=(--spec-dir "${APPDIR:+$APPDIR/}${s#./}") ;; esac
   "$LEDGER" record "$ID" "${args[@]}" >/dev/null || exit 1
 }
 transcribe() { # the ledger after a stage: from SO (the structured outcome), RC, WT, NAME, PR_MODE — a run's, or a lane's
@@ -458,13 +468,13 @@ case "$ROLE" in
       # artifact, not the phase: a retry after a failed run sits in `implement` and must not go back to
       # /hef.agent and re-spec (code review + quality gate 2026-09-30).
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. ${REPLAN}Run /hef.implement (hefesto:workflow for a large task list), then /hef.verify, /hef.quality, /hef.review (code mode) and /hef.pr; stop at the first human gate. ${KIND_RULE}${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
+Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. ${REPLAN}Run /hef.implement (hefesto:workflow for a large task list), then /hef.verify, /hef.quality, /hef.review (code mode) and /hef.pr; stop at the first human gate. ${KIND_RULE}${APP_RULE}${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
 $FUBLK
 EOF
     else
       ITEM="$(item_as_data)" || exit 1
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository. Run /hef.agent on it: size the work, follow the route it picks (fix → /hef.fix → /hef.pr; light or full → /hef.spec and onward through /hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}$INJECTION_RULE ${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
+Board item $ID for this repository. Run /hef.agent on it: size the work, follow the route it picks (fix → /hef.fix → /hef.pr; light or full → /hef.spec and onward through /hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}${APP_RULE}$INJECTION_RULE ${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
 
 $ITEM
 $FUBLK
@@ -488,7 +498,7 @@ EOF
     # missing artifact — a cleared human:plan-review means "## Reviewed" exists, and re-planning would erase it.
     if [ -n "$SPEC_DIR" ]; then
       read -r -d '' PROMPT <<EOF || true
-The spec for board item $ID already exists at $SPEC_DIR on this branch — do not re-spec. Resume at the first missing artifact: /hef.clarify only while [NEEDS CLARIFICATION] markers remain (a marker you cannot decide from the code → outcome "blocked", blocked_on "human:clarify"); /hef.plan only if plan.md is missing; /hef.review (plan mode) only if plan.md lacks "## Reviewed" (NEEDS_DISCUSSION, or a second REVISE_PLAN → outcome "blocked", blocked_on "human:plan-review"); then /hef.tasks. Commit everything under .specify/ on this branch (git add .specify && git commit). Never edit a file outside .specify/, and run every command from this worktree's root — never cd into a subfolder. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir ($SPEC_DIR), blocked_on.
+The spec for board item $ID already exists at $SPEC_DIR on this branch — do not re-spec. Resume at the first missing artifact: /hef.clarify only while [NEEDS CLARIFICATION] markers remain (a marker you cannot decide from the code → outcome "blocked", blocked_on "human:clarify"); /hef.plan only if plan.md is missing; /hef.review (plan mode) only if plan.md lacks "## Reviewed" (NEEDS_DISCUSSION, or a second REVISE_PLAN → outcome "blocked", blocked_on "human:plan-review"); then /hef.tasks. Commit everything under .specify/ on this branch (git add .specify && git commit). Never edit a file outside .specify/, and $WHERE_RULE. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir ($SPEC_DIR), blocked_on.
 
 $NOTEBLK
 $ANSBLK
@@ -497,7 +507,7 @@ EOF
     else
       ITEM="$(item_as_data)" || exit 1
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository. Plan it, do not build it: run /hef.spec, then /hef.plan, then /hef.review (plan mode — the fresh-context reviewer), then /hef.tasks; commit everything under .specify/ on this branch (git add .specify && git commit). Stop with outcome "blocked" and blocked_on "human:clarify" at the first [NEEDS CLARIFICATION] you cannot decide from the code; blocked_on "human:plan-review" if the reviewer returns NEEDS_DISCUSSION or a second REVISE_PLAN. $INJECTION_RULE Never edit a file outside .specify/, and run every command from this worktree's root — never cd into a subfolder. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir (the .specify/specs/<name> directory you created), blocked_on.
+Board item $ID for this repository. Plan it, do not build it: run /hef.spec, then /hef.plan, then /hef.review (plan mode — the fresh-context reviewer), then /hef.tasks; commit everything under .specify/ on this branch (git add .specify && git commit). Stop with outcome "blocked" and blocked_on "human:clarify" at the first [NEEDS CLARIFICATION] you cannot decide from the code; blocked_on "human:plan-review" if the reviewer returns NEEDS_DISCUSSION or a second REVISE_PLAN. $INJECTION_RULE Never edit a file outside .specify/, and $WHERE_RULE. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir (the .specify/specs/<name> directory you created), blocked_on.
 
 $ITEM
 
@@ -570,15 +580,8 @@ if [ "$MODE" = prepare ]; then
     implement|plan)
       if [ -e "$WT" ] || [ -L "$WT" ]; then
         [ "$LANE_MODE" = 0 ] || { [ ! -L "$WT" ] && wt_branch "$WT" >/dev/null; } || undo "session-launch $ROLE $ID --prepare: $WT is not a worktree of this repository (a symlink, or its git pointer was changed) — remove it and run again"
-      else
-        git -C "$TOP" "${GIT_FETCH_SAFE[@]}" -q origin 2>/dev/null || true
-        BASE="origin/$INTEG"; git -C "$TOP" rev-parse -q --verify "$BASE^{commit}" >/dev/null 2>&1 || BASE=HEAD
-        if git -C "$TOP" rev-parse -q --verify "refs/heads/worktree-$ID" >/dev/null 2>&1; then
-          git -C "$TOP" worktree add -q "$WT" "worktree-$ID" >/dev/null 2>&1 || undo "session-launch $ROLE $ID --prepare: cannot add the worktree $WT on worktree-$ID"
-        else
-          git -C "$TOP" worktree add -q -b "worktree-$ID" "$WT" "$BASE" >/dev/null 2>&1 || undo "session-launch $ROLE $ID --prepare: cannot create the worktree $WT from $BASE"
-        fi
-      fi
+      else wt_add undo; fi   # launch-item.sh
+      [ -z "$APPDIR" ] || app_check "$WT" undo
       if [ "$LANE_MODE" = 1 ]; then BR="$(wt_branch "$WT")" || undo "session-launch $ROLE $ID --prepare: the worktree's branch is not usable"
       else BR="$(git -C "$WT" branch --show-current 2>/dev/null)"; fi
       "$LEDGER" record "$ID" --worktree "$WT" --branch "$BR" >/dev/null || undo "session-launch $ROLE $ID --prepare: cannot record the worktree" ;;
@@ -597,6 +600,7 @@ if [ "$MODE" = prepare ]; then
   jq -n --arg role "$ROLE" --arg lane "$LANE" --argjson schema "$SCHEMA" --arg pr "${PR_MODE:-}" \
     '{role: $role, lane: $lane, schema: $schema, pr_mode: $pr, at: (now | todate)}' > "$LDP/$ID.prepare" || undo "session-launch $ROLE $ID --prepare: cannot write the record"
   echo "worktree: $WT"
+  [ -z "$APPDIR" ] || echo "app: $WT/$APPDIR"   # #172 FR-014: the lane works from this folder
   echo "prompt: $LDP/$ID.prompt.md"
   echo "finish: $FIN"
   exit 0
@@ -615,7 +619,8 @@ CMD=(env "${WORKER_ENV[@]}" HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" 
 case "$ROLE" in
   implement|plan)
     # a retry reuses the worktree; a new one is made by `claude -w` in its cwd — so the entry's repo, explicitly
-    if [ -e "$WT" ] || [ -L "$WT" ]; then [ "$LANE_MODE" = 0 ] || { [ ! -L "$WT" ] && wt_branch "$WT" >/dev/null; } || die "session-launch $ROLE $ID: $WT is not a worktree of this repository (a symlink, or its git pointer was changed) — remove it and re-run"
+    if [ -n "$APPDIR" ]; then app_enter "$WT"   # #172: the launcher makes the worktree; claude starts in the app folder
+    elif [ -e "$WT" ] || [ -L "$WT" ]; then [ "$LANE_MODE" = 0 ] || { [ ! -L "$WT" ] && wt_branch "$WT" >/dev/null; } || die "session-launch $ROLE $ID: $WT is not a worktree of this repository (a symlink, or its git pointer was changed) — remove it and re-run"
       cd "$WT" || die "session-launch: cannot enter existing worktree $WT"; else cd "$TOP" || die "session-launch: cannot enter $TOP"; CMD+=(-w "$ID")
       # a new worktree starts from the remote's branch as this checkout last saw it: fetch first, or an item
       # planned after a merge starts from before it (lanes-v3 trial 2026-10-22). Offline: as before.
@@ -623,7 +628,8 @@ case "$ROLE" in
     if [ "$ROLE" = plan ]; then CMD+=(--permission-mode default); else CMD+=(--permission-mode acceptEdits); fi ;;
   verify)
     [ "$LANE_MODE" = 0 ] || { [ ! -L "$WORKTREE" ] && wt_branch "$WORKTREE" >/dev/null; } || die "session-launch verify $ID: $WORKTREE is not a worktree of this repository (a symlink, or its git pointer was changed)"
-    CMD+=(--disallowedTools "Edit,Write"); cd "$WORKTREE" || die "session-launch verify $ID: cannot enter $WORKTREE" ;;
+    CMD+=(--disallowedTools "Edit,Write"); cd "$WORKTREE" || die "session-launch verify $ID: cannot enter $WORKTREE"
+    [ -z "$APPDIR" ] || app_enter "$WORKTREE" ;;
   deploy)
     [ "$LANE_MODE" = 0 ] || { [ ! -L "$WORKTREE" ] && wt_branch "$WORKTREE" >/dev/null; } || die "session-launch deploy $ID: $WORKTREE is not a worktree of this repository (a symlink, or its git pointer was changed)"
     CMD+=(--permission-mode acceptEdits); cd "$WORKTREE" || die "session-launch deploy $ID: cannot enter $WORKTREE" ;;
@@ -633,7 +639,7 @@ esac
 q() { if [[ "$1" =~ ^[A-Za-z0-9_./:=,@+-]+$ ]]; then printf '%s ' "$1"; else printf "'%s' " "${1//\'/\'\\\'\'}"; fi; }
 # External only, a first line `# cwd: <dir>` (a shell comment: the output stays copy-pasteable); in-repo output
 # is byte-identical to before.
-if [ "$DRY" = 1 ]; then [ "$EXT" = 1 ] && echo "# cwd: $PWD"; for a in "${CMD[@]}"; do q "$a"; done; echo; exit 0; fi
+if [ "$DRY" = 1 ]; then { [ "$EXT" = 1 ] || [ -n "$APPDIR" ]; } && echo "# cwd: ${APP_CWD:-$PWD}"; for a in "${CMD[@]}"; do q "$a"; done; echo; exit 0; fi
 
 # --- run and transcribe (FR-011) -------------------------------------------------------------------
 # A person's gate is never worked around by a launch (code review 2026-10-13): refuse a human:* block before

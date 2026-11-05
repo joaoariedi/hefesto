@@ -38,7 +38,8 @@ usage: ledger.sh <subcommand> …
   questions <id>                                        the planner's open questions (human:clarify, human:plan-review), delimited as data
   answer <id> --reviewed-by-human --by <name> [--file f]  the person's answers (stdin or --file) → copied, hashed; clears clarify / plan-review
   revise <id> --reviewed-by-human --by <name> [--notes-file f]  a plan waiting on approval goes back to the planner with the person's notes
-  show <id> | list [--phase p] [--blocked] [--active] [--today] | next [--stage plan|build|deploy]
+  show <id> | list [--phase p] [--blocked] [--active] [--today] | list --undecided-app | next [--stage plan|build|deploy]
+  spec-roots <id>                                       the apps declared by the entry repository, and its spec_root (the app form)
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
   drop <id> --reason-file <f> | fold <id> --into <id2> --reason-file <f> | supersede <id> --by <id2> --reason-file <f>   a terminal phase (person-only)
   reopen <id> --reason-file <f>                         a merged item back to implement for a follow-up PR (person-only)
@@ -71,6 +72,10 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 [ -f "$HERE/ledger-lanes.sh" ] || die "ledger: $HERE/ledger-lanes.sh not found — the plugin install is incomplete (reinstall it)"
 # shellcheck source=hooks/ledger-lanes.sh
 . "$HERE/ledger-lanes.sh"
+# an item's owning app and its worktree-relative spec_dir (monorepo-spec-roots, #172)
+[ -f "$HERE/spec-root-lib.sh" ] || die "ledger: $HERE/spec-root-lib.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/spec-root-lib.sh
+. "$HERE/spec-root-lib.sh"
 # shellcheck source=hooks/lane-lib.sh
 . "$HERE/lane-lib.sh"
 # One gh resolution, at entry (FR-027; lane-lib.sh says why never inline). A copy run without lane-lib.sh beside it
@@ -547,7 +552,7 @@ case "$SUB" in
       || die "ledger block $ID: it is blocked on human:intake — nothing replaces it; a person clears it with ledger.sh unblock $ID --reviewed-by-human --by <name>"
     # An approval block needs a plan to approve: without spec_dir/tasks.md nothing could ever clear it.
     if [ "$KIND" = human:plan-approval ]; then
-      SDA=$(jq -r '.spec_dir // empty' <<<"$E")
+      SDA=$(entry_spec_dir "$E")
       { [ -n "$SDA" ] && [ -f "$SDA/tasks.md" ]; } || die "ledger block $ID: human:plan-approval needs a plan to approve (spec_dir with tasks.md; got '${SDA:-none}')"
     fi
     # Nor is human:plan-approval: swapping it for `ci` and clearing that would build an unapproved plan.
@@ -572,7 +577,7 @@ case "$SUB" in
     # again, "Retry" on its stall re-stalled it at the next claim. A worker never resets it, nor clears a stall.
     RESET='.'; if [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ]; then RESET='.attempts = 0'
     elif [ "$KIND" = stall ]; then die "ledger unblock $ID: stall is never cleared from inside a launched worker — a person decides whether to retry, split or drop it"; fi
-    SPEC_DIR=$(jq -r '.spec_dir // empty' <<<"$E")
+    SPEC_DIR=$(entry_spec_dir "$E")
     case "$KIND" in
       human:plan-review)
         [ -n "$SPEC_DIR" ] || die "ledger unblock $ID: $KIND needs spec_dir recorded (ledger.sh record $ID --spec-dir …)"
@@ -649,7 +654,8 @@ case "$SUB" in
       --branch)   setf '.branch = $v' "${2:-}"; shift ;;
       --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; setf '.route = $v' "$2"; shift ;;
       --pr)       E=$(pr_append "${2:-}" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot record the PR '${2:-}'"; shift ;;   # .prs[]; ledger-lifecycle.sh
-      --spec-dir) setf '.spec_dir = $v' "${2:-}"; shift ;;
+      --spec-dir) spec_dir_set "${2:-}"; shift ;;      # ledger-lanes.sh: relative to the worktree, no '..'
+      --spec-root) spec_root_set "${2:-}"; shift ;;    # a declared app or . (the top), until spec_dir is recorded
       --item-kind) in_list "${2:-}" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '${2:-}')"; setf '.item_kind = $v' "$2"; shift ;;
       --body-from-board)   # the person's re-hash after reading the item: the board's raw text, no temp file
         BR=$("$HERE/status-board.sh" --item-raw "$ID" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64) && [ ${#BR} -eq 64 ] \
@@ -665,6 +671,7 @@ case "$SUB" in
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 
   questions) ID="${1:-}"; [ -n "$ID" ] || usage; E=$(entry "$ID") || exit 1; questions_item ;;
+  spec-roots) ID="${1:-}"; [ -n "$ID" ] || usage; E=$(entry "$ID") || exit 1; spec_roots_of_entry ;;   # the app form's inputs
   answer|revise)   # lanes-v3 FR-013/014 — person-only, in the lanes' ask rules
     VERB="$SUB"; ID="${1:-}"; [ -n "$ID" ] || usage; shift; REVIEWED=0; RBY=""; TXT=""
     while [ $# -gt 0 ]; do case "$1" in --reviewed-by-human) REVIEWED=1 ;; --by) RBY="${2:-}"; shift ;; --file|--notes-file) TXT="${2:-}"; shift ;; *) usage ;; esac; shift; done
@@ -846,7 +853,7 @@ case "$SUB" in
                  and ((.escalated.since // \"\") != .blocked_on.since))) | $ID_SORT | .[]
       | (\$k[.blocked_on.kind] // \"orchestrator\") as \$p
       | (if .blocked_on.kind == \"human:merge\" then (.pr.url // \"-\")
-         elif .blocked_on.kind == \"human:clarify\" or .blocked_on.kind == \"human:plan-review\" or .blocked_on.kind == \"human:plan-approval\" then (.blocked_on.question_path // .spec_dir // \"-\")
+         elif .blocked_on.kind == \"human:clarify\" or .blocked_on.kind == \"human:plan-review\" or .blocked_on.kind == \"human:plan-approval\" then (.blocked_on.question_path // (if (.spec_dir // \"\") == \"\" or (.spec_dir | startswith(\"/\")) or (.worktree // \"\") == \"\" then .spec_dir else .worktree + \"/\" + .spec_dir end) // \"-\")
          elif .blocked_on.kind == \"human:intake\" then (.source.ref // \"-\")
          else \"-\" end) as \$path
       | (\"ledger \(.id) blocked_on \(.blocked_on.kind) \(\$path)\") as \$msg
@@ -856,7 +863,8 @@ case "$SUB" in
   list)
     PH=""; BLOCKED=0; ACTIVE=0; TODAY=0
     while [ $# -gt 0 ]; do case "$1" in
-      --phase) PH="${2:-}"; shift ;; --blocked) BLOCKED=1 ;; --active) ACTIVE=1 ;; --today) TODAY=1 ;; *) usage ;; esac; shift; done
+      --phase) PH="${2:-}"; shift ;; --blocked) BLOCKED=1 ;; --active) ACTIVE=1 ;; --today) TODAY=1 ;;
+      --undecided-app) undecided_app_list; exit $? ;; *) usage ;; esac; shift; done
     D=$(date -u +%Y-%m-%d)
     shopt -s nullglob; FILES=("$DIR"/*.json); shopt -u nullglob
     [ "${#FILES[@]}" -gt 0 ] || { echo '[]'; exit 0; }              # an empty ledger is an answer; an unreadable one is not

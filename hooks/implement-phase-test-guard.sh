@@ -29,7 +29,10 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 [ -z "$CWD" ] && exit 0
 [ "$CWD" = "$HOME" ] || [ "$CWD" = "/" ] && exit 0
 
-MARKER="$CWD/.specify/.implement-in-progress"
+# shellcheck source=hooks/spec-root-lib.sh
+. "$(dirname "$0")/spec-root-lib.sh"
+# monorepo-spec-roots FR-005: the marker of the spec root of the cwd or of the edited file arms the guard
+MARKER="$(spec_armed_json "$INPUT" .implement-in-progress)" || MARKER="$CWD/.specify/.implement-in-progress"
 
 # A test file, by path. Deliberately broad: a false positive costs one explanatory block; a false
 # negative lets a test vanish. `.specify/` is excluded so spec artifacts named *spec.md never match.
@@ -253,6 +256,7 @@ case "$TOOL" in
     [ -f "$MARKER" ] || exit 0
     FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
     [ -z "$FILE" ] && exit 0
+    case "$FILE" in /*) ;; *) FILE="$CWD/$FILE" ;; esac   # a relative path is the session's, not this hook's cwd (#172)
     is_test_file "$FILE" || exit 0
 
     if [ "$TOOL" = "Write" ]; then

@@ -41,7 +41,7 @@ hef_sib() { # $1 file name → its path beside this script
 for HEF_F in board-setup.sh board-github.sh; do HEF_F="$(hef_sib "$HEF_F")"; [ -f "$HEF_F" ] && . "$HEF_F"; done
 need_fn() { declare -F "$1" >/dev/null || die "status-board: $1 is missing — hooks/$2 must sit beside status-board.sh"; }
 
-MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""; ADD_TITLE=""; ADD_INC=0; ADD_RFC=0; LIST_COL=""; SET_STATE=""; NOTE_FILE=""; BODY_FILE=""
+MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""; ADD_TITLE=""; ADD_INC=0; ADD_RFC=0; ADD_APP=""; LIST_COL=""; SET_STATE=""; NOTE_FILE=""; BODY_FILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --check|-c) MODE="check" ;;
@@ -53,19 +53,21 @@ while [ $# -gt 0 ]; do
     --item-kind) shift; MODE="item-kind"; ITEM_ID="${1:-}" ;;
     --item-repo) shift; MODE="item-repo"; ITEM_ID="${1:-}" ;;
     --item-rfc) shift; MODE="item-rfc"; ITEM_ID="${1:-}" ;;
+    --item-app) shift; MODE="item-app"; ITEM_ID="${1:-}" ;;   # the item's app: line, shape only (#172; spec-root-lib.sh)
     --config) shift; CONFIG="${1:-}" ;;
     --init) MODE="init" ;;
     --detect) MODE="detect" ;;
     --add) shift; MODE="add"; ADD_TITLE="${1:-}" ;;
     --incident) ADD_INC=1 ;;
     --rfc) ADD_RFC=1 ;;
+    --app) shift; ADD_APP="${1:-}"; [[ "$ADD_APP" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo "status-board --app: a name like backend (got '$(printf '%s' "$ADD_APP" | tr -cd 'a-zA-Z0-9._-' | head -c 40)')" >&2; exit 2; } ;;
     --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --item-repo <id> | --item-rfc <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
     *) n=0; if declare -F ghb_parse_arg >/dev/null; then ghb_parse_arg "$@"; n=$?; fi   # board-github.sh: count consumed
        if [ "$n" -gt 1 ]; then shift $((n - 1)); elif [ "$n" -eq 0 ]; then echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --item-rfc <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2; fi ;;
   esac
   shift
 done
-case "$MODE" in item|item-raw|mark|item-kind|item-repo|item-rfc|item-url|item-trust|set-status|as-untrusted)
+case "$MODE" in item|item-raw|mark|item-kind|item-repo|item-rfc|item-app|item-url|item-trust|set-status|as-untrusted)
   [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
   [ "$MODE" != mark ] || [ -n "$MARK" ] || { echo "status-board: --mark needs <id> <marker> (or - for no marker)" >&2; exit 2; }
   # A marker is ONE token with no backslash: a space would stack under the next mark, a backslash or a
@@ -83,6 +85,8 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # External, the config and `root` come from the board repo; --config still wins. In-repo, ROOT and CONFIG
 # stay exactly as before. A copy of this script with no ledger.sh beside it is in-repo.
 HERE="$(cd "$(dirname "$0")" && pwd)"; BCTX=""
+# shellcheck source=hooks/spec-root-lib.sh
+[ ! -f "$HERE/spec-root-lib.sh" ] || . "$HERE/spec-root-lib.sh"   # item_app_shape, spec_epics_all (#172)
 if [ -f "$HERE/ledger.sh" ]; then BCTX="$(bash "$HERE/ledger.sh" board)" || exit 1; fi
 if [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; then
   ROOT="$(jq -r .board_top <<<"$BCTX")"; [ -n "$CONFIG" ] || CONFIG="$(jq -r .config <<<"$BCTX")"
@@ -395,14 +399,14 @@ initiative_epics() { # each file matched by epics.initiatives → one bar (FR-00
   done
 }
 
-spec_epics() { # only when epics.specs is true (FR-010)
-  local t name ticked open
-  for t in "$TROOT"/.specify/specs/*/tasks.md; do
+spec_epics() { # only when epics.specs is true (FR-010); every declared app too, labelled <app>/<feature> (#172 FR-012)
+  local t name ticked open label dir
+  while IFS=$'\t' read -r label dir; do for t in "$dir"/.specify/specs/*/tasks.md; do
     [ -f "$t" ] || continue
-    name="$(basename "$(dirname "$t")")"
+    [ "$label" != - ] || label=""; name="${label:+$label/}$(basename "$(dirname "$t")")"
     ticked=$(grep -cE '^\s*- \[x\]' "$t"); open=$(grep -cE '^\s*- \[[ ~]\]' "$t")
     printf '    %-28.28s %s  %s/%s (%s%%)\n' "$name" "$(bar "$ticked" $((ticked + open)))" "$ticked" $((ticked + open)) "$(( (ticked + open) > 0 ? ticked * 100 / (ticked + open) : 0 ))"
-  done
+  done; done < <(spec_epic_roots "$TROOT" "$ROOT" "$([ -z "$BCTX" ] || jq -r .mode <<<"$BCTX")")
 }
 
 resolve_link() { # $1 → the absolute path of its final target, following every link — readlink -f where that is missing (macOS before 13)
@@ -582,6 +586,7 @@ add_item() {
   f="$TROOT/$(col todo)"; [ -f "$f" ] || die "status-board --add: no todo column at $f — run status-board.sh --init"
   { printf '\n## %s%s — %s\n' "$([ "$ADD_INC" = 1 ] && printf '🐞 ')" "$prefix-$n" "$ADD_TITLE"
     if [ "$ADD_RFC" = 1 ]; then printf 'rfc: %s/%s.md\n' "$(cfg '.orchestrate.rfc_dir // "docs/rfcs"' | sed 's:/*$::')" "$prefix-$n"; fi
+    [ -z "$ADD_APP" ] || printf 'app: %s\n' "$ADD_APP"
     [ -z "$BODY_FILE" ] || tr -d '\r' < "$BODY_FILE"; } >> "$f" || die "status-board --add: cannot write $f"
   echo "$prefix-$n"
 }
@@ -593,17 +598,19 @@ case "$SOURCE" in
     [ "$MODE" = list ] && { [ "$LIST_COL" != review ] || die "status-board --list review: a tasks board has no review column"; column_items "$TROOT/$(col "$LIST_COL")" | cut -f1; exit 0; }
     case "$MODE" in item-url|item-trust|set-status) die "status-board --$MODE: a github-project board mode (this board is tasks-repo)" ;; esac
     [ "$MODE" = add ] && { add_item; exit $?; }
+    case "$MODE" in item-app) A="$(body_of "$ITEM_ID")" || exit 1; item_app_shape "status-board --item-app $ITEM_ID" "$(strip_comments <<<"$A")"; exit $? ;; esac
     case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
     case "$MODE" in
-      list|item|item-raw|item-kind|item-rfc|item-url|item-trust|add|set-status) need_fn ghb_config board-github.sh; ghb_config ;;
+      list|item|item-raw|item-kind|item-rfc|item-app|item-url|item-trust|add|set-status) need_fn ghb_config board-github.sh; ghb_config ;;
       item-repo) die "status-board --item-repo: a github-project board is in-repo only — there is no repo to route to" ;;
       mark) die "status-board --mark: a github-project board is published with ledger.sh publish (--set-status), not by editing a file" ;;
     esac
     case "$MODE" in
       list) ghb_list "$LIST_COL"; exit $? ;; item) GT="$(ghb_text "$ITEM_ID")" || exit 1; as_untrusted "$ITEM_ID" <<<"$GT"; exit $? ;;
       item-raw) ghb_text "$ITEM_ID"; exit $? ;; item-kind) ghb_kind "$ITEM_ID"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;;
+      item-app) A="$(ghb_text "$ITEM_ID")" || exit 1; item_app_shape "status-board --item-app $ITEM_ID" "$(strip_comments <<<"$A")"; exit $? ;;
       item-url) ghb_url "$ITEM_ID"; exit $? ;; item-trust) ghb_trust "$ITEM_ID"; exit $? ;;
       add) ghb_add; exit $? ;; set-status) ghb_set_status "$ITEM_ID" "$SET_STATE" "$NOTE_FILE"; exit $? ;;
     esac

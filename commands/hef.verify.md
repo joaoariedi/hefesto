@@ -49,7 +49,8 @@ The helper's exit code is the verdict: non-zero means at least one `UNCOVERED` o
 ### 2. Run the tests the matrix names
 
 For every `COVERED` requirement, run the cited test file(s) with the project's runner and record
-pass/fail per FR. A test that cites a requirement and fails is `FAILING`, not `COVERED`. Show the
+pass/fail per FR. In a repository with several apps, `req-coverage` reads the owning app's spec and tests (it runs
+from the nearest folder holding `.specify/`), and the tests run from that folder with the app's runner. A test that cites a requirement and fails is `FAILING`, not `COVERED`. Show the
 runner's real output — the Verification Iron Law (`rules/code-quality.md`) applies here more than
 anywhere: this report is the evidence the PR will carry.
 

@@ -227,6 +227,9 @@ vendors (HEF-13, below).
 
 6. **Constitution compliance gate**: every principle must be addressed (either aligned or explicitly marked not applicable with justification). If the plan violates a principle, flag it to the user and ask for confirmation before proceeding.
 
+6b. **Several apps in one repository**: the plan belongs to the app whose `.specify/` holds the spec. A file it
+   changes in another app is listed in Affected Files by its path from the repository top, and its task names it.
+
 7. **Mental Alignment gate**: every non-trivial change in the Affected Files table must have a corresponding sketch in the Code Sketches section (or an explicit "No sketch — trivial" justification). A plan without sketches is not ready for `/hef.tasks`.
 
 8. **Present plan summary** to user:

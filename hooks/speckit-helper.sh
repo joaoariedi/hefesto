@@ -40,6 +40,30 @@ die() {
 
 BRANCH=$(git branch --show-current 2>/dev/null | sed 's|^feature/||')
 
+# monorepo-spec-roots (#172): the spec subcommands run from the SPEC ROOT — the nearest folder holding .specify/,
+# found the way git finds .git (hooks/spec-root-lib.sh) — so one cd covers every relative .specify/ lookup below.
+# The rest keep the cwd: git and path-argument subcommands, and check-specify-dir, which /hef.init asks to learn
+# whether THIS folder has one (an app folder under a top .specify/ must still be told NOT_FOUND).
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # req-coverage --all re-enters itself after the cd
+# shellcheck source=hooks/spec-root-lib.sh
+. "$(dirname "$SELF")/spec-root-lib.sh"
+case "${1:-}" in
+  spec|plan|check-spec|check-plan|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
+  constitution|list-specs|list-specs-dir|check-plan-review|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
+  detect-stack|detect-test-framework|mutation-*)   # a glob ends the list: the docs' subcommand count reads simple arms only
+    SPEC_ROOT="$(spec_root_find "$PWD")" && cd "$SPEC_ROOT" || { echo "speckit-helper: cannot enter the spec root of $PWD" >&2; exit 1; } ;;
+esac
+
+# FR-003: the other spec roots that hold this feature — the top and every declared app, never a tree walk
+other_roots_with() { # $1 relative path under a spec root → "  <folder>/<path>" per root that has it, except this one
+  local top j f; top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
+  j="$(spec_roots_json "$top" 2>/dev/null)" || j='{}'
+  for f in . $(jq -r '.[]' <<<"$j"); do
+    [ "$(cd "$top/$f" 2>/dev/null && pwd -P)" = "$(pwd -P)" ] && continue
+    [ -e "$top/$f/$1" ] && printf ' %s' "${f#./}/$1" | sed 's#^ \./# #'
+  done
+}
+
 # The spec directory name and the branch name are ONE contract, not two: artifacts live at
 # .specify/specs/$(git branch --show-current | sed 's|^feature/||')/. Nothing states this — not
 # /hef.spec, which asks for a 2-4 word kebab-case name and separately says to branch
@@ -49,6 +73,8 @@ missing_artifact() {  # $1 = artifact filename, e.g. spec.md
   local want=".specify/specs/$BRANCH/$1"
   local found
   found="$(ls -d .specify/specs/*/ 2>/dev/null | sed 's|.specify/specs/||; s|/$||' | tr '\n' ' ')"
+  local elsewhere; elsewhere="$(other_roots_with ".specify/specs/$BRANCH")"
+  [ -z "$elsewhere" ] || die "no $1: $want does not exist in this spec root ($PWD), but the feature is in:$elsewhere — run this from that app's folder"
   if [ -z "$found" ]; then
     die "no $1: $want does not exist, and .specify/specs/ holds no feature directories at all. Run /hef.spec first."
   fi
@@ -257,6 +283,13 @@ case "$1" in
 
   # --- Global spec-kit resources ---
   constitution)
+    # FR-004: an app inherits the repository's constitution, as CLAUDE.md files nest
+    sr_top="$(git rev-parse --show-toplevel 2>/dev/null)" && sr_top="$(cd "$sr_top" && pwd -P)"
+    if [ -n "$sr_top" ] && [ "$(pwd -P)" != "$sr_top" ] && [ -f "$sr_top/.specify/memory/constitution.md" ]; then
+      echo "## Repository constitution (inherited)"; cat "$sr_top/.specify/memory/constitution.md"
+      [ -f .specify/memory/constitution.md ] || exit 0
+      echo; echo "## $(spec_root_label "$(pwd -P)") constitution"
+    fi
     cat .specify/memory/constitution.md 2>/dev/null || die "no constitution: .specify/memory/constitution.md does not exist. Run /hef.init to scaffold it, or /hef.constitution to populate it."
     ;;
   list-specs)
@@ -414,7 +447,7 @@ case "$1" in
           echo "== $name: IN PROGRESS (open tasks) — skipped"; skipped=$((skipped + 1)); continue
         fi
         ran=$((ran + 1))
-        if ! "$0" req-coverage "$name"; then failed=$((failed + 1)); fi
+        if ! "$SELF" req-coverage "$name"; then failed=$((failed + 1)); fi
       done
       echo "req-coverage --all: $ran shipped spec(s) checked, $failed failing, $skipped in progress"
       [ "$failed" -eq 0 ] && [ "$ran" -gt 0 ]
@@ -596,7 +629,7 @@ case "$1" in
   # arena-metrics: the number the arena exists for, read back from research.md's footer and plan.md's
   # [C<n>] citations. Lexical on purpose: nobody types `<!-- arena K=` or `[C7]` by accident. The footer
   # may not claim more disagreements than ### Disagreements lists — the metric must be self-consistent.
-  arena-metrics)
+  arena-metrics)   # a <spec-dir> argument is read from the spec root (the cd above); no caller passes one today
     dir="${2:-.specify/specs/$BRANCH}"; r="$dir/research.md"; p="$dir/plan.md"
     [ -f "$r" ] || { [ -n "${2:-}" ] && die "arena-metrics: no $r" || missing_artifact research.md; }
     foot="$(grep -oE '<!-- arena K=[^>]*-->' "$r" | tail -1)"

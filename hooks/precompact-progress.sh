@@ -28,7 +28,10 @@ KEY=$(printf '%s' "$CWD" | { sha1sum 2>/dev/null || shasum -a 1; } | cut -c1-16)
 OUT="$DIR/$KEY.md"
 
 BRANCH=$(git -C "$CWD" branch --show-current 2>/dev/null)
-SPEC_DIR="$CWD/.specify/specs/${BRANCH#feature/}"
+# shellcheck source=hooks/spec-root-lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/spec-root-lib.sh"
+SROOT="$(spec_root_find "$CWD")"   # monorepo-spec-roots FR-005: the cwd's spec root, an app folder or the top
+SPEC_DIR="$SROOT/.specify/specs/${BRANCH#feature/}"
 
 {
   echo "# Progress checkpoint"
@@ -54,7 +57,7 @@ SPEC_DIR="$CWD/.specify/specs/${BRANCH#feature/}"
     fi
   fi
   for m in plan implement; do
-    [ -f "$CWD/.specify/.$m-in-progress" ] && echo "- phase marker: $m-in-progress is SET"
+    [ -f "$SROOT/.specify/.$m-in-progress" ] && echo "- phase marker: $m-in-progress is SET"
   done
 } > "$OUT" 2>/dev/null
 

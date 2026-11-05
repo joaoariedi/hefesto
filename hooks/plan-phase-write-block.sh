@@ -23,10 +23,10 @@ if [ "$CWD" = "$HOME" ] || [ "$CWD" = "/" ]; then
   exit 0
 fi
 
-MARKER="$CWD/.specify/.plan-in-progress"
-if [ ! -f "$MARKER" ]; then
-  exit 0  # Plan phase not active — no restrictions.
-fi
+# monorepo-spec-roots FR-005: the marker of the cwd's spec root or of the edited file's (either arms it)
+# shellcheck source=hooks/spec-root-lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/spec-root-lib.sh"
+MARKER="$(spec_armed "$CWD" "$FILE_PATH" .plan-in-progress)" || exit 0  # Plan phase not active — no restrictions.
 
 # Plan phase active. Allow writes only under .specify/ (plan artifacts,
 # research.md, memory/, checklists/, etc.).
