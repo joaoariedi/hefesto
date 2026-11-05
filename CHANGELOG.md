@@ -69,6 +69,11 @@ change moves the card.**
 
 ### Fixed
 
+- **The test guard blocked text that only mentioned `rm` and a test path** (#171): during `/hef.implement` its removal
+  check matched `rm` and any test-file token anywhere in the command, so a commit message, heredoc text, or a read
+  of a test beside an unrelated `rm` was blocked as "removes a test file". It now uses #164's command lexer: a
+  removal is a command holding an `rm` word (`rm`, `git rm`, `sudo rm`), and only its own arguments count.
+  `bash -c "rm tests/…"`, which slipped through before, is blocked.
 - **In a single-lane project, a launched worker's hooks ran project-defined programs outside the sandbox.** Hooks
   run outside the Bash sandbox, and four of them run project code: the after-edit tests and formatter, the
   task-completion test gate, and the commit gate's language checks. They already stood down in a `--lanes` project,

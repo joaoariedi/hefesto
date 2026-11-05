@@ -959,6 +959,24 @@ ipg_case 2 "denies Write over an existing test file"                          "$
 ipg_case 0 "allows Write of a NEW test file"                                  "$(jq -nc --arg c "$ipg_t" '{tool_name:"Write",cwd:$c,tool_input:{file_path:($c+"/tests/test_new.py"),content:"assert 1"}}')"
 ipg_case 2 "denies rm of a test file"                                         "$(ipg_bash 'rm tests/test_a.py')"
 ipg_case 0 "allows rm of a non-test file"                                     "$(ipg_bash 'rm build/out.txt')"
+# #171: the rm check matched `rm` anywhere and then any test-file token anywhere — heredoc text and quoted strings too —
+# and ran basename on every token (a `--arg` token printed basename's own errors). Now the removal is a segment whose
+# tokens hold `rm`, and only that segment's arguments after it count; heredoc text and quoted strings are data.
+ipg_case 0 "#171 allows heredoc TEXT holding rm and a test path"                "$(ipg_bash $'python3 - <<\'EOF\'\ns = "rm -rf -- tests/test_a.py"\nEOF')"
+ipg_case 0 "#171 allows a commit message naming rm and a test path"             "$(ipg_bash 'git commit -m "never rm tests/test_a.py"')"
+ipg_case 0 "#171 allows rm of one file and a read of a test in another command" "$(ipg_bash 'rm build/out.txt && cat tests/test_a.py')"
+ipg_case 2 "#171 denies git rm of a test file"                                  "$(ipg_bash 'git rm -q tests/test_a.py')"
+ipg_case 2 "#171 denies sudo rm -f of a test file"                              "$(ipg_bash 'sudo rm -f tests/test_a.py')"
+ipg_case 2 "#171 denies rm of a test file inside bash -c"                       "$(ipg_bash 'bash -c "rm tests/test_a.py"')"
+ipg_case 2 "#171 denies rm of a test file after another command"                "$(ipg_bash 'cd . && rm tests/test_a.py')"
+ipg_err="$(ipg_bash 'jq --arg x y -r . tests/test_a.py' | bash "$IPG" 2>&1 >/dev/null)"
+[ -z "$ipg_err" ] || { bad "#171: the guard prints no basename errors for option-shaped tokens — got: $(head -c 200 <<<"$ipg_err")"; }
+ipg_md="$(mktemp -d)"; for h in "$REPO"/hooks/*.sh; do ln -s "$h" "$ipg_md/$(basename "$h")"; done
+rm "$ipg_md/implement-phase-test-guard.sh"; sed 's/^      \[ "\$after" = 1 \] || continue$/      :/' "$IPG" > "$ipg_md/implement-phase-test-guard.sh"
+cmp -s "$IPG" "$ipg_md/implement-phase-test-guard.sh" && bad "#171 mutant did not apply"
+ipg_rc=0; ipg_bash 'rm build/out.txt && cat tests/test_a.py' | bash "$ipg_md/implement-phase-test-guard.sh" >/dev/null 2>&1 || ipg_rc=$?
+[ "$ipg_rc" = 2 ] || bad "#171 mutant survived: a test path BEFORE the rm counted again, yet the command was allowed"
+rm -rf "$ipg_md"
 rm -rf "$ipg_t"
 # Registered on BOTH matchers, or it exists and never fires (this suite's founding failure mode).
 ipg_reg_bash="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command' "$REPO/hooks/hooks.json")"
