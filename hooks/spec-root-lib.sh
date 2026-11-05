@@ -51,6 +51,8 @@ spec_roots_config() { # $1 repo top → the config path; nothing when neither fi
 # `.claude` or under it.
 spec_roots_json() {
   local cfg bad
+  # an empty top would make git -C "" read the CWD's config (on an external board, the board's): refused (code review)
+  [ -n "$1" ] || { echo "spec_roots: no repository top to read spec_roots from" >&2; return 1; }
   cfg="$(spec_roots_config "$1")"; [ -n "$cfg" ] || { echo '{}'; return 0; }
   jq -e '(.spec_roots // {}) | type == "object"' "$cfg" >/dev/null 2>&1 \
     || { echo "spec_roots in $cfg must be an object like {\"backend\": \"backend\"}" >&2; return 1; }

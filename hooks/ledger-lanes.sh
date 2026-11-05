@@ -25,7 +25,7 @@ register_item() { # $1 id, $2 ref
   # monorepo-spec-roots FR-008: the app: line, checked against the code repository BEFORE init — an undeclared name
   # leaves no entry (a half-made one would reach the app form, which would override the item's own line)
   # read only where apps are declared: with no spec_roots an app: line is plain text, as in 9.2.0 (code review B2)
-  local app="" rtop sj; rtop="$(entry_repo_top "" "$r")"; sj="$(spec_roots_json "$rtop")" || exit 1
+  local app="" rtop sj; rtop="$(entry_repo_top "" "$r")" || exit 1; sj="$(spec_roots_json "$rtop")" || exit 1
   if [ "$(jq length <<<"$sj")" -gt 0 ]; then
     app=$("$sb" --item-app "$id" 2>"$REG_ERR") || die "$(cat "$REG_ERR")"
     [ -z "$app" ] || spec_root_folder "$rtop" "$app" >/dev/null || exit 1
@@ -196,7 +196,8 @@ spec_root_set() { # $1 a declared app or . (the top) → .spec_root in E (record
   # the app steers the next stage's folder: a launched worker never sets it (code review S4; as run/unblock refuse)
   [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "ledger record $ID: --spec-root is never set from inside a launched worker — the orchestrator records the app"
   [ -z "$sd" ] || die "ledger record $ID: --spec-root cannot change once spec_dir is recorded ($sd) — the spec would be orphaned"
-  if [ "$1" != . ]; then spec_root_folder "$(entry_repo_top "$E")" "$1" >/dev/null || exit 1; fi
+  local rt; rt="$(entry_repo_top "$E")" || exit 1
+  if [ "$1" != . ]; then spec_root_folder "$rt" "$1" >/dev/null || exit 1; fi
   E=$(jq --arg v "$1" '.spec_root = $v' <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set spec_root"
 }
 spec_dir_set() { # $1 the spec folder → .spec_dir in E: absolute (as 9.2.0 stored it), or relative — to the worktree,
@@ -208,17 +209,18 @@ entry_spec_dir() { # $1 entry JSON → its spec folder, absolute (spec_dir_abs, 
   spec_dir_abs "$1" "$(entry_repo_top "$1" 2>/dev/null)"
 }
 spec_roots_of_entry() { # ledger spec-roots <id> → {"declared": [names], "spec_root": value}; exit 1 when none declared
-  local j; j=$(spec_roots_json "$(entry_repo_top "$E")") || exit 1
+  local j rt; rt="$(entry_repo_top "$E")" || exit 1; j=$(spec_roots_json "$rt") || exit 1
   [ "$(jq 'length' <<<"$j")" -gt 0 ] || die "ledger spec-roots $ID: the repository declares no spec_roots — every item is owned by the top"
   jq -n --argjson j "$j" --argjson e "$E" '{declared: ($j | keys), spec_root: $e.spec_root}'
 }
 undecided_app_list() { # ledger list --undecided-app → the entries a launch would refuse: no spec_root, no spec_dir, live, in a repository with apps
-  local f e out='[]'
+  local f e t out='[]'
   for f in "$DIR"/*.json; do
     [ -f "$f" ] || continue
     e=$(cat "$f")
     jq -e --argjson tp "$TERMINAL_PHASES" '.spec_root == null and (.spec_dir // "") == "" and .item_kind != "op" and (.phase as $p | (["merged","released"] + $tp) | index($p) | not)' <<<"$e" >/dev/null 2>&1 || continue
-    [ "$(spec_roots_json "$(entry_repo_top "$e")" 2>/dev/null | jq 'length' 2>/dev/null)" -gt 0 ] 2>/dev/null || continue
+    t="$(entry_repo_top "$e" 2>/dev/null)" || continue
+    [ "$(spec_roots_json "$t" 2>/dev/null | jq 'length' 2>/dev/null)" -gt 0 ] 2>/dev/null || continue
     out=$(jq --argjson e "$e" '. + [$e]' <<<"$out")
   done
   jq "$ID_SORT" <<<"$out"

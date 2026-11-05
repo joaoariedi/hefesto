@@ -289,7 +289,7 @@ sr_ledger_mut() { # label file sed-expr
   red="$(x_fail=0; SR_HOOKS="$md" sr_ledger_tests >/dev/null 2>&1; echo "$x_fail")"; rm -rf "$md"
   [ "$red" = 1 ] && ok "mutant killed: $1" || bad "mutant survived: $1"
 }
-sr_ledger_mut "FR-007 record --spec-root accepts an undeclared name" ledger-lanes.sh 's/spec_root_folder "\$(entry_repo_top "\$E")" "\$1" >\/dev\/null || exit 1/:/'
+sr_ledger_mut "FR-007 record --spec-root accepts an undeclared name" ledger-lanes.sh 's/spec_root_folder "\$rt" "\$1" >\/dev\/null || exit 1/:/'
 sr_ledger_mut "FR-010 record --spec-dir accepts '..'" ledger-lanes.sh 's/\*\/..\/\*|..\/\*|\*\/..|..) die/__never__) die/'
 sr_ledger_mut "FR-010 the readers use the raw spec_dir" ledger.sh 's/SDA=\$(entry_spec_dir "\$E")/SDA=$(jq -r ".spec_dir \/\/ empty" <<<"$E")/'
 sr_ledger_mut "FR-008 register records an undeclared name (checked after init)" ledger-lanes.sh 's/^    \[ -z "\$app" \] || spec_root_folder "\$rtop" "\$app" >\/dev\/null || exit 1$/    :/'
@@ -299,10 +299,10 @@ head_ "An external board: the app is checked against the code repository's spec_
 x_fail=0
 sr_k="$sr_t/kanban"; sr_o="$sr_t/ops"
 ( for d in "$sr_k" "$sr_o"; do git init -q -b main "$d" && mkdir -p "$d/.claude" && sr_git -C "$d" commit -q --allow-empty -m init; done \
-  && mkdir -p "$sr_k/tasks" "$sr_o/api/.specify/specs" \
-  && printf '# TODO\n\n## OPS-1 — owned\nrepo: ops\napp: api\n\n## OPS-2 — the board'"'"'s name\nrepo: ops\napp: wrong\n' > "$sr_k/tasks/TODO.md" \
+  && mkdir -p "$sr_k/tasks" "$sr_o/api/.specify/specs" "$sr_t/plain" \
+  && printf '# TODO\n\n## OPS-1 — owned\nrepo: ops\napp: api\n\n## OPS-2 — the board'"'"'s name\nrepo: ops\napp: wrong\n\n## PLN-1 — a plain folder\nrepo: plain\napp: wrong\n' > "$sr_k/tasks/TODO.md" \
   && for c in DOING DONE BACKLOG; do printf '# %s\n' "$c" > "$sr_k/tasks/$c.md"; done \
-  && printf '{"source":"tasks-repo","root":"tasks","repos":{"ops":"../ops"},"spec_roots":{"wrong":"x"}}\n' > "$sr_k/.claude/project-status.json" \
+  && printf '{"source":"tasks-repo","root":"tasks","repos":{"ops":"../ops","plain":"../plain"},"spec_roots":{"wrong":"x"}}\n' > "$sr_k/.claude/project-status.json" \
   && printf '{"board":"../kanban","spec_roots":{"api":"api"}}\n' > "$sr_o/.claude/project-status.json" ) >/dev/null 2>&1
 sr_ext_tests() {
   rm -rf "$(sld "$sr_k")"
@@ -310,6 +310,10 @@ sr_ext_tests() {
   [ "$(jq -r .spec_root "$(sld "$sr_k")/OPS-1.json" 2>/dev/null)" = api ] || { bad "FR-006 an external board records the app declared by the code repository (ops)"; x_fail=1; }
   if (cd "$sr_k" && bash "${SR_HOOKS:-$REPO/hooks}/ledger.sh" register OPS-2 --ref tasks/TODO.md#OPS-2) >/dev/null 2>&1; then
     bad "FR-006 an app declared only by the BOARD's config is refused on an external board"; x_fail=1; fi
+  # code review round 2: a repos path that is no git repository is refused, never read as the board's own config
+  if (cd "$sr_k" && bash "${SR_HOOKS:-$REPO/hooks}/ledger.sh" register PLN-1 --ref tasks/TODO.md#PLN-1) >/dev/null 2>&1 \
+     || [ -e "$(sld "$sr_k")/PLN-1.json" ]; then
+    bad "FR-006 a repos path that is not a git repository refuses registration (it read the board's spec_roots)"; x_fail=1; fi
   return 0
 }
 sr_ext_tests
@@ -398,7 +402,7 @@ sr_launch_tests() {
   # review B1: a dangling link where the worktree goes, outside lane mode — refused, the worker never starts elsewhere
   ln -s "$sr_lout/nowhere" "$sr_l/.claude/worktrees/HEF-1"; rm -f "$sr_fb/claude.cwd"
   o="$(sr_run plan HEF-1)"
-  { [ ! -f "$sr_fb/claude.cwd" ] && grep -qE 'cannot enter|no .specify' <<<"$o"; } \
+  { [ ! -f "$sr_fb/claude.cwd" ] && grep -qF 'is a dangling link' <<<"$o"; } \
     || { bad "FR-009 a dangling link in place of the worktree is refused before claude starts (it started in $(cat "$sr_fb/claude.cwd" 2>/dev/null)) — got: $(head -c 200 <<<"$o")"; x_fail=1; }
   rm -f "$sr_l/.claude/worktrees/HEF-1"
   # review S5: an app folder whose .specify links out of the worktree is refused (FR-019 for the launcher)
@@ -507,3 +511,10 @@ done
   || { bad "SC-001 no .specify/ is created at the top or in a subfolder of the app"; x_fail=1; }
 rm -rf "$sr_w"
 [ "$x_fail" = 0 ] && ok "SC-001: spec, markers and constitution from backend/ and a subfolder; no stray .specify/ anywhere"
+
+# code review round 2 (B3): --prepare's app record calls undo(), so undo() must be defined above it (set -u, no -e:
+# a call before the definition is "command not found" and the prepare goes on with the claim held)
+sr_ud="$(grep -n '^  undo() {' "$REPO/hooks/session-launch.sh" | head -1 | cut -d: -f1)"
+sr_ur="$(grep -n 'cannot record the app"$' "$REPO/hooks/session-launch.sh" | head -1 | cut -d: -f1)"
+[ -n "$sr_ud" ] && [ -n "$sr_ur" ] && [ "$sr_ud" -lt "$sr_ur" ] && ok "FR-009 --prepare records the app after undo() is defined (its failure releases the claim)" \
+  || bad "FR-009 --prepare's app record must follow the undo() definition (undo at ${sr_ud:-?}, record at ${sr_ur:-?})"
