@@ -41,6 +41,9 @@ sr_launch_lines() { # hooks-dir → the normalised plan + implement dry runs of 
   local hd="$1" t cfg out
   t="$(sr_launch_repo "" "$hd")"; cfg="$(mktemp -d)"
   out="$(for r in plan implement; do echo "== $r"; (cd "$t" && unset XDG_CACHE_HOME && sr_noenv && CLAUDE_CONFIG_DIR="$cfg" bash "$hd/session-launch.sh" "$r" HEF-1 --dry-run 2>&1); done)"
+  # macOS /bin/bash 3.2 renders the dry run's quoted apostrophe ('\'' under bash 5) as \'\\'\' — the launcher's display
+  # helper q(), unchanged since 9.2.0; the fixture is the bash 5 rendering, so the 3.2 form is mapped onto it
+  local b32="\\'\\\\'\\'" b5="'\\''"; out="${out//"$b32"/$b5}"
   sed -e "s#$t#<TOP>#g" -e "s#$cfg#<CFG>#g" -e "s#$hd#<HOOKS>#g" -e "s#$HOME#<HOME>#g" -e 's#worker-cache/[^/ "]*#worker-cache/<KEY>#g' \
       -e 's/\(untrusted-[a-z]*-\{0,1\}[a-z]* HEF-1\) [0-9a-f]\{8\}/\1 <N>/g' -e 's/untrusted-end [0-9a-f]\{8\}/untrusted-end <N>/g' <<<"$out"
   rm -rf "$t" "$cfg"
