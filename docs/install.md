@@ -424,6 +424,19 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
      gate, the commit gate's linters) stand down in a `--lanes` project, and in a launched worker's session
      (`HEFESTO_WORKER`, pinned in the worker's `--settings`). A hook runs outside the sandbox, so those would be a
      way out of it.
+   - **The lanes' build cache** (#162). The sandbox makes `~/.cache/go-build`, the npm cache and the like read-only,
+     so a lane builds through `hooks/lane-build.sh <command>`, which points those caches at
+     `~/.cache/hefesto/lane-cache/<repo key>/` (in the sandbox's `allowWrite`) for that one command:
+     - it refuses unless it runs inside the sandbox: a write into `~/.cache/hefesto/lane-cache-probe/`, never in
+       `allowWrite`, must fail;
+     - setup never sets a cache variable in the settings `env`, because that reaches hooks and approved unsandboxed
+       actions too, and an unsandboxed build would link what a sandboxed lane planted;
+     - nothing that runs outside the sandbox may name the wrapper or the cache: lane-guard denies it, `request` and
+       `--unsandboxed-command` refuse it, and no allow rule names the wrapper (under `--strict` every wrapper call
+       asks);
+     - launched workers keep their own cache (#126): they run in linked worktrees, which carry no
+       `.claude/settings.local.json`, so they have neither `HEFESTO_LANE_CACHE` nor the lane cache in `allowWrite`.
+       `--remove` leaves the folder and says where it is.
    - **In auto mode** a command no rule matches is the classifier's call, with no dialog; every lane says so at start.
    - **In a `--lanes` project, a `gh` command that writes to GitHub runs only as an approved action.** lane-guard
      denies `gh pr merge`, `gh api`, `gh release create` and every other form that is not a read (`gh pr view`, `list`,

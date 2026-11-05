@@ -138,8 +138,19 @@ BCFG="$(jq -r '.config // empty' <<<"$BCTX" 2>/dev/null)"; [ -n "$BCFG" ] || BCF
 . "$HERE/lane-lib.sh"
 # The lanes (FR-020): resolved here and written into the env, where no lane can change the map it is judged by.
 LMAP='{}'; if [ "$LANES" = 1 ]; then LMAP="$(resolve_lane_map "$BCFG" "$TOP" 2>&1)" || die "the lane names in $BCFG: ${LMAP#jq: error*: }"; fi
-envj="$(jq -nc --arg t "$TOP" --arg b "${BTOP:-}" --argjson lanes "$LANES" --arg m "$LMAP" '{HEFESTO_TRUSTED_TOP: $t} + (if $b != "" then {HEFESTO_TRUSTED_BOARD: $b} else {} end)
-  + (if $lanes == 1 then {HEFESTO_LANES: "1", HEFESTO_LANE_MAP: $m} else {} end)')"
+# The lanes' build cache (#162): only hooks/lane-build.sh, inside the sandbox, points the toolchain caches at it. No cache
+# variable is ever set here — a settings env reaches hooks and approved unsandboxed actions too, and an unsandboxed build
+# would link what a sandboxed lane planted. The env holds the path only; the cache is sandbox-writable, so nothing under
+# it may become an unsandboxed command (it joins the writable roots unsafe_root checks).
+LCP=""; LCPROBE="$(hef_cache)/lane-cache-probe"
+if [ "$LANES" = 1 ]; then
+  # shellcheck source=hooks/board-lib.sh
+  . "$HERE/board-lib.sh"
+  LCK="$(ledger_key "$CDIR")" || die "cannot compute the lane cache key for $CDIR"
+  LCP="$(hef_cache)/lane-cache/$LCK"; writable+=("$LCP")
+fi
+envj="$(jq -nc --arg t "$TOP" --arg b "${BTOP:-}" --argjson lanes "$LANES" --arg m "$LMAP" --arg lc "$LCP" '{HEFESTO_TRUSTED_TOP: $t} + (if $b != "" then {HEFESTO_TRUSTED_BOARD: $b} else {} end)
+  + (if $lanes == 1 then {HEFESTO_LANES: "1", HEFESTO_LANE_MAP: $m, HEFESTO_LANE_CACHE: $lc} else {} end)')"
 # What else setup adds (lanes-interactive FR-022, review rounds 2–3), recorded in env.HEFESTO_SETUP_EXTRA so every run
 # can take its previous set out first: gh outside the sandbox (so a merge is decided by the rules) with only its
 # read and PR-opening forms allowed; the project's read-only and unsandboxed command lists; Edit denied on
@@ -169,7 +180,8 @@ cmd_ok() { # $1 a command pattern → 0 when safe to write as a rule (review rou
   [[ "$1" =~ [\;\&\|\<\>\`\$\(\)\{\}] ]] && return 1
   w="${1%% *}"; w="${w##*/}"   # by basename: /bin/sh is a shell too
   case "$w" in sh|bash|zsh|dash|ksh|fish|env|eval|exec|xargs|sudo|doas|nohup|timeout|command|builtin|nice|time|setsid|script \
-    |python|python[0-9]*|perl|ruby|node|deno|bun|php|lua|tclsh|awk|gawk|mawk|sed|find|git|make|osascript|busybox|toybox) return 1 ;; esac
+    |python|python[0-9]*|perl|ruby|node|deno|bun|php|lua|tclsh|awk|gawk|mawk|sed|find|git|make|osascript|busybox|toybox \
+    |lane-build.sh) return 1 ;; esac   # lane-build.sh runs any command it is given (lane-build-cache NR-004)
   case " $1 " in *" -c "*|*" -e "*) return 1 ;; esac
   return 0
 }
@@ -206,9 +218,9 @@ RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
   --arg g "${roots[0]}/hooks/context-gauge.sh --with-user" --argjson lanes "$LANES" --argjson keep "$KEEP" --argjson strict "$STRICT" \
   --argjson xa "$(jarr "${x_allow[@]}")" --argjson xe "$(jarr "${x_excl[@]}")" --argjson xd "$(jarr "${x_deny[@]}")" --argjson xr "$(jarr ${x_dirs[@]+"${x_dirs[@]}"})" \
-  --argjson xn "$(jarr "${x_net[@]}")" --argjson ua "$(jarr ${u_allow[@]+"${u_allow[@]}"})" --argjson ue "$(jarr ${u_excl[@]+"${u_excl[@]}"})" \
+  --argjson xn "$(jarr "${x_net[@]}")" --argjson xw "$(jarr ${LCP:+"$LCP"})" --argjson ua "$(jarr ${u_allow[@]+"${u_allow[@]}"})" --argjson ue "$(jarr ${u_excl[@]+"${u_excl[@]}"})" \
   '{allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep,
-    strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd, xdirs: $xr, xnet: $xn, uallow: $ua, uexcl: $ue}')" || die "could not build the rules"
+    strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd, xdirs: $xr, xnet: $xn, xwrite: $xw, uallow: $ua, uexcl: $ue}')" || die "could not build the rules"
 
 if [ "$MODE" = check ]; then
   me="${CLAUDE_PLUGIN_ROOT:-$CLONE}"; me="${me%/}"
@@ -225,6 +237,20 @@ if [ "$MODE" = check ]; then
       (if .env.HEFESTO_TRUSTED_TOP then empty else "the trusted project folder" end)
     ] | join(", ")' <<<"$CUR")"
   [ "${#badx[@]}" -eq 0 ] || miss="${miss:+$miss, }the removal of a launcher exclusion for a missing or writable file (${badx[*]})"
+  if [ "$(jq -r '.env.HEFESTO_LANES // empty' <<<"$CUR")" = 1 ]; then
+    lcr="$(jq -r '.env.HEFESTO_LANE_CACHE // empty' <<<"$CUR")"
+    if [ -z "$lcr" ]; then miss="${miss:+$miss, }the lanes' build cache (HEFESTO_LANE_CACHE)"
+    else   # the probe folder beside the cache setup recorded: <hefesto cache>/lane-cache/<key> → <hefesto cache>/lane-cache-probe
+      lpr="$(dirname "$(dirname "$lcr")")/lane-cache-probe"
+      # The Bash tool runs --check SANDBOXED, where this write fails by design (#162 review): only a caller that runs
+      # outside the sandbox — the session-start hook sets HEFESTO_CHECK_UNSANDBOXED=1 (exactly 1) — has the write tested. Setup's
+      # own run tests it too. A sandboxed caller that sets the flag only gets a false "missing".
+      if [ ! -d "$lpr" ]; then miss="${miss:+$miss, }the lane-build.sh probe folder ($lpr)"
+      elif [ "${HEFESTO_CHECK_UNSANDBOXED:-}" = 1 ]; then
+        t="$(mktemp "$lpr/.check.XXXXXX" 2>/dev/null)" && rm -f "$t" || miss="${miss:+$miss, }a lane-build.sh probe folder this shell can write ($lpr)"
+      fi
+    fi
+  fi
   # Refusals (lanes-interactive FR-023, reviews): a grant that reaches hefesto's own state, a sandbox turned off,
   # a hook command a sandboxed session could rewrite, a lane map that no longer matches the config.
   HCR="$HC"; [ -n "$HCP" ] && HCR="$HCP"
@@ -279,6 +305,7 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
        | (if .permissions.additionalDirectories then .permissions.additionalDirectories |= minus($px.dirs) else . end) else . end)
   | (if .sandbox.excludedCommands then .sandbox.excludedCommands |= minus($px.excl) else . end)
   | (if .sandbox.network.deniedDomains then .sandbox.network.deniedDomains |= minus($px.net) else . end)
+  | (if .sandbox.filesystem.allowWrite then .sandbox.filesystem.allowWrite |= minus($px.write) else . end)
   | (if .sandbox then .sandbox.excludedCommands |= (strip | map(select(. as $x | $r.bad | index([$x]) | not)))
        | (if .sandbox.filesystem then .sandbox.filesystem.allowWrite |= ((. // []) - $r.write) else . end) else . end)
   | (if gaugeours and ($r.keep == 0 or $mode == "remove") then del(.statusLine) else . end)
@@ -287,11 +314,11 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   | (if $mode == "remove" and ($mk | index(["inbound"])) and .crossSessionInbound == "accept" then del(.crossSessionInbound) else . end)
   | (if $mode == "remove" and ($mk | index(["autoallow"])) then del(.sandbox.autoAllowBashIfSandboxed) else . end)
   | (if $mode == "remove" and ($mk | index(["sandbox"])) then del(.sandbox.enabled, .sandbox.failIfUnavailable) else . end)
-  | (if $mode == "remove" and .env then .env |= (del(.HEFESTO_TRUSTED_TOP, .HEFESTO_TRUSTED_BOARD, .HEFESTO_SETUP_SET, .HEFESTO_LANES, .HEFESTO_LANE_MAP, .HEFESTO_SETUP_EXTRA)) else . end)
+  | (if $mode == "remove" and .env then .env |= (del(.HEFESTO_TRUSTED_TOP, .HEFESTO_TRUSTED_BOARD, .HEFESTO_SETUP_SET, .HEFESTO_LANES, .HEFESTO_LANE_MAP, .HEFESTO_LANE_CACHE, .HEFESTO_SETUP_EXTRA)) else . end)
   # 9.0: without --strict, sandboxed commands run without a dialog again (7.x behaviour, user decision 2026-10-23):
   # the autoAllowBashIfSandboxed false of an 8.x setup is taken back out; the env lane keys follow the current --lanes.
   | (if $mode != "remove" and $r.strict == 0 and ($mk | index(["autoallow"])) then del(.sandbox.autoAllowBashIfSandboxed) else . end)
-  | (if $mode != "remove" and $r.lanes == 0 and .env then .env |= del(.HEFESTO_LANES, .HEFESTO_LANE_MAP) else . end)
+  | (if $mode != "remove" and $r.lanes == 0 and .env then .env |= del(.HEFESTO_LANES, .HEFESTO_LANE_MAP, .HEFESTO_LANE_CACHE) else . end)
   | ($mk | map(select(. != "autoallow" or $r.strict == 1))) as $mk
   | (if $mode == "remove" then .
      else .permissions.allow |= addu($r.allow) | .permissions.ask |= addu($r.ask)
@@ -299,12 +326,13 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
        | .permissions.allow |= addu($r.xallow) | .sandbox.excludedCommands |= addu($r.xexcl) | .permissions.deny |= addu($r.xdeny)
        | (if ($r.xdirs | length) > 0 then .permissions.additionalDirectories |= addu($r.xdirs) else . end)
        | .sandbox.network.deniedDomains |= addu($r.xnet)
+       | (if ($r.xwrite | length) > 0 then .sandbox.filesystem.allowWrite |= addu($r.xwrite) else . end)
        | (if $r.keep == 0 and .statusLine == null then .statusLine = $r.gauge else . end)
        | (if $r.lanes == 1 and .crossSessionInbound == null then .crossSessionInbound = "accept" | .__m += ["inbound"] else . end)
        | (if $r.strict == 0 or .sandbox.autoAllowBashIfSandboxed == false then . else .sandbox.autoAllowBashIfSandboxed = false | .__m += ["autoallow"] end)
        | (if .sandbox.enabled == true and .sandbox.failIfUnavailable == true then . else .sandbox.enabled = true | .sandbox.failIfUnavailable = true | .__m += ["sandbox"] end)
        | (($mk + (.__m // [])) | unique) as $m | del(.__m)
-       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny, dirs: $r.xdirs, net: $r.xnet, user_allow: $r.uallow, user_excl: $r.uexcl} | tojson)}
+       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny, dirs: $r.xdirs, net: $r.xnet, write: $r.xwrite, user_allow: $r.uallow, user_excl: $r.uexcl} | tojson)}
                 + (if ($m | length) > 0 then {HEFESTO_SETUP_SET: ($m | join(","))} else {} end)) end)
   | (if .env then .env |= . else . end)
   | (if .permissions then .permissions |= keep_own_empty($old.permissions) else . end)
@@ -314,6 +342,11 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   | with_entries(select((.key != "permissions" and .key != "sandbox" and .key != "env") or .value != {} or ($old[.key] == {})))' <<<"$CUR")" || die "could not merge into $F (nothing was written)"
 
 if [ "$MODE" = print ]; then jq . <<<"$NEW"; exit 0; fi
+if [ "$MODE" != remove ] && [ -n "$LCP" ]; then
+  mkdir -p "$LCP" "$LCPROBE" && chmod 700 "$LCP" || die "cannot create the lanes' build cache $LCP (nothing was written)"
+  # the probe write must succeed here, outside the sandbox: lane-build.sh reads a failed write as "sandboxed"
+  t="$(mktemp "$LCPROBE/.check.XXXXXX")" && rm -f "$t" || die "the probe folder $LCPROBE is not writable from this shell — lane-build.sh would take this machine's unsandboxed shell for the sandbox (nothing was written)"
+fi
 for s in ${skipped[@]+"${skipped[@]}"}; do echo "skipped $s: a sandboxed session can write there (the project, a temp folder, or a granted path), so it could rewrite the launcher"; done
 if [ "$(jq -S . <<<"$NEW")" = "$(jq -S . <<<"$CUR")" ] && { [ -f "$F" ] || [ "$NEW" = '{}' ]; }; then
   echo "unchanged: $F already holds hefesto's lane settings$([ "$MODE" = remove ] && echo ' — none of them, rather')"
@@ -325,6 +358,7 @@ else
   if [ -L "$F" ]; then cat "$TMP" > "$F" && rm -f "$TMP" || { rm -f "$TMP"; die "could not write through the link $F"; }
   else mv "$TMP" "$F" || { rm -f "$TMP"; die "could not write $F"; }; fi
   if [ "$MODE" = remove ]; then echo "removed hefesto's lane settings from $F"
+    OLDLC="$(jq -r '.env.HEFESTO_LANE_CACHE // empty' <<<"$CUR")"; [ -z "$OLDLC" ] || echo "the lanes' build cache is left at $OLDLC — delete it when no lane needs it"
   else echo "wrote hefesto's lane settings to $F (${#roots[@]} plugin folder(s)$([ "$LANES" = 1 ] && echo ', four-lane doorbells on')$([ "${#wr[@]}" -gt 0 ] && echo ", the board's ledger folder writable"))"; fi
 fi
 if [ "$MODE" != remove ] && ! git -C "$TOP" check-ignore -q .claude/settings.local.json 2>/dev/null; then
