@@ -50,7 +50,7 @@ head_ "No spec_roots: the launcher's plan and implement lines are 9.2.0's, byte 
 # FR-011 SC-003: tests/fixtures/launch-920.txt was captured from the v9.2.0 tree's hooks (git archive v9.2.0 hooks)
 sr_now="$(sr_launch_lines "$REPO/hooks")"
 if [ "$sr_now" = "$(cat "$REPO/tests/fixtures/launch-920.txt")" ]; then ok "no spec_roots: the launcher's dry runs equal the 9.2.0 fixture (FR-011)"
-else bad "no spec_roots: the launcher's dry runs differ from tests/fixtures/launch-920.txt (FR-011): $(diff <(printf '%s\n' "$sr_now") "$REPO/tests/fixtures/launch-920.txt" | head -c 600)"; fi
+else bad "no spec_roots: the launcher's dry runs differ from tests/fixtures/launch-920.txt (FR-011), word by word: $(diff <(printf '%s\n' "$sr_now" | tr ' ' '\n') <(tr ' ' '\n' < "$REPO/tests/fixtures/launch-920.txt") | head -c 1500)"; fi
 
 # --- the app fixture ----------------------------------------------------------------------------------------------
 # outer/.specify/ sits ABOVE the repository (a home-folder one); the repository has a top constitution, apps backend/,
