@@ -56,7 +56,7 @@ SCOPE_JQ_DEFS='
     and (split(" ")[0] | contains("*") | not)
     and ((split(" ")[0]) as $w | ["sh","bash","zsh","env","eval","exec","xargs","sudo","nohup","timeout","command","builtin"] | index([$w]) | not)
     and ((" " + . + " ") | contains(" -c ") | not)
-    and (test("(ledger|session-launch|hefesto-setup|lane-guard)\\.sh|lane-build|lane-cache") | not);   # lane-build-cache: never in an action (#162)
+    and (ascii_downcase | test("(ledger|session-launch|hefesto-setup|lane-guard)\\.sh|lane-build|lane-cache") | not);   # lane-build-cache: never in an action (#162)
   # NR-004: refusing `done` after a squash undoes nothing (the squash is on GitHub), so the refusal is at request.
   # A token allowlist, not a deny list (T017 verifier, 2026-10-27): a deny list missed `--squash=true`, bundled `-sd`,
   # `gh pr -R o/r merge`, `/usr/bin/gh`, and a trailing `*` that glob_re in lane-guard expands to `--squash` at run time.

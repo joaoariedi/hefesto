@@ -434,8 +434,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
      - nothing that runs outside the sandbox may name the wrapper or the cache: lane-guard denies it, `request` and
        `--unsandboxed-command` refuse it, and no allow rule names the wrapper (under `--strict` every wrapper call
        asks);
-     - launched workers inherit the project settings, so they write the same cache: two kinds of sandboxed writer,
-       and no unsandboxed reader. `--remove` leaves the folder and says where it is.
+     - launched workers keep their own cache (#126): they run in linked worktrees, which carry no
+       `.claude/settings.local.json`, so they have neither `HEFESTO_LANE_CACHE` nor the lane cache in `allowWrite`.
+       `--remove` leaves the folder and says where it is.
    - **In auto mode** a command no rule matches is the classifier's call, with no dialog; every lane says so at start.
    - **In a `--lanes` project, a `gh` command that writes to GitHub runs only as an approved action.** lane-guard
      denies `gh pr merge`, `gh api`, `gh release create` and every other form that is not a read (`gh pr view`, `list`,

@@ -185,3 +185,17 @@ auto-allows it outside the sandbox. It is added to spec.md.
    `[ "$LANES" = true ] || exit 0` (`lane-guard.sh:107`), like the plain-words rule.
 
 ## Reviewed 2026-11-05
+
+## Revision 2 (code review 2026-11-05: REQUEST_CHANGES)
+
+1. **`--check` from the Bash tool runs sandboxed.** `hefesto-setup.sh` is no excluded command, so the
+   `/hef.orchestrate` and `/hef.ship` call of `--check` runs inside the sandbox, where the probe write fails by
+   design. Testing the write there stopped every orchestrator pass at "Setup".
+   - `--check` now always checks that the probe folder exists, which is readable in the sandbox.
+   - It tests the write only when the caller sets `HEFESTO_CHECK_UNSANDBOXED=1`: the session-start hook, which runs
+     outside the sandbox, does. Setup's own run still tests it.
+   - This corrects Risk #1's assumption.
+2. **The name rules are case-insensitive** (a macOS volume ignores case) in lane-guard and in `request`'s check.
+3. **The `request` refusal has its mutant.**
+4. **The docs are corrected:** launched workers run in linked worktrees with no `.claude/settings.local.json`, so they
+   keep #126's own cache and never get the lane cache.

@@ -94,8 +94,17 @@ printf '#!/bin/sh\n' > "$lc_path/tool"; chmod +x "$lc_path/tool"
 lc_o="$(lc_su --lanes --unsandboxed-command "$lc_path/tool")" && { bad "--unsandboxed-command under the lane cache must be refused (FR-006)"; x_fail=1; }
 grep -qF 'sandboxed session can write' <<<"$lc_o" || { bad "the refusal says the lane cache is sandbox-writable (FR-006): $lc_o"; x_fail=1; }
 lc_o="$(lc_su --check)"; grep -qF 'setup: ok' <<<"$lc_o" || { bad "--check passes after setup (FR-003): $lc_o"; x_fail=1; }
-chmod 555 "$lc_sh/.cache/hefesto/lane-cache-probe"; lc_o="$(lc_su --check)"; lc_rc=$?; chmod 755 "$lc_sh/.cache/hefesto/lane-cache-probe"
-{ [ "$lc_rc" -ne 0 ] && grep -qF 'probe' <<<"$lc_o"; } || { bad "--check reports a probe folder this shell cannot write (FR-003) — rc=$lc_rc: $lc_o"; x_fail=1; }
+# The Bash tool runs --check SANDBOXED (it is no excluded command), where the probe folder is unwritable by design: that
+# caller must pass. Only a caller that says it is unsandboxed (the session-start hook) has the write tested (#162 review).
+chmod 555 "$lc_sh/.cache/hefesto/lane-cache-probe"; lc_o="$(lc_su --check)"; lc_rc=$?
+{ [ "$lc_rc" = 0 ] && grep -qF 'setup: ok' <<<"$lc_o"; } || { bad "--check from a sandboxed caller passes with the probe folder unwritable (FR-003) — rc=$lc_rc: $lc_o"; x_fail=1; }
+lc_o="$( (cd "$lc_p" && HOME="$lc_sh" CLAUDE_CONFIG_DIR='' HEFESTO_CHECK_UNSANDBOXED=1 bash "$REPO/hooks/hefesto-setup.sh" --check 2>&1) )"; lc_rc=$?
+chmod 755 "$lc_sh/.cache/hefesto/lane-cache-probe"
+{ [ "$lc_rc" -ne 0 ] && grep -qF 'probe folder this shell can write' <<<"$lc_o"; } || { bad "--check from an unsandboxed caller reports a probe folder it cannot write (FR-003) — rc=$lc_rc: $lc_o"; x_fail=1; }
+grep -qF 'HEFESTO_CHECK_UNSANDBOXED=1 bash "$HROOT/hooks/hefesto-setup.sh" --check' "$REPO/hooks/session-start-context.sh" \
+  || { bad "the session-start hook, which runs outside the sandbox, asks --check for the probe write (FR-003)"; x_fail=1; }
+mv "$lc_sh/.cache/hefesto/lane-cache-probe" "$lc_sh/pr.bak"; lc_o="$(lc_su --check)"; lc_rc=$?; mv "$lc_sh/pr.bak" "$lc_sh/.cache/hefesto/lane-cache-probe"
+{ [ "$lc_rc" -ne 0 ] && grep -qF 'probe folder' <<<"$lc_o"; } || { bad "--check reports a missing probe folder from any caller (FR-003) — rc=$lc_rc: $lc_o"; x_fail=1; }
 lc_o="$(lc_su --remove)"
 { [ -z "$(lc_set '.env.HEFESTO_LANE_CACHE // empty')" ] && [ "$(lc_aw "$lc_path")" = 0 ] \
   && [ -d "$lc_path" ] && grep -qF "$lc_path" <<<"$lc_o"; } || { bad "--remove takes the env key and the allowWrite entry out, keeps the cache and names it (FR-003): $lc_o"; x_fail=1; }
@@ -139,7 +148,8 @@ jq -nc --arg h "$lc_ah" '{sha256: $h, to: "repo-deployer", by: "Ana"}' > "$HOME/
 t_g1() { lc_deny "an excluded command naming lane-build.sh, approved action and all, is denied (FR-005)" "/usr/bin/ssh debian@vm $REPO/hooks/lane-build.sh make" false "${1:-}"; }
 t_g2() { lc_deny "a sandbox-disabled retry naming the wrapper is denied (FR-005)" "$REPO/hooks/lane-build.sh make check" true "${1:-}"; }
 t_g3() { lc_deny "an excluded command naming the cache by a relative path is denied (FR-005)" "gh gist create .cache/hefesto/lane-cache/$lc_key/x" false "${1:-}"; }
-t_g1; t_g2; t_g3
+t_g4() { lc_deny "an excluded command naming the cache in capitals is denied (a case-insensitive volume, FR-005)" "gh gist create .cache/hefesto/LANE-CACHE/$lc_key/x" false "${1:-}"; }
+t_g1; t_g2; t_g3; t_g4
 lc_d="$(lc_gd "$REPO/hooks/lane-build.sh make check")"
 [ "$lc_d" = deny ] && grep -qF 'lane build cache' "$lc_t/why" && { bad "a sandboxed wrapper call is not touched by the rule (FR-005): $(cat "$lc_t/why")"; x_fail=1; }
 lc_gmut() { # label sed test-fn
@@ -151,7 +161,8 @@ lc_gmut() { # label sed test-fn
 }
 lc_gmut "the exclusion branch dropped (FR-005)" 's/{ \[ -n "\$EXCL_HIT" \] || \[ "\$DDS" = true \]; }/[ "$DDS" = true ]/' t_g1
 lc_gmut "the sandbox-disabled branch dropped (FR-005)" 's/{ \[ -n "\$EXCL_HIT" \] || \[ "\$DDS" = true \]; }/[ -n "$EXCL_HIT" ]/' t_g2
-lc_gmut "the cache substring dropped (FR-005)" 's/ || "\$CMD" == \*lane-cache\*//' t_g3
+lc_gmut "the cache substring dropped (FR-005)" 's/ || "\$LCMD" == \*lane-cache\*//' t_g3
+lc_gmut "the case folding dropped (FR-005)" 's/^LCMD="\$(printf .%s. "\$CMD" | tr .\[:upper:\]. .\[:lower:\].)"/LCMD="$CMD"/' t_g4
 [ "$x_fail" -eq 0 ] && ok "lane-guard: an excluded command (approved action or not), a sandbox-disabled retry, and a relative spelling of the cache are denied when they name lane-build.sh or the lane cache; a sandboxed wrapper call is left alone; 3 mutations caught (FR-005, NR-001)"
 
 

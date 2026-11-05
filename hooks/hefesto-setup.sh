@@ -242,7 +242,13 @@ if [ "$MODE" = check ]; then
     if [ -z "$lcr" ]; then miss="${miss:+$miss, }the lanes' build cache (HEFESTO_LANE_CACHE)"
     else   # the probe folder beside the cache setup recorded: <hefesto cache>/lane-cache/<key> → <hefesto cache>/lane-cache-probe
       lpr="$(dirname "$(dirname "$lcr")")/lane-cache-probe"
-      t="$(mktemp "$lpr/.check.XXXXXX" 2>/dev/null)" && rm -f "$t" || miss="${miss:+$miss, }a lane-build.sh probe folder this shell can write ($lpr)"
+      # The Bash tool runs --check SANDBOXED, where this write fails by design (#162 review): only a caller that runs
+      # outside the sandbox — the session-start hook sets HEFESTO_CHECK_UNSANDBOXED=1 — has the write tested. Setup's
+      # own run tests it too. A sandboxed caller that sets the flag only gets a false "missing".
+      if [ ! -d "$lpr" ]; then miss="${miss:+$miss, }the lane-build.sh probe folder ($lpr)"
+      elif [ "${HEFESTO_CHECK_UNSANDBOXED:-}" = 1 ]; then
+        t="$(mktemp "$lpr/.check.XXXXXX" 2>/dev/null)" && rm -f "$t" || miss="${miss:+$miss, }a lane-build.sh probe folder this shell can write ($lpr)"
+      fi
     fi
   fi
   # Refusals (lanes-interactive FR-023, reviews): a grant that reaches hefesto's own state, a sandbox turned off,
