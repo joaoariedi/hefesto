@@ -60,6 +60,13 @@ is_person_sub() { # $1 subcommand, then its arguments → 0 when it records a pe
 # A --lanes project: its settings carry env.HEFESTO_LANES = "1". hefesto's hooks that run a command a project file
 # names (package.json's test script, node_modules/.bin, npx) stand down there: a hook runs outside the sandbox, and
 # a lane can edit those files — that would be a way out of its sandbox (plan review round 1).
+# A hook runs outside the Bash sandbox. Where what it would run was written by a sandboxed session, it must not run
+# it: in a --lanes project (a lane edits the project), and in a launched worker's own session, HEFESTO_WORKER being
+# set by session-launch.sh for every worker, a single-lane project included (#169).
+project_code_stands_down() { # $1 a folder in the project → 0 when a hook must not run project-defined programs
+  [ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ] && return 0
+  lanes_project "$1"
+}
 lanes_project() { # $1 a folder in the project → 0 when it is a --lanes project
   local s; s="$(setup_settings "$1")"; [ -n "$s" ] || return 1
   [ "$(jq -r '.env.HEFESTO_LANES // empty' <<<"$s" 2>/dev/null)" = 1 ]

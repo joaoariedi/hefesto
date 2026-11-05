@@ -30,7 +30,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 # project a lane can edit those files, so the hook stands down there (the lane runs the suite itself, sandboxed).
 LL="$(cd "$(dirname "$0")" && pwd)/lane-lib.sh"
 # shellcheck source=hooks/lane-lib.sh
-if [ -f "$LL" ] && . "$LL" && lanes_project "$CWD"; then echo "hefesto: the task-completion test gate stands down in a --lanes project (it would run project-defined commands outside the sandbox) — run the tests yourself" >&2; exit 0; fi
+if [ -f "$LL" ] && . "$LL" && project_code_stands_down "$CWD"; then echo "hefesto: the task-completion test gate stands down in a --lanes project or a launched worker (it would run project-defined commands outside the sandbox) — run the tests yourself" >&2; exit 0; fi
 
 # --- Detect the test runner. No runner means nothing to prove; never block. ----
 #

@@ -67,6 +67,17 @@ change moves the card.**
   `hooks/launch-item.sh` (sourced; no behaviour change), so `status-board.sh` and `session-launch.sh` stay under
   the file limit.
 
+### Fixed
+
+- **In a single-lane project, a launched worker's hooks ran project-defined programs outside the sandbox.** Hooks
+  run outside the Bash sandbox, and four of them run project code: the after-edit tests and formatter, the
+  task-completion test gate, and the commit gate's language checks. They already stood down in a `--lanes` project,
+  where a lane edits the project. A worker started by `session-launch.sh` edits it too, sandboxed, and in a project
+  set up without `--lanes` the next hook then ran that code unsandboxed. The four hooks now also stand down in a
+  worker's session (`HEFESTO_WORKER`, which the launcher sets for every worker); the worker runs its own checks,
+  sandboxed.
+
+
 ## [9.1.4] - 2026-11-03
 
 **Fewer false stops: the snapshot guard blocks a snapshot regeneration, not a `-u` that belongs to another program

@@ -421,8 +421,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    - **A command that stays inside the sandbox runs without approval.** The sandbox's network allowlist is part of the
      trust model: keep it to what the lanes need.
    - **Hefesto's hooks that run a project's own commands** (tests after an edit, the formatter, the task-completion
-     gate, the commit gate's linters) stand down in a `--lanes` project. A hook runs outside the sandbox, so those
-     would be a way out of it.
+     gate, the commit gate's linters) stand down in a `--lanes` project, and in a launched worker's session
+     (`HEFESTO_WORKER`, pinned in the worker's `--settings`). A hook runs outside the sandbox, so those would be a
+     way out of it.
    - **In auto mode** a command no rule matches is the classifier's call, with no dialog; every lane says so at start.
    - **In a `--lanes` project, a `gh` command that writes to GitHub runs only as an approved action.** lane-guard
      denies `gh pr merge`, `gh api`, `gh release create` and every other form that is not a read (`gh pr view`, `list`,
