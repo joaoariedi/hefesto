@@ -57,7 +57,7 @@ esac
 # FR-003: the other spec roots that hold this feature — the top and every declared app, never a tree walk
 other_roots_with() { # $1 relative path under a spec root → "  <folder>/<path>" per root that has it, except this one
   local top j f; top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
-  j="$(spec_roots_json "$top" 2>/dev/null)" || j='{}'
+  j="$(spec_roots_json "$top")" || j='{}'   # a bad entry is named on stderr (FR-006)
   for f in . $(jq -r '.[]' <<<"$j"); do
     [ "$(cd "$top/$f" 2>/dev/null && pwd -P)" = "$(pwd -P)" ] && continue
     [ -e "$top/$f/$1" ] && printf ' %s' "${f#./}/$1" | sed 's#^ \./# #'

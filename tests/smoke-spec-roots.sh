@@ -292,7 +292,7 @@ sr_ledger_mut() { # label file sed-expr
 sr_ledger_mut "FR-007 record --spec-root accepts an undeclared name" ledger-lanes.sh 's/spec_root_folder "\$(entry_repo_top "\$E")" "\$1" >\/dev\/null || exit 1/:/'
 sr_ledger_mut "FR-010 record --spec-dir accepts '..'" ledger-lanes.sh 's/\*\/..\/\*|..\/\*|\*\/..|..) die/__never__) die/'
 sr_ledger_mut "FR-010 the readers use the raw spec_dir" ledger.sh 's/SDA=\$(entry_spec_dir "\$E")/SDA=$(jq -r ".spec_dir \/\/ empty" <<<"$E")/'
-sr_ledger_mut "FR-008 register records an undeclared name (checked after init)" ledger-lanes.sh 's/^  \[ -z "\$app" \] || spec_root_folder "\$(entry_repo_top "" "\$r")" "\$app" >\/dev\/null || exit 1$/  :/'
+sr_ledger_mut "FR-008 register records an undeclared name (checked after init)" ledger-lanes.sh 's/^    \[ -z "\$app" \] || spec_root_folder "\$rtop" "\$app" >\/dev\/null || exit 1$/    :/'
 rm -rf "$(sld "$sr_r")"
 
 head_ "An external board: the app is checked against the code repository's spec_roots, never the board's (FR-006, FR-008)"
@@ -320,6 +320,29 @@ sr_ext_mut() { local md red; md="$(sr_mirror)"; sr_mutant "$md" ledger-lanes.sh 
 sr_ext_mut 's/^  if \[ -n "\$r" \]; then$/  if false; then/'
 rm -rf "$(sld "$sr_k")"
 
+head_ "No spec_roots: an app: line is just text, as in 9.2.0; a worker cannot move an item's app (US5, FR-007)"
+x_fail=0
+sr_cfg '{"source":"tasks-repo","root":"tasks"}'
+printf '\n## HEF-9 — a bug template\nApp: Mobile\n\n## HEF-10 — a stray line\napp: backend\n' >> "$sr_r/tasks/TODO.md"
+sr_noroots_tests() {
+  rm -rf "$(sld "$sr_r")"
+  sr_lg register HEF-9 --ref tasks/TODO.md#HEF-9 >/dev/null 2>&1 && [ "$(sr_ent HEF-9 .spec_root)" = null ] \
+    || { bad "US5 with no spec_roots, an 'App: Mobile' line does not stop registration (review B2)"; x_fail=1; }
+  sr_lg register HEF-10 --ref tasks/TODO.md#HEF-10 >/dev/null 2>&1 && [ "$(sr_ent HEF-10 .spec_root)" = null ] \
+    || { bad "US5 with no spec_roots, a well-formed app: line is ignored at registration (review B2)"; x_fail=1; }
+  return 0
+}
+sr_noroots_tests
+sr_cfg '{"source":"tasks-repo","root":"tasks","spec_roots":{"backend":"backend","frontend":"frontend"}}'
+if (cd "$sr_r" && HEFESTO_WORKER=1 bash "$REPO/hooks/ledger.sh" record HEF-9 --spec-root backend) >/dev/null 2>&1; then
+  bad "FR-007 a launched worker may not set an item's app (it steers the next stage's folder; review S4)"; x_fail=1; fi
+[ "$x_fail" = 0 ] && ok "no spec_roots: app: lines are not read at registration; a worker cannot record --spec-root (US5, FR-007)"
+sr_nr_md="$(sr_mirror)"
+if sr_mutant "$sr_nr_md" ledger-lanes.sh 's/^  if \[ "\$(jq length <<<"\$sj")" -gt 0 \]; then$/  if true; then/'; then
+  [ "$(x_fail=0; SR_HOOKS="$sr_nr_md" sr_noroots_tests >/dev/null 2>&1; echo "$x_fail")" = 1 ] && ok "mutant killed: US5 the app: line read with no spec_roots" || bad "mutant survived: US5 the app: line read with no spec_roots"
+fi
+rm -rf "$sr_nr_md" "$(sld "$sr_r")"
+
 head_ "status-board.sh --item-app and --add --app (FR-008)"
 x_fail=0
 sr_cfg '{"source":"tasks-repo","root":"tasks","spec_roots":{"backend":"backend","frontend":"frontend"}}'
@@ -337,13 +360,16 @@ sr_l="$(cd "$(mktemp -d)" && pwd -P)/mono"; sr_lout="$(cd "$(mktemp -d)" && pwd 
 mkdir -p "$sr_lout/.specify"
 ( git init -q -b main "$sr_l" && cd "$sr_l" && mkdir -p tasks .claude backend/.specify/memory frontend/.specify/memory nospec \
   && printf 'b\n' > backend/.specify/memory/constitution.md && printf 'f\n' > frontend/.specify/memory/constitution.md && printf 'n\n' > nospec/README \
-  && ln -s "$sr_lout" linkout \
-  && printf '# TODO\n\n## HEF-1 — owned\nbody\napp: backend\n\n## HEF-2 — none\nbody\n\n## HEF-3 — undeclared\napp: payments\n\n## HEF-5 — no spec\napp: nospec\n\n## HEF-6 — link out\napp: linkout\n' > tasks/TODO.md \
+  && ln -s "$sr_lout" linkout && mkdir -p linkspec && ln -s "$sr_lout/.specify" linkspec/.specify \
+  && printf '# TODO\n\n## HEF-1 — owned\nbody\napp: backend\n\n## HEF-2 — none\nbody\n\n## HEF-3 — undeclared\napp: payments\n\n## HEF-5 — no spec\napp: nospec\n\n## HEF-6 — link out\napp: linkout\n\n## HEF-7 — spec link\napp: linkspec\n\n## HEF-8 — intake\napp: backend\n' > tasks/TODO.md \
   && for c in DOING DONE BACKLOG; do printf '# %s\n' "$c" > "tasks/$c.md"; done \
-  && printf '{"source":"tasks-repo","root":"tasks","spec_roots":{"backend":"backend","frontend":"frontend","nospec":"nospec","linkout":"linkout"}}\n' > .claude/project-status.json \
+  && printf '{"source":"tasks-repo","root":"tasks","spec_roots":{"backend":"backend","frontend":"frontend","nospec":"nospec","linkout":"linkout","linkspec":"linkspec"}}\n' > .claude/project-status.json \
   && sr_git add -A && sr_git commit -q -m init \
-  && for i in 1 2 3 5 6; do bash "$REPO/hooks/ledger.sh" init "HEF-$i" --kind tasks-repo --ref "tasks/TODO.md#HEF-$i" >/dev/null; done ) >/dev/null 2>&1
+  && for i in 1 2 3 5 6 7 8; do bash "$REPO/hooks/ledger.sh" init "HEF-$i" --kind tasks-repo --ref "tasks/TODO.md#HEF-$i" >/dev/null; done ) >/dev/null 2>&1
 sr_sl() { (cd "$sr_l" && CLAUDE_CONFIG_DIR="$sr_lcfg" bash "${SR_HOOKS:-$REPO/hooks}/session-launch.sh" "$@" 2>&1); }
+# a fake claude that records where it was started: a real (non-dry) run must never reach it from a wrong folder
+sr_fb="$(mktemp -d)"; printf '#!/bin/sh\npwd -P > "%s/claude.cwd"\nexit 1\n' "$sr_fb" > "$sr_fb/claude"; chmod +x "$sr_fb/claude"
+sr_run() { (cd "$sr_l" && PATH="$sr_fb:$PATH" CLAUDE_CONFIG_DIR="$sr_lcfg" bash "${SR_HOOKS:-$REPO/hooks}/session-launch.sh" "$@" 2>&1); }
 sr_launch_tests() {
   local o wt="$sr_l/.claude/worktrees/HEF-1"
   o="$(sr_sl plan HEF-1 --dry-run)"
@@ -369,6 +395,18 @@ sr_launch_tests() {
   o="$(cd "$sr_l" && HEFESTO_TRUSTED_TOP="$sr_l" CLAUDE_CONFIG_DIR="$sr_lcfg" bash "${SR_HOOKS:-$REPO/hooks}/session-launch.sh" plan HEF-1 --dry-run 2>&1)"
   grep -qF 'is not a worktree of this repository' <<<"$o" || { bad "FR-009 lane mode refuses a symlinked worktree for an app item — got: $(head -c 200 <<<"$o")"; x_fail=1; }
   rm -f "$sr_l/.claude/worktrees/HEF-1"
+  # review B1: a dangling link where the worktree goes, outside lane mode — refused, the worker never starts elsewhere
+  ln -s "$sr_lout/nowhere" "$sr_l/.claude/worktrees/HEF-1"; rm -f "$sr_fb/claude.cwd"
+  o="$(sr_run plan HEF-1)"
+  { [ ! -f "$sr_fb/claude.cwd" ] && grep -qE 'cannot enter|no .specify' <<<"$o"; } \
+    || { bad "FR-009 a dangling link in place of the worktree is refused before claude starts (it started in $(cat "$sr_fb/claude.cwd" 2>/dev/null)) — got: $(head -c 200 <<<"$o")"; x_fail=1; }
+  rm -f "$sr_l/.claude/worktrees/HEF-1"
+  # review S5: an app folder whose .specify links out of the worktree is refused (FR-019 for the launcher)
+  o="$(sr_sl plan HEF-7 --dry-run)"; grep -qF 'resolves outside' <<<"$o" || { bad "FR-019 an app whose .specify links out of the repository is refused — got: $(head -c 200 <<<"$o")"; x_fail=1; }
+  # review S2: a launch refused at the person's gate records nothing — not even the app
+  (cd "$sr_l" && bash "$REPO/hooks/ledger.sh" block HEF-8 --kind human:intake) >/dev/null 2>&1
+  o="$(sr_run plan HEF-8)"
+  [ "$(jq -r .spec_root "$(sld "$sr_l")/HEF-8.json" 2>/dev/null)" = null ] || { bad "FR-008 a launch refused at a human gate records no spec_root — got $(jq -r .spec_root "$(sld "$sr_l")/HEF-8.json" 2>/dev/null): $(head -c 160 <<<"$o")"; x_fail=1; }
   return 0
 }
 sr_launch_tests
@@ -383,6 +421,8 @@ sr_launch_mut "FR-009 app_dir accepts an undeclared name" launch-item.sh 's/^  s
 sr_launch_mut "FR-009 an app folder with no .specify/ accepted" launch-item.sh 's/\[ -d "\$base\/\$APPDIR\/.specify" \] ||/true ||/'
 sr_launch_mut "FR-009 an app folder that resolves outside the worktree accepted" launch-item.sh 's/"\$(cd "\$base" \&\& pwd -P)"\/?\*) ;;/*) ;;/'
 sr_launch_mut "FR-009 the worktree pointer check dropped on the app path" launch-item.sh 's/\[ "\$LANE_MODE" = 0 \] || { \[ ! -L "\$w" \] \&\& wt_branch "\$w" >\/dev\/null; } || die/true || die/'
+sr_launch_mut "FR-009 the cd skipped for any missing worktree, not only on a dry run (review B1)" launch-item.sh 's/\[ "\$DRY" = 1 \] \&\& \[ ! -e "\$w" \] \&\& return 0/[ ! -e "$w" ] \&\& return 0/'
+sr_launch_mut "FR-019 the .specify link-out check dropped in app_check (review S5)" launch-item.sh 's/"\$(cd "\$base\/\$APPDIR\/.specify" \&\& pwd -P)\/"/"$base\/x\/"/'
 sr_launch_mut "FR-007 the migration refused (owner from spec_dir dropped)" launch-item.sh 's/^  if \[ -z "\$sr" \] \&\& \[ -n "\$sd" \]; then/  if false; then/'
 # FR-011: the byte-identity check above must catch a change to the no-app planner rules (a mutant of the default)
 sr_fx_md="$(sr_mirror)"
@@ -406,7 +446,22 @@ printf '{"summary":"planned","outcome":"tasks","spec_dir":".specify/specs/owned"
 sr_fo="$(cd "$sr_l" && env -u CLAUDE_CODE_SESSION_ID -u HEFESTO_TRUSTED_TOP -u HEFESTO_LANE_MAP bash "$REPO/hooks/session-launch.sh" plan HEF-1 --finish --lane mono-planner --outcome-file "$sr_t/out.json" 2>&1)"
 [ "$(jq -r .spec_dir "$(sld "$sr_l")/HEF-1.json" 2>/dev/null)" = backend/.specify/specs/owned ] \
   || { bad "FR-010 --finish stores the lane's spec_dir relative to the worktree, under the app folder — got '$(jq -r .spec_dir "$(sld "$sr_l")/HEF-1.json" 2>/dev/null)': $(head -c 300 <<<"$sr_fo")"; x_fail=1; }
-[ "$x_fail" = 0 ] && ok "--finish: the relative spec_dir is stored as <app>/.specify/specs/<name> (FR-010)"
+# review S6: the verifier of an app item starts in the app folder
+[ "$(sr_sl verify HEF-1 --dry-run | head -1)" = "# cwd: $sr_l/.claude/worktrees/HEF-1/backend" ] || { bad "FR-009 a verify dry run of an app item starts in the app folder"; x_fail=1; }
+# review S1: a spec_dir reported from the worktree root (backend/.specify/…) is not doubled under the app folder
+rm -rf "$sr_l/.claude/worktrees/HEF-2"
+sr_po="$(cd "$sr_l" && env -u CLAUDE_CODE_SESSION_ID -u HEFESTO_TRUSTED_TOP -u HEFESTO_LANE_MAP bash "$REPO/hooks/session-launch.sh" plan HEF-2 --prepare --lane mono-planner 2>&1)"
+mkdir -p "$sr_l/.claude/worktrees/HEF-2/frontend/.specify/specs/y" && printf -- '- [ ] T001\n' > "$sr_l/.claude/worktrees/HEF-2/frontend/.specify/specs/y/tasks.md"
+printf '{"summary":"planned","outcome":"tasks","spec_dir":"frontend/.specify/specs/y","blocked_on":null}\n' > "$sr_t/out2.json"
+sr_fo="$(cd "$sr_l" && env -u CLAUDE_CODE_SESSION_ID -u HEFESTO_TRUSTED_TOP -u HEFESTO_LANE_MAP bash "$REPO/hooks/session-launch.sh" plan HEF-2 --finish --lane mono-planner --outcome-file "$sr_t/out2.json" 2>&1)"
+[ "$(jq -r .spec_dir "$(sld "$sr_l")/HEF-2.json" 2>/dev/null)" = frontend/.specify/specs/y ] \
+  || { bad "FR-010 a spec_dir reported from the worktree root is not doubled under the app folder — got '$(jq -r .spec_dir "$(sld "$sr_l")/HEF-2.json" 2>/dev/null)': $(head -c 200 <<<"$sr_po $sr_fo")"; x_fail=1; }
+[ "$x_fail" = 0 ] && ok "--finish: the relative spec_dir is stored as <app>/.specify/specs/<name>, either frame; verify starts in the app folder (FR-009, FR-010)"
+
+head_ "A bad spec_roots is reported by the display readers too (FR-006)"
+sr_cfg '{"source":"tasks-repo","root":"tasks","spec_roots":{"x":"../up"}}'
+grep -qF "bad entry 'x=../up'" <<<"$(cd "$sr_r/backend" && bash "$REPO/hooks/speckit-helper.sh" constitution 2>&1 >/dev/null)" \
+  && ok "FR-006 constitution names a bad spec_roots entry on stderr (review S3)" || bad "FR-006 constitution names a bad spec_roots entry on stderr (review S3)"
 
 head_ "The board's epics read every declared app (FR-012)"
 x_fail=0

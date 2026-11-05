@@ -155,8 +155,8 @@ The names match `^[a-z0-9][a-z0-9-]{0,31}$`. A folder is relative, contains no `
      trust (`:44-46`), so an undeclared name leaves no `<id>.json` and never becomes a form (round 4). A valid
      name is then recorded with `record <id> --spec-root <name>`. Part 10 asserts that no entry exists after the
      refusal.
-   - The readers take `SPEC_DIR="$(spec_dir_abs "$E")"`. A relative `--spec-dir` is refused while the entry has
-     no `worktree` recorded, and `spec_dir_abs` prints nothing (never `/…`) for one written by hand.
+   - The readers take `SPEC_DIR="$(spec_dir_abs "$E")"`. A relative `--spec-dir` on an entry with no `worktree`
+     (written by hand) is read from the repository top, as 9.2.0 read it, never as `/…` (code review).
 5. **The launcher.**
    - `app_dir` (in `launch-item.sh`) returns the empty string when there is no app, so every new branch is
      behind `[ -n "$APPDIR" ]`.

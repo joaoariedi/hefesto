@@ -54,12 +54,13 @@ app_dir() {
   [ "$(jq 'length' <<<"$j")" -gt 0 ] || return 0
   sr="$(jq -r '.spec_root // empty' <<<"$E")"; sd="$(jq -r '.spec_dir // empty' <<<"$E")"
   if [ -z "$sr" ] && [ -n "$sd" ]; then sr="$(spec_root_owner "$TOP" "$sd")" || exit 1; fi   # the migration rule
-  if [ -z "$sr" ]; then sr="$(app_from_item)" || exit 1; fi
+  if [ -z "$sr" ]; then app_from_item; sr="$APP_NEW"; fi
   [ "$sr" = . ] || APPDIR="$(spec_root_folder "$TOP" "$sr")" || exit 1
 }
 
-# app_from_item → the declared app the item's app: line names, recorded as its spec_root; refused when there is no
-# line, or the text changed since its hash was taken (the line must be the text the person registered)
+# app_from_item → APP_NEW: the declared app the item's app: line names; refused when there is no line, or the text
+# changed since its hash was taken (the line must be the text the person registered). The launcher records it as
+# the entry's spec_root only after the person's gate and the claim (code review: a refused launch writes nothing).
 app_from_item() {
   local raw stored name
   raw="$(mktemp)" || die "session-launch $ROLE $ID: mktemp failed"
@@ -71,8 +72,7 @@ app_from_item() {
   rm -f "$raw"
   [ -n "$name" ] || die "session-launch $ROLE $ID: the repository declares apps ($(spec_root_names "$TOP")) and the item names none — decide the owning app in the orchestrator (ledger.sh spec-roots $ID; ledger.sh record $ID --spec-root <app|.>)"
   spec_root_folder "$TOP" "$name" >/dev/null || exit 1
-  [ "$DRY" = 1 ] || "$LEDGER" record "$ID" --spec-root "$name" >/dev/null || exit 1
-  printf '%s\n' "$name"
+  APP_NEW="$name"
 }
 
 # app_check <worktree> [fail-fn] → the app folder in it holds .specify/ and is a plain folder inside it: the folder
@@ -80,9 +80,10 @@ app_from_item() {
 # Edit(.specify/**) rule out of the worktree (plan review round 4). A dry run with no worktree yet checks the top.
 app_check() {
   local w="$1" fail="${2:-die}" base="$1"
-  [ -e "$w" ] || base="$TOP"
+  [ -e "$w" ] || [ "$DRY" != 1 ] || base="$TOP"
   [ -d "$base/$APPDIR/.specify" ] || "$fail" "session-launch $ROLE $ID: app folder $APPDIR has no .specify/ in $base — run /hef.init from $APPDIR and commit it first"
   case "$(cd "$base/$APPDIR" && pwd -P)/" in "$(cd "$base" && pwd -P)"/?*) ;; *) "$fail" "session-launch $ROLE $ID: app folder $APPDIR resolves outside $base (a link) — an app folder is a plain folder in the repository" ;; esac
+  case "$(cd "$base/$APPDIR/.specify" && pwd -P)/" in "$(cd "$base" && pwd -P)"/?*) ;; *) "$fail" "session-launch $ROLE $ID: $APPDIR/.specify resolves outside $base (a link) — the planner's edit rule would write through it" ;; esac
 }
 
 # app_enter <worktree> → cd into its app folder (APP_CWD); the worktree is made here, never by `claude -w` (whose
@@ -93,7 +94,9 @@ app_enter() {
     [ "$LANE_MODE" = 0 ] || { [ ! -L "$w" ] && wt_branch "$w" >/dev/null; } || die "session-launch $ROLE $ID: $w is not a worktree of this repository (a symlink, or its git pointer was changed) — remove it and re-run"
   elif [ "$DRY" = 0 ]; then wt_add die; fi
   app_check "$w"
-  APP_CWD="$w/$APPDIR"; [ ! -e "$w" ] || { cd "$APP_CWD" || die "session-launch $ROLE $ID: cannot enter $APP_CWD"; }
+  APP_CWD="$w/$APPDIR"
+  [ "$DRY" = 1 ] && [ ! -e "$w" ] && return 0
+  cd "$APP_CWD" || die "session-launch $ROLE $ID: cannot enter $APP_CWD (a missing worktree or a dangling link) — remove it and re-run"
 }
 
 # wt_add <fail-fn> → the item's worktree on worktree-$ID, from the integration branch as this checkout last saw it

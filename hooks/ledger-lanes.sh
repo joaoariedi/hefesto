@@ -24,8 +24,12 @@ register_item() { # $1 id, $2 ref
   k=$("$sb" --item-kind "$id" 2>"$REG_ERR") || die "$(cat "$REG_ERR")"
   # monorepo-spec-roots FR-008: the app: line, checked against the code repository BEFORE init — an undeclared name
   # leaves no entry (a half-made one would reach the app form, which would override the item's own line)
-  local app; app=$("$sb" --item-app "$id" 2>"$REG_ERR") || die "$(cat "$REG_ERR")"
-  [ -z "$app" ] || spec_root_folder "$(entry_repo_top "" "$r")" "$app" >/dev/null || exit 1
+  # read only where apps are declared: with no spec_roots an app: line is plain text, as in 9.2.0 (code review B2)
+  local app="" rtop sj; rtop="$(entry_repo_top "" "$r")"; sj="$(spec_roots_json "$rtop")" || exit 1
+  if [ "$(jq length <<<"$sj")" -gt 0 ]; then
+    app=$("$sb" --item-app "$id" 2>"$REG_ERR") || die "$(cat "$REG_ERR")"
+    [ -z "$app" ] || spec_root_folder "$rtop" "$app" >/dev/null || exit 1
+  fi
   "$sb" --item-raw "$id" > "$REG_TMP" 2>"$REG_ERR" || die "$(cat "$REG_ERR")"
   local src g=()
   src=$(jq -r '.source // "tasks-repo"' "$(project_config)" 2>/dev/null)   # anything but github-project is tasks-repo (below)
@@ -189,6 +193,8 @@ entry_repo_top() { # $1 entry JSON or "", $2 repo name or "" → the code reposi
 }
 spec_root_set() { # $1 a declared app or . (the top) → .spec_root in E (record --spec-root)
   local sd; sd=$(jq -r '.spec_dir // empty' <<<"$E")
+  # the app steers the next stage's folder: a launched worker never sets it (code review S4; as run/unblock refuse)
+  [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "ledger record $ID: --spec-root is never set from inside a launched worker — the orchestrator records the app"
   [ -z "$sd" ] || die "ledger record $ID: --spec-root cannot change once spec_dir is recorded ($sd) — the spec would be orphaned"
   if [ "$1" != . ]; then spec_root_folder "$(entry_repo_top "$E")" "$1" >/dev/null || exit 1; fi
   E=$(jq --arg v "$1" '.spec_root = $v' <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set spec_root"

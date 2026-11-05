@@ -251,7 +251,7 @@ fi
 WT="$TOP/.claude/worktrees/$ID"
 # monorepo-spec-roots (#172): an app's item works in its app folder. No spec_roots: APPDIR is empty, and every line
 # below is as in 9.2.0 (tests/fixtures/launch-920.txt).
-APPDIR=""; APP_CWD=""; case "$ROLE" in plan|implement|verify) app_dir ;; esac
+APPDIR=""; APP_CWD=""; APP_NEW=""; case "$ROLE" in plan|implement|verify) app_dir ;; esac
 WHERE_RULE="run every command from this worktree's root — never cd into a subfolder"; APP_RULE=""
 if [ -n "$APPDIR" ]; then
   WHERE_RULE="run every command from the app folder $APPDIR/ of this worktree (its own .specify/) — never cd out of it"
@@ -355,7 +355,7 @@ record_worktree() { # $1 extra --route or ""
   else br="$(wt_branch "$WT")" || die "session-launch $ROLE $ID: worktree $WT does not point at this repository's git dir (its .git file or commondir was changed, or it is on no branch) — remove it and re-run"; fi
   args=(--worktree "$WT" --branch "$br"); [ -n "$1" ] && args+=(--route "$1")
   # #172: stored relative to the worktree — a relative outcome is the session's folder's (the app's, or the root)
-  s="$(jq -r '.spec_dir // empty' <<<"$SO")"; case "$s" in "") ;; "$WT"/*) args+=(--spec-dir "${s#"$WT"/}") ;; /*) args+=(--spec-dir "$s") ;; *) args+=(--spec-dir "${APPDIR:+$APPDIR/}${s#./}") ;; esac
+  s="$(jq -r '.spec_dir // empty' <<<"$SO")"; case "$s" in "") ;; "$WT"/*) args+=(--spec-dir "${s#"$WT"/}") ;; /*) args+=(--spec-dir "$s") ;; *) s="${s#./}"; [ -z "$APPDIR" ] || s="${s#"$APPDIR"/}"; args+=(--spec-dir "${APPDIR:+$APPDIR/}$s") ;; esac
   "$LEDGER" record "$ID" "${args[@]}" >/dev/null || exit 1
 }
 transcribe() { # the ledger after a stage: from SO (the structured outcome), RC, WT, NAME, PR_MODE — a run's, or a lane's
@@ -571,6 +571,7 @@ if [ "$MODE" = prepare ]; then
     die "session-launch $ROLE $ID --prepare: blocked on $EBK — the person clears it first, in the orchestrator"
   fi
   "$LEDGER" claim "$ID" --session "$LANE" --role "$ROLE" --mode interactive >/dev/null || exit 1
+  [ -z "$APP_NEW" ] || "$LEDGER" record "$ID" --spec-root "$APP_NEW" >/dev/null || undo "session-launch $ROLE $ID --prepare: cannot record the app"
   undo() { "$LEDGER" run "$ID" --role "$ROLE" --exit 1 --usd 0 --session-id in-lane --note "prepare failed" >/dev/null 2>&1; die "$1"; }
   case "$ROLE:$PHASE" in
     implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || undo "session-launch implement $ID --prepare: advance failed" ;;
@@ -585,7 +586,7 @@ if [ "$MODE" = prepare ]; then
       if [ "$LANE_MODE" = 1 ]; then BR="$(wt_branch "$WT")" || undo "session-launch $ROLE $ID --prepare: the worktree's branch is not usable"
       else BR="$(git -C "$WT" branch --show-current 2>/dev/null)"; fi
       "$LEDGER" record "$ID" --worktree "$WT" --branch "$BR" >/dev/null || undo "session-launch $ROLE $ID --prepare: cannot record the worktree" ;;
-    verify|deploy) WT="$WORKTREE" ;;
+    verify|deploy) WT="$WORKTREE"; [ -z "$APPDIR" ] || app_check "$WT" undo ;;
   esac
   LDP="$("$LEDGER" dir)" || undo "session-launch $ROLE $ID --prepare: cannot read the ledger folder"
   FIN="$HERE/session-launch.sh $ROLE $ID --finish --lane $LANE --outcome-file <the file you wrote>"
@@ -649,6 +650,7 @@ if [[ "$EBK" == human:* ]] && ! { [ "$ROLE" = deploy ] && [ "$EBK" = human:merge
   die "session-launch $ROLE $ID: blocked on $EBK — the person clears it first (it names the command); no session is launched over a human gate"
 fi
 "$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$" >/dev/null || exit 1
+[ -z "$APP_NEW" ] || "$LEDGER" record "$ID" --spec-root "$APP_NEW" >/dev/null || exit 1   # #172: after the gate and the claim
 case "$ROLE:$PHASE" in
   implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || exit 1 ;;
   plan:queued)                      "$LEDGER" advance "$ID" intake >/dev/null || exit 1 ;;

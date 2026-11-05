@@ -81,7 +81,7 @@ spec_root_label() { # $1 a spec root folder → its declared app name, else its 
   local top rel j n
   top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" && top="$(cd "$top" && pwd -P)" || { basename "$1"; return 0; }
   rel="${1#"$top"/}"
-  j="$(spec_roots_json "$top" 2>/dev/null)" || j='{}'
+  j="$(spec_roots_json "$top")" || j='{}'   # a bad entry is named on stderr; the heading falls back to the folder
   n="$(jq -r --arg f "$rel" 'to_entries[] | select(.value == $f) | .key' <<<"$j" | head -1)"
   printf '%s\n' "${n:-$(basename "$1")}"
 }
@@ -142,7 +142,7 @@ spec_epic_roots() {
   local j
   printf -- '-\t%s\n' "$1"   # '-': the top, no label (a leading tab would be eaten by read as whitespace)
   [ "$3" != external ] || return 0
-  j="$(spec_roots_json "$2" 2>/dev/null)" || return 0
+  j="$(spec_roots_json "$2")" || return 0   # a bad entry is named on stderr; the board shows the top only
   jq -r --arg t "$2" 'to_entries[] | "\(.key)\t\($t)/\(.value)"' <<<"$j"
 }
 spec_armed_json() { # $1 a hook's JSON input, $2 marker → spec_armed on its cwd and tool_input.file_path
