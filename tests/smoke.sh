@@ -969,6 +969,14 @@ ipg_case 2 "#171 denies git rm of a test file"                                  
 ipg_case 2 "#171 denies sudo rm -f of a test file"                              "$(ipg_bash 'sudo rm -f tests/test_a.py')"
 ipg_case 2 "#171 denies rm of a test file inside bash -c"                       "$(ipg_bash 'bash -c "rm tests/test_a.py"')"
 ipg_case 2 "#171 denies rm of a test file after another command"                "$(ipg_bash 'cd . && rm tests/test_a.py')"
+# the #171 review: a removal whose paths come from elsewhere — a glob, $(…), xargs, find -exec, a variable — has no
+# path of its own after `rm`; main blocked these, and they must stay blocked (the whole command is scanned then)
+ipg_case 2 "#171 denies rm -rf tests/* (a glob)"                               "$(ipg_bash 'rm -rf tests/*')"
+ipg_case 2 "#171 denies rm \$(ls tests/test_*.py)"                             "$(ipg_bash 'rm $(ls tests/test_*.py)')"
+ipg_case 2 "#171 denies find tests -exec rm {} \\;"                           "$(ipg_bash 'find tests -name "*.py" -exec rm {} \;')"
+ipg_case 2 "#171 denies ls tests/… | xargs rm -f"                             "$(ipg_bash 'ls tests/test_*.py | xargs rm -f')"
+ipg_case 2 "#171 denies a for loop removing tests through a variable"          "$(ipg_bash 'for f in tests/test_*.py; do rm "$f"; done')"
+ipg_case 0 "#171 still allows rm of one file beside a read of a test"          "$(ipg_bash 'rm build/out.txt && cat tests/test_a.py')"
 ipg_err="$(ipg_bash 'jq --arg x y -r . tests/test_a.py' | bash "$IPG" 2>&1 >/dev/null)"
 [ -z "$ipg_err" ] || { bad "#171: the guard prints no basename errors for option-shaped tokens — got: $(head -c 200 <<<"$ipg_err")"; }
 ipg_md="$(mktemp -d)"; for h in "$REPO"/hooks/*.sh; do ln -s "$h" "$ipg_md/$(basename "$h")"; done
@@ -976,6 +984,10 @@ rm "$ipg_md/implement-phase-test-guard.sh"; sed 's/^      \[ "\$after" = 1 \] ||
 cmp -s "$IPG" "$ipg_md/implement-phase-test-guard.sh" && bad "#171 mutant did not apply"
 ipg_rc=0; ipg_bash 'rm build/out.txt && cat tests/test_a.py' | bash "$ipg_md/implement-phase-test-guard.sh" >/dev/null 2>&1 || ipg_rc=$?
 [ "$ipg_rc" = 2 ] || bad "#171 mutant survived: a test path BEFORE the rm counted again, yet the command was allowed"
+rm "$ipg_md/implement-phase-test-guard.sh"; sed 's/^  \[ "\$noarg" = 1 \] \&\& whole_scan "\$1" \&\& return 0$/  :/' "$IPG" > "$ipg_md/implement-phase-test-guard.sh"
+cmp -s "$IPG" "$ipg_md/implement-phase-test-guard.sh" && bad "#171 fallback mutant did not apply"
+ipg_rc=0; ipg_bash 'ls tests/test_*.py | xargs rm -f' | bash "$ipg_md/implement-phase-test-guard.sh" >/dev/null 2>&1 || ipg_rc=$?
+[ "$ipg_rc" = 2 ] && bad "#171 mutant survived: the fallback for an rm with no path of its own removed, yet xargs rm was blocked"
 rm -rf "$ipg_md"
 rm -rf "$ipg_t"
 # Registered on BOTH matchers, or it exists and never fires (this suite's founding failure mode).

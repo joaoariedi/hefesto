@@ -37,6 +37,7 @@ is_test_file() {
   case "$1" in
     *"/.specify/"*) return 1 ;;
     *"/tests/"*|*"/test/"*|*"/__tests__/"*|*"/spec/"*) return 0 ;;
+    tests/*|test/*|__tests__/*|spec/*) return 0 ;;   # a relative path from the project root (#171 review)
     *_test.go|*_test.py|*_test.rs|*_test.rb|*.bats) return 0 ;;
   esac
   local base
@@ -179,21 +180,28 @@ seg_snapshot_update() {
 # `rm` word (rm, git rm, sudo rm …); only its arguments after that word, options aside, are checked. Before, `rm` and a
 # test path anywhere — heredoc text, a commit message, another command — blocked. An awk that cannot run falls back to
 # the old whole-line scan, which blocks (fail closed).
+# An `rm` with no path of its own — its paths come from a glob, $(…), xargs, find -exec or a variable — falls back to
+# the whole-command scan: main blocked those, and they are the obvious way to delete a failing test (#171 review).
+whole_scan() { # $1 the command → prints a test-file token anywhere in it, and 0; globbing off, so the hook's cwd plays no part
+  local tok; set -f
+  for tok in $1; do is_test_file "$tok" && { set +f; printf '%s' "$tok"; return 0; }; done
+  set +f; return 1
+}
 removed_test_file() {
-  local segs line tok after
+  local segs line tok after own noarg=0
   local -a t
-  if ! segs="$(printf '%s' "$1" | awk "$SEG_AWK")"; then
-    for tok in $1; do is_test_file "$tok" && { printf '%s' "$tok"; return 0; }; done; return 1
-  fi
+  segs="$(printf '%s' "$1" | awk "$SEG_AWK")" || { whole_scan "$1"; return; }
   while IFS= read -r line; do
-    IFS=$'\034' read -r -a t <<<"$line"; after=0
+    IFS=$'\034' read -r -a t <<<"$line"; after=0; own=0
     for tok in ${t[@]+"${t[@]}"}; do
       [ "${tok##*/}" = rm ] && { after=1; continue; }
       [ "$after" = 1 ] || continue
-      case "$tok" in -*) continue ;; esac
-      is_test_file "$tok" && { printf '%s' "$tok"; return 0; }
+      case "$tok" in -*|'{}'|';'|'+'|'$'*|'') continue ;; esac
+      own=1; is_test_file "$tok" && { printf '%s' "$tok"; return 0; }
     done
+    [ "$after" = 0 ] || [ "$own" = 1 ] || noarg=1
   done <<<"$segs"
+  [ "$noarg" = 1 ] && whole_scan "$1" && return 0
   return 1
 }
 
