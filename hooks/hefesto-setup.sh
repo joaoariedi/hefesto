@@ -243,7 +243,7 @@ if [ "$MODE" = check ]; then
     else   # the probe folder beside the cache setup recorded: <hefesto cache>/lane-cache/<key> → <hefesto cache>/lane-cache-probe
       lpr="$(dirname "$(dirname "$lcr")")/lane-cache-probe"
       # The Bash tool runs --check SANDBOXED, where this write fails by design (#162 review): only a caller that runs
-      # outside the sandbox — the session-start hook sets HEFESTO_CHECK_UNSANDBOXED=1 — has the write tested. Setup's
+      # outside the sandbox — the session-start hook sets HEFESTO_CHECK_UNSANDBOXED=1 (exactly 1) — has the write tested. Setup's
       # own run tests it too. A sandboxed caller that sets the flag only gets a false "missing".
       if [ ! -d "$lpr" ]; then miss="${miss:+$miss, }the lane-build.sh probe folder ($lpr)"
       elif [ "${HEFESTO_CHECK_UNSANDBOXED:-}" = 1 ]; then

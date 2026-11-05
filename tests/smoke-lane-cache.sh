@@ -163,7 +163,7 @@ lc_gmut "the exclusion branch dropped (FR-005)" 's/{ \[ -n "\$EXCL_HIT" \] || \[
 lc_gmut "the sandbox-disabled branch dropped (FR-005)" 's/{ \[ -n "\$EXCL_HIT" \] || \[ "\$DDS" = true \]; }/[ -n "$EXCL_HIT" ]/' t_g2
 lc_gmut "the cache substring dropped (FR-005)" 's/ || "\$LCMD" == \*lane-cache\*//' t_g3
 lc_gmut "the case folding dropped (FR-005)" 's/^LCMD="\$(printf .%s. "\$CMD" | tr .\[:upper:\]. .\[:lower:\].)"/LCMD="$CMD"/' t_g4
-[ "$x_fail" -eq 0 ] && ok "lane-guard: an excluded command (approved action or not), a sandbox-disabled retry, and a relative spelling of the cache are denied when they name lane-build.sh or the lane cache; a sandboxed wrapper call is left alone; 3 mutations caught (FR-005, NR-001)"
+[ "$x_fail" -eq 0 ] && ok "lane-guard: an excluded command (approved action or not), a sandbox-disabled retry, and a relative spelling of the cache are denied when they name lane-build.sh or the lane cache; a sandboxed wrapper call is left alone; names matched in any case; 4 mutations caught (FR-005, NR-001)"
 
 
 # --- FR-007: the lanes are told ---------------------------------------------------------------------------------------
