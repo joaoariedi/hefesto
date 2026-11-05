@@ -5795,7 +5795,9 @@ la_aj() { jq -e "$2" "$(sld "$l3_t")/actions/$1.json" >/dev/null 2>&1; }
 la_st="$HOME/.cache/hefesto/approvals/$(basename "$(sld "$l3_t")")"
 la_scope "$l3_t/sc.json" "merge PR #7"
 # invalid scopes
-for la_bad in '.heads = {"o/r#7": "abc"}' '.commands = ["bash -c x"]' '.commands = ["/x/hooks/ledger.sh approve A"]' 'del(.title)' '.commands = ["*"]'; do
+for la_bad in '.heads = {"o/r#7": "abc"}' '.commands = ["bash -c x"]' '.commands = ["/x/hooks/ledger.sh approve A"]' 'del(.title)' '.commands = ["*"]' \
+    '.commands = ["/usr/bin/ssh host /x/hooks/lane-build.sh make"]' '.commands = ["/usr/bin/rsync -a ~/.cache/hefesto/lane-cache/k/ x"]' \
+    '.commands = ["/usr/bin/rsync -a ~/.cache/hefesto/LANE-CACHE/k/ x"]'; do   # the lanes' build cache (#162, FR-005)
   jq "$la_bad" "$l3_t/sc.json" > "$l3_t/bad.json"; la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/bad.json" >/dev/null 2>&1 && { bad "request must refuse the scope: $la_bad"; la_fail=1; }
 done
 la orchestrator request LT-2 --to repo-orchestrator --scope-file "$l3_t/sc.json" >/dev/null 2>&1 && { bad "a request for the orchestrator itself must be refused"; la_fail=1; }
@@ -5884,6 +5886,9 @@ done
 l3_mut lane-guard.sh 's/^\(    case "$ch" in .\*.) out+=\).\[^;&|`$()<>{}\]\*./\1".*"/'; LG_GD="$l3_md/lane-guard.sh"
 [ "$(gd deployer 'ssh stg docker volume rm v1; id')" = none ] && { bad "mutation survived: the wildcard widened to anything, yet the operator was still refused"; la_fail=1; }; l3_restore lane-guard.sh; LG_GD=""
 # mutations, beside the real helpers
+l3_mut ledger-actions.sh 's/|lane-build|lane-cache//'; LA_LG="$l3_md/ledger.sh"   # the lanes' build cache (#162, FR-005)
+jq '.commands = ["/usr/bin/ssh host /x/hooks/lane-build.sh make"]' "$l3_t/sc.json" > "$l3_t/bad.json"
+la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/bad.json" >/dev/null 2>&1 || { bad "mutation survived: the lane-build clause removed, yet the scope was refused"; la_fail=1; }; l3_restore ledger-actions.sh; LA_LG=""
 l3_mut ledger-actions.sh 's/^      \[ "$h" = "$(jq -r .sha256 <<<"$a")" \] \&\& \[ "$h" = "$(jq -r .sha256 <<<"$r")" \] || die/      true || die/'; LA_LG="$l3_md/ledger.sh"
 jq '.scope.commands += ["gh pr merge 9 --merge"]' "$l3_t/a4.bak" | jq '.status = "approved"' > "$(sld "$l3_t")/actions/LT-2-A4.json"; jq '.consumed_at = null' "$la_st/LT-2-A4.json" > "$l3_t/x.json" && cp "$l3_t/x.json" "$la_st/LT-2-A4.json"
 la deployer action take LT-2-A4 >/dev/null 2>&1 || { bad "mutation survived: the hash check removed, yet the changed scope was refused"; la_fail=1; }; l3_restore ledger-actions.sh
@@ -6416,6 +6421,7 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-merge.sh"            # part 6: the lane merge on the person's form answer (US9, FR-020–FR-023, NR-004)
 . "$REPO/tests/smoke-train.sh"            # part 7: a release train over several repos in order (US8, FR-019)
 . "$REPO/tests/smoke-github-board.sh"     # part 8: a GitHub Project as a lane board (github-project-board FR-001..FR-012)
+. "$REPO/tests/smoke-lane-cache.sh"        # part 9: the lanes' build cache, only inside the sandbox (lane-build-cache, #162)
 
 # --- Result --------------------------------------------------------------------------
 rmdir "$SMOKE_NO_GH_DIR" 2>/dev/null
