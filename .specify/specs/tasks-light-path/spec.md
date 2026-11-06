@@ -83,4 +83,9 @@ spec alone and says so in the `tasks.md` header. The full path (spec + plan) is 
   FR-003 light-path header line, which makes that line's consumer.
 
 ## Clarifications
-_None yet._
+
+### Session 2026-11-06 (answers from the item's owner)
+- Q: Plan gate — approve the revised plan? → A: Approve as revised.
+- Q: Scope — implement the light path in `/hefesto:hef.implement` too? → A: Keep it deferred (see
+  "Deferred"), and track it as a separate board item.
+- Q: Budget? → A: Raise `usd_cap` to 15.

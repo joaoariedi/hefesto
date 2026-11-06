@@ -125,3 +125,5 @@ assertions so a predicate that prints the wrong path cannot pass (constitution 3
 1. Add the `check-tasks-inputs` arm + dispatch-list entry + usage text in `hooks/speckit-helper.sh`.
 2. Write the smoke case; run `bash tests/smoke.sh` and see it pass; mutate the arm and see it fail.
 3. Edit `commands/hef.tasks.md`; update the three doc counts; run the full suite.
+
+## Reviewed 2026-11-06 — approved by the person
