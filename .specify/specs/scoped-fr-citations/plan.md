@@ -11,12 +11,16 @@ D4 own-requirement rows keep the `FR-NNN  STATUS` shape. Two traps found in the 
 2. `FR-001/FR-002` (an id list) already appears in scanned files (`tests/smoke.sh:1503,1504,5311`); a
    qualifier that is itself `FR-NNN` is a list, never a spec name.
 
+D3 boundary: only the `/hefesto:hef.spec` template writes the scoped marker. Specs written by
+`hef.baseline` (`commands/hef.baseline.md:75`) and `hef.init` (`commands/hef.init.md:73`) stay legacy:
+a brownfield suite already cites bare ids, and the person can add the marker later (legacy→scoped move).
+
 ## Affected Files
 | File | Change Type | Description |
 |------|------------|-------------|
 | `hooks/speckit-helper.sh` | modify | `req-coverage`: one-pass citation table; scoped/legacy mode; qualified ELSEWHERE/UNKNOWN; bare-hint on scoped UNCOVERED rows; header mode line. Extract the body into functions (the case arm is already ~75 lines) |
 | `hooks/spec-cite-probe.sh` | modify | qualified citation → only the named spec; bare unchanged; the `/` trap |
-| `tests/smoke.sh` | modify | new fixtures (collision under `--all`, scoped vs bare, legacy, qualified ELSEWHERE, three UNKNOWN cases — missing spec, foreign undeclared id, own undeclared id — id-list not a qualifier, probe), each mutation-checked; the dogfood block `:1078–1089` fails on qualified UNKNOWN rows too; this spec's checks cite `scoped-fr-citations/FR-NNN` |
+| `tests/smoke.sh` | modify | new fixtures (collision under `--all`, scoped vs bare, legacy, qualified ELSEWHERE, three UNKNOWN cases — missing spec, foreign undeclared id, own undeclared id — id-list not a qualifier, probe), each mutation-checked; a **branch-independent** check that no scanned file holds a `<q>/FR-NNN` token whose `.specify/specs/<q>/` does not exist (step 8); a structural check for FR-012 (template marker + qualified form in four commands); the dogfood block `:1078–1089` fails on qualified UNKNOWN rows too; this spec's checks cite `scoped-fr-citations/FR-NNN` |
 | `docs/sdd.md` | modify | `:49–55` and `:99–106`: the form, the marker, legacy mode, statuses, legacy→scoped move |
 | `commands/hef.spec.md` | modify | template `:49–50` gains `<!-- req-coverage: scoped -->` |
 | `commands/hef.verify.md` | modify | `:39–44` citation examples qualified; ELSEWHERE line; bare-hint explained |
@@ -60,16 +64,30 @@ CLI contract of `speckit-helper.sh req-coverage [<spec>|--all]`:
    loop over every spec.
 8. **Fixtures never write a literal qualified token into `tests/smoke.sh`**: `tests/smoke.sh` is itself a
    scanned file in this repo, so `alpha/FR-001` in its source is a citation of a spec that does not exist
-   → UNKNOWN → this repository's `--all` goes red. Fixtures build tokens as `"$sp"/FR-001` (the
-   quote breaks the token). Today the dogfood check would NOT catch a slip: `tests/smoke.sh:1089` matches
-   only `^FR-[0-9]+ +UNKNOWN` (a `ghost/FR-001  UNKNOWN` row does not match) and `:1078` discards the
-   exit with `|| true`. So the dogfood block changes too: it fails on any `UNKNOWN` row, qualified or
-   bare (`^[^ ]*FR-[0-9]+ +UNKNOWN`), with a recorded mutation (a literal qualified token for a
-   non-existent spec planted in a scanned fixture file → red).
+   → UNKNOWN → this repository's `--all` goes red. The traps a builder will naturally write, all of them
+   tokens in the source text:
+   - `printf '# %s/FR-001\n' "$a"` → source token `s/FR-001` (qualifier `s`; `%` satisfies `-w`);
+   - unquoted `$a/FR-001` → source token `a/FR-001` (qualifier `a`);
+   - only `"$a"/FR-001` — the closing quote adjacent to `/` — is safe, because `"` is not in the
+     qualifier grammar and `"/FR-001` reads as a bare `FR-001`.
+   The same sentence goes in a comment above the first fixture.
+   **Branch-independent safety net** (the mitigation for this risk): the dogfood block (`:1075–1077`) is
+   keyed on the branch name, and this item builds on `worktree-HEF-3` (lane contract,
+   `hooks/launch-item.sh:108–111`), so that block runs on no branch in this item's lifecycle. A new
+   structural check runs on every branch: extract every `<q>/FR-NNN` token from the files `req-coverage`
+   scans (same grammar, id lists excluded) and fail if `.specify/specs/<q>/` does not exist. Mutation:
+   plant a `%s/FR-001`-style line in a scanned fixture file → red.
+   The dogfood block still widens (it fails on any `UNKNOWN` row, qualified or bare —
+   `^[^ ]*FR-[0-9]+ +UNKNOWN` — today `:1089` matches only `^FR-[0-9]+ +UNKNOWN` and `:1078` discards the
+   exit with `|| true`), but it is a second line of defence on feature branches, not the mitigation here.
+9. **This spec dogfoods**: its own checks cite `scoped-fr-citations/FR-NNN` (a real spec → valid
+   everywhere, ELSEWHERE for the other specs). Every dogfood run names the spec:
+   `req-coverage scoped-fr-citations` (a bare `req-coverage` resolves by branch and does not find it here).
 10. **Spec prose**: every `FR-<digits>` in a `spec.md` is a declaration (`speckit-helper.sh:463`), so
    example ids in specs use a non-digit placeholder; `docs/sdd.md` says so (FR-011).
-9. **This spec dogfoods**: its own checks cite `scoped-fr-citations/FR-NNN` (a real spec → valid
-   everywhere, ELSEWHERE for the other specs).
+11. **FR-012 is checked structurally**: one grep each (pattern of `tests/smoke.sh:1094`) that
+   `commands/hef.spec.md` carries `<!-- req-coverage: scoped -->` and that `hef.tasks`, `hef.implement`,
+   `hef.verify`, `hef.mutate` show `<spec>/FR-NNN`; mutation: drop the marker from the template → red.
 
 ## Code Sketches (Mental Alignment)
 
@@ -113,9 +131,12 @@ if [ -n "$q" ] && [ "$q" = "$label" ]; then
   grep -qxF -- "$id" <<<"$ids" || status=UNKNOWN          # own qualifier, undeclared id
 elif [ -n "$q" ]; then
   qs=".specify/specs/$q/spec.md"
-  if [ -f "$qs" ] && grep -qwF -- "$id" "$qs"; then status=ELSEWHERE; else status=UNKNOWN; fi
+  # one definition of "declares": the same extraction as :463/:496 (rc_declared_ids)
+  if [ -f "$qs" ] && rc_declared_ids "$qs" | grep -qxF -- "$id"; then status=ELSEWHERE; else status=UNKNOWN; fi
 fi
 ```
+`rc_declared_ids <spec.md>` = `grep -oE '\bFR-[0-9]+\b' "$1" | sort -u` — extracted from `:463`/`:496`
+and used by both the own-id list and this lookup, so "declares" has one definition.
 **Why this shape:** FR-007/FR-008; a qualified typo must fail, not vanish (spec US4 negative case), for a
 foreign qualifier and for the spec's own. A qualifier cannot contain `/` (grammar), so `$qs` cannot traverse.
 
@@ -151,14 +172,16 @@ No sketch — trivial: `docs/sdd.md`, `commands/hef.*.md` (prose), `CHANGELOG.md
 - [x] **4 — zero-install**: bash + grep + awk only, bash 3.2/BSD-safe.
 - [x] **5 — helpers fail loudly**: existing `die` paths unchanged; a qualified citation to a missing spec
   is UNKNOWN (fails), never silently skipped.
-- Note (architecture constraint "spec dir name = branch name"): this item was planned on `worktree-HEF-3`;
-  the build branch should be `feature/scoped-fr-citations` so `req-coverage` with no argument resolves
-  this spec. `req-coverage scoped-fr-citations` works from any branch meanwhile.
+- Note (architecture constraint "spec dir name = branch name"): this item builds on `worktree-HEF-3` —
+  the lane contract (`hooks/launch-item.sh:108–111`) binds the item to that branch, and renaming it would
+  detach the lane from its worktree. The constraint is honoured by name instead: every run is
+  `req-coverage scoped-fr-citations`, and the suite's guard against stray qualified tokens is
+  branch-independent (step 8). The bare-`req-coverage` gap on lane branches is pre-existing and out of scope.
 
 ## Risks & Mitigations
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| A literal qualified example in a scanned file (`tests/smoke.sh`, `hooks/speckit-helper.sh`, `hooks/spec-*.sh`) | the repo's own `--all` goes red | build tokens from variables (`"$sp"/FR-001`); comments use `<spec>/FR-NNN` (NNN is not digits); the widened dogfood UNKNOWN match (step 8) fails the suite on the build branch; SC-002 run before/after |
+| A literal qualified example in a scanned file (`tests/smoke.sh`, `hooks/speckit-helper.sh`, `hooks/spec-*.sh`) — incl. `printf '%s/FR-001'` (token `s/FR-001`) and unquoted `$a/FR-001` (token `a/FR-001`) | the repo's own `--all` goes red | only `"$a"/FR-001` (quote adjacent to `/`); comments use `<spec>/FR-NNN` (NNN is not digits); the branch-independent stray-qualifier check (step 8) fails the suite on every branch, mutation-checked; SC-002 run before/after |
 | A digit example id in a `spec.md` | it becomes a declared, never-cited requirement → UNCOVERED | placeholders in prose (step 10); this spec fixed after review |
 | `hooks/speckit-helper.sh` file length (778 raw lines, already over the 500-code-line limit) | `quality-before-commit.sh` prints a growth advisory | expected and non-blocking (the file is already over; it does not newly cross); keep the added code small via the `rc_*` functions. Splitting the helper is out of scope |
 | Existing `FR-a/FR-b` id lists parsed as qualifiers | false UNKNOWN on this repo | id-list rule (Sketch 1) + a fixture |
@@ -167,10 +190,12 @@ No sketch — trivial: `docs/sdd.md`, `commands/hef.*.md` (prose), `CHANGELOG.md
 | Function length in `speckit-helper.sh` | code-quality delta gate | extract `rc_*` functions (Implementation step 6) |
 
 ## Quick Start
-1. On `feature/scoped-fr-citations`, with this spec's `tasks.md` present (open tasks → it is skipped as in
+1. On `worktree-HEF-3`, with this spec's `tasks.md` present (open tasks → it is skipped as in
    progress; without `tasks.md` the skip rule at `speckit-helper.sh:446` counts it as shipped): record the
    `req-coverage --all` baseline — expected 15 shipped / 0 failing, 9 in progress.
-2. Write the failing smoke fixtures (Sketch 5 + US2–US4, probe) citing `scoped-fr-citations/FR-NNN`.
+2. Write the failing smoke fixtures (Sketch 5 + US2–US4, probe, stray-qualifier check, FR-012 structural
+   check) citing `scoped-fr-citations/FR-NNN`.
 3. Implement `rc_citations` + mode + own/foreign rows; then the probe.
 4. Docs and command prose; CHANGELOG.
-5. Re-run `tests/smoke.sh` and `req-coverage --all`; mutation-check each new fixture.
+5. Re-run `tests/smoke.sh`, `req-coverage --all` and `req-coverage scoped-fr-citations`; mutation-check
+   each new fixture.

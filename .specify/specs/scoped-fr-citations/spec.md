@@ -58,7 +58,7 @@ specs already shipped (here and in adopters' CI) stay green without a migration.
 ### US3: Legacy specs keep today's behaviour [P1]
 - **Given** an unmarked spec `older` declaring `FR-001`, cited by a bare `FR-001`
 - **When** `req-coverage older` runs
-- **Then** `FR-001` is `COVERED` exactly as before, and the header names the mode (`legacy: bare ids count`)
+- **Then** `FR-001` is `COVERED` exactly as before, and the header names the mode (`mode: legacy (bare ids count)`)
 - **Edge**: `older/FR-001` also covers it; a qualified citation for *another* spec (`alpha/FR-001`) does not
 - **Error / must NOT happen**: running the new helper on this repository must not turn any of the 15
   currently-shipped specs red
@@ -100,7 +100,7 @@ specs already shipped (here and in adopters' CI) stay green without a migration.
 | FR-001 | `req-coverage` recognises the token `<spec>/FR-NNN` (spec = a `.specify/specs/` directory name of the current spec root, matched by `[A-Za-z0-9][A-Za-z0-9._-]*` — one grammar string shared by `req-coverage` and `spec-cite-probe.sh`; a qualifier that is itself `FR-<digits>` is an id list, both ids bare) and counts it as coverage for `<spec>` only | P1 | US1 |
 | FR-002 | A bare-id match never matches inside a qualified token: `alpha/FR-001` is not a bare `FR-001` citation | P1 | US1 |
 | FR-003 | A spec whose `spec.md` contains the line `<!-- req-coverage: scoped -->` is scoped: only `<its-name>/FR-NNN` citations cover its requirements | P1 | US2 |
-| FR-004 | In a scoped spec, an `UNCOVERED` row whose id has bare citations names up to 3 of them (`file:line`) and the qualified form to use | P2 | US2 |
+| FR-004 | In a scoped spec, when a requirement is `UNCOVERED` but bare citations of its id exist, the row keeps its `FR-NNN  UNCOVERED` shape and ends with `bare: <file:line> … — cite as <spec>/FR-NNN`, listing at most 3 locations; rows without bare citations, and legacy specs, carry no hint | P2 | US2 |
 | FR-005 | An unmarked (legacy) spec counts bare `FR-NNN` and `<its-name>/FR-NNN` citations; qualified citations for other specs never cover it | P1 | US3 |
 | FR-006 | The matrix header states the mode: `mode: scoped` or `mode: legacy (bare ids count)` | P2 | US3 |
 | FR-007 | A qualified citation `<other>/FR-NNN` where `<other>` exists and declares the id is `ELSEWHERE` (non-failing) | P1 | US4 |
@@ -110,7 +110,7 @@ specs already shipped (here and in adopters' CI) stay green without a migration.
 | FR-011 | `docs/sdd.md` documents the qualified form, the scoped marker, legacy mode, ELSEWHERE/UNKNOWN for qualified citations, the legacy→scoped move, and that every `FR-<digits>` token in `spec.md` is a declaration (example ids in prose need a non-digit placeholder) | P2 | US5 |
 | FR-012 | The `/hefesto:hef.spec` template writes the scoped marker, and `hef.tasks`, `hef.implement`, `hef.verify`, `hef.mutate` show `<spec>/FR-NNN` as the citation form | P2 | US5 |
 | FR-013 | `spec-cite-probe.sh` attributes a qualified citation to the named spec only; bare citations behave as today | P2 | US6 |
-| FR-014 | The smoke fixtures cover: the cross-spec collision under `--all` (US1), bare-vs-scoped (US2), legacy (US3), qualified ELSEWHERE and both UNKNOWN cases (US4), the probe (US6) — each mutation-checked | P1 | US1–US4, US6 |
+| FR-014 | The smoke fixtures cover: the cross-spec collision under `--all` (US1), bare-vs-scoped (US2), legacy (US3), qualified ELSEWHERE and the three UNKNOWN cases — missing spec, another spec's undeclared id, own undeclared id (US4), the probe (US6), a branch-independent check that no scanned file in this repository cites a qualifier with no spec directory, and a structural check of the template marker and command guidance (FR-012) — each mutation-checked | P1 | US1–US4, US6 |
 
 ## Success Criteria
 
@@ -122,4 +122,9 @@ specs already shipped (here and in adopters' CI) stay green without a migration.
 | SC-004 | This spec is itself scoped and its tests cite `scoped-fr-citations/FR-NNN`; `req-coverage scoped-fr-citations` is green at the end | dogfood run |
 
 ## Clarifications
-_None — D1–D4 above record the decisions the item left open._
+### Session 2026-11-06 (answers from the item's owner)
+- Q: Design (D1–D4)? → A: Accept D1–D4 as written.
+- Q: Plan-review findings? → A: Apply all five, then re-review once.
+- Q: Scope (FR-004/006/012/013)? → A: Keep all four in scope; reword FR-004 (done: it now states the row
+  shape, the hint text, the cap of 3, and when no hint is printed).
+- Q: Budget? → A: Raise `usd_cap` to 25 (a run setting — reported, not changed by this spec).
