@@ -35,7 +35,7 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
-## [Unreleased] - 9.3.0
+## [9.3.0] - 2026-11-06
 
 **One repository can hold several apps, each with its own `.specify/`; every command is written the way Claude Code
 resolves it (`/hefesto:hef.<name>`), and the docs match what the framework does.**
