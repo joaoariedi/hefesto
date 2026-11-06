@@ -40,14 +40,14 @@ arXiv 2602.00409). Cyclomatic gates therefore catch the least of it. Add these, 
 | Dead code | `knip` (JS/TS), `vulture` (Python), `deadcode` (Go), `ruff --select F401,F841` | run on the diff's files; brownfield needs a one-time ignore list |
 | Swallowed errors | `ruff --select BLE001,S110,S112`, eslint `no-empty`, Go `errcheck` | an empty handler added to make a check pass is blocking |
 | Patch coverage | `diff-cover coverage.xml --compare-branch=origin/main --fail-under=80` | gates the changed lines; the total stays visible, non-blocking |
-| Weak assertions | mutation testing (`mutmut`, Stryker) | the ratchet lives in `/hef.mutate` (6.2) |
+| Weak assertions | mutation testing (`mutmut`, Stryker) | the ratchet lives in `/hefesto:hef.mutate` (6.2) |
 | Complexity drift | `radon cc` / `xenon`, eslint `complexity`, `gocyclo`, `lizard` (polyglot) | fail when a changed function's CC rose by ≥3, not on an absolute cap |
 
 Hallucinated packages: install only from the lockfile in CI, and treat a dependency that did not
 exist in the lockfile before the change as a review item (5–22% of LLM-suggested packages do not
 exist; the names repeat across runs, so they are squattable — USENIX Security 2025).
 
-### Mutation ratchet (`/hef.mutate`)
+### Mutation ratchet (`/hefesto:hef.mutate`)
 
 | Stack | Tool | Incremental run |
 |---|---|---|
@@ -151,7 +151,7 @@ explicit opt-in.
 
 ## Dependency Audit
 
-Two helper arms make the supply-chain rule mechanical (board item HEF-9); `/hef.scan --deps` runs both.
+Two helper arms make the supply-chain rule mechanical (board item HEF-9); `/hefesto:hef.scan --deps` runs both.
 
 - **`speckit-helper.sh deps-diff [--staged] [<base>]`** — the DIRECT dependencies a change adds,
   re-versions or removes, read lexically from the manifests (zero-install, offline): `package.json`

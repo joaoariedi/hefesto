@@ -1,7 +1,7 @@
 #!/bin/bash
 # arena-run.sh — run ONE prompt through a model provider the user declared, and print its answer.
 # Board item HEF-13 (report 18 addendum A4, phase 2 of the arena): foreign readers for
-# `/hef.plan --arena --via`, and a labelled second opinion for `/hef.review --second-opinion`. Never
+# `/hefesto:hef.plan --arena --via`, and a labelled second opinion for `/hefesto:hef.review --second-opinion`. Never
 # the verifier of record.
 #
 #   arena-run.sh --check                                   which declared providers can run here

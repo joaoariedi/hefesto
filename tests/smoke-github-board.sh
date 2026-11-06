@@ -419,7 +419,7 @@ gb_tr "a deleted author is named as deleted (FR-007)" BC-53 3 "author (deleted) 
 [ "$x_fail" -eq 0 ] && ok "a repo named in another case lists and adds; an issue answered with an unexpected URL is named; --check refuses a column the Project lacks and passes a good map; a failed --item prints nothing; BC-041 is not issue 41; a deleted author is named; 2 mutations caught (code review 2026-11-04)"
 
 # --- FR-008 / FR-011: the command text ---------------------------------------------------------------------------------
-head_ "The orchestrator and /hef.ship text: a GitHub Project is a lane board (FR-008, FR-011)"
+head_ "The orchestrator and /hefesto:hef.ship text: a GitHub Project is a lane board (FR-008, FR-011)"
 x_fail=0
 gb_or="$REPO/commands/hef.orchestrate.md"; gb_sh="$REPO/commands/hef.ship.md"
 grep -qF 'can only be *read*' "$gb_or" && { bad "hef.orchestrate.md still says a github board can only be read (FR-011)"; x_fail=1; }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# implement-phase-test-guard.sh — tests may GROW during /hef.implement; they may not SHRINK.
+# implement-phase-test-guard.sh — tests may GROW during /hefesto:hef.implement; they may not SHRINK.
 #
 # Two guards, one file:
 #
@@ -244,7 +244,7 @@ case "$TOOL" in
     # a pre-filter wider than before (`"rm` inside bash -c counts): the lexer decides (#171)
     if [[ "$CMD" =~ (^|[^A-Za-z0-9_.-])rm([^A-Za-z0-9_.-]|$) ]]; then
       tok="$(removed_test_file "$CMD")" && {
-        echo "Blocked: /hef.implement is active and this removes a test file ($tok)." >&2
+        echo "Blocked: /hefesto:hef.implement is active and this removes a test file ($tok)." >&2
         echo "  Tests may grow during implementation, never shrink. End the phase first: speckit-helper.sh implement-phase-end" >&2
         exit 2
       }
@@ -261,7 +261,7 @@ case "$TOOL" in
 
     if [ "$TOOL" = "Write" ]; then
       if [ -e "$FILE" ]; then
-        echo "Blocked: /hef.implement is active and Write would OVERWRITE the existing test file $FILE." >&2
+        echo "Blocked: /hefesto:hef.implement is active and Write would OVERWRITE the existing test file $FILE." >&2
         echo "  Add or change cases with Edit so the diff shows exactly what moved. New test files may still be created." >&2
         echo "  To leave the phase: speckit-helper.sh implement-phase-end" >&2
         exit 2
@@ -278,7 +278,7 @@ case "$TOOL" in
     before=$(count_asserts "$OLD")
     after=$(count_asserts "$NEW")
     if [ "$before" -gt 0 ] && [ "$after" -lt "$before" ]; then
-      echo "Blocked: /hef.implement is active and this edit removes assertions from $FILE ($before → $after)." >&2
+      echo "Blocked: /hefesto:hef.implement is active and this edit removes assertions from $FILE ($before → $after)." >&2
       echo "  A test that asserts less to go green is the failure this phase exists to prevent." >&2
       echo "  If the assertion is genuinely wrong, say so to the user, or end the phase: speckit-helper.sh implement-phase-end" >&2
       exit 2

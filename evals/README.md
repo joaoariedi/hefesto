@@ -56,7 +56,7 @@ body). A case may set only `EVAL_*` env keys — `HEFESTO_GH_BIN` is refused bef
 that env reaches the plugin's hooks and the model's Bash but not the scaffold, so the scaffold only
 creates `bin/gh` and writes no settings env; the helpers resolve the relative value once, against the
 workspace top (measured by the lanes-parity T001 probe). `plan-arena-attributes-claims` (7.7) runs
-`/hef.plan --arena 2` on a spec with a stub `src/api.py`: two spawned scouts, no edit or write under
+`/hefesto:hef.plan --arena 2` on a spec with a stub `src/api.py`: two spawned scouts, no edit or write under
 `src/`, no write through Bash, `research.md` with an attributed Arena section and its footer; it needs
 `Write` in the operator grant (the run line above) and a longer budget (30 turns, 900 s). Three cases
 guard the orchestrator (7.3): `orchestrator-honours-blocked` (an entry blocked on `human:merge` is

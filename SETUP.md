@@ -114,34 +114,38 @@ Read what they paste:
 ## Step 3 — Check it works, and fix what does not
 
 1. This session's context shows `hefesto <latest> hooks loaded from …`.
-2. Ask the engineer to type `/hef.doctor`. Its report must say `status: RUNNING_MATCHES_CLONE`.
+2. Ask the engineer to type `/hefesto:hef.doctor`. Its report must say `status: RUNNING_MATCHES_CLONE`.
    It checks only this session's profile; Step 1 shows the others.
-3. Ask them to type `/hef.context`. It prints a summary of the project.
+3. Ask them to type `/hefesto:hef.context`. It prints a summary of the project.
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | No `hefesto … hooks loaded` line, or an older version, in a git project | The window was opened before the update, or this profile was not updated | Close every Claude Code window and open again. Still old: Step 2 again. |
-| `/hef.doctor` says `RUNNING_BEHIND_CLONE` (or `…_SAME_VERSION`) | This profile still runs an old copy | Step 2 again. |
+| `/hefesto:hef.doctor` says `RUNNING_BEHIND_CLONE` (or `…_SAME_VERSION`) | This profile still runs an old copy | Step 2 again. |
 | A profile the engineer uses is not in Step 1's `profile:` lines, or shows `hefesto=-` after the wizard | The wizard did not detect or include it | Step 2 with ` --profile <that folder>` added to the command. |
-| A `/hef.*` command does nothing, or asks permission on every call | A helper's permission prompt was denied | Run it again and approve. "Yes, don't ask again" is fine for `speckit-helper.sh`, `status-board.sh` and `pr-watch.sh`, never for `ledger.sh`. To stop the `speckit-helper.sh` prompts in every project, add the rule below. |
+| A `/hefesto:hef.*` command does nothing, or asks permission on every call | A helper's permission prompt was denied | Run it again and approve. "Yes, don't ask again" is fine for `speckit-helper.sh`, `status-board.sh` and `pr-watch.sh`, never for `ledger.sh` and never for `pr-watch.sh reply` or `pr-watch.sh comment`. To stop the `speckit-helper.sh` prompts in every project, add the rule below. |
 | Every command appears twice in the `/` menu | Old copies of hefesto files in `~/.claude/commands` or `~/.claude/agents` (the wizard only flags exact copies of files hefesto shipped) | List the duplicates (`ls ~/.claude/commands ~/.claude/agents`) and show them to the engineer. With their yes, give them the `mkdir -p ~/hefesto-old/manual && mv <files> ~/hefesto-old/manual/` line to run in their terminal. Then restart Claude Code. |
 | `git status` lists `.bashrc`, `.gitconfig`, `.idea` or `.gitmodules` the engineer never created | Sandbox masks, not real files | Ignore them. Never commit or delete them. |
 
 **The permission rule for `speckit-helper.sh`.** It goes in the settings of the profile the
 engineer works in: `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, once per profile. Merge it,
 keeping everything already there: show the engineer the change and write only after they say yes.
-If the file does not parse as JSON, stop and report; do not repair it. Replace
-`/home/you/.claude-framework` with the clone folder Step 1 printed, written literally: the
-permission matcher expands neither `$HOME` nor `~`. The doubled slash is not a typo:
-`${CLAUDE_PLUGIN_ROOT}` ends in a slash, so the commands send `…/.claude-framework//hooks/…`, and
-the matcher compares literally. The single-slash entry is a hedge for a future release.
+If the file does not parse as JSON, stop and report; do not repair it. The rule names the copy
+sessions load, the profile's plugin cache, not the clone: replace `<installPath>` with what
+`jq -r '.plugins["hefesto@hefesto"][].installPath' <profile>/plugins/installed_plugins.json` prints
+(`<profile>/plugins/cache/hefesto/hefesto/<version>`), written literally: the permission matcher
+expands neither `$HOME` nor `~`. The path changes with every release, so the rule must be
+rewritten after each upgrade. The doubled slash is not a typo: `${CLAUDE_PLUGIN_ROOT}` ends in a
+slash, so the commands send `…/<version>//hooks/…`, and the matcher compares literally. The
+single-slash entry is a hedge for a future release. In a project set up in Step 5,
+`hooks/hefesto-setup.sh` writes these rules itself (for every installed copy) — skip this there.
 
 ```jsonc
 {
   "permissions": {
     "allow": [
-      "Bash(/home/you/.claude-framework//hooks/speckit-helper.sh:*)",
-      "Bash(/home/you/.claude-framework/hooks/speckit-helper.sh:*)"
+      "Bash(<installPath>//hooks/speckit-helper.sh:*)",
+      "Bash(<installPath>/hooks/speckit-helper.sh:*)"
     ]
   }
 }
@@ -157,7 +161,7 @@ known), with a clean `git status`.
 
 **First, the mode** (`docs/quickstart.md`). **Single lane** — one orchestrator session that starts the
 planner, builder and deployer as background sessions — fits experiments, small projects and one feature at a
-time: then Step 4 is only `/hef.init` (4c item 1) — `/hef.orchestrate` creates a default board itself — and
+time: then Step 4 is only `/hefesto:hef.init` (4c item 1) — `/hefesto:hef.orchestrate` creates a default board itself — and
 Step 5 is the single-lane handover. **Four lanes** — the orchestrator plus a planner, a builder and a
 deployer session — fits a steady stream of RFCs. Ask the engineer which; if they do not know, it is the first
 decision in the lead's message (4b), recommending the single lane unless the project already has such a stream.
@@ -237,7 +241,7 @@ If nothing needs a decision, skip to 4c.
 
 With the lead's answers, write only what was decided. Ask the engineer before each change.
 
-1. **Bootstrap.** If `.specify/` is missing, ask the engineer to type `/hef.init`.
+1. **Bootstrap.** If `.specify/` is missing, ask the engineer to type `/hefesto:hef.init`.
 2. **The board.** If the lead chose a board in its own repository, do this there (item 4). Create
    the missing files with just a title (`# TODO`, `# DOING`, …), or convert the board as the lead
    decided. Never invent items.
@@ -286,7 +290,7 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
 5. **The project rule.** If the lead approved an exception to a project rule, add the sentence the
    lead approved to the project's `CLAUDE.md`, in the setup pull request. If the lead refused it,
    do not go to Step 5; say why under "Report back".
-6. **Check the board.** Ask the engineer to type `/hef.status`. It prints the board. Check that it
+6. **Check the board.** Ask the engineer to type `/hefesto:hef.status`. It prints the board. Check that it
    counts every item.
 7. **Commit the setup.** One pull request per repository you changed: branch
    `chore/hefesto-setup`, stage the files by name, commit, `git push origin chore/hefesto-setup`,
@@ -307,8 +311,9 @@ bash <clone>/hooks/hefesto-setup.sh            # four lanes: add --lanes
 ```
 
 It writes hefesto's helper allowlist, keeps the commands that record a person's decision behind a dialog,
-runs only the launcher outside the sandbox, makes every other unlisted command ask
-(`autoAllowBashIfSandboxed: false`), and pins the folder the launcher may work in. Tell the lead what that
+runs the launcher, `ledger.sh`, `pr-watch.sh`, `status-board.sh` and `gh` outside the sandbox
+(`sandbox.excludedCommands`), lets sandboxed commands run without a dialog (`--strict` makes every unlisted
+command ask: `autoAllowBashIfSandboxed: false`), and pins the folder the launcher may work in. Tell the lead what that
 leaves: a lane reads item and RFC text written by others, and a person reads each dialog before answering
 it. After each hefesto update the engineer runs it again (a lane's first lines say when).
 
@@ -317,19 +322,19 @@ it. After each hefesto update the engineer runs it again (a lane's first lines s
 Tell the engineer:
 1. `claude --name <repo>-orchestrator` — any wrapper that passes claude's arguments on works
    (`claude-profile <p> --name …`).
-2. `/hef.orchestrate` once: it checks the setup and creates the board if there is none.
-3. `/hef.ship "<what you want>"` for each change (or `/hef.ship <ID>` for a board item). Every decision is a
+2. `/hefesto:hef.orchestrate` once: it checks the setup and creates the board if there is none.
+3. `/hefesto:hef.ship "<what you want>"` for each change (or `/hefesto:hef.ship <ID>` for a board item). Every decision is a
    form in that session; they merge the pull request on GitHub with **Create a merge commit**, then run
-   `/hef.orchestrate` once to record it.
+   `/hefesto:hef.orchestrate` once to record it.
 
 ### Four lanes
 
 Tell the engineer:
 1. Open four sessions, each in its own terminal, all with the same profile: `claude --name <repo>-orchestrator`,
    `<repo>-planner`, `<repo>-builder`, `<repo>-deployer`.
-2. Once in each stage lane: `/hef.orchestrate --stage plan`, `--stage build`, `--stage deploy`. They then
+2. Once in each stage lane: `/hefesto:hef.orchestrate --stage plan`, `--stage build`, `--stage deploy`. They then
    wait for the orchestrator's doorbell — no `/loop`.
-3. In the orchestrator: `/hef.orchestrate`, then `/hef.ship <ID>` (or `"<idea>"`) for each RFC'd item.
+3. In the orchestrator: `/hefesto:hef.orchestrate`, then `/hefesto:hef.ship <ID>` (or `"<idea>"`) for each RFC'd item.
    Approvals, answers and change requests are forms there; merges are on GitHub (**Create a merge commit**;
    a squash or rebase merge the lead records with `ledger.sh unblock <id> --merge-sha <sha>`).
 4. Compaction: when a lane's status line says so, that lane's own `/compact` prompt — fetch them with

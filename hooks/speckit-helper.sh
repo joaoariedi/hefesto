@@ -42,7 +42,7 @@ BRANCH=$(git branch --show-current 2>/dev/null | sed 's|^feature/||')
 
 # monorepo-spec-roots (#172): the spec subcommands run from the SPEC ROOT — the nearest folder holding .specify/,
 # found the way git finds .git (hooks/spec-root-lib.sh) — so one cd covers every relative .specify/ lookup below.
-# The rest keep the cwd: git and path-argument subcommands, and check-specify-dir, which /hef.init asks to learn
+# The rest keep the cwd: git and path-argument subcommands, and check-specify-dir, which /hefesto:hef.init asks to learn
 # whether THIS folder has one (an app folder under a top .specify/ must still be told NOT_FOUND).
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # req-coverage --all re-enters itself after the cd
 # shellcheck source=hooks/spec-root-lib.sh
@@ -66,7 +66,7 @@ other_roots_with() { # $1 relative path under a spec root → "  <folder>/<path>
 
 # The spec directory name and the branch name are ONE contract, not two: artifacts live at
 # .specify/specs/$(git branch --show-current | sed 's|^feature/||')/. Nothing states this — not
-# /hef.spec, which asks for a 2-4 word kebab-case name and separately says to branch
+# /hefesto:hef.spec, which asks for a 2-4 word kebab-case name and separately says to branch
 # `feature/<name>`, leaving the equality implied by juxtaposition. When they diverge, every artifact
 # is missing for a reason that has nothing to do with the artifacts. Say so specifically.
 missing_artifact() {  # $1 = artifact filename, e.g. spec.md
@@ -76,7 +76,7 @@ missing_artifact() {  # $1 = artifact filename, e.g. spec.md
   local elsewhere; elsewhere="$(other_roots_with ".specify/specs/$BRANCH")"
   [ -z "$elsewhere" ] || die "no $1: $want does not exist in this spec root ($PWD), but the feature is in:$elsewhere — run this from that app's folder"
   if [ -z "$found" ]; then
-    die "no $1: $want does not exist, and .specify/specs/ holds no feature directories at all. Run /hef.spec first."
+    die "no $1: $want does not exist, and .specify/specs/ holds no feature directories at all. Run /hefesto:hef.spec first."
   fi
   die "no $1: expected it at $want (the spec directory MUST be named after the branch, minus any 'feature/' prefix). Existing spec directories: ${found% }. Either rename the directory to '$BRANCH', or switch to the branch that matches it."
 }
@@ -290,16 +290,16 @@ case "$1" in
       [ -f .specify/memory/constitution.md ] || exit 0
       echo; echo "## $(spec_root_label "$(pwd -P)") constitution"
     fi
-    cat .specify/memory/constitution.md 2>/dev/null || die "no constitution: .specify/memory/constitution.md does not exist. Run /hef.init to scaffold it, or /hef.constitution to populate it."
+    cat .specify/memory/constitution.md 2>/dev/null || die "no constitution: .specify/memory/constitution.md does not exist. Run /hefesto:hef.init to scaffold it, or /hefesto:hef.constitution to populate it."
     ;;
   list-specs)
-    ls -d .specify/specs/*/ 2>/dev/null || die "no specs: .specify/specs/ holds no feature directories. Run /hef.spec first."
+    ls -d .specify/specs/*/ 2>/dev/null || die "no specs: .specify/specs/ holds no feature directories. Run /hefesto:hef.spec first."
     ;;
   list-specs-dir)
     ls .specify/specs/ 2>/dev/null || echo "NO_SPECS_DIR"
     ;;
   check-specify-dir)
-    # PREDICATE. /hef.init asks this precisely to learn the answer, so NOT_FOUND is a normal
+    # PREDICATE. /hefesto:hef.init asks this precisely to learn the answer, so NOT_FOUND is a normal
     # reply, never a failure — it is the whole reason init exists.
     if [ -d .specify ]; then echo "EXISTS"; else echo "NOT_FOUND"; exit 1; fi
     ;;
@@ -429,11 +429,11 @@ case "$1" in
   #
   # This is the half of the traceability chain nothing checked before: /speckit.analyze maps FR →
   # tasks BEFORE code exists; the implement report's "coverage mapping" was prose the model wrote.
-  # req-coverage [<spec-name>|--all] — no argument: the current branch's spec (the /hef.verify
+  # req-coverage [<spec-name>|--all] — no argument: the current branch's spec (the /hefesto:hef.verify
   # case). A name: that spec, whatever the branch (CI on main has no feature branch). --all: every
   # spec whose tasks.md has no open task — the SHIPPED ones — each run as its own predicate; specs
   # still in progress are listed and skipped, because their uncovered requirements are the work
-  # that has not happened yet, not drift. Post-ship drift is the case nothing checked: /hef.verify
+  # that has not happened yet, not drift. Post-ship drift is the case nothing checked: /hefesto:hef.verify
   # runs once, at implementation, and a later hotfix that breaks a cited test rots the spec silently.
   req-coverage)
     target="${2:-}"
@@ -558,7 +558,7 @@ case "$1" in
   #
   # Measured 2026-09-23: `plugin install` COPIES the directory-marketplace clone into
   # $CLAUDE_CONFIG_DIR/plugins/cache/hefesto/hefesto/<version>/, and sessions load from there.
-  # /hef.doctor used to `git rev-parse` CLAUDE_PLUGIN_ROOT — which IS that cache, and is not a git
+  # /hefesto:hef.doctor used to `git rev-parse` CLAUDE_PLUGIN_ROOT — which IS that cache, and is not a git
   # clone — so it reported "staleness cannot be measured" for the one copy that matters, while the
   # clone it did measure was not what ran. Three profiles: two on 7.0.1, one still on 6.0.0, and
   # the doctor would have called all three in sync.
@@ -602,7 +602,7 @@ case "$1" in
     ;;
 
   # --- RTK CLI output compression (optional, auto-detected) ---
-  # --- /hef.plan --arena (feature plan-arena FR-006, FR-008) ---------------------------------------
+  # --- /hefesto:hef.plan --arena (feature plan-arena FR-006, FR-008) ---------------------------------------
   # arena-cite-check: every `path:line` a truth-scout cited must exist in the checkout — verified here
   # in ONE call so the planner never reads up to 36 cited lines into its own context. A missing
   # citation is printed, never silently dropped (constitution 5).

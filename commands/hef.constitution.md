@@ -50,7 +50,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh list-rule
    ```markdown
    # Project Constitution
    <!-- Version: 1.0.0 | Date: YYYY-MM-DD -->
-   <!-- Updated by /hef.constitution -->
+   <!-- Updated by /hefesto:hef.constitution -->
 
    ## Principles
 

@@ -111,7 +111,7 @@ if grep -qE '(^|/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Cargo\.t
     DEPS_N=$(grep -c . <<<"$DEPS_ADDED")
     DEPS_LIST=$(awk '{print $2 " " $3}' <<<"$DEPS_ADDED" | paste -sd, - | sed 's/,/, /g')
     if [ "$DEPS_N" -eq 1 ]; then DEPS_WORD="dependency"; else DEPS_WORD="dependencies"; fi
-    ADVISORY="$DEPS_N new $DEPS_WORD staged ($DEPS_LIST) — verify each exists on its registry and is the intended package, then run /hef.scan --deps before the PR"
+    ADVISORY="$DEPS_N new $DEPS_WORD staged ($DEPS_LIST) — verify each exists on its registry and is the intended package, then run /hefesto:hef.scan --deps before the PR"
   fi
 fi
 

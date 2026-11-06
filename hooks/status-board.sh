@@ -1,5 +1,5 @@
 #!/bin/bash
-# status-board.sh — the mechanical half of /hef.status: one management brief from a per-project
+# status-board.sh — the mechanical half of /hefesto:hef.status: one management brief from a per-project
 # source declared in .claude/project-status.json.
 #
 #   source "github-project"  — a GitHub Projects board: status distribution, epics (issues whose
@@ -149,7 +149,7 @@ miss() { # in run mode the checklist goes to stderr: stdout must stay empty when
 finish_preflight() {
   if [ "$MODE" = "check" ]; then
     echo
-    if [ "$fail" -eq 0 ]; then echo "  All prerequisites met — /hef.status is ready."; exit 0
+    if [ "$fail" -eq 0 ]; then echo "  All prerequisites met — /hefesto:hef.status is ready."; exit 0
     else echo "  $fail prerequisite(s) missing — fix the items above, then re-run."; exit 1; fi
   fi
   if [ "$fail" -ne 0 ]; then
@@ -223,7 +223,7 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 # An item's KIND (item-kinds FR-001; report 18 #6): a kind glyph anywhere before the id on its heading —
 # not only first, because publish puts a STATE marker in front (`## ⏸ 🐞 HEF-21`). Config `kinds` over
 # the default; the two glyph sets never overlap (asserted by the smoke suite), or --mark would strip a
-# kind. The first token is still what /hef.status reads as the sub-state: label kind glyphs via `states`.
+# kind. The first token is still what /hefesto:hef.status reads as the sub-state: label kind glyphs via `states`.
 # The glyph goes BEFORE the id (`## 🐞 HEF-21 — …`); one after it is title text. Variation selectors
 # (U+FE0E text, U+FE0F emoji) are stripped from both the map's keys and the heading's tokens before the
 # lookup — editors add or drop VS16 at will, and 🛡 / 🛡️ must be one glyph (quality gate 2026-10-02).

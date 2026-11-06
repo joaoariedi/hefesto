@@ -1,5 +1,5 @@
 #!/bin/bash
-# doctor-tmp.sh — /hef.doctor's check of Claude Code's temp directory. Read-only; prints one line and a status.
+# doctor-tmp.sh — /hefesto:hef.doctor's check of Claude Code's temp directory. Read-only; prints one line and a status.
 #
 # Claude Code keeps every session's scratch, background-task output and the sandbox's TMPDIR under one directory:
 # CLAUDE_CODE_TMPDIR, else /tmp/claude-<uid>. On a machine whose /tmp is a RAM-backed tmpfs with a user quota, a day

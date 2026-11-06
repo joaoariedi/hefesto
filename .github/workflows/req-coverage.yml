@@ -1,6 +1,6 @@
 # req-coverage.yml — post-ship requirement traceability, for projects that adopt Hefesto.
 #
-# /hef.verify checks FR → tests once, at implementation. This runs the same predicate on every
+# /hefesto:hef.verify checks FR → tests once, at implementation. This runs the same predicate on every
 # PR for every SHIPPED spec (tasks.md with no open task), so a hotfix that edits a cited test
 # without touching the spec fails the PR instead of rotting the spec. Specs still in progress are
 # listed and skipped — their uncovered requirements are work not yet done, not drift.

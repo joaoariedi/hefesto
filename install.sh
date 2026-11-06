@@ -133,11 +133,11 @@ msg_en() {
     w_yes) echo "yes" ;;
     w_no) echo "no" ;;
     all_good) echo "All good: every profile runs hefesto {1}." ;;
-    verify_failed) echo "Not every profile runs hefesto {1}. Read the messages above, or ask for help with /hef.doctor." ;;
+    verify_failed) echo "Not every profile runs hefesto {1}. Read the messages above, or ask for help with /hefesto:hef.doctor." ;;
     next_header) echo "Next steps" ;;
     next_restart) echo "  1. Restart Claude Code (close every session and open it again)." ;;
     next_line) echo "  2. At the start of a session, look for the line: hefesto {1} hooks loaded from …" ;;
-    next_doctor) echo "  3. Run /hef.doctor in a session: it checks the whole install." ;;
+    next_doctor) echo "  3. Run /hefesto:hef.doctor in a session: it checks the whole install." ;;
     next_sessions) echo "  4. Set each project up once (hooks/hefesto-setup.sh), then open a lane with claude --name <repo>-orchestrator — one lane, or four: {1}" ;;
     next_guide) echo "  5. The full guide: {1}" ;;
     backup_note) echo "Backups of the files I changed: {1}" ;;
@@ -259,11 +259,11 @@ msg_pt() {
     w_yes) echo "sim" ;;
     w_no) echo "não" ;;
     all_good) echo "Tudo certo: todos os perfis rodam o hefesto {1}." ;;
-    verify_failed) echo "Nem todo perfil roda o hefesto {1}. Leia as mensagens acima, ou peça ajuda com /hef.doctor." ;;
+    verify_failed) echo "Nem todo perfil roda o hefesto {1}. Leia as mensagens acima, ou peça ajuda com /hefesto:hef.doctor." ;;
     next_header) echo "Próximos passos" ;;
     next_restart) echo "  1. Reinicie o Claude Code (feche todas as sessões e abra de novo)." ;;
     next_line) echo "  2. No início de uma sessão, procure a linha: hefesto {1} hooks loaded from …" ;;
-    next_doctor) echo "  3. Rode /hef.doctor numa sessão: ele confere a instalação inteira." ;;
+    next_doctor) echo "  3. Rode /hefesto:hef.doctor numa sessão: ele confere a instalação inteira." ;;
     next_sessions) echo "  4. Prepare cada projeto uma vez (hooks/hefesto-setup.sh) e abra uma sessão com claude --name <repo>-orchestrator — uma sessão, ou quatro: {1}" ;;
     next_guide) echo "  5. O guia completo (em inglês): {1}" ;;
     backup_note) echo "Backups dos arquivos que mudei: {1}" ;;

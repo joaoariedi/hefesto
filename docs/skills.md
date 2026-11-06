@@ -11,7 +11,7 @@ The framework ships three **action skills** — things a person invokes — and 
 | Skill | Purpose | Who invokes it |
 |-------|---------|----------------|
 | 🐛 `systematic-debugging` | 4-phase root cause investigation (read → reproduce → evidence → fix) with Iron Law | You or Claude — proactively on bugs |
-| 📐 `task-effort-estimation` | Deterministic change sizing — Pfeiffer Contribution Complexity from git metadata, plus AI-native risk flags | You or Claude — on "how big is this?"; `/hef.agent` uses it to route |
+| 📐 `task-effort-estimation` | Deterministic change sizing — Pfeiffer Contribution Complexity from git metadata, plus AI-native risk flags | You or Claude — on "how big is this?"; `/hefesto:hef.agent` uses it to route |
 | ⚡ `performance-audit` | N+1 queries, blocking I/O, memory leaks, algorithm complexity | You — explicit only |
 | 🔧 `quality-tooling` | Per-language lint/format/type-check/test/security commands, AI-defect gates, mutation ratchet, RTK, Lefthook | Claude only (knowledge) |
 | 🔐 `pipeline-security` | SAST/DAST/SCA/secrets/ASPM tooling by team size, budget, and pipeline tier | Claude only (knowledge) |
@@ -23,9 +23,9 @@ The framework ships three **action skills** — things a person invokes — and 
 | Instead of a custom skill | Use the built-in | Why |
 |---|---|---|
 | verification-before-completion | `/verify` | It builds and drives the real app rather than settling for a green typecheck. The **Iron Law** survives as a *rule* in `code-quality.md` — a rule is always in context, whereas a skill only loads when invoked. |
-| security-review | `/security-review` | Full branch review. `/hef.scan` remains for the fast, diff-only pass. |
-| context-analysis | `/hef.context` | The command already carries the methodology and injects live git data. |
-| spec-template | `/hef.spec` | The Given/When/Then patterns now live in the command itself. |
+| security-review | `/security-review` | Full branch review. `/hefesto:hef.scan` remains for the fast, diff-only pass. |
+| context-analysis | `/hefesto:hef.context` | The command already carries the methodology and injects live git data. |
+| spec-template | `/hefesto:hef.spec` | The Given/When/Then patterns now live in the command itself. |
 
 `task-effort-estimation` deliberately reports a **complexity score and risk flags, never an hour count**. Effort under AI assistance is bimodal — up to 78% of high-complexity *isolated* features land under a quarter of expected effort, while ~22% of *low*-complexity tasks needing non-local context exceed 180%. So it flags the small diff with high coupling, which is the shape of work a naive estimate waves through. Hours only appear once `.claude/effort-calibration.json` maps observed scores to real recorded durations for your project.
 

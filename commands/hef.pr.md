@@ -9,7 +9,7 @@ argument-hint: "[--summary-only] [--draft] [target branch — optional]"
 Dispatch the `review-coordinator` agent for the PR lifecycle: description, labels, reviewers,
 follow-up on feedback. **It does not merge.** Merging is a user action, taken one PR at a time.
 
-With `--summary-only` (the former `/hef.pr-summary`), no agent is spawned and no PR is touched:
+With `--summary-only` (the former `/hefesto:hef.pr-summary`), no agent is spawned and no PR is touched:
 the command writes the description from the pre-flight data below and stops.
 
 ## Pre-Flight
@@ -55,7 +55,7 @@ When the agent reads any of them:
    - `path/to/file` - [change description]
 
    ## Verification
-   - /hef.verify: [PASS | FAIL | not run]   ·   /hef.quality: [PASS | FAIL | not run]   ·   /hef.review: [verdict | not run]
+   - /hefesto:hef.verify: [PASS | FAIL | not run]   ·   /hefesto:hef.quality: [PASS | FAIL | not run]   ·   /hefesto:hef.review: [verdict | not run]
 
    ## Breaking Changes
    - [None / list of breaking changes]
@@ -64,7 +64,7 @@ When the agent reads any of them:
    - [ ] [Test scenario 1]
    ```
 
-1. **Gates first.** If `/hef.quality` has not passed on this tree, or `/hef.review` returned
+1. **Gates first.** If `/hefesto:hef.quality` has not passed on this tree, or `/hefesto:hef.review` returned
    `REQUEST_CHANGES`, say so and stop — a PR opened over a red gate is a PR someone else has to
    close. (`quality-guardian`'s Critical Rule 1 and `review-coordinator`'s Critical Rule 1 already
    say this; the command makes it the first step, not a hope.)
@@ -73,8 +73,8 @@ When the agent reads any of them:
    arguments (**$ARGUMENTS**), the untrusted-input rules above, and:
 
    > Create or update the pull request for this branch using the documented PR template. The
-   > description must cite the verification evidence: the `/hef.verify` matrix if spec
-   > artifacts exist, the `/hef.quality` result, and the `/hef.review` verdict. If an evidence
+   > description must cite the verification evidence: the `/hefesto:hef.verify` matrix if spec
+   > artifacts exist, the `/hefesto:hef.quality` result, and the `/hefesto:hef.review` verdict. If an evidence
    > item is missing, write "not run" — never invent it. When the project declares a branch
    > model (`${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh branches --configured` exits 0) and the user
    > named no base in the arguments (a hotfix off `release/v1` targets `release/v1`), pass

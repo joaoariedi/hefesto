@@ -44,6 +44,9 @@ sr_launch_lines() { # hooks-dir → the normalised plan + implement dry runs of 
   # macOS /bin/bash 3.2 renders the dry run's quoted apostrophe ('\'' under bash 5) as \'\\'\' — the launcher's display
   # helper q(), unchanged since 9.2.0; the fixture is the bash 5 rendering, so the 3.2 form is mapped onto it
   local b32="\\'\\\\'\\'" b5="'\\''"; out="${out//"$b32"/$b5}"
+  # 9.3.0 spells every command the way Claude Code resolves a plugin component (/hefesto:hef.<name>); the fixture is
+  # 9.2.0's, so the spelling is mapped back: everything else must still be byte-identical
+  local ns_full="/hefesto:hef." ns_bare="/hef."; out="${out//"$ns_full"/$ns_bare}"   # no backslash: bash 3.2 keeps it in the replacement
   sed -e "s#$t#<TOP>#g" -e "s#$cfg#<CFG>#g" -e "s#$hd#<HOOKS>#g" -e "s#$HOME#<HOME>#g" -e 's#worker-cache/[^/ "]*#worker-cache/<KEY>#g' \
       -e 's/\(untrusted-[a-z]*-\{0,1\}[a-z]* HEF-1\) [0-9a-f]\{8\}/\1 <N>/g' -e 's/untrusted-end [0-9a-f]\{8\}/untrusted-end <N>/g' <<<"$out"
   rm -rf "$t" "$cfg"
@@ -181,7 +184,7 @@ sr_helper_tests() {
   c="$(sr_h "$sr_r" plan 2>&1)"
   grep -qF 'backend/.specify/specs/audit-log' <<<"$c" && grep -qF 'frontend/.specify/specs/audit-log' <<<"$c" \
     || { bad "FR-003 a missing artifact names the declared apps that hold the feature — got: $(head -c 400 <<<"$c")"; x_fail=1; }
-  [ "$(sr_h "$sr_r/frontend/src" check-specify-dir 2>&1)" = NOT_FOUND ] || { bad "FR-002 check-specify-dir stays literal to the cwd (/hef.init in an app folder)"; x_fail=1; }
+  [ "$(sr_h "$sr_r/frontend/src" check-specify-dir 2>&1)" = NOT_FOUND ] || { bad "FR-002 check-specify-dir stays literal to the cwd (/hefesto:hef.init in an app folder)"; x_fail=1; }
   rm -rf "$sr_r/backend/internal/.specify" "$sr_r/backend/.specify/.plan-in-progress"   # a mutant's stray marker must not reach the next test
   return 0
 }
@@ -394,7 +397,7 @@ sr_launch_tests() {
   grep -qF 'owned by the app in backend/' <<<"$o" || { bad "FR-009 the implement prompt names the owning app"; x_fail=1; }
   o="$(sr_sl plan HEF-2 --dry-run)"; grep -qF 'decide the owning app in the orchestrator' <<<"$o" || { bad "FR-008 an item with no app is refused while spec_roots is declared — got: $(head -c 200 <<<"$o")"; x_fail=1; }
   o="$(sr_sl plan HEF-3 --dry-run)"; grep -qF "app 'payments' is not declared" <<<"$o" || { bad "FR-009 an undeclared app is refused at launch — got: $(head -c 200 <<<"$o")"; x_fail=1; }
-  o="$(sr_sl plan HEF-5 --dry-run)"; grep -qF 'has no .specify/' <<<"$o" || { bad "FR-009 an app folder with no .specify/ is refused, naming /hef.init — got: $(head -c 200 <<<"$o")"; x_fail=1; }
+  o="$(sr_sl plan HEF-5 --dry-run)"; grep -qF 'has no .specify/' <<<"$o" || { bad "FR-009 an app folder with no .specify/ is refused, naming /hefesto:hef.init — got: $(head -c 200 <<<"$o")"; x_fail=1; }
   o="$(sr_sl plan HEF-6 --dry-run)"; grep -qF 'resolves outside' <<<"$o" || { bad "FR-009 an app folder that links out of the repository is refused — got: $(head -c 200 <<<"$o")"; x_fail=1; }
   # the migration rule: spec_dir recorded, spec_root null → the owner from spec_dir; no form, no refusal
   (cd "$sr_l" && bash "$REPO/hooks/ledger.sh" record HEF-2 --worktree "$sr_l/.claude/worktrees/HEF-2" --spec-dir frontend/.specify/specs/x) >/dev/null 2>&1
@@ -491,7 +494,7 @@ sr_cmd hef.orchestrate.md 'ledger.sh list --undecided-app' "FR-008 the orchestra
 sr_cmd hef.orchestrate.md 'ledger.sh record <id> --spec-root <name>' "FR-008 the app answer is recorded"
 sr_cmd hef.orchestrate.md 'show `<worktree>/<spec_dir>`' "FR-010 the plan-approval form resolves a relative spec_dir"
 sr_cmd hef.orchestrate.md 'printed an `app:` line, `cd` into that folder' "FR-014 an interactive lane works from the app folder"
-sr_cmd hef.ship.md 'Add `--app <name>` to the `--add` call' "FR-008 /hef.ship asks the app and writes the line"
+sr_cmd hef.ship.md 'Add `--app <name>` to the `--add` call' "FR-008 /hefesto:hef.ship asks the app and writes the line"
 sr_cmd hef.quality.md "run from the owning app's" "FR-013 app checks from the app folder"
 sr_cmd hef.quality.md 'run once
 from the repository top' "FR-013 repository-wide checks once from the top"

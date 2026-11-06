@@ -2,27 +2,40 @@
 # hefesto-setup.sh — set a project up for the hefesto lanes, once per project and machine (lanes-v3 FR-001..005).
 # Run it in a normal terminal from the project's main folder:
 #
-#   bash ~/.claude-framework/hooks/hefesto-setup.sh [--lanes] [--keep-statusline] [--check | --remove | --print]
+#   bash ~/.claude-framework/hooks/hefesto-setup.sh [--lanes] [--strict] [--keep-statusline]
+#        [--allow-command <p>]... [--unsandboxed-command <p>]... [--forget-commands] [--check | --remove | --print]
 #
 # It merges into <main checkout>/.claude/settings.local.json (kept out of git) what a lane needs, so a lane
 # opens with plain `claude --name <repo>-<lane>` — or any wrapper that forwards claude's arguments:
-#   permissions.allow         hefesto's own read-only and registering helper calls, as exact rules
+#   permissions.allow         hefesto's own read-only and registering helper calls, as exact rules; gh's read and
+#                             PR-opening forms; each --allow-command
 #   permissions.ask           the commands that clear or rewrite a person's decision — their dialog always shows
-#   sandbox.excludedCommands  the launcher only: the lane keeps its sandbox, its background sessions still run
-#   sandbox.filesystem.allowWrite  on an external board, the board's ledger folder (never the board repository)
+#   permissions.deny          Edit on ~/.cache/hefesto/{ledger,approvals,sessions}, by every spelling of the path
+#   sandbox.enabled / failIfUnavailable  true: a lane never runs unsandboxed by accident
+#   sandbox.excludedCommands  session-launch.sh, ledger.sh, pr-watch.sh, status-board.sh, `gh *`, and each
+#                             --unsandboxed-command (an absolute path no sandboxed session can write)
+#   sandbox.network.deniedDomains  api.github.com: only the unsandboxed gh, decided by the rules, reaches it
+#   sandbox.filesystem.allowWrite  with --lanes, the lanes' build cache ~/.cache/hefesto/lane-cache/<key>
+#                             (created here; env.HEFESTO_LANE_CACHE names it, lane-build.sh uses it); the 8.x
+#                             grant of the ledger folder is taken out (since 9.0 the ledger is in ~/.cache/hefesto)
+#   permissions.additionalDirectories  with --lanes on an external board, the code repos its `repos` names
 #   statusLine                the context gauge, run as `context-gauge.sh --with-user`: your profile's own status
 #                             line first, then `ctx 45% · 90k/200k` (left alone when this file already has one)
 #   crossSessionInbound       "accept", with --lanes: the orchestrator's doorbells reach the stage lanes
-#   sandbox.autoAllowBashIfSandboxed  false: any command outside the allowlist asks, sandboxed or not — else a
-#                             sandboxed call could rewrite the ledger (.git/hefesto) and clear a gate silently
+#   sandbox.autoAllowBashIfSandboxed  false, only with --strict: any command outside the allowlist asks,
+#                             sandboxed or not (without --strict an earlier setup's false is taken back out)
 #   env.HEFESTO_TRUSTED_TOP / HEFESTO_TRUSTED_BOARD  the folders the launcher may run in, fixed here where no
-#                             sandboxed session can change them
+#                             sandboxed session can change them; with --lanes also HEFESTO_LANES, HEFESTO_LANE_MAP
 # Every other key is kept. A plugin cannot ship these settings itself, hence this step.
-#   --lanes            the four-lane setup (adds crossSessionInbound)
-#   --keep-statusline  never touch statusLine
-#   --check            read-only: "setup: ok", or what is missing for this plugin root (exit 1)
-#   --remove           take out every entry this script writes (for any hefesto version)
-#   --print            show the merged file; write nothing
+#   --lanes                    the four-lane setup (doorbells, the lane map, the build cache)
+#   --strict                   autoAllowBashIfSandboxed false
+#   --keep-statusline          never touch statusLine
+#   --allow-command <p>        also allow this plain read-only command pattern (remembered across runs)
+#   --unsandboxed-command <p>  also run this absolute-path command outside the sandbox (remembered across runs)
+#   --forget-commands          drop the remembered --allow-command / --unsandboxed-command patterns
+#   --check                    read-only: "setup: ok", or what is missing for this plugin root (exit 1)
+#   --remove                   take out every entry this script writes (for any hefesto version)
+#   --print                    show the merged file; write nothing
 # Rules name each plugin root explicitly — the clone this runs from and each profile's installed copy —
 # never with a wildcard inside a path: `…/hefesto/*/hooks/session-launch.sh *` would also match
 # `…/hefesto/../../../tmp/x/hooks/session-launch.sh`, a file a sandboxed session can write, and run it outside
@@ -39,7 +52,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --allow-command) [ -n "${2:-}" ] || die "--allow-command needs a pattern"; NEW_ALLOW+=("$2"); shift ;;
   --unsandboxed-command) [ -n "${2:-}" ] || die "--unsandboxed-command needs a pattern"; NEW_EXCL+=("$2"); shift ;;
   --check|--remove|--print) [ "$MODE" = write ] || die "one of --check, --remove, --print at a time (got --$MODE and $1)"; MODE="${1#--}" ;;
-  -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) die "unknown option '$1' (expected --lanes, --strict, --keep-statusline, --allow-command, --unsandboxed-command, --forget-commands, --check, --remove or --print)" ;;
 esac; shift; done
 [ "$LANES" = 0 ] || [ "$MODE" != remove ] || die "--lanes does not go with --remove (it takes every hefesto entry out, the lane ones included)"

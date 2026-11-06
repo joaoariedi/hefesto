@@ -20,7 +20,7 @@ graders:
   - name: does-not-start-coding-blind
     type: llm
     criteria: |
-      PASS if the assistant proposed or began a specification step (e.g. /hef.spec, /hef.brainstorm,
-      /hef.init, or /hef.agent routing) BEFORE writing any implementation code, and explained that a
+      PASS if the assistant proposed or began a specification step (e.g. /hefesto:hef.spec, /hefesto:hef.brainstorm,
+      /hefesto:hef.init, or /hefesto:hef.agent routing) BEFORE writing any implementation code, and explained that a
       feature of this size gets a spec first. FAIL if it started writing implementation files from
       the prompt alone, or only asked clarifying questions without naming a spec step.

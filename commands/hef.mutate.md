@@ -65,7 +65,7 @@ The stored high-water mark lives at `.specify/mutation-score`. The rule:
 For every surviving mutant, in order of the code's importance:
 1. Read the mutation (`mutmut show <id>` / the Stryker report). Ask: *what observable behaviour
    changed, and which test should have failed?*
-2. Write that assertion — cite the requirement id (`# FR-NNN`) so `/hef.verify` sees it.
+2. Write that assertion — cite the requirement id (`# FR-NNN`) so `/hefesto:hef.verify` sees it.
    Prefer strengthening an existing test over adding a near-duplicate.
 3. If the mutant is **equivalent** (the change is unobservable by design), mark it so in the
    tool, with one line of reasoning. Do not weaken the code to make a mutant killable.
@@ -83,5 +83,5 @@ score:     P%   mark: M%   floor: M-5%   → PASS | FAIL
 survivors triaged: S → tests added: A, equivalent: E, remaining: R
 ```
 
-`/hef.quality` reports coverage; this reports whether the tests would notice. When the two
+`/hefesto:hef.quality` reports coverage; this reports whether the tests would notice. When the two
 disagree, this one is right.

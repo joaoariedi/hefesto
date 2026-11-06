@@ -17,7 +17,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/inst
 It does every step in this section, *Updating* (§5) and §6 for each profile it finds: it reports
 the clone, each profile's installed version and any old install, prints the numbered plan with the
 reason for each step, and asks about each one (Enter accepts the recommendation; `--yes` accepts all
-of them, `--dry-run` changes nothing). It never deletes or uses `sudo`; a file it replaces is backed
+of them, `--dry-run` changes nothing; `--version <tag|main>` installs that release instead of the latest,
+`--profile <dir>` adds a profile, and `HEFESTO_CLONE_DIR` puts the clone somewhere other than
+`~/.claude-framework`). It never deletes files or uses `sudo` (the one removal: with your yes, it
+uninstalls the old `ai-development-framework` plugin); a file it replaces is backed
 up to `~/hefesto-old/<timestamp>/` first; it stops on a clone with local changes; and it leaves
 symlinked `rules/` or `CLAUDE.md` (dotfiles) alone. Files from an old stow install are listed with
 the exact commands to move them, never moved for you. It ends with a table of profile → version →
@@ -62,11 +65,14 @@ The plugin bundles **skills, commands, agents, hooks, workflows, and the MCP ser
 
 #### What the plugin is called once installed
 
-Plugin components are **namespaced by plugin name**, but the namespace is only *required* where a bare name is ambiguous or unsupported:
+Every plugin component is **namespaced by the plugin's name**: Claude Code turns `commands/<file>.md` into
+`/<plugin>:<file>` and offers no alias without the prefix
+([plugins reference](https://code.claude.com/docs/en/plugins/components.md)). So every command in these docs is
+written the way you type it, `/hefesto:hef.<name>`; typing `/hefesto:` in the prompt lists them all.
 
 | Component | How you invoke it |
 |---|---|
-| **Commands** | `/hef.context`, `/hef.plan`, `/hef.quality` — the bare name works. The `hefesto:` prefix also works, and disambiguates if another plugin defines the same name. |
+| **Commands** | `/hefesto:hef.context`, `/hefesto:hef.plan`, `/hefesto:hef.quality` — always with the `hefesto:` prefix. Without the `hefesto:` prefix the name does not resolve. |
 | **Agents** | Dispatched by Claude, or by name — they appear as `hefesto:code-reviewer`. |
 | **The workflow** | **Must be namespaced**: `hefesto:workflow`. A bare `workflow` **does not resolve**. |
 
@@ -98,8 +104,9 @@ Two things the plugin cannot ship, because they are machine-local by design:
   "env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" },   // Agent Teams (experimental)
   "permissions": {
     "allow": [
-      "Bash(/home/you/.claude-framework//hooks/speckit-helper.sh:*)",   // ← your REAL home dir
-      "Bash(/home/you/.claude-framework/hooks/speckit-helper.sh:*)"
+      // ← your REAL home dir, this profile, the installed version
+      "Bash(/home/you/.claude/plugins/cache/hefesto/hefesto/X.Y.Z//hooks/speckit-helper.sh:*)",
+      "Bash(/home/you/.claude/plugins/cache/hefesto/hefesto/X.Y.Z/hooks/speckit-helper.sh:*)"
     ]
   }
 }
@@ -107,21 +114,23 @@ Two things the plugin cannot ship, because they are machine-local by design:
 
 > ⚠️ The `speckit-helper.sh` permission avoids a prompt on every hef command. The commands run the helper with the Bash tool; they cannot pre-execute it in a `` !`…` `` block, because a `!` block is permission-checked *before* `${CLAUDE_PLUGIN_ROOT}` is substituted and is rejected outright as `Contains expansion`.
 >
+> **The rule names the profile's plugin cache, not the clone.** `${CLAUDE_PLUGIN_ROOT}` is the copy the session loaded, `<profile>/plugins/cache/hefesto/hefesto/<version>/` (`jq -r '.plugins["hefesto@hefesto"][].installPath' <profile>/plugins/installed_plugins.json` prints it), so the path changes with every release: re-write the rule after each update. In a project, `hooks/hefesto-setup.sh` (§7, step 8b) writes these rules for the clone and every profile's installed copy, and drops those of versions no longer installed — run it again after each update instead.
+>
 > **The rule must mirror the command byte for byte. The matcher does no expansion and no normalisation.** Tested against the live matcher:
 >
 > | Rule | Result |
 > |---|---|
-> | `Bash(/home/you/.claude-framework//hooks/speckit-helper.sh:*)` | ✅ matches |
+> | `Bash(/home/you/…/hefesto/X.Y.Z//hooks/speckit-helper.sh:*)` | ✅ matches |
 > | same, but one slash before `hooks` | ❌ blocked |
 > | `Bash($HOME/…)` | ❌ blocked — **`$HOME` is not expanded** |
 > | `Bash(~/…)` | ❌ blocked — **`~` is not expanded** |
 > | leading wildcard | ❌ blocked |
 >
-> **Write your home directory out literally** (`echo $HOME`). The doubled slash is not a typo and is the entry that works: `${CLAUDE_PLUGIN_ROOT}` expands *with* a trailing slash, so the helper reaches the matcher as `…/.claude-framework//hooks/…`. The single-slash entry is a hedge against a future release dropping that slash; it matches nothing today. Keep both.
+> **Write your home directory out literally** (`echo $HOME`). The doubled slash is not a typo and is the entry that works: `${CLAUDE_PLUGIN_ROOT}` expands *with* a trailing slash, so the helper reaches the matcher as `…/X.Y.Z//hooks/…`. The single-slash entry is a hedge against a future release dropping that slash; it matches nothing today. Keep both.
 >
-> **This is the single most common failure.** A pre-flight command that is denied aborts the whole slash command **silently** — no error, no output, exit 0. If a hef command appears to do nothing at all, this rule is the first thing to check.
+> **This is the single most common failure.** Without the rule, every helper call shows a permission prompt; a prompt you deny stops the command. If a hef command asks on every call, or stops at its first step, this rule is the first thing to check.
 >
-> The same applies to the other helpers the commands call — `status-board.sh` (`/hef.status`), `ledger.sh` and `session-launch.sh` (`/hef.orchestrate`), `pr-watch.sh` (`/hef.babysit`), `arena-run.sh` (`--arena --via`, `--second-opinion`), `release.sh` (`/hef.release`): they prompt on first use; allow them in the same form if you use those commands.
+> The same applies to the other helpers the commands call — `status-board.sh` (`/hefesto:hef.status`), `ledger.sh` and `session-launch.sh` (`/hefesto:hef.orchestrate`), `pr-watch.sh` (`/hefesto:hef.babysit`), `arena-run.sh` (`--arena --via`, `--second-opinion`), `release.sh` (`/hefesto:hef.release`): they prompt on first use; allow them in the same form if you use those commands — never `ledger.sh` as a whole, and never `pr-watch.sh reply` or `comment`, which `hefesto-setup.sh` keeps in `ask`.
 
 Export `GITHUB_TOKEN` if you want the bundled GitHub MCP server to connect.
 
@@ -176,7 +185,7 @@ echo 'export CLAUDE_CODE_TMPDIR="$HOME/.cache/claude-tmp"' >> ~/.zshenv   # or ~
 
 Optional, on systemd: clear entries untouched for a week with a user tmpfiles rule,
 `~/.config/user-tmpfiles.d/claude.conf` holding `d %h/.cache/claude-tmp 0700 - - 7d`, and
-`systemctl --user enable --now systemd-tmpfiles-clean.timer`. `/hef.doctor` warns when the temp directory sits on a
+`systemctl --user enable --now systemd-tmpfiles-clean.timer`. `/hefesto:hef.doctor` warns when the temp directory sits on a
 tmpfs over 80% full (`HEFESTO_TMP_WARN_PCT`).
 
 ### 3️⃣ Verify the Installation
@@ -189,7 +198,7 @@ Three checks, in increasing strength:
 
 1. **`claude plugin list`** — the plugin is `✔ enabled`. If it is not here, nothing else matters.
 2. **The `/` menu** — every command should be listed. **A component that does not appear is not loaded**, and its absence is silent. This is the only reliable test.
-3. **Run one** — `/hef.context` should print a tech-stack summary. If it prints *nothing*, the pre-flight permission rule in step 2 is missing (see the warning above).
+3. **Run one** — `/hefesto:hef.context` should print a tech-stack summary. If it asks permission for `speckit-helper.sh`, the rule in step 2 is missing or names another path (see the warning above); approve it, or the command stops there.
 
 > ⚠️ `claude plugin details hefesto` prints a component inventory, but it reports **`Agents (0)`** for this plugin even though all seven agents load correctly. That is a quirk of the inventory display, not a fault in your install — confirmed by dispatching the agents in a live session. Do not chase it.
 
@@ -198,16 +207,16 @@ Three checks, in increasing strength:
 The framework's core loop is **spec first, then code, then a gate you cannot talk your way past.**
 
 ```bash
-/hef.init                    # once per project — bootstraps .specify/
-/hef.spec  add user login # → a spec: scenarios, requirements, success criteria
-/hef.plan                    # → an implementation plan (writes are blocked outside .specify/)
-/hef.review                  # → plan mode: a fresh code-reviewer gates the plan; APPROVE writes "## Reviewed"
-/hef.tasks                   # → a phased, dependency-ordered task list
-/hef.implement               # → TDD execution, red-green, one task at a time (tests may grow, not shrink)
-/hef.verify                  # → every FR mapped to the tests that cite it, then spec-compliance review
-/hef.quality                         # → lint, types, secrets, SOLID — before you commit
-/hef.review                          # → two-stage code review
-/hef.pr                              # → the pull request, with the evidence attached
+/hefesto:hef.init                    # once per project — bootstraps .specify/
+/hefesto:hef.spec  add user login # → a spec: scenarios, requirements, success criteria
+/hefesto:hef.plan                    # → an implementation plan (writes are blocked outside .specify/)
+/hefesto:hef.review                  # → plan mode: a fresh code-reviewer gates the plan; APPROVE writes "## Reviewed"
+/hefesto:hef.tasks                   # → a phased, dependency-ordered task list
+/hefesto:hef.implement               # → TDD execution, red-green, one task at a time (tests may grow, not shrink)
+/hefesto:hef.verify                  # → every FR mapped to the tests that cite it, then spec-compliance review
+/hefesto:hef.quality                         # → lint, types, secrets, SOLID — before you commit
+/hefesto:hef.review                          # → two-stage code review
+/hefesto:hef.pr                              # → the pull request, with the evidence attached
 ```
 
 For a **large** task list, swap the implementation step for the workflow, which runs independent tasks in parallel and has every task adversarially verified by agents that did not write it:
@@ -216,7 +225,7 @@ For a **large** task list, swap the implementation step for the workflow, which 
 hefesto:workflow
 ```
 
-Not every change deserves a spec. For a typo or a config tweak, `/hef.fix` skips the pipeline. For an existing codebase with no specs, `/hef.baseline` reverse-engineers them.
+Not every change deserves a spec. For a typo or a config tweak, `/hefesto:hef.fix` skips the pipeline. For an existing codebase with no specs, `/hefesto:hef.baseline` reverse-engineers them.
 
 **What happens without you asking:** on every edit, formatters run and tests fire; on every `git commit`, secrets detection and linting must pass or the commit is blocked; and a task cannot be marked complete while the test suite fails. You do not opt into these — they ship with the plugin.
 
@@ -240,6 +249,12 @@ CLAUDE_CONFIG_DIR=~/.claude-work claude plugin update hefesto@hefesto  # each ot
 
 `plugin update` compares manifest versions, not commits: a pull that did not bump `plugin.json` reports "already at the latest version" and leaves the cache as it was. Releases always bump it; between releases, `plugin uninstall` + `install` is the way to pick up an unreleased commit.
 
+**In each project you set up** (§7, step 8b), run the setup again from the project's main folder — its rules name the installed version's folder — then restart that project's sessions:
+
+```bash
+bash ~/.claude-framework/hooks/hefesto-setup.sh            # add --lanes if the project runs four lanes
+```
+
 **Rolling a release out to a team** — the message to send, with `X.Y.Z` filled in:
 
 ```bash
@@ -249,7 +264,8 @@ claude plugin marketplace update hefesto
 claude plugin update hefesto@hefesto                     # once per profile: CLAUDE_CONFIG_DIR=~/.claude-<profile> claude plugin update hefesto@hefesto
 cp ~/.claude-framework/.claude/rules/*.md ~/.claude/rules/
 diff ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md        # merge by hand if you customised it
-# Restart Claude Code, then /hef.doctor must report RUNNING_MATCHES_CLONE at X.Y.Z.
+# In each set-up project's main folder: bash ~/.claude-framework/hooks/hefesto-setup.sh (add --lanes if used)
+# Restart Claude Code, then /hefesto:hef.doctor must report RUNNING_MATCHES_CLONE at X.Y.Z.
 ```
 
 ### 6️⃣ The two things the plugin cannot ship
@@ -257,9 +273,14 @@ diff ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md        # merge by
 `plugin.json` ships **skills, commands, agents, hooks, workflows, and the MCP server**. There is no plugin component for **`rules/`** or **`CLAUDE.md`** — so installing the plugin does *not* give you the framework's global rules (code quality, git workflow, the Iron Laws, security, context management). If you want those to apply everywhere, copy them into `~/.claude/` yourself:
 
 ```bash
-cp -r ~/.claude-framework/.claude/rules ~/.claude/rules
-cp    ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md
+mkdir -p ~/.claude/rules && cp ~/.claude-framework/.claude/rules/*.md ~/.claude/rules/
+# keep your own CLAUDE.md, as the wizard does: move it aside and import it from hefesto's
+[ -e ~/.claude/CLAUDE.md ] && mv ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.mine
+cp ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md
+[ -e ~/.claude/CLAUDE.md.mine ] && printf '\n@CLAUDE.md.mine\n' >> ~/.claude/CLAUDE.md
 ```
+
+(On a re-copy, skip the `mv` when `~/.claude/CLAUDE.md` is a previous hefesto copy, or your `.mine` is overwritten.)
 
 > ⚠️ **These drift.** Nothing keeps them in sync — a `git pull` updates the plugin's components but not your copies. Re-copy them after an upgrade, and read `CHANGELOG.md` to see whether they changed. This is the one genuine gap in the plugin install, and it is a limitation of what a Claude Code plugin can contain, not an oversight.
 
@@ -282,44 +303,48 @@ Keep `CLAUDE.md` and `rules/` if your dotfiles carry them — as above, the plug
 
 ### 7️⃣ Running the orchestrator (the multi-session pipeline, Phase 1)
 
-`/hef.orchestrate` dispatches **one** board item at a time to a fresh headless worker and then a
-separate verifier, through a ledger in the repository's git common dir (`.git/hefesto/ledger/`).
+`/hefesto:hef.orchestrate` dispatches **one** board item at a time to a fresh headless worker and then a
+separate verifier, through a ledger outside every sandbox: `~/.cache/hefesto/ledger/<key>/<id>.json`, one
+folder per board (`<key>` is a hash of the board repository's git common dir; `hooks/ledger.sh dir` prints it).
 The design and the evidence behind it are `reports/17-multi-agent-session-orchestration.md`.
+For the short path — install, one lane or four, a new or a running project — see [`quickstart.md`](quickstart.md).
 
-1. **Declare the board** in `.claude/project-status.json` (the same file `/hef.status` reads; only
-   `source: tasks-repo` is dispatchable in Phase 1) and add the `orchestrate` block:
+1. **Declare the board** in `.claude/project-status.json` (the same file `/hefesto:hef.status` reads;
+   `source: tasks-repo` or `github-project` (step 14) is dispatchable) and add the `orchestrate` block:
    `{"usd_cap": 20, "daily_usd_cap": 100, "tiers": {"implement": "opus", "verify": "fable"}}` — tiers,
    never model ids; the reviewer tier must rank at or above the author's.
 2. **Protect `main`**: require a pull request before merging (0 approvals is enough on a solo repo,
    include administrators). No launched session can then push `main`, whatever its prompt says.
    Merge with **merge commits**, not squash or rebase: the `human:merge` gate is cleared by
    `git merge-base --is-ancestor <branch> main`, which a squash- or rebase-merged branch never satisfies.
-3. **Open the orchestrator pane with its own sandbox off**, in the main checkout, on the always-on
-   host that holds GitHub access and nothing else:
-   `claude --settings '{"sandbox":{"enabled":false}}'` (under herdr: one pane in the company
-   workspace). The launcher spawns `claude -p` as a child of the shell, and a sandboxed shell would
-   let it neither reach the API nor save its transcript — `session-launch.sh` refuses with that
-   reason. The workers it starts are sandboxed by the settings it passes them.
-4. **Dry-run first**: `/hef.orchestrate --dry-run` prints the exact `claude -p` line for the next
-   item and claims nothing. Then `/hef.orchestrate` for real: one item, a PR, verdicts in the ledger,
+3. **Set the project up once, then open the orchestrator pane normally**, in the main checkout, on the
+   always-on host that holds GitHub access and nothing else: run `bash ~/.claude-framework/hooks/hefesto-setup.sh`
+   in a terminal (step 8b), then `claude --name <repo>-orchestrator`, sandbox on. The launcher spawns `claude -p`,
+   which a sandboxed shell cannot; setup lists it (with `ledger.sh`, `pr-watch.sh`, `status-board.sh` and `gh`)
+   in `sandbox.excludedCommands`, so those run outside the sandbox while the pane keeps its own. Call them as
+   the commands write them — a bare command, no `cd`, redirect or `$(…)` — or they stay sandboxed and
+   `session-launch.sh` refuses. The workers it starts are sandboxed by the settings it passes them.
+4. **Dry-run first**: `/hefesto:hef.orchestrate --stage build --dry-run` prints the exact `claude -p` line for the next
+   item and claims nothing. Then `/hefesto:hef.orchestrate` for real: one item, a PR, verdicts in the ledger,
    the entry blocked on `human:merge`.
 5. **Watch for blocks**: every session opened in the checkout prints `ledger: <id> blocked_on <kind>`
    at start; `herdr agent wait --until blocked` and `claude agents --json` show the pane. A `human:*`
-   block is cleared only by the artifact the human command leaves behind (`/hef.clarify`,
-   `/hef.review`, the merge itself — the branch in the integration branch or, once GitHub deletes it,
+   block is cleared only by the artifact the human command leaves behind (`/hefesto:hef.clarify`,
+   `/hefesto:hef.review`, the merge itself — the branch in the integration branch or, once GitHub deletes it,
    the PR's merge commit there), or — for `human:intake` only — by a person who read the item
    text (`status-board.sh --item <id>`) running
    `hooks/ledger.sh unblock <id> --reviewed-by-human --by <name>`. That clear works from any session,
    and the name and time are recorded on the entry (`.reviewed`). The gate is Claude Code's
    **permission prompt**: never add `--reviewed-by-human` (or a blanket `ledger.sh` rule) to any
-   allowlist, so every intake clear is a dialog you answer. That needs the pane in **`default`
-   permission mode**: under `auto`, `bypassPermissions` or `dontAsk` no dialog appears (the session-start
-   hook warns when an intake or a `human:merge` block is open in such a session). Never answer "Yes, don't ask again" on a
+   allowlist, so every intake clear is a dialog you answer. Keep the pane in **`default` permission
+   mode**: under `dontAsk` every person-only clear is refused; under `auto` and `bypassPermissions`
+   hefesto's `ask` rules still show their dialog, but a command no rule matches runs without one (the
+   session-start hook says so in every lane, and warns when an intake or a `human:merge` block is open). Never answer "Yes, don't ask again" on a
    `ledger.sh` call in the orchestrator pane either: the saved prefix rule would admit the clear
    silently. The command is refused inside a launched worker. Nothing replaces an intake block, and nothing claims
    an intake-blocked entry: the named clear is the only way out. A worker cannot replace any other
    person's block either.
-6. **After you merge**: with a deploy stage running (`/hef.orchestrate --stage deploy`), its next pass on
+6. **After you merge**: with a deploy stage running (`/hefesto:hef.orchestrate --stage deploy`), its next pass on
    the item does this for you — it fetches, runs the same `unblock` evidence check and `advance … merged`,
    removes a clean worktree, and launches nothing. Without one: `git fetch --prune origin` (and `git pull --ff-only`), then
    `hooks/ledger.sh unblock <id>` and `hooks/ledger.sh advance <id> merged`. The unblock accepts the
@@ -332,7 +357,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    printed `UNVERIFIED` and recorded as `.pr.merge_unverified`. Remove the worktree with
    `git worktree remove .claude/worktrees/<id>`.
 7. **Between the PR and the merge, let the babysitter watch it**: from the checkout of the PR's
-   branch, `/hef.babysit` (or `/loop 25m /hef.babysit <n> --once` while a review is pending). It
+   branch, `/hefesto:hef.babysit` (or `/loop 25m /hefesto:hef.babysit <n> --once` while a review is pending). It
    waits on CI inside one helper call — that Bash call runs with the tool timeout raised to
    600 000 ms — fixes a red check inside the PR's own diff, answers pertinent review comments with
    the commit hash, asks you about doubtful ones, and stops at mergeable with the ledger blocked
@@ -341,9 +366,10 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    the exact `git push origin <branch>` line for you to run with the `!` prefix and ends the
    pass. It never merges, approves, force-pushes, or edits CI configuration — a fix that would
    need any of those becomes a question for you.
-8. **Running the by-stage layout** (README §5): `/hef.orchestrate --stage plan` plans the next
-   queued item in a fresh session that writes only under `.specify/`; the default stage builds it;
-   `--stage deploy` runs one babysitter pass on the next PR. Two settings matter: every role's
+8. **Running the by-stage layout** (README §5): `/hefesto:hef.orchestrate --stage plan` plans the next
+   queued item in a fresh session that writes only under `.specify/`; `--stage build` builds it;
+   `--stage deploy` runs one babysitter pass on the next PR; `--stage all` runs the three in a row in this
+   session, a catch-up. With no `--stage` it is the orchestrator pass. Two settings matter: every role's
    allowlist gets the plugin's own hooks directory appended automatically, so put the **project's
    test command** in `orchestrate.allowed_tools.<role>` (this repository: `Bash(bash tests/smoke.sh*)`
    and `Bash(node --test*)` for `implement` and `verify`) without fear of losing the helpers — but the
@@ -352,10 +378,17 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    call that can block for many minutes (a deploy pass waits on CI inside the babysitter), so the
    command makes it with the tool timeout raised to 600 000 ms. `orchestrate.panes` maps block
    kinds to your pane names; the session-start line then says whose block it is.
-   With the plan and build stages each on a `/loop` (the four-session setup in
-   [`quickstart.md`](quickstart.md)), set `orchestrate.plan_first: true`: the build stage then takes
-   only planned items (phase `tasks`, or an `implement` retry), never a queued one, so a new item cannot
-   be built before it is planned. Without it, build also takes queued items, as before.
+   With a plan lane and a build lane open (the four-lane setup in [`quickstart.md`](quickstart.md); each
+   waits for the orchestrator's doorbell), set `orchestrate.plan_first: true`: the build stage then takes
+   only planned items (phase `tasks`, or an `implement` retry), never a queued one — except a queued 🐞
+   incident fix, which is built without a plan — so a new item cannot be built before it is planned.
+   Without it, build also takes queued items, as before.
+   Other `orchestrate` keys: `max_builders` (default 1, at most 8) builders at once per repository, beside
+   one planner and one deployer (the verifier does not count); `max_fixes` (default 3) the babysitter's fix
+   budget per PR; `merge_by` — `person` (the default: you merge on GitHub) or `lane` (the orchestrator drafts a
+   merge action for the deploy lane, approved by you as a form); `merge.checks`, the commands a lane merge runs
+   first (`{repo_path}` and `{base}` placeholders); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
+   deploy and release-train scopes a request is built from (8c).
 
 8b. **RFCs, plan approval and the lanes** (lanes v2; [`quickstart.md`](quickstart.md) steps 5–8). An
    item names its RFC with a line `rfc: docs/rfcs/<ID>.md` (folder: `orchestrate.rfc_dir`); the plan stage
@@ -371,7 +404,8 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    - hefesto's helper allowlist;
    - a person's decisions (`approve`, `unblock`, `record`, `answer`, `revise`, `release`, …) in `ask`;
    - outside the sandbox (`sandbox.excludedCommands`): the launcher, `ledger.sh` (hefesto 9 keeps the ledger outside
-     the project) and `gh` (so a merge is decided by the permission rules, never by the sandbox). Only gh's read
+     the project), `pr-watch.sh` and `status-board.sh` (they call the GitHub API) and `gh` (so a merge is decided by
+     the permission rules, never by the sandbox). Only gh's read
      forms and `gh pr create` are allowed; `gh pr merge`, `gh pr review` and `gh api` need an approved action
      (with `--lanes`) or your dialog (a single lane);
    - `Edit` denied on hefesto's own state (`~/.cache/hefesto/{ledger,approvals,sessions}`);
@@ -381,9 +415,14 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    - with `--lanes`: `crossSessionInbound: "accept"`, `HEFESTO_LANES` and the lane map (`HEFESTO_LANE_MAP`, from
      `orchestrate.lanes`, `orchestrate.lane_prefix` or the folder name).
 
+   Its other flags: `--check` (read-only: `setup: ok`, or what is missing; exit 1), `--print` (show the merged file,
+   write nothing), `--remove` (take out every entry it wrote, for any version), `--keep-statusline` (never touch
+   `statusLine`), `--strict`, and the command lists below (`--allow-command`, `--unsandboxed-command`,
+   `--forget-commands`). Run it again after every hefesto update: its rules name each installed version's folder.
+
    Lanes open with `claude --name <a name in the map>`; the name is the lane, and a session whose name is not in the
-   map is no lane. In the orchestrator, `/hef.orchestrate` asks every decision as a form and rings the stage lanes;
-   `/hef.ship` starts new work. `context.compact_at` sets each lane's compaction nudge.
+   map is no lane. In the orchestrator, `/hefesto:hef.orchestrate` asks every decision as a form and rings the stage lanes;
+   `/hefesto:hef.ship` starts new work. `context.compact_at` sets each lane's compaction nudge.
    **What a background worker can reach.** Its sandbox writes only its worktree and a cache of its own
    (`~/.cache/hefesto/worker-cache/<repo>`, which `XDG_CACHE_HOME`, `GOCACHE` and npm's cache point at — never
    your own `~/.cache/go-build`, which your unsandboxed builds share). Go's module cache (`~/go/pkg/mod`) stays
@@ -457,9 +496,9 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    stage `{plan, build, deploy}`). A stage lane takes its item with `session-launch.sh <role> <id> --prepare --lane
    <its name>`. That makes every check a launch makes, claims the item for the lane (no lease: it ends with
    `--finish`, or `ledger.sh release` by a person) and makes the worktree and the prompt. The lane then does the stage
-   with the `/hef.*` commands in its own conversation. `--finish --lane <name> --outcome-file <f>` checks its outcome
+   with the `/hefesto:hef.*` commands in its own conversation. `--finish --lane <name> --outcome-file <f>` checks its outcome
    against the role's schema and records it exactly as a background run's ($0, `note: in-lane`). An interactive build
-   verifies through `/hef.verify` and `/hef.review`, whose reviewers run in a fresh context; their verdicts are
+   verifies through `/hefesto:hef.verify` and `/hefesto:hef.review`, whose reviewers run in a fresh context; their verdicts are
    recorded as `<lane>:code-reviewer`. That name is the lane's claim, not proof: keep `"build": "worker"` when you
    want the separate verifier session. On an external board the lanes work in the code repos' worktrees, which
    `setup --lanes` grants as `additionalDirectories`.
@@ -469,17 +508,18 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
    - once, under a lock, only while no 8.x run renews a lease;
    - it leaves `.git/hefesto/MOVED` and keeps the old folder, renamed.
 
-   A sandboxed session without setup cannot write there: run `hefesto-setup.sh` before the first `/hef.orchestrate`
-   or `/hef.ship`. `run-follow.sh` shows nothing for runs started before the upgrade.
+   A sandboxed session without setup cannot write there: run `hefesto-setup.sh` before the first `/hefesto:hef.orchestrate`
+   or `/hefesto:hef.ship`. `run-follow.sh` shows nothing for runs started before the upgrade.
 
 9. **Hand-run items, the board and escalation** (all optional): a person who ran an item by hand runs
    `hooks/ledger.sh handoff <id> --pr <url>` on its branch — one call instead of four. Set
    `orchestrate.publish: true` and every orchestrator pass writes the item's state as the first token
    of its board heading (⏸ waits on a person, ⛔ blocked otherwise, 📐 planning, 🔨 building, 🔀 PR, ✅
-   merged); add those glyphs to the board's `states` map so `/hef.status` labels them, and override
+   merged); add those glyphs to the board's `states` map so `/hefesto:hef.status` labels them, and override
    them with `orchestrate.publish_markers`. Set `orchestrate.escalate_after_hours: <n>` and a `human:*`
    block older than `<n>` hours is sent once, as one line, to the session that owns it
-   (`orchestrate.pane_sessions.<pane>`, default `<repo>-<pane>`). That receiving pane must accept
+   (`orchestrate.pane_sessions.<pane>`, default `<name>-<pane>`, where `<name>` is `name` in the config,
+   else the board's folder name). That receiving pane must accept
    cross-session messages (`crossSessionInbound: accept` in its settings, with `isolatePeerMachines:
    true`), or every pointer fails and is retried next pass; no other pane needs inbound. Escalation is
    opt-in because report 17 asked for it only once Phase 1 showed blocks waiting too long — no such
@@ -490,7 +530,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     before the id — one after it is title text — and 🛡 and 🛡️ (with or without the emoji variation
     selector) are the same glyph. The orchestrator records the kind; the worker is told to write a regression test that
     cites the id first (incident) or to re-scan before the PR (vulnerability); the verifier must
-    report that gate, and a missing or SKIPPED one blocks the entry on `verdict`. `/hef.status` reads
+    report that gate, and a missing or SKIPPED one blocks the entry on `verdict`. `/hefesto:hef.status` reads
     a heading's first token as its sub-state, so add the kind glyphs to `states` if you want them
     labelled.
 11. **Providers: other vendors as arena readers and as a second opinion** (optional, HEF-13). Declare
@@ -519,8 +559,8 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     prints one line per provider (`ok`, `missing (<install hint>)`, `ok (second-opinion only)` for
     `aws`).
 
-    They are used in two places only: `/hef.plan --arena K --via <p,…>` gives up to K−1 arena slots
-    to providers (one `truth-scout` is always kept), and `/hef.review --second-opinion <p>` relays
+    They are used in two places only: `/hefesto:hef.plan --arena K --via <p,…>` gives up to K−1 arena slots
+    to providers (one `truth-scout` is always kept), and `/hefesto:hef.review --second-opinion <p>` relays
     another vendor's reading under "Second opinion (<p>) — not the gate". It never writes
     `## Reviewed`, and a foreign model is never the verifier of record. `aws` is a message API that
     cannot read the repository, so it is second-opinion only. **Sending the spec, the plan or the diff
@@ -543,7 +583,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     `hooks/ledger.sh branches` prints the resolved model. Unconfigured, it is `main` everywhere,
     exactly as before. What it changes:
     - **Integration branch:**
-      - workers open PRs against it (`gh pr create --base dev`), and so does `/hef.pr` when you name
+      - workers open PRs against it (`gh pr create --base dev`), and so does `/hefesto:hef.pr` when you name
         no base;
       - the verifier's diff base, `pr-files` and `deps-diff` compare against it, using the newer of
         the merge-bases with `origin/dev` and the local `dev`;
@@ -552,7 +592,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     - **Protected set:** `main`, `master`, the integration branch, every environment and your
       `protected` globs. These are never a worker's head and never pushed: `ledger.sh handoff`
       refuses them, and `pr-watch.sh resolve` marks a promotion PR (`stg → main`) `"push": false`, so
-      `/hef.babysit` reports its red checks without ever fixing them.
+      `/hefesto:hef.babysit` reports its red checks without ever fixing them.
     - **Environments, in order:** the last is the **final** branch.
       - `ledger.sh where <id>` shows how far a merged branch has travelled (`yes`, `no`, or `unknown`
         when that branch exists neither locally nor on `origin`; `yes (deployed <sha12>)` when a
@@ -562,7 +602,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
         shipped (hefesto 9.1). The commit must be in `<env>` or `origin/<env>`. Recording the final
         environment on a `merged` item advances it to `released`, so a release built from cherry-picked
         commits, where the item's branch is not an ancestor of the final branch, is still released.
-      - `/hef.release` tags the final branch's commit.
+      - `/hefesto:hef.release` tags the final branch's commit.
 
     A config file that is not valid JSON is an error, never "unconfigured". Without a `branches`
     block, PRs keep the repository's default branch as their base. Every promotion is still a
@@ -592,7 +632,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       while ui stays on trunk. A config with both `board` and `repos`, a pointer to a board that
       itself has a `board`, or a config that does not parse when it names `board` or `repos` is
       refused, naming the value (an unparseable config that names neither stays in-repo, where the
-      branch model and `/hef.status` report it as before). Every `repos` path must exist on this
+      branch model and `/hefesto:hef.status` report it as before). Every `repos` path must exist on this
       machine, or every call refuses naming it. Only a `source: tasks-repo` board can be external:
       routing (`--item-repo`) reads item bodies, which a `github-project` board does not have here.
     - **A branch model on the board** (hefesto 9.1). A `repos` value can be an object instead of a
@@ -622,13 +662,13 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       shows names only as `[a-z0-9_-]` (anything else as `?`, at most 32 characters, five names). With no `repo:` line, the item goes to the
       board's only repo; with several repos it is refused ("names no repo"), as is an item naming
       two repos ("split it into one item per repo") or an undeclared one.
-      `status-board.sh --item-repo <id>` prints `<name>` TAB `<path>`; `/hef.orchestrate` reports a
+      `status-board.sh --item-repo <id>` prints `<name>` TAB `<path>`; `/hefesto:hef.orchestrate` reports a
       refusal and skips the item, writing nothing.
-    - **One central ledger** in the board repo's git common dir (`<board>/.git/hefesto/ledger/`). Each
-      entry records `repo`, so `list`, `metrics` and escalation see every repo, and `next` keeps
-      **one worker per repository** (an `ops` worker and a `ui` worker run side by side). A repo you
-      switch to external starts from the central ledger; its old entries stay in its own
-      `.git/hefesto/ledger/`. `daily_usd_cap` sums today's spend across every repo the board feeds.
+    - **One central ledger** for the board (`~/.cache/hefesto/ledger/<key>/`, keyed by the board repo's git
+      common dir; `ledger.sh dir` prints it). Each entry records `repo`, so `list`, `metrics` and escalation
+      see every repo, and `claim` keeps **one planner, `max_builders` builders and one deployer per
+      repository** (an `ops` builder and a `ui` builder run side by side; the verifier is exempt). A repo you
+      switch to external starts from the central ledger; its old entries stay in its own ledger folder. `daily_usd_cap` sums today's spend across every repo the board feeds.
     - **Where sessions run.** The planner, the worker, the verifier and the babysitter run in the
       entry's repo (`<repo>/.claude/worktrees/<id>`); start the launcher from the board repo or any
       code repo it feeds. `ledger.sh handoff` records the repo you run it in, and `unblock`,
@@ -652,7 +692,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
       refused, with the options it has, so a typo never reads as an empty column. `review` is optional: without
       it, an item with an open PR stays in `doing`.
     - **The RFC** is still a file in the repo, linked from the issue body by an `rfc: docs/rfcs/<ID>.md` line.
-      `/hef.ship` writes that line.
+      `/hefesto:hef.ship` writes that line.
     - **Kinds** come from labels (`kinds_labels`; by default `bug` and `incident` → incident, `security` →
       vulnerability).
     - **Author trust.** An issue opened by an account that is not an owner, member or collaborator of the repo,
@@ -662,7 +702,7 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     - **Card moves.** With `orchestrate.publish`, each state change sets the card's Status (plan and build →
       `doing`, PR → `review`, merged → `done`) and posts one short comment on the issue. An issue waiting on
       your intake read is left alone.
-    - **Scopes.** Reads need gh's `read:project` scope; `/hef.ship`'s add and publish need `project`
+    - **Scopes.** Reads need gh's `read:project` scope; `/hefesto:hef.ship`'s add and publish need `project`
       (`gh auth refresh -s project`). `status-board.sh --check` says which is missing.
     - **Every gh failure refuses** with its cause; nothing reads an error as "no items".
 
@@ -670,14 +710,14 @@ The design and the evidence behind it are `reports/17-multi-agent-session-orches
     (`backend/.specify/`, `apps/web/.specify/`), each with its own constitution and specs, under one board.
     - **Discovery.** Every spec command and guard uses the nearest folder holding `.specify/`, the way git finds
       `.git`, and never looks above the repository top. Run the commands from the app's folder, or any folder
-      under it. `/hef.init` in an app folder creates that app's `.specify/`. A single-app repository behaves as
+      under it. `/hefesto:hef.init` in an app folder creates that app's `.specify/`. A single-app repository behaves as
       before, and a subfolder of it now uses the top `.specify/` instead of creating a stray one.
     - **Declare the apps** in the code repository's own `.claude/project-status.json`:
       `"spec_roots": {"backend": "backend", "web": "apps/web"}`. A name is lower case (`a-z`, `0-9`, `-`); a
       folder is a plain path from the repository top (no `.`, `..` or `.claude`). On an external board the code
       repository declares them, not the board.
     - **Each item has one owning app.** It names the app with an `app: backend` line in its body
-      (`/hef.ship` asks and writes it). An item without the line gets one form in the orchestrator ("Which app
+      (`/hefesto:hef.ship` asks and writes it). An item without the line gets one form in the orchestrator ("Which app
       owns it?", or the repository root). The launcher refuses to plan an undecided item, and refuses an app
       folder with no `.specify/` or one that is a link out of the repository. An item planned before the apps
       were declared keeps the app its spec folder names.
@@ -702,6 +742,7 @@ the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR co
 **Two hosts, if you run the by-stage layout** (README §5): the `deploy` pane splits along the
 trust boundary in `docs/architecture.md` — CI, the PR and the babysitter on the always-on
 workstation that holds GitHub access only; environment transitions and the production release on
-the laptop that holds the credentials. The ledger is per checkout, so the laptop reads the release
-queue with `git pull --ff-only` and `hooks/ledger.sh list --phase merged`; board write-back (HEF-4, opt-in
-`orchestrate.publish: true`) is what makes that queue visible across both machines without a message.
+the laptop that holds the credentials. The ledger is per machine (`~/.cache/hefesto/`), so the laptop's
+`hooks/ledger.sh list --phase merged` does not see the workstation's entries: board write-back (HEF-4, opt-in
+`orchestrate.publish: true`) and the pull requests themselves are what make that queue visible across both
+machines without a message.

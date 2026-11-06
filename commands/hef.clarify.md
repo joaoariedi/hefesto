@@ -68,4 +68,4 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh clarifica
 5. **Summary** after all questions are answered:
    - List all clarifications added
    - Note any remaining `[NEEDS CLARIFICATION]` markers
-   - Suggest next step: `/hef.plan` if ready, or another `/hef.clarify` round if more questions remain
+   - Suggest next step: `/hefesto:hef.plan` if ready, or another `/hefesto:hef.clarify` round if more questions remain

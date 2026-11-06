@@ -2,7 +2,7 @@
 #
 # spec-root-lib.sh — a .specify/ per app folder in one git repository (monorepo-spec-roots, #172).
 #
-# SOURCED, never run: by speckit-helper.sh, the four spec guards, ledger.sh and session-launch.sh. It holds no
+# SOURCED, never run: by speckit-helper.sh, the three spec guards, precompact-progress.sh, ledger.sh, status-board.sh and launch-item.sh (for session-launch.sh). It holds no
 # state and calls no other hefesto file, so a guard can source it without board-lib.sh.
 #
 # A spec root is a folder holding .specify/. It is FOUND the way git finds .git: the nearest ancestor of a path

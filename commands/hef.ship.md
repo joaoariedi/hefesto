@@ -39,7 +39,7 @@ overwrites) and `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --detailed`.
    **The repository root**. Add `--app <name>` to the `--add` call below for an app (nothing for the root); the
    item then carries an `app: <name>` line, and the planner and builder work in that app's folder.
    - **Feature:** run with the Bash tool `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --add "<title>" --rfc` —
-     it prints the new id and adds `rfc: <rfc_dir>/<id>.md` under it. Then run `/hef.brainstorm <the person's
+     it prints the new id and adds `rfc: <rfc_dir>/<id>.md` under it. Then run `/hefesto:hef.brainstorm <the person's
      text> for <id>` here, with the person: the design it approves is saved as that RFC.
    - **Bug fix:** write the person's description, the steps to reproduce and what they expected to a file in
      the session's scratch folder, then run `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --add "<title>" --incident --body-file <that file>`
@@ -51,7 +51,7 @@ overwrites) and `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --detailed`.
    github-project`), the item is a new issue on the Project, with its Status set to the todo column, and only
    the RFC file is the person's to commit.
 
-4. **Drive it.** Run `/hef.orchestrate` (the orchestrator pass). It asks every decision as a form, runs the
+4. **Drive it.** Run `/hefesto:hef.orchestrate` (the orchestrator pass). It asks every decision as a form, runs the
    stages here or rings the open stage lanes, and repeats until the item waits on something outside this
    session — CI, a merge on GitHub, or a person's later answer. It ends as every orchestrator pass does: the
    status, then **Your move:** / **Optional while it runs:** / **Nothing to do — wait.** as its last line.

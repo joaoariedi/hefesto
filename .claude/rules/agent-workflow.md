@@ -24,7 +24,7 @@ Move sessions between surfaces:
 ## Phase 1: Planning & Context (Steps 1-4)
 
 ### Step 1: Context Preparation
-- Use built-in `Explore` agent or `/hef.context` command for project analysis
+- Use built-in `Explore` agent or `/hefesto:hef.context` command for project analysis
 - Auto-detect tech stack from `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`
 - Identify existing patterns, conventions, and quality tools
 - Use `ultrathink` for complex architectural analysis or ambiguous requirements
@@ -62,7 +62,7 @@ Move sessions between surfaces:
 - Focus on code clarity over excessive documentation
 
 ### Step 9: Test Creation & Validation
-- For spec-driven development (SDD), use the SDD pipeline: `/hef.spec` → `/hef.plan` → `/hef.tasks` → `/hef.implement`
+- For spec-driven development (SDD), use the SDD pipeline: `/hefesto:hef.spec` → `/hefesto:hef.plan` → `/hefesto:hef.tasks` → `/hefesto:hef.implement`
 - Use `test-specialist` agent for comprehensive test suites
 - Find existing test patterns using Glob: `**/*test*`, `**/spec/**`
 - PostToolUse hook auto-runs tests after source file edits (throttled to 15s)

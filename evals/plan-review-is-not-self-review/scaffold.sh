@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fixture: a git repo on a feature branch with .specify/, a constitution, a spec and an UNREVIEWED
-# plan — the exact state /hef.review resolves to plan mode. The eval workspace is empty until this
+# plan — the exact state /hefesto:hef.review resolves to plan mode. The eval workspace is empty until this
 # runs (evals/README.md).
 set -euo pipefail
 git init -q -b main .

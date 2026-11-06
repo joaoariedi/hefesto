@@ -1,7 +1,7 @@
 export const meta = {
   name: 'workflow',
   description: 'Execute the task list: phase-ordered TDD, [P] tasks in parallel, every task adversarially verified by agents that did not write it',
-  whenToUse: 'After /hef.tasks has produced tasks.md. An alternative to the /hef.implement command, for when the task list is large enough that a single conversation would lose the thread.',
+  whenToUse: 'After /hefesto:hef.tasks has produced tasks.md. An alternative to the /hefesto:hef.implement command, for when the task list is large enough that a single conversation would lose the thread.',
   phases: [
     { title: 'Load', detail: 'parse tasks.md / spec.md / plan.md into a phase-ordered task graph' },
     { title: 'Implement', detail: 'TDD per task — [P] tasks concurrently, the rest sequentially' },
@@ -496,7 +496,7 @@ Report tasks in the order they appear. Do not invent, reorder, or merge tasks.`,
 )
 
 if (!ctx || !ctx.phases || ctx.phases.length === 0) {
-  return { error: 'No tasks.md found, or it contains no tasks. Run /hef.tasks first.' }
+  return { error: 'No tasks.md found, or it contains no tasks. Run /hefesto:hef.tasks first.' }
 }
 
 // AFTER the guard above, never before it. Stamping first means a dead loader throws

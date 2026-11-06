@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fixture: a project with .specify/ already set up (so the full pipeline is AVAILABLE) and a README
-# with one typo. The router must scale down: this is a /hef.fix, not a spec. Mirror of
+# with one typo. The router must scale down: this is a /hefesto:hef.fix, not a spec. Mirror of
 # spec-first-routing — that case proves the plugin routes UP; this one guards against the
 # session-start routing lines pushing a trivial change into ceremony (Scott Logic: ~10x cost).
 set -euo pipefail

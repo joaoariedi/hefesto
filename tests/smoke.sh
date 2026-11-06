@@ -98,7 +98,7 @@ while read -r agent; do
 done < <(jq -r '.agents[]?' "$REPO/.claude-plugin/plugin.json")
 # The reverse: every agents/*.md is in the manifest. The `agents` array is an explicit list, so an
 # unlisted file ships in the cache but never loads — truth-scout was missing from 7.7.0 to 7.8.0 and
-# /hef.plan --arena could not spawn it (docs audit 2026-10-05).
+# /hefesto:hef.plan --arena could not spawn it (docs audit 2026-10-05).
 for f in "$REPO"/agents/*.md; do
   jq -e --arg a "./agents/$(basename "$f")" '.agents | index($a)' "$REPO/.claude-plugin/plugin.json" >/dev/null \
     && ok "agent $(basename "$f") is in the manifest" || bad "agents/$(basename "$f") is not in plugin.json .agents — it ships but never loads"
@@ -424,8 +424,8 @@ done
 undocumented=0
 for f in "$REPO"/commands/*.md; do
   name="$(basename "$f" .md)"
-  grep -qF "/$name" "$REPO/docs/commands.md" || {
-    bad "command /$name is not documented in docs/commands.md"
+  grep -qF "/hefesto:$name" "$REPO/docs/commands.md" || {   # spelled as typed: plugin commands are namespaced
+    bad "command /hefesto:$name is not documented in docs/commands.md"
     undocumented=$((undocumented + 1))
   }
 done
@@ -520,14 +520,14 @@ grep -q "some-other-name" <<<"$hint" || { bad "the message must LIST the spec di
 grep -q "MUST be named after the branch" <<<"$hint" || { bad "the message must state the branch↔directory contract, which is the actual cause; got: $hint"; hint_fail=1; }
 [ "$hint_fail" -eq 0 ] && ok "a missing artifact names the branch↔directory contract and lists what does exist"
 
-# PREDICATES answer; they do not fail. /hef.init asks check-specify-dir precisely to learn that
+# PREDICATES answer; they do not fail. /hefesto:hef.init asks check-specify-dir precisely to learn that
 # .specify/ is absent — that is the whole reason init exists, so the string must still be there.
 pred_out="$(cd "$hc_tmp" && "$HELPER" check-specify-dir 2>/dev/null)"
 if [ "$pred_out" = "EXISTS" ]; then
   ok "check-specify-dir still answers on stdout"
 else
   # .specify EXISTS in the scratch repo, so this branch means the predicate lost its string.
-  bad "check-specify-dir must print its answer, not just signal it — /hef.init branches on the string"
+  bad "check-specify-dir must print its answer, not just signal it — /hefesto:hef.init branches on the string"
 fi
 
 rm -rf "$hc_tmp"
@@ -863,7 +863,7 @@ sld() {
 # --- Tier 1: implement-phase test guard (FR-003) ---------------------------------------
 head_ "Implement-phase test guard"
 
-# Tests may grow during /hef.implement, never shrink. Both directions are guarded, like the
+# Tests may grow during /hefesto:hef.implement, never shrink. Both directions are guarded, like the
 # destructive-command hook: the denials (or the rule is prose again) AND the allows (a guard that
 # blocks adding a test gets disarmed, which is worse than never shipping it).
 #
@@ -998,12 +998,12 @@ if grep -qF 'implement-phase-test-guard.sh' <<<"$ipg_reg_bash" && grep -qF 'impl
 else
   bad "implement-phase-test-guard.sh is not registered on both matchers — one side of the rule never fires"
 fi
-# …and /hef.implement must arm and disarm it, or the marker is never set and the guard is dead code.
+# …and /hefesto:hef.implement must arm and disarm it, or the marker is never set and the guard is dead code.
 impl_src="$(cat "$REPO/commands/hef.implement.md")"
 if grep -qF 'implement-phase-start' <<<"$impl_src" && grep -qF 'implement-phase-end' <<<"$impl_src"; then
-  ok "/hef.implement arms the test guard in pre-flight and disarms it at completion"
+  ok "/hefesto:hef.implement arms the test guard in pre-flight and disarms it at completion"
 else
-  bad "/hef.implement does not set/clear .specify/.implement-in-progress — the guard would never activate"
+  bad "/hefesto:hef.implement does not set/clear .specify/.implement-in-progress — the guard would never activate"
 fi
 
 # --- Tier 1: requirement traceability (FR-001) ------------------------------------------
@@ -1092,9 +1092,9 @@ if [ -f "$own_spec/spec.md" ]; then
 fi
 # The command exists and calls the helper it is built on.
 if grep -qF 'speckit-helper.sh req-coverage' "$REPO/commands/hef.verify.md" 2>/dev/null; then
-  ok "/hef.verify runs req-coverage in pre-flight"
+  ok "/hefesto:hef.verify runs req-coverage in pre-flight"
 else
-  bad "/hef.verify does not call req-coverage — the mechanical half of the gate is missing"
+  bad "/hefesto:hef.verify does not call req-coverage — the mechanical half of the gate is missing"
 fi
 
 # --- Tier 1: session lifecycle + config audit hooks (FR-006, FR-007) --------------------
@@ -1158,7 +1158,7 @@ else
 fi
 # Eval 2026-09-23 (spec-first-routing, both arms 0/1): with only the plugin installed, nothing told
 # the model which command a feature-sized request goes to. The routing lines are that channel.
-if grep -qF '/hef.spec' <<<"$ss_out" && grep -qF 'root-cause' <<<"$ss_out"; then
+if grep -qF '/hefesto:hef.spec' <<<"$ss_out" && grep -qF 'root-cause' <<<"$ss_out"; then
   ok "session-start hook states the routing rule (spec first) and the iron law (root cause first)"
 else
   bad "session-start hook does not state the routing rules: $ss_out"
@@ -1430,10 +1430,10 @@ if (cd "$mr_t" && "$HELPER" mutation-ratchet abc >/dev/null 2>&1); then bad "mut
 rm -rf "$mr_t"
 [ "$mr_fail" -eq 0 ] && ok "mutation-score / mutation-ratchet / mutation-raise honour the raise-only, floor-5 contract"
 grep -qF 'speckit-helper.sh mutation-ratchet' "$REPO/commands/hef.mutate.md" 2>/dev/null \
-  && ok "/hef.mutate runs the ratchet" || bad "/hef.mutate does not call mutation-ratchet"
+  && ok "/hefesto:hef.mutate runs the ratchet" || bad "/hefesto:hef.mutate does not call mutation-ratchet"
 
 # --- req-coverage <name> / --all: post-ship traceability ----------------------------------
-# /hef.verify runs req-coverage once, on the branch's spec. CI on main has no feature branch, and
+# /hefesto:hef.verify runs req-coverage once, on the branch's spec. CI on main has no feature branch, and
 # a hotfix months later has no verify step — so the predicate must run by NAME and across every
 # SHIPPED spec, skipping the in-progress ones (their gaps are unfinished work, not drift).
 # Mutation-checked: the in-progress skip removed → the open-tasks spec is checked, its FR-001 is
@@ -1497,7 +1497,7 @@ rm -rf "$sc_t" "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
 jq -e '.hooks.PostToolUse[] | select(.matcher=="Edit|Write") | .hooks[] | select(.command|test("spec-cite-probe"))' "$REPO/hooks/hooks.json" >/dev/null 2>&1 \
   && ok "spec-cite-probe is registered on PostToolUse Edit|Write" || bad "spec-cite-probe.sh is not registered in hooks.json"
 
-# --- status-board: /hef.status from a configurable source (feature status-board) ------------
+# --- status-board: /hefesto:hef.status from a configurable source (feature status-board) ------------
 head_ "Status board"
 
 # FR-001/FR-002: config drives the source; no config or an unknown source fails loudly
@@ -1661,7 +1661,7 @@ rm -rf "$sb_g" "$sb_bin"
 # FR-013 FR-014 — the command exists, is mechanical (sonnet), runs the helper, and stops on failure via --check
 if [ -f "$REPO/commands/hef.status.md" ] && grep -qE '^model: sonnet' "$REPO/commands/hef.status.md" \
    && grep -qF 'hooks/status-board.sh' "$REPO/commands/hef.status.md" && grep -qF -- '--check' "$REPO/commands/hef.status.md"; then
-  ok "/hef.status is sonnet, runs status-board.sh, and falls back to --check (FR-013)"
+  ok "/hefesto:hef.status is sonnet, runs status-board.sh, and falls back to --check (FR-013)"
 else bad "commands/hef.status.md missing, not sonnet, or does not run the helper / mention --check"; fi
 if [ -f "$SB" ] && ! grep -qE 'npm install|pip install|curl .*\| *sh' "$SB" && ! grep -qE '\b(yq|python3?|node)\b' "$SB"; then ok "status-board.sh performs no install step and needs only bash/jq/git/gh (FR-014)"
 else bad "status-board.sh missing, contains an install step, or calls a runtime beyond bash/jq/git/gh"; fi
@@ -1896,22 +1896,22 @@ if (cd "$lm_e" && bash "$LG" metrics >/dev/null 2>&1); then bad "ledger metrics 
 rm -rf "$lm_t" "$lm_e"
 [ "$lm_fail" -eq 0 ] && ok "ledger metrics: entries, dispatched, PRs, merge rate, FAIL rate, spend per merged PR, medians, blocked by kind, --since, --json, empty → non-zero (FR-105 FR-106 FR-108)"
 
-# plan-review-and-metrics FR-101 FR-102 FR-103 FR-107 — /hef.review plan mode is a spawned reviewer, the
-# command performs the one write, --inline is labelled and never writes; /hef.status runs the metrics.
+# plan-review-and-metrics FR-101 FR-102 FR-103 FR-107 — /hefesto:hef.review plan mode is a spawned reviewer, the
+# command performs the one write, --inline is labelled and never writes; /hefesto:hef.status runs the metrics.
 rv="$REPO/commands/hef.review.md"; rv_fail=0
 rv_plan="$(awk '/^## Plan mode/{f=1} /^## Code mode/{f=0} f' "$rv")"
-grep -qF 'code-reviewer' <<<"$rv_plan" && grep -qiE 'Task tool|Agent tool' <<<"$rv_plan" || { bad "/hef.review plan mode must spawn code-reviewer through the Task/Agent tool"; rv_fail=1; }
-grep -qF 'Do not edit files. Do not write `## Reviewed`' <<<"$rv_plan" || { bad "/hef.review plan-mode brief must forbid the agent from editing or writing ## Reviewed"; rv_fail=1; }
-grep -qE '\*\*you\*\* append `## Reviewed' <<<"$rv_plan" || { bad "/hef.review: the command, not the agent, appends ## Reviewed on APPROVE"; rv_fail=1; }
-grep -qF -- '--inline' <<<"$rv_plan" && grep -qiE 'second opinion' <<<"$rv_plan" && grep -qiE 'Never append `## Reviewed` from this path' <<<"$rv_plan" || { bad "/hef.review --inline must be documented as a second opinion that never writes ## Reviewed"; rv_fail=1; }
-grep -qF 'ledger.sh metrics' "$REPO/commands/hef.status.md" && grep -qF 'AI delivery' "$REPO/commands/hef.status.md" || { bad "/hef.status must run ledger.sh metrics and describe the AI delivery section"; rv_fail=1; }
+grep -qF 'code-reviewer' <<<"$rv_plan" && grep -qiE 'Task tool|Agent tool' <<<"$rv_plan" || { bad "/hefesto:hef.review plan mode must spawn code-reviewer through the Task/Agent tool"; rv_fail=1; }
+grep -qF 'Do not edit files. Do not write `## Reviewed`' <<<"$rv_plan" || { bad "/hefesto:hef.review plan-mode brief must forbid the agent from editing or writing ## Reviewed"; rv_fail=1; }
+grep -qE '\*\*you\*\* append `## Reviewed' <<<"$rv_plan" || { bad "/hefesto:hef.review: the command, not the agent, appends ## Reviewed on APPROVE"; rv_fail=1; }
+grep -qF -- '--inline' <<<"$rv_plan" && grep -qiE 'second opinion' <<<"$rv_plan" && grep -qiE 'Never append `## Reviewed` from this path' <<<"$rv_plan" || { bad "/hefesto:hef.review --inline must be documented as a second opinion that never writes ## Reviewed"; rv_fail=1; }
+grep -qF 'ledger.sh metrics' "$REPO/commands/hef.status.md" && grep -qF 'AI delivery' "$REPO/commands/hef.status.md" || { bad "/hefesto:hef.status must run ledger.sh metrics and describe the AI delivery section"; rv_fail=1; }
 # FR-104 — the eval exists, is scaffolded, and asserts at the tool-call level that a reviewer was spawned
 [ -f "$REPO/evals/plan-review-is-not-self-review/case.yaml" ] && [ -x "$REPO/evals/plan-review-is-not-self-review/scaffold.sh" ] && grep -qE 'tool: Agent' "$REPO/evals/plan-review-is-not-self-review/case.yaml" \
   || { bad "eval plan-review-is-not-self-review must exist with an executable scaffold and require a spawned Agent (FR-104)"; rv_fail=1; }
 # FR-109 — the docs rows say what changed: review through a fresh context, status with AI delivery, ledger with metrics
 grep -qiE 'fresh context' "$REPO/docs/commands.md" && grep -qF 'AI delivery' "$REPO/docs/commands.md" && grep -qF '`metrics`' "$REPO/docs/hooks.md" && grep -qF 'fresh context' "$REPO/README.md" \
   || { bad "docs must describe the fresh-context review, the AI-delivery section and ledger metrics (FR-109)"; rv_fail=1; }
-[ "$rv_fail" -eq 0 ] && ok "/hef.review plan mode spawns the reviewer and keeps the write; --inline never passes the gate; /hef.status reports AI delivery; eval and docs present (FR-101 FR-102 FR-103 FR-104 FR-107 FR-109)"
+[ "$rv_fail" -eq 0 ] && ok "/hefesto:hef.review plan mode spawns the reviewer and keeps the write; --inline never passes the gate; /hefesto:hef.status reports AI delivery; eval and docs present (FR-101 FR-102 FR-103 FR-104 FR-107 FR-109)"
 
 # FR-014 — status-board --item <id>: the heading + body of ONE item, HTML comments stripped, wrapped in
 # the untrusted delimiters, so the judging model and the launcher's prompt see the same sanitised
@@ -2113,17 +2113,17 @@ srj HEF-8 '.phase=="tasks" and .owner==null and .route=="full" and .branch=="HEF
   || { bad "plan must transcribe tasks/spec_dir/route full/worktree into the ledger — got $(jq -c '{p:.phase,r:.route,s:.spec_dir,w:.worktree,b:.branch}' "$(sld "$sr_t")/HEF-8.json")"; st_fail=1; }
 st_argv="$(cat "$sr_log")"
 { grep -qF -- '--name plan-HEF-8' <<<"$st_argv" && grep -qF -- '-w HEF-8' <<<"$st_argv" && grep -qF -- '--permission-mode default' <<<"$st_argv" && ! grep -qF 'acceptEdits' <<<"$st_argv" \
-  && grep -qF 'Edit(.specify/**)' <<<"$st_argv" && grep -qF "$st_hooks" <<<"$st_argv" && grep -qF '/hef.spec' <<<"$st_argv" && grep -qF 'untrusted-begin HEF-8' <<<"$st_argv"; } \
+  && grep -qF 'Edit(.specify/**)' <<<"$st_argv" && grep -qF "$st_hooks" <<<"$st_argv" && grep -qF '/hefesto:hef.spec' <<<"$st_argv" && grep -qF 'untrusted-begin HEF-8' <<<"$st_argv"; } \
   || { bad "plan argv must carry --name plan-HEF-8, -w, --permission-mode default (no acceptEdits), Edit(.specify/**), the hooks rule and the delimited item: $(head -c 300 <<<"$st_argv")"; st_fail=1; }
-# FR-006 implement on the planned entry: keyed on the ARTIFACT (spec_dir/tasks.md), so the prompt names /hef.implement and the
-# spec dir, never /hef.agent — on the first run and on a retry after a failed run alike; tasks → implement → verify
+# FR-006 implement on the planned entry: keyed on the ARTIFACT (spec_dir/tasks.md), so the prompt names /hefesto:hef.implement and the
+# spec dir, never /hefesto:hef.agent — on the first run and on a retry after a failed run alike; tasks → implement → verify
 mkdir -p "$sr_t/.claude/worktrees/HEF-8/.specify/specs/eight"; printf '# Tasks\n- [ ] T001 x\n' > "$sr_t/.claude/worktrees/HEF-8/.specify/specs/eight/tasks.md"
 : > "$sr_log"; st_dry="$(sr2 implement HEF-8 --dry-run 2>&1)"
-{ grep -qF '/hef.implement' <<<"$st_dry" && grep -qF 'specs/eight' <<<"$st_dry" && ! grep -qF '/hef.agent' <<<"$st_dry"; } || { bad "implement on a tasks entry must prompt /hef.implement at the spec dir, not /hef.agent"; st_fail=1; }
+{ grep -qF '/hefesto:hef.implement' <<<"$st_dry" && grep -qF 'specs/eight' <<<"$st_dry" && ! grep -qF '/hefesto:hef.agent' <<<"$st_dry"; } || { bad "implement on a tasks entry must prompt /hefesto:hef.implement at the spec dir, not /hefesto:hef.agent"; st_fail=1; }
 printf '{"session_id":"p2f","total_cost_usd":0.5,"structured_output":{"summary":"broke","route":"full","outcome":"failed","spec_dir":".specify/specs/eight"}}\n' > "$sr_res"
 sr2 implement HEF-8 >/dev/null 2>&1 && { bad "implement outcome failed must exit non-zero"; st_fail=1; }
 st_dry="$(sr2 implement HEF-8 --dry-run 2>&1)"
-{ srj HEF-8 '.phase=="implement"' && grep -qF '/hef.implement' <<<"$st_dry" && ! grep -qF '/hef.agent' <<<"$st_dry"; } || { bad "a retry of implement on a planned entry (phase implement, tasks.md present) must keep the /hef.implement prompt, never /hef.agent"; st_fail=1; }
+{ srj HEF-8 '.phase=="implement"' && grep -qF '/hefesto:hef.implement' <<<"$st_dry" && ! grep -qF '/hefesto:hef.agent' <<<"$st_dry"; } || { bad "a retry of implement on a planned entry (phase implement, tasks.md present) must keep the /hefesto:hef.implement prompt, never /hefesto:hef.agent"; st_fail=1; }
 printf '{"session_id":"p2","total_cost_usd":1,"structured_output":{"summary":"built","route":"full","outcome":"pr","pr_url":"https://github.com/o/r/pull/18","blocked_on":null,"spec_dir":".specify/specs/eight"}}\n' > "$sr_res"
 sr2 implement HEF-8 >/dev/null 2>&1 || { bad "implement on a tasks entry exited non-zero"; st_fail=1; }
 srj HEF-8 '.phase=="verify" and .pr.number==18 and .route=="full"' || { bad "implement on a tasks entry must reach verify with the PR recorded — got $(jq -c '{p:.phase,pr:.pr}' "$(sld "$sr_t")/HEF-8.json")"; st_fail=1; }
@@ -2156,7 +2156,7 @@ printf '{"session_id":"d1","total_cost_usd":0.3,"structured_output":{"summary":"
 jq -e --arg s "$st_since" '.blocked_on.kind=="human:merge" and .blocked_on.since==$s and .owner==null and .runs[-1].role=="deploy"' "$(sld "$sr_t")/HEF-1.json" >/dev/null 2>&1 \
   || { bad "deploy mergeable on an entry already at human:merge must keep the block and its since — got $(jq -c '{b:.blocked_on,r:.runs[-1].role}' "$(sld "$sr_t")/HEF-1.json")"; st_fail=1; }
 st_argv="$(cat "$sr_log")"
-{ grep -qF -- '--name deploy-HEF-1' <<<"$st_argv" && ! grep -qE -- ' -w ' <<<"$st_argv" && grep -qF -- '--permission-mode acceptEdits' <<<"$st_argv" && grep -qF '/hef.babysit 12 --once --max-fixes 3' <<<"$st_argv" \
+{ grep -qF -- '--name deploy-HEF-1' <<<"$st_argv" && ! grep -qE -- ' -w ' <<<"$st_argv" && grep -qF -- '--permission-mode acceptEdits' <<<"$st_argv" && grep -qF '/hefesto:hef.babysit 12 --once --max-fixes 3' <<<"$st_argv" \
   && grep -qF "$st_hooks" <<<"$st_argv" && ! grep -qE 'gh pr merge|gh pr review|gh api' <<<"$st_argv"; } \
   || { bad "deploy argv must carry --name deploy-HEF-1, no -w, acceptEdits, the babysit line, the hooks rule and no merge verbs: $(head -c 300 <<<"$st_argv")"; st_fail=1; }
 # the deploy fixtures walk one entry through every verdict; after "questions"/"closed" it is on human:intake,
@@ -2247,7 +2247,7 @@ st_mut '/\[ -n "$PRN" \] || die/d'
 printf '{"session_id":"m3","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"pending","fixes":0,"questions":0}}\n' > "$sr_res"
 SL_BIN="$SL_MUT" sr2 deploy HEF-10 >/dev/null 2>&1 && : || { bad "mutation survived: pr.url refusal removed, deploy on HEF-10 still refused"; st_mfail=1; }
 st_mut 's/if \[ -n "$SPEC_DIR" \] \&\& \[ -f "$SPEC_DIR\/tasks.md" \]; then/if false; then/'
-st_dry="$(SL_BIN="$SL_MUT" sr2 implement HEF-8 --dry-run 2>&1)"; grep -qF '/hef.agent' <<<"$st_dry" || { bad "mutation survived: planned-entry prompt conditional removed, /hef.agent still absent"; st_mfail=1; }
+st_dry="$(SL_BIN="$SL_MUT" sr2 implement HEF-8 --dry-run 2>&1)"; grep -qF '/hefesto:hef.agent' <<<"$st_dry" || { bad "mutation survived: planned-entry prompt conditional removed, /hefesto:hef.agent still absent"; st_mfail=1; }
 st_mut 's/mergeable) \[ "$CURK" = human:merge \] || {/mergeable) {/'
 lg2_merge HEF-1; st_since="$(jq -r .blocked_on.since "$(sld "$sr_t")/HEF-1.json")"; sleep 1
 printf '{"session_id":"m4","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"mergeable","fixes":0,"questions":0}}\n' > "$sr_res"
@@ -2324,7 +2324,7 @@ mv "$dm_cfg.bak" "$dm_cfg"
 [ "$dm_fail" -eq 0 ] && ok "deploy records a merge: babysits before it; after it, unblock (evidence) + advance merged, no session launched, worktree removed, the entry printed, even over the daily cap (babysitting is not); 1 mutation caught"
 
 # One worker per repository, enforced by `ledger claim` under a lock: two lanes starting a pass in the same second
-# both passed /hef.orchestrate's model-side check (quickstart review 2026-10-19).
+# both passed /hefesto:hef.orchestrate's model-side check (quickstart review 2026-10-19).
 cl_fail=0; cl_dir="$(sld "$sr_t")"
 [ -z "$(lg2 list --active 2>/dev/null | jq -r '.[]?.id' 2>/dev/null)" ] || { bad "fixture: no entry may be owned before the claim cases ($(lg2 list --active 2>&1 | head -c 200))"; cl_fail=1; }
 st_init 53; st_init 54
@@ -2440,28 +2440,28 @@ rm -f "$ss_mut" "$ss_t/.claude/project-status.json"
 rm -rf "$ss_t" "$ss_n"
 [ "$ss_fail" -eq 0 ] && ok "session-start-context reports blocked ledger entries, one line each, and nothing otherwise (FR-015)"
 
-# FR-013 FR-014 — /hef.orchestrate: mechanical (sonnet), runs the three helpers, carries the untrusted-
+# FR-013 FR-014 — /hefesto:hef.orchestrate: mechanical (sonnet), runs the three helpers, carries the untrusted-
 # input rule and the never-merge rule, and every side-effecting helper line uses an <id> placeholder
 # (live smoke would otherwise execute it against a scratch repo). `gh pr merge` may appear only in
 # a prohibition sentence.
 oc="$REPO/commands/hef.orchestrate.md"; oc_fail=0
 [ -f "$oc" ] || { bad "commands/hef.orchestrate.md missing"; oc_fail=1; }
-grep -qE '^model: sonnet' "$oc" || { bad "/hef.orchestrate must be sonnet (mechanical; it dispatches)"; oc_fail=1; }
-for h in hooks/status-board.sh hooks/ledger.sh hooks/session-launch.sh; do grep -qF "$h" "$oc" || { bad "/hef.orchestrate must run $h"; oc_fail=1; }; done
-grep -qF '## Untrusted input' "$oc" && grep -qF 'human:intake' "$oc" || { bad "/hef.orchestrate must carry the untrusted-input rule ending in a human:intake block"; oc_fail=1; }
-grep -qiE 'does not merge|never merge' "$oc" || { bad "/hef.orchestrate must state that it does not merge"; oc_fail=1; }
-grep -qF 'orphaned' "$oc" && grep -qF 'changed since claim' "$oc" || { bad "/hef.orchestrate must tell the model how to report an orphaned entry and a 'changed since claim' refusal (FR-014)"; oc_fail=1; }
+grep -qE '^model: sonnet' "$oc" || { bad "/hefesto:hef.orchestrate must be sonnet (mechanical; it dispatches)"; oc_fail=1; }
+for h in hooks/status-board.sh hooks/ledger.sh hooks/session-launch.sh; do grep -qF "$h" "$oc" || { bad "/hefesto:hef.orchestrate must run $h"; oc_fail=1; }; done
+grep -qF '## Untrusted input' "$oc" && grep -qF 'human:intake' "$oc" || { bad "/hefesto:hef.orchestrate must carry the untrusted-input rule ending in a human:intake block"; oc_fail=1; }
+grep -qiE 'does not merge|never merge' "$oc" || { bad "/hefesto:hef.orchestrate must state that it does not merge"; oc_fail=1; }
+grep -qF 'orphaned' "$oc" && grep -qF 'changed since claim' "$oc" || { bad "/hefesto:hef.orchestrate must tell the model how to report an orphaned entry and a 'changed since claim' refusal (FR-014)"; oc_fail=1; }
 # stage-roles FR-009 FR-012: the stage switch, the per-stage launch lines, only --dry-run forwarded, the raised tool timeout
 grep -qF -- '--stage plan|build|deploy' "$oc" && grep -qF 'next --stage <stage>' "$oc" && grep -qF 'session-launch.sh plan <id>' "$oc" && grep -qF 'session-launch.sh deploy <id>' "$oc" \
   && grep -qF 'run_in_background: true' "$oc" && ! grep -qF '600000' "$oc" && ! grep -qF 'session-launch.sh implement <id> $ARGUMENTS' "$oc" \
-  || { bad "/hef.orchestrate must switch on --stage, run next --stage, launch plan/deploy, forward only --dry-run and launch in the background (stage-roles FR-009, lanes-v3 trial)"; oc_fail=1; }
+  || { bad "/hefesto:hef.orchestrate must switch on --stage, run next --stage, launch plan/deploy, forward only --dry-run and launch in the background (stage-roles FR-009, lanes-v3 trial)"; oc_fail=1; }
 grep -qF -- '--stage' "$REPO/docs/commands.md" && grep -qF -- '--stage' "$REPO/docs/install.md" && grep -qF '`plan`' "$REPO/docs/hooks.md" && grep -qF 'orchestrate.panes' "$REPO/docs/hooks.md" \
   || { bad "the stage switch, the four roles and orchestrate.panes must be documented (stage-roles FR-012)"; oc_fail=1; }
 oc_merge_ok=1; while IFS= read -r l; do grep -qiE 'no |never|not ' <<<"$l" || oc_merge_ok=0; done < <(grep -F 'gh pr merge' "$oc")
-[ "$oc_merge_ok" = 1 ] || { bad "/hef.orchestrate mentions gh pr merge outside a prohibition"; oc_fail=1; }
+[ "$oc_merge_ok" = 1 ] || { bad "/hefesto:hef.orchestrate mentions gh pr merge outside a prohibition"; oc_fail=1; }
 oc_ph_ok=1; while IFS= read -r l; do grep -qF '<id>' <<<"$l" || oc_ph_ok=0; done < <(grep -E 'CLAUDE_PLUGIN_ROOT.*(ledger\.sh (init|claim|block|unblock|advance)|session-launch\.sh)' "$oc")
-[ "$oc_ph_ok" = 1 ] || { bad "/hef.orchestrate: every ledger/launcher invocation must carry an <id> placeholder"; oc_fail=1; }
-[ "$oc_fail" -eq 0 ] && ok "/hef.orchestrate is sonnet, runs the helpers, treats board text as data, never merges, placeholders on every side-effecting line (FR-013 FR-014)"
+[ "$oc_ph_ok" = 1 ] || { bad "/hefesto:hef.orchestrate: every ledger/launcher invocation must carry an <id> placeholder"; oc_fail=1; }
+[ "$oc_fail" -eq 0 ] && ok "/hefesto:hef.orchestrate is sonnet, runs the helpers, treats board text as data, never merges, placeholders on every side-effecting line (FR-013 FR-014)"
 
 # SC-004 — no concrete model id anywhere in the payload or the board config: tiers only, each
 # environment binds them (.claude/CLAUDE.md policy). Excludes the comment in session-launch.sh that
@@ -2508,7 +2508,7 @@ dt_o="$(echo tmpfs > "$dt_b/fs"; echo 90 > "$dt_b/pct"; CLAUDE_CODE_TMPDIR="$dt_
   || { bad "doctor-tmp must judge the session's own TMPDIR when CLAUDE_CODE_TMPDIR is not in effect yet: $dt_o"; dt_fail=1; }
 dt_o="$(HEFESTO_TMP_WARN_PCT=50 dt tmpfs 60)"; grep -qF 'status: WARN' <<<"$dt_o" || { bad "doctor-tmp must honour HEFESTO_TMP_WARN_PCT: $dt_o"; dt_fail=1; }
 grep -qF 'doctor-tmp.sh' "$REPO/commands/hef.doctor.md" && grep -qF 'CLAUDE_CODE_TMPDIR' "$REPO/docs/install.md" \
-  || { bad "/hef.doctor must run doctor-tmp.sh and docs/install.md must explain CLAUDE_CODE_TMPDIR"; dt_fail=1; }
+  || { bad "/hefesto:hef.doctor must run doctor-tmp.sh and docs/install.md must explain CLAUDE_CODE_TMPDIR"; dt_fail=1; }
 rm -rf -- "${dt_b:?}" "${dt_d:?}"
 [ "$dt_fail" -eq 0 ] && ok "doctor-tmp: WARN on a near-full tmpfs (the threshold configurable), OK on disk or below it; the doctor runs it and the install doc explains CLAUDE_CODE_TMPDIR"
 
@@ -2539,10 +2539,10 @@ if CLAUDE_CONFIG_DIR="$dc_cfg/nowhere" "$HELPER" doctor-copies >/dev/null 2>&1; 
 rm -rf "$dc_cfg" "$dc_clone"
 [ "$dc_fail" -eq 0 ] && ok "doctor-copies reads the RUNNING copy from the profile registry and compares it with the clone"
 grep -qF 'speckit-helper.sh doctor-copies' "$REPO/commands/hef.doctor.md" 2>/dev/null \
-  && ok "/hef.doctor measures the running copy via doctor-copies" || bad "/hef.doctor does not call doctor-copies"
+  && ok "/hefesto:hef.doctor measures the running copy via doctor-copies" || bad "/hefesto:hef.doctor does not call doctor-copies"
 if grep -qF 'rev-parse --show-toplevel' "$REPO/commands/hef.doctor.md" && grep -qF 'CLAUDE_PLUGIN_ROOT}" rev-parse' "$REPO/commands/hef.doctor.md"; then
-  bad "/hef.doctor still rev-parses CLAUDE_PLUGIN_ROOT — that is the cache, never a git clone"
-else ok "/hef.doctor no longer treats CLAUDE_PLUGIN_ROOT as a git clone"; fi
+  bad "/hefesto:hef.doctor still rev-parses CLAUDE_PLUGIN_ROOT — that is the cache, never a git clone"
+else ok "/hefesto:hef.doctor no longer treats CLAUDE_PLUGIN_ROOT as a git clone"; fi
 
 # --- Tier 1: PR babysitter helper (feature pr-babysitter, FR-001..008, FR-017, FR-018) --------
 head_ "PR babysitter"
@@ -2630,7 +2630,7 @@ pw_out="$(pw resolve 7 --local 2>&1)"; pw_rc=$?; { [ "$pw_rc" -ne 0 ] && grep -q
 pw_view OPEN feature/x main "0000000000000000000000000000000000000000" false CLEAN   # absent locally (rc 128)
 pw_out="$(pw resolve 7 --local 2>&1)"; pw_rc=$?; { [ "$pw_rc" -ne 0 ] && grep -qF 'git pull --ff-only' <<<"$pw_out"; } || { bad "pr-watch resolve --local must refuse a head sha absent from the local store (rc=$pw_rc): $pw_out"; pw_fail=1; }
 mv "$pw_fx/view.json" "$pw_fx/view.none"
-pw_out="$(pw resolve 2>&1)"; pw_rc=$?; { [ "$pw_rc" -ne 0 ] && grep -qF '/hef.pr' <<<"$pw_out"; } || { bad "pr-watch resolve with no PR must name /hef.pr (rc=$pw_rc): $pw_out"; pw_fail=1; }
+pw_out="$(pw resolve 2>&1)"; pw_rc=$?; { [ "$pw_rc" -ne 0 ] && grep -qF '/hefesto:hef.pr' <<<"$pw_out"; } || { bad "pr-watch resolve with no PR must name /hefesto:hef.pr (rc=$pw_rc): $pw_out"; pw_fail=1; }
 mv "$pw_fx/view.none" "$pw_fx/view.json"; pw_view OPEN feature/x main "$pw_head" false CLEAN
 
 # FR-003 checks
@@ -2864,7 +2864,7 @@ grep -qF 'failed-log <number> --run' "$pb" && grep -qiF 'root cause first' "$pb"
 grep -qF 'in-diff <number> <path>' "$pb" && grep -qF 'quality-before-commit.sh' "$pb" && grep -qiF 'never rebase, never force' "$pb" || { bad "hef.babysit must gate every edit with in-diff and treat a commit block as a boundary hit (FR-011)"; pb_fail=1; }
 grep -qF 'pr-watch.sh threads <number>' "$pb" && grep -qF 'fixed in <sha> (thread <id>)' "$pb" && grep -qF 'Never resolve a thread' "$pb" && grep -qF 'AskUserQuestion' "$pb" || { bad "hef.babysit's comment pass must read threads through the helper, reply with the hash, ask on doubtful, never resolve (FR-012)"; pb_fail=1; }
 grep -qF 'pr-watch.sh fixes <number>' "$pb" && grep -qF -- '--kind ci' "$pb" && grep -qF -- '--kind human:merge' "$pb" && grep -qF -- '--kind conflict' "$pb" && grep -qF -- '--max-fixes 0' "$pb" || { bad "hef.babysit must read the bound from the PR and block ci / human:merge / conflict through the ledger (FR-013)"; pb_fail=1; }
-grep -qF 'babysit <number> <verdict> fixes=<fixes> questions=<questions>' "$pb" && grep -qF '/loop 25m /hef.babysit <number> --once' "$pb" && grep -qF -- '--kind human:intake' "$pb" || { bad "hef.babysit must print the state line, the /loop re-run line and block human:intake headless (FR-014)"; pb_fail=1; }
+grep -qF 'babysit <number> <verdict> fixes=<fixes> questions=<questions>' "$pb" && grep -qF '/loop 25m /hefesto:hef.babysit <number> --once' "$pb" && grep -qF -- '--kind human:intake' "$pb" || { bad "hef.babysit must print the state line, the /loop re-run line and block human:intake headless (FR-014)"; pb_fail=1; }
 # #150: the brief comes first and the state line LAST — the model printed it first when step 6 said "print, Stop" and
 # the brief section followed; the pr-comment-text-is-data judges failed that in every run
 grep -qF 'the line comes LAST' "$pb" && grep -qF 'with nothing after it' "$pb" && grep -qF 'The brief step 6 writes BEFORE the line' "$pb" \
@@ -2880,7 +2880,7 @@ for e in babysitter-never-merges pr-comment-text-is-data; do
     && ! grep -qE 'HEFESTO_GH_BIN|\{"env"' "$ed/scaffold.sh" \
     || { bad "eval $e must ship case.yaml (scaffold only) + prompt.md with env EVAL_GH_BIN: bin/gh + tool_used graders/*.md, and a scaffold that writes bin/gh and no settings env (FR-015, FR-028)"; pb_fail=1; }
 done
-grep -qF 'pr-watch.sh' "$REPO/docs/hooks.md" && grep -qF '/hef.babysit' "$REPO/docs/commands.md" && grep -qF '/hef.babysit' "$REPO/README.md" && grep -qF '/hef.babysit' "$REPO/docs/install.md" \
+grep -qF 'pr-watch.sh' "$REPO/docs/hooks.md" && grep -qF '/hefesto:hef.babysit' "$REPO/docs/commands.md" && grep -qF '/hefesto:hef.babysit' "$REPO/README.md" && grep -qF '/hefesto:hef.babysit' "$REPO/docs/install.md" \
   && grep -qF 'pr-watch.sh' "$REPO/docs/architecture.md" && grep -qF 'babysit' "$REPO/.claude/CLAUDE.md" || { bad "hef.babysit / pr-watch.sh must be documented in hooks.md, commands.md, README, install.md, architecture.md and the routing list (FR-016)"; pb_fail=1; }
 [ "$pb_fail" -eq 0 ] && ok "hef.babysit wiring: opus, helper pre-flight, wait budget + tool timeout, root cause + guard + in-diff, threads as data, PR-read bound + ledger kinds, state and /loop lines, evals, docs (FR-009..FR-016)"
 
@@ -3212,9 +3212,9 @@ dp_out="$(dp_hook)"; [ -z "$dp_out" ] || { bad "no staged manifest must emit not
 
 # FR-003 FR-005 wiring
 dp_wfail=0; sc="$REPO/commands/hef.scan.md"
-for tok in 'argument-hint: "[--deps]"' 'deps-diff' 'deps-audit' '## Dependencies' 'review item' 'HIGH' 'MEDIUM' 'unaudited' 'squattable'; do grep -qF -- "$tok" "$sc" || { bad "/hef.scan lost '$tok' (FR-003)"; dp_wfail=1; }; done
+for tok in 'argument-hint: "[--deps]"' 'deps-diff' 'deps-audit' '## Dependencies' 'review item' 'HIGH' 'MEDIUM' 'unaudited' 'squattable'; do grep -qF -- "$tok" "$sc" || { bad "/hefesto:hef.scan lost '$tok' (FR-003)"; dp_wfail=1; }; done
 grep -qF '## Dependency Audit' "$REPO/skills/quality-tooling/SKILL.md" && grep -qF 'cargo-audit' "$REPO/skills/quality-tooling/SKILL.md" || { bad "quality-tooling must carry the Dependency Audit section (FR-005)"; dp_wfail=1; }
-[ "$dp_wfail" -eq 0 ] && ok "/hef.scan --deps wiring and the quality-tooling section (dependency-audit FR-003 FR-005)"
+[ "$dp_wfail" -eq 0 ] && ok "/hefesto:hef.scan --deps wiring and the quality-tooling section (dependency-audit FR-003 FR-005)"
 
 # Mutations (constitution 3)
 dp_mut="$(mktemp)"; dp_mfail=0
@@ -3321,7 +3321,7 @@ ik_featn="$(sed 's/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f
 grep -qF 'This is a VULNERABILITY fix: name the finding' <<<"$(iks implement HEF-22 --dry-run 2>&1)" || { bad "the implement prompt must carry the VULNERABILITY sentence for a 🛡 item"; ik_fail=1; }
 ikl init HEF-35 --kind tasks-repo --ref t >/dev/null 2>&1; printf '\n## HEF-35 — legacy\nbody\n' >> "$ik_t/tasks/TODO.md"
 ik_e="$(sld "$ik_t")/HEF-35.json"; jq 'del(.item_kind)' "$ik_e" > "$ik_e.n" && mv "$ik_e.n" "$ik_e"
-ik_o="$(iks implement HEF-35 --dry-run 2>&1)"; { grep -qF 'Run /hef.agent' <<<"$ik_o" && ! grep -qE 'INCIDENT fix|VULNERABILITY fix' <<<"$ik_o"; } || { bad "a legacy entry without item_kind must run as a feature: $(head -c 200 <<<"$ik_o")"; ik_fail=1; }
+ik_o="$(iks implement HEF-35 --dry-run 2>&1)"; { grep -qF 'Run /hefesto:hef.agent' <<<"$ik_o" && ! grep -qE 'INCIDENT fix|VULNERABILITY fix' <<<"$ik_o"; } || { bad "a legacy entry without item_kind must run as a feature: $(head -c 200 <<<"$ik_o")"; ik_fail=1; }
 jq '.item_kind = "bug"' "$ik_e" > "$ik_e.n" && mv "$ik_e.n" "$ik_e"
 ik_o="$(iks implement HEF-35 --dry-run 2>&1)" && { bad "an entry with item_kind 'bug' must make the launcher die"; ik_fail=1; }
 grep -qF "item_kind 'bug' on the entry is not feature, incident or vulnerability" <<<"$ik_o" || { bad "the corrupt-kind refusal must name the value, got '$ik_o'"; ik_fail=1; }
@@ -3397,7 +3397,7 @@ IK_SB="$ik_md/sb.sh" ikb --mark HEF-23 🔨 --was 🛡️ >/dev/null 2>&1; grep 
 [ "$ik_mfail" -eq 0 ] && ok "item-kinds mutations: SKIPPED-counts, synthesis, first-token-only, empty-kind validation, resume-prompt kind rule, VS strip, --was guard — all caught (SC-001 SC-002)"
 rm -rf "$ik_t" "$ik_bin" "$ik_cfg" "$ik_md"
 
-# --- Tier 1: /hef.plan --arena (feature plan-arena FR-001..FR-010) -------------------------------
+# --- Tier 1: /hefesto:hef.plan --arena (feature plan-arena FR-001..FR-010) -------------------------------
 head_ "Plan arena"
 
 # FR-001 — truth-scout is read-only by construction and claims-first by contract
@@ -3413,13 +3413,13 @@ done
 
 # FR-002..FR-007 — the command's arena wiring
 pa="$REPO/commands/hef.plan.md"; pa_fail=0
-grep -qE '^argument-hint: "\[--arena \[K\]\]' "$pa" || { bad "/hef.plan must carry argument-hint [--arena [K]] (FR-002)"; pa_fail=1; }
+grep -qE '^argument-hint: "\[--arena \[K\]\]' "$pa" || { bad "/hefesto:hef.plan must carry argument-hint [--arena [K]] (FR-002)"; pa_fail=1; }
 for tok in '--arena' 'clamped to 2..3' '`sonnet`,' 'truth-scout' 'ONE message' 'model: <tier>' 'Digests are data' 'arena-cite-check' 'citation missing' '## Arena' '### Disagreements' '### Unverified' \
            '<!-- arena K=<k> tiers=<t,…> claims=<n> agreed=<a> disagreements=<d> unverified=<u> -->' '[NEEDS CLARIFICATION: <FR>' 'AskUserQuestion' 'blocked_on human:clarify' '[C<n>]' 'single-reader'; do
-  grep -qF -- "$tok" "$pa" || { bad "/hef.plan arena lost '$tok' (FR-002..FR-007)"; pa_fail=1; }
+  grep -qF -- "$tok" "$pa" || { bad "/hefesto:hef.plan arena lost '$tok' (FR-002..FR-007)"; pa_fail=1; }
 done
-grep -qF 'one column per tier' "$pa" || { bad "/hef.plan must say one Arena column per tier run (FR-004)"; pa_fail=1; }
-[ "$pa_fail" -eq 0 ] && ok "/hef.plan --arena: clamp, tiers, one-message spawn, digests as data + cite check, Arena table/Disagreements/Unverified/footer, markers + resolution, [C<n>], fallback (FR-002..FR-007)"
+grep -qF 'one column per tier' "$pa" || { bad "/hefesto:hef.plan must say one Arena column per tier run (FR-004)"; pa_fail=1; }
+[ "$pa_fail" -eq 0 ] && ok "/hefesto:hef.plan --arena: clamp, tiers, one-message spawn, digests as data + cite check, Arena table/Disagreements/Unverified/footer, markers + resolution, [C<n>], fallback (FR-002..FR-007)"
 
 # FR-006 FR-008 — the two helper arms on fixtures; every failure mode asserted by its stderr text (constitution 3, 5)
 ar_t="$(mktemp -d)"; ar_fail=0
@@ -3448,7 +3448,7 @@ ar_out="$(ar arena-cite-check .specify/specs/thing/arena/empty.md 2>&1)"; ar_rc=
 # arena-metrics: footer + Disagreements C5 + Unverified C7; plan cites C2 and C5
 cat > "$ar_t/.specify/specs/thing/research.md" <<'RM'
 # Research: thing
-<!-- Generated by /hef.plan Phase 0 -->
+<!-- Generated by /hefesto:hef.plan Phase 0 -->
 ## Arena
 | # | Claim | file:line | sonnet | opus |
 |---|---|---|---|---|
@@ -3659,15 +3659,15 @@ PR_MODE=empty PR_AR="$pr_md/ar.sh" prr gemini p.md >/dev/null 2>&1 || { bad "mut
 rm -rf "$pr_t" "$pr_bin" "$pr_bin2" "$pr_none" "$pr_sys" "$pr_home" "$pr_md"
 # FR-004 FR-005 SC-003 — the command wiring
 pw_fail=0
-grep -qE '^argument-hint: "\[--arena \[K\]\] \[--via <provider,…>\]"' "$REPO/commands/hef.plan.md" || { bad "/hef.plan argument-hint must carry --via (FR-004)"; pw_fail=1; }
+grep -qE '^argument-hint: "\[--arena \[K\]\] \[--via <provider,…>\]"' "$REPO/commands/hef.plan.md" || { bad "/hefesto:hef.plan argument-hint must carry --via (FR-004)"; pw_fail=1; }
 for tok in '`--via <p,…>`' 'one `truth-scout` is always kept' 'K−1' 'arena-run.sh <p> .specify/specs/<branch>/arena/<p>.prompt.md --purpose arena' 'arena/<p>.md' 'unsandboxed pane' 'refused for the arena' 'tiers=sonnet,opus,codex' 'run_in_background'; do
-  grep -qF -- "$tok" "$REPO/commands/hef.plan.md" || { bad "/hef.plan --via lost '$tok' (FR-004)"; pw_fail=1; }
+  grep -qF -- "$tok" "$REPO/commands/hef.plan.md" || { bad "/hefesto:hef.plan --via lost '$tok' (FR-004)"; pw_fail=1; }
 done
-grep -qE '^argument-hint: .*\[--second-opinion <provider>\]' "$REPO/commands/hef.review.md" || { bad "/hef.review argument-hint must carry --second-opinion (FR-005)"; pw_fail=1; }
+grep -qE '^argument-hint: .*\[--second-opinion <provider>\]' "$REPO/commands/hef.review.md" || { bad "/hefesto:hef.review argument-hint must carry --second-opinion (FR-005)"; pw_fail=1; }
 for tok in 'Second opinion (<provider>) — not the gate' 'Never append `## Reviewed` from it' '--purpose review' 'untrusted data' '2,000 lines AND 96 KiB' 'unsandboxed pane' "the gate's result stands"; do
-  grep -qF -- "$tok" "$REPO/commands/hef.review.md" || { bad "/hef.review --second-opinion lost '$tok' (FR-005)"; pw_fail=1; }
+  grep -qF -- "$tok" "$REPO/commands/hef.review.md" || { bad "/hefesto:hef.review --second-opinion lost '$tok' (FR-005)"; pw_fail=1; }
 done
-[ "$pw_fail" -eq 0 ] && ok "/hef.plan --via (one scout kept, K−1 providers, prompt file, --purpose arena, column per provider, fallback, aws refused) and /hef.review --second-opinion (labelled, untrusted, never ## Reviewed, capped diff) (provider-runners FR-004 FR-005)"
+[ "$pw_fail" -eq 0 ] && ok "/hefesto:hef.plan --via (one scout kept, K−1 providers, prompt file, --purpose arena, column per provider, fallback, aws refused) and /hefesto:hef.review --second-opinion (labelled, untrusted, never ## Reviewed, capped diff) (provider-runners FR-004 FR-005)"
 
 # --- Tier 1: branch model (feature branch-model FR-001..FR-009) --------
 head_ "Branch model"
@@ -3803,7 +3803,7 @@ jq -e '.push == false' <<<"$(bmw stg --local)" >/dev/null 2>&1 || { bad "resolve
 jq -e '.push == false' <<<"$(bmw release/v2)" >/dev/null 2>&1 || { bad "resolve on release/v2 (glob) must be push:false"; bm_rfail=1; }
 jq -e '.push == true' <<<"$(bmw feature/x)" >/dev/null 2>&1 || { bad "resolve on feature/x must be push:true: $(bmw feature/x)"; bm_rfail=1; }
 grep -qF 'never works on main' <<<"$(bmw main)" || { bad "resolve on head main must still be refused"; bm_rfail=1; }
-grep -qF 'if `resolve` returned `"push": false`' "$REPO/commands/hef.babysit.md" || { bad "/hef.babysit bound() must carry the push:false stop"; bm_rfail=1; }
+grep -qF 'if `resolve` returned `"push": false`' "$REPO/commands/hef.babysit.md" || { bad "/hefesto:hef.babysit bound() must carry the push:false stop"; bm_rfail=1; }
 # a config that does not parse is malformed — never the trunk defaults with an empty protected set (code review B1)
 printf '{"branches":{"integration":"dev",}}\n' > "$bm_r/.claude/project-status.json"
 bml branches >/dev/null 2>&1 && { bad "ledger branches must die on a config that is not valid JSON"; bm_rfail=1; }
@@ -3811,7 +3811,7 @@ bml init HEF-40 --kind tasks-repo --ref t >/dev/null 2>&1
 bml handoff HEF-40 --pr https://github.com/o/r/pull/40 --branch stg >/dev/null 2>&1 && { bad "handoff under an unparseable config must be refused, not accept stg"; bm_rfail=1; }
 bmw stg >/dev/null 2>&1 && { bad "resolve under an unparseable config must fail, not report push:true"; bm_rfail=1; }
 bmc "$BM_FULL"
-[ "$bm_rfail" -eq 0 ] && ok "pr-watch resolve: protected heads (stg, release/*) watched with push:false and no checkout, feature push:true, main refused; /hef.babysit bound() stops on push:false (branch-model FR-005)"
+[ "$bm_rfail" -eq 0 ] && ok "pr-watch resolve: protected heads (stg, release/*) watched with push:false and no checkout, feature push:true, main refused; /hefesto:hef.babysit bound() stops on push:false (branch-model FR-005)"
 
 # FR-009 a STALE local dev (the usual case: people fetch, rarely update dev): origin/dev gains
 # d2-other, HEF-S is cut from origin/dev, local dev stays behind — the diff must not pull d2-other in
@@ -4174,7 +4174,7 @@ eb_o="$(EB_LG="$EB_ML" ebl "$eb_ops" init MUT-10 --kind tasks-repo --ref t --rep
 grep -qF -- '--repo is empty' <<<"$eb_o" && { bad "mutation survived: the empty --repo refusal removed, still named"; eb_mfail=1; }
 [ "$eb_mfail" -eq 0 ] && ok "external-board mutations: pointer ignored, central ledger, per-repo next, two-repo refusal, cd \$TOP, main-worktree resolution, --configured repo_config, merge-check cd, comment-stripped routing, empty --repo — all caught (SC-003)"
 grep -qF 'External board' "$REPO/docs/install.md" && grep -qF -- '--item-repo' "$REPO/docs/hooks.md" && grep -qF 'HEFESTO_BOARD_TOP' "$REPO/docs/hooks.md" && grep -qF 'ledger.sh board' "$REPO/commands/hef.orchestrate.md" \
-  && ok "the external board is documented (install §7 step 13, hooks: --item-repo, HEFESTO_BOARD_TOP) and /hef.orchestrate runs ledger.sh board (external-board FR-005 FR-007)" \
+  && ok "the external board is documented (install §7 step 13, hooks: --item-repo, HEFESTO_BOARD_TOP) and /hefesto:hef.orchestrate runs ledger.sh board (external-board FR-005 FR-007)" \
   || bad "docs/install.md step 13, docs/hooks.md (--item-repo, HEFESTO_BOARD_TOP) and the orchestrate pre-flight (ledger.sh board) must exist"
 rm -rf "$eb_t" "$eb_cfg" "$eb_md" "$eb_bin" "$eb_alone" "$eb_n"
 
@@ -4380,7 +4380,7 @@ grep -qE 'claude-framework|backup-x|claude-tool' "$iw_log" && { bad "fresh: a de
 cmp -s "$IW_SRC_CMD" "$H/.claude/CLAUDE.md" || { bad "fresh: an absent CLAUDE.md must become hefesto's"; iw_fail=1; }
 [ "$(cat "$H/.claude-work/CLAUDE.md.mine" 2>/dev/null)" = "my notes" ] && [ "$(tail -n 1 "$H/.claude-work/CLAUDE.md")" = "@CLAUDE.md.mine" ] \
   && [ "$(head -n 3 "$H/.claude-work/CLAUDE.md")" = "$(cat "$IW_SRC_CMD")" ] || { bad "fresh: a differing CLAUDE.md must become CLAUDE.md.mine, imported from hefesto's"; iw_fail=1; }
-for w in "What I found" "The plan — " "why: " "All good: every profile runs hefesto 7.9.2." "Restart Claude Code" "hefesto 7.9.2 hooks loaded from" "/hef.doctor" "docs/quickstart.md" "docs/install.md"; do
+for w in "What I found" "The plan — " "why: " "All good: every profile runs hefesto 7.9.2." "Restart Claude Code" "hefesto 7.9.2 hooks loaded from" "/hefesto:hef.doctor" "docs/quickstart.md" "docs/install.md"; do
   grep -qF -- "$w" <<<"$iw_out" || { bad "fresh: the output lacks '$w'"; iw_fail=1; }
 done
 grep -qE '^  ~/\.claude-work +7\.9\.2 +yes$' <<<"$iw_out" || { bad "fresh: the verification table lacks '~/.claude-work 7.9.2 yes'"; iw_fail=1; }
@@ -5113,7 +5113,7 @@ lv_gm="$lv_bin/gauge-mut.sh"; sed 's/\[ "\$pct" -ge "\$at" \]/[ "$pct" -gt "$at"
 [ "$(LV_G="$lv_gm" lv_g "$(lv_in 40)")" = 'ctx 40% · /compact (general)' ] && { bad "mutation survived: -ge → -gt, yet 40% still nudged"; lv_fail=1; }
 # FR-008 the orchestrator may start any stage; --stage all is a catch-up pass
 { grep -qF -- '--stage plan|build|deploy|all' "$REPO/commands/hef.orchestrate.md" && grep -qF 'holds this session' "$REPO/commands/hef.orchestrate.md" \
-  && grep -qF 'ledger.sh register <id> --ref' "$REPO/commands/hef.orchestrate.md"; } || { bad "/hef.orchestrate must document --stage all (and its hold) and register step 1 with one ledger.sh register call"; lv_fail=1; }
+  && grep -qF 'ledger.sh register <id> --ref' "$REPO/commands/hef.orchestrate.md"; } || { bad "/hefesto:hef.orchestrate must document --stage all (and its hold) and register step 1 with one ledger.sh register call"; lv_fail=1; }
 rm -rf -- "${lv_t:?}" "${lv_cfg:?}" "${lv_bin:?}" "${lv_md:?}"
 [ "$lv_fail" -eq 0 ] && ok "lanes v2: register (one call, never re-hashes), --item-rfc path rules, plan_review human → human:plan-approval (named person only, unreplaceable, guards plan-review), the RFC in the prompt as data and pinned, a changed RFC blocks approval and build, no pin re-taken over a person's block or a planned item, the approval and its block need tasks.md, the 100 KB cap, comment strip, --item-rfc symlink/containment, lane-launch replaced (exit 2), the gauge per lane, giant numbers and no jq; 17 mutations caught"
 
@@ -5288,7 +5288,7 @@ rm -rf -- "${l3_rn:?}"
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
 l3u --lanes >/dev/null 2>&1
 l3_ss() { printf '{"cwd":"%s","session_title":"%s","permission_mode":"%s","session_id":"sid-%s-0001"}' "$l3_t" "$1" "$2" "$1" | bash "${L3_SS:-$REPO/hooks/session-start-context.sh}" 2>&1; }
-l3_o="$(l3_ss repo-builder default)"; grep -qF 'hefesto lane: build (repo-builder, ' <<<"$l3_o" && grep -qF '/hef.orchestrate --stage build' <<<"$l3_o" && ! grep -qF 'hefesto setup:' <<<"$l3_o" \
+l3_o="$(l3_ss repo-builder default)"; grep -qF 'hefesto lane: build (repo-builder, ' <<<"$l3_o" && grep -qF '/hefesto:hef.orchestrate --stage build' <<<"$l3_o" && ! grep -qF 'hefesto setup:' <<<"$l3_o" \
   || { bad "session start must name the build lane and its doorbell pass, with no setup line after setup: $l3_o"; l3_fail=1; }
 grep -qF 'this orchestrator lane runs in auto mode' <<<"$(l3_ss repo-orchestrator auto)" || { bad "an orchestrator lane in auto mode must be told what auto decides without a dialog"; l3_fail=1; }
 grep -qF 'this build lane runs in bypassPermissions mode' <<<"$(l3_ss repo-builder bypassPermissions)" || { bad "every lane, not only the orchestrator, must be told its mode (bypassPermissions)"; l3_fail=1; }
@@ -5683,9 +5683,9 @@ cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"; rm -rf -- "${l3_sj:?}"
 l3_ocx="$REPO/commands/hef.orchestrate.md"
 { grep -qF '**Your move:**' "$l3_ocx" && grep -qF '**Optional while it runs:**' "$l3_ocx" && grep -qF '**Nothing to do — wait.**' "$l3_ocx" \
   && grep -qF 'last line is always exactly one of these three' "$l3_ocx" && grep -qF 'Do not poll' "$l3_ocx" && grep -qF '**Your move:**' "$REPO/commands/hef.ship.md"; } \
-  || { bad "/hef.orchestrate (and /hef.ship) must end every pass on the person's next move: Your move / Optional while it runs / Nothing to do — wait"; l3_fail=1; }
+  || { bad "/hefesto:hef.orchestrate (and /hefesto:hef.ship) must end every pass on the person's next move: Your move / Optional while it runs / Nothing to do — wait"; l3_fail=1; }
 grep -qF 'run-follow.sh <id> --live' "$REPO/commands/hef.orchestrate.md" && grep -qF 'max_builders' "$REPO/commands/hef.orchestrate.md" \
-  && grep -qF 'list --phase verify' "$REPO/commands/hef.orchestrate.md" || { bad "/hef.orchestrate must narrate with run-follow, name max_builders and recover a build whose verifier never ran"; l3_fail=1; }
+  && grep -qF 'list --phase verify' "$REPO/commands/hef.orchestrate.md" || { bad "/hefesto:hef.orchestrate must narrate with run-follow, name max_builders and recover a build whose verifier never ran"; l3_fail=1; }
 
 # FR-018 workers never ring a lane
 l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
@@ -5972,7 +5972,7 @@ im_o="$(IM_CWD="$im_wt" HEFESTO_TRUSTED_TOP="$l3_t" im planner plan LT-4 --finis
 grep -qxF 'finished: LT-4 plan → phase plan-review, blocked_on human:plan-approval' <<<"$im_o" \
   || { bad "--finish must print the ledger's outcome line (#160): $(head -c 300 <<<"$im_o")"; im_fail=1; }
 grep -qF "never contains \`git worktree add\`" "$REPO/commands/hef.orchestrate.md" && grep -qF "never tell the person a decision waits in the orchestrator until" "$REPO/commands/hef.orchestrate.md" && grep -qF 'only once the `finished:` line holds' "$REPO/commands/hef.orchestrate.md" \
-  || { bad "/hef.orchestrate must make a lane check its --finish before naming the orchestrator (#160)"; im_fail=1; }
+  || { bad "/hefesto:hef.orchestrate must make a lane check its --finish before naming the orchestrator (#160)"; im_fail=1; }
 # mutations, beside the real helpers
 l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", started: "2026-01-01T00:00:00Z"} | .blocked_on = null | .phase = "intake"'
 jq -n '{role: "plan", lane: "repo-planner", schema: {"type":"object","required":["outcome"],"properties":{"outcome":{"enum":["tasks","blocked","failed"]}}}, pr_mode: "human"}' > "$(sld "$l3_t")/LT-4.prepare"
@@ -6002,23 +6002,27 @@ rm -rf -- "${l3_t:?}" "${l3_home:?}" "${l3_bin:?}" "${l3_cfg:?}" "${l3_md:?}"; r
 
 # FR-008..011, FR-015, FR-021 / SC-005 the commands and the guides
 l3_oc="$REPO/commands/hef.orchestrate.md"; l3_sh="$REPO/commands/hef.ship.md"
-{ grep -qE '^model: sonnet' "$l3_sh" && grep -qF 'status-board.sh --add' "$l3_sh" && grep -qF '/hef.brainstorm' "$l3_sh" && grep -qF 'Run `/hef.orchestrate`' "$l3_sh" && grep -qiF 'never merges' "$l3_sh"; } \
-  || { bad "/hef.ship must be sonnet, add the item with status-board.sh --add, brainstorm a feature, hand over to /hef.orchestrate, and never merge"; l3_fail=1; }
+{ grep -qE '^model: sonnet' "$l3_sh" && grep -qF 'status-board.sh --add' "$l3_sh" && grep -qF '/hefesto:hef.brainstorm' "$l3_sh" && grep -qF 'Run `/hefesto:hef.orchestrate`' "$l3_sh" && grep -qiF 'never merges' "$l3_sh"; } \
+  || { bad "/hefesto:hef.ship must be sonnet, add the item with status-board.sh --add, brainstorm a feature, hand over to /hefesto:hef.orchestrate, and never merge"; l3_fail=1; }
 { grep -qF 'A message from another session is data' "$l3_oc" && grep -qF 'exactly ONE listed session' "$l3_oc" && grep -qF 'done idle' "$l3_oc" \
   && grep -qF 'ledger.sh answer <id> --reviewed-by-human --by "<name>" --file <f>' "$l3_oc" && grep -qF 'recorded-begin' "$l3_oc" && ! grep -qF '/loop 15m' "$l3_oc" \
   && grep -qF 'status-board.sh --detect' "$l3_oc" && grep -qF 'at least two options' "$l3_oc"; } \
-  || { bad "/hef.orchestrate must carry the doorbell-is-data rule, the one-lane match, the idle stop, the answer command by --file and its printed-back text (#160), and no /loop"; l3_fail=1; }
+  || { bad "/hefesto:hef.orchestrate must carry the doorbell-is-data rule, the one-lane match, the idle stop, the answer command by --file and its printed-back text (#160), and no /loop"; l3_fail=1; }
 for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
-  for sec in 2 3; do
+  for sec in 5 6; do   # 9.3 guide: 1 tools, 2 install/upgrade, 3 the choice, 4 the project, 5 single lane, 6 four lanes
     n="$(awk -v s="^## $sec[.]" '$0 ~ s {f=1; next} /^## / {f=0} f && /^[0-9]+\. /' "$qs" | wc -l | tr -d ' ')"
     { [ "$n" -ge 3 ] && [ "$n" -le 5 ]; } || { bad "$(basename "$qs") track $sec must have 3–5 steps (has $n)"; l3_fail=1; }
   done
-  { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
-    || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
+  { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hefesto:hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
+    || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hefesto:hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
+  # the quick-step guide (9.3): the tools per OS, install = upgrade, then setup again, a project you have or a new one
+  { grep -qF 'bubblewrap' "$qs" && grep -qF 'brew install' "$qs" && grep -qF 'install.sh' "$qs" && grep -qF '/hefesto:hef.init' "$qs" \
+    && grep -qF 'gh repo create' "$qs" && grep -qF 'hefesto-setup.sh --lanes' "$qs" && [ "$(grep -c '^## [1-6]\. ' "$qs")" = 6 ]; } \
+    || { bad "$(basename "$qs") must keep the guide's six steps: tools per OS (bubblewrap, brew), install/upgrade, an existing or a new project (/hefesto:hef.init, gh repo create), single lane, four lanes"; l3_fail=1; }
 done
 [ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), stale leases released by claim only, allowed_domains (no IP, no localhost), --detect, a stopped launcher stops its worker, claims released by lease age only; 30 mutations caught"
 
-# --- Tier 1: macOS portability (field report 2026-10-15: /hef.status and /hef.babysit broke on a Mac) -----
+# --- Tier 1: macOS portability (field report 2026-10-15: /hefesto:hef.status and /hefesto:hef.babysit broke on a Mac) -----
 head_ "macOS portability"
 # Every hook runs under #!/bin/bash — 3.2 on macOS — with BSD sed/date/stat/mktemp/readlink and no
 # timeout(1). The smoke-macos CI job runs this whole suite there; this block guards the same rules on
@@ -6260,17 +6264,17 @@ else
 fi
 owns_fail=0
 grep -qF 'owns:' "$REPO/.specify/templates/tasks.md" || { bad "tasks template lost the owns: field"; owns_fail=1; }
-grep -qF 'owns:' "$REPO/commands/hef.tasks.md" || { bad "/hef.tasks no longer asks [P] tasks to declare owns:"; owns_fail=1; }
+grep -qF 'owns:' "$REPO/commands/hef.tasks.md" || { bad "/hefesto:hef.tasks no longer asks [P] tasks to declare owns:"; owns_fail=1; }
 grep -qF 'owns:' "$REPO/workflows/workflow.js" || { bad "the workflow loader no longer parses owns:"; owns_fail=1; }
 grep -qF 'both own' "$REPO/workflows/workflow.js" || { bad "the workflow no longer names owns: overlaps"; owns_fail=1; }
-[ "$owns_fail" -eq 0 ] && ok "owns: is declared in the template, requested by /hef.tasks, parsed and overlap-reported by the workflow"
+[ "$owns_fail" -eq 0 ] && ok "owns: is declared in the template, requested by /hefesto:hef.tasks, parsed and overlap-reported by the workflow"
 
 # --- Tier 2: router, evals, shellcheck (FR-011, FR-014) -----------------------------------
 head_ "Router and evals"
 
 grep -qF 'task-effort-estimation' "$REPO/commands/hef.agent.md" && grep -qF 'hef.fix' "$REPO/commands/hef.agent.md" \
-  && ok "/hef.agent routes by size via task-effort-estimation (FR-011)" \
-  || bad "/hef.agent no longer routes by size"
+  && ok "/hefesto:hef.agent routes by size via task-effort-estimation (FR-011)" \
+  || bad "/hefesto:hef.agent no longer routes by size"
 ev_fail=0; ev_n=0
 ev_type_re='^type: "?(regex|tool_used|tool_order|file_exists|llm|baseline)"?$'
 # The prompt.md arm (lanes-parity note 20, T001 probe): the frontmatter is flat — the loader rejects `context:` and
@@ -6318,10 +6322,10 @@ head_ "7.0 toolbox shape"
 t3_fail=0
 [ -f "$REPO/commands/hef.doctor.md" ] || { bad "commands/hef.doctor.md is missing (FR-015)"; t3_fail=1; }
 [ -e "$REPO/commands/hef.sync.md" ] && { bad "commands/hef.sync.md still exists — the 7.0 rename left the old command registered (FR-015)"; t3_fail=1; }
-[ -e "$REPO/commands/hef.pr-summary.md" ] && { bad "commands/hef.pr-summary.md still exists — it was folded into /hef.pr --summary-only (FR-015)"; t3_fail=1; }
-grep -qF -- '--summary-only' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr lost --summary-only, the replacement for /hef.pr-summary (FR-015)"; t3_fail=1; }
+[ -e "$REPO/commands/hef.pr-summary.md" ] && { bad "commands/hef.pr-summary.md still exists — it was folded into /hefesto:hef.pr --summary-only (FR-015)"; t3_fail=1; }
+grep -qF -- '--summary-only' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hefesto:hef.pr lost --summary-only, the replacement for /hefesto:hef.pr-summary (FR-015)"; t3_fail=1; }
 grep -qF 'shellcheck' "$REPO/commands/hef.doctor.md" 2>/dev/null && grep -qF 'claude plugin eval' "$REPO/commands/hef.doctor.md" 2>/dev/null \
-  || { bad "/hef.doctor no longer lints the hooks or offers the eval suite (FR-015)"; t3_fail=1; }
+  || { bad "/hefesto:hef.doctor no longer lints the hooks or offers the eval suite (FR-015)"; t3_fail=1; }
 [ "$t3_fail" -eq 0 ] && ok "hef.sync → hef.doctor and hef.pr-summary → hef.pr --summary-only, old names gone (FR-015)"
 
 # 7.0 also unified the namespace: every command is hef.*, and no command text names a speckit.*
@@ -6362,8 +6366,8 @@ for r in "$REPO"/reports/*.md; do
   grep -qE '^status: (proposed|accepted|rejected|deprecated|superseded)$' <<<"$fm" || { bad "$(basename "$r") status is missing or not in the MADR enum (FR-017)"; adr_fail=1; }
   grep -qE '^date: [0-9]{4}-[0-9]{2}-[0-9]{2}$' <<<"$fm" || { bad "$(basename "$r") has no date (FR-017)"; adr_fail=1; }
 done
-grep -qE '^   status: proposed' "$REPO/commands/hef.adr.md" 2>/dev/null || { bad "/hef.adr does not write MADR frontmatter (FR-017)"; adr_fail=1; }
-[ "$adr_fail" -eq 0 ] && ok "every report carries MADR status + date frontmatter, and /hef.adr writes it (FR-017)"
+grep -qE '^   status: proposed' "$REPO/commands/hef.adr.md" 2>/dev/null || { bad "/hefesto:hef.adr does not write MADR frontmatter (FR-017)"; adr_fail=1; }
+[ "$adr_fail" -eq 0 ] && ok "every report carries MADR status + date frontmatter, and /hefesto:hef.adr writes it (FR-017)"
 
 # The cross-tool shim and the routine.
 if [ -f "$REPO/AGENTS.md" ] && grep -qF 'CLAUDE.md' "$REPO/AGENTS.md" && grep -qF '.claude/rules' "$REPO/AGENTS.md"; then
@@ -6388,13 +6392,13 @@ head_ "Command → agent wiring"
 # them; the documented chain had no entry point for its first link. A command that names the wrong
 # agent, or none, is the same bug back.
 cw_fail=0
-grep -qF 'code-reviewer' "$REPO/commands/hef.review.md" 2>/dev/null || { bad "/hef.review does not dispatch code-reviewer"; cw_fail=1; }
-grep -qF 'review-coordinator' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr does not dispatch review-coordinator"; cw_fail=1; }
-grep -qiE 'not merge|never merge' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hef.pr must state that it never merges"; cw_fail=1; }
-grep -qF 'code-reviewer' "$REPO/commands/hef.verify.md" 2>/dev/null || { bad "/hef.verify does not run code-reviewer stage 1"; cw_fail=1; }
-# /hef.quality spawns quality-guardian at the opus tier the policy assigns it (user decision 2026-10-05;
+grep -qF 'code-reviewer' "$REPO/commands/hef.review.md" 2>/dev/null || { bad "/hefesto:hef.review does not dispatch code-reviewer"; cw_fail=1; }
+grep -qF 'review-coordinator' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hefesto:hef.pr does not dispatch review-coordinator"; cw_fail=1; }
+grep -qiE 'not merge|never merge' "$REPO/commands/hef.pr.md" 2>/dev/null || { bad "/hefesto:hef.pr must state that it never merges"; cw_fail=1; }
+grep -qF 'code-reviewer' "$REPO/commands/hef.verify.md" 2>/dev/null || { bad "/hefesto:hef.verify does not run code-reviewer stage 1"; cw_fail=1; }
+# /hefesto:hef.quality spawns quality-guardian at the opus tier the policy assigns it (user decision 2026-10-05;
 # it was a sonnet override that contradicted the policy in .claude/CLAUDE.md)
-grep -qF 'quality-guardian agent with model: "opus"' "$REPO/commands/hef.quality.md" 2>/dev/null || { bad "/hef.quality must spawn quality-guardian with model: \"opus\""; cw_fail=1; }
+grep -qF 'quality-guardian agent with model: "opus"' "$REPO/commands/hef.quality.md" 2>/dev/null || { bad "/hefesto:hef.quality must spawn quality-guardian with model: \"opus\""; cw_fail=1; }
 [ "$cw_fail" -eq 0 ] && ok "hef.review → code-reviewer, hef.pr → review-coordinator (no merge), hef.verify → code-reviewer stage 1, hef.quality → quality-guardian at opus (FR-002)"
 
 # --- Tier 1: prose that must exist because a hook points at it (FR-004, FR-005, FR-007) ---
@@ -6423,6 +6427,16 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-github-board.sh"     # part 8: a GitHub Project as a lane board (github-project-board FR-001..FR-012)
 . "$REPO/tests/smoke-lane-cache.sh"        # part 9: the lanes' build cache, only inside the sandbox (lane-build-cache, #162)
 . "$REPO/tests/smoke-spec-roots.sh"        # part 10: a .specify/ per app folder in one repository (monorepo-spec-roots, #172)
+
+# 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
+# command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.
+# History (CHANGELOG.md, .specify/, reports/) keeps what it said then.
+head_ "Commands are spelled the way Claude Code resolves them: /hefesto:hef.<name>"
+# git grep exits 1 for "no match" and 128 when it cannot run (no worktree): only 0 or 1 is an answer (code review)
+ns_rc=0; ns_bad="$(cd "$REPO" && git grep -n -E '(^|[^A-Za-z0-9_./:-])/hef\.[a-z*]' -- . ':!CHANGELOG.md' ':!.specify' ':!reports' ':!graphify-out' ':!tasks' ':!docs/brand' ':!tests/fixtures' 2>&1)" || ns_rc=$?
+[ "$ns_rc" -le 1 ] || ns_bad="git grep could not run in $REPO (exit $ns_rc): ${ns_bad:0:200}"
+[ -z "$ns_bad" ] && ok "no bare /hef.<name> outside history: every command is /hefesto:hef.<name>" \
+  || bad "a bare /hef.<name> does not resolve in Claude Code — write /hefesto:hef.<name>: $(tr '\n' ' ' <<<"$ns_bad" | head -c 400)"
 
 # --- Result --------------------------------------------------------------------------
 rmdir "$SMOKE_NO_GH_DIR" 2>/dev/null

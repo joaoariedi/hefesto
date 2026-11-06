@@ -13,14 +13,14 @@ hefesto/
 ├── .claude-plugin/
 │   ├── plugin.json             # the plugin manifest — declares every component below
 │   └── marketplace.json        # makes the repo installable (`claude plugin install`)
-├── .mcp.json                   # GitHub MCP server (project scope)
+├── .mcp.json                   # GitHub MCP server, shipped by the plugin (registered in every project it is installed for)
 ├── agents/                     # 7 agents (5 pipeline + repo-scout and truth-scout one-shot)
 ├── commands/                   # 27 slash commands, all hef.*
-├── hooks/                      # 16 hooks + hooks.json; helpers: release.sh, speckit-helper.sh (46 subcommands), status-board.sh, ledger.sh, session-launch.sh, pr-watch.sh, arena-run.sh; board-lib.sh (sourced by ledger.sh: board resolution and the ledger home), lane-lib.sh (sourced: the session record, the lane map)
+├── hooks/                      # 16 hooks + hooks.json; helpers: release.sh, speckit-helper.sh (46 subcommands), status-board.sh, ledger.sh, session-launch.sh, pr-watch.sh, arena-run.sh, hefesto-setup.sh (the one-time lane settings), context-gauge.sh (the status-line gauge), lane-build.sh (builds with the lanes' cache), run-follow.sh (narrates a background run), lane-guard.sh (the lanes' PreToolUse guard), changelog-check.sh, merge-tree-probe.sh, spec-cite-probe.sh, run-bounded.sh, doctor-tmp.sh; sourced: board-lib.sh (board resolution and the ledger home), lane-lib.sh (the session record, the lane map), spec-root-lib.sh (one `.specify/` per app folder), launch-item.sh (session-launch.sh's item and RFC readers), board-github.sh and board-setup.sh (status-board.sh's GitHub Project board and setup modes), ledger-actions.sh, ledger-lanes.sh, ledger-lifecycle.sh, ledger-notes.sh, ledger-recipes.sh (ledger.sh's verb groups)
 ├── skills/                     # 7 skills, each a <name>/SKILL.md directory
 ├── workflows/                  # workflow.js — the deterministic task-list executor
-├── tests/                      # smoke.sh (structural/regression + opt-in live tiers) and workflow.test.js (node --test)
-├── evals/                      # 12 `claude plugin eval` cases (opt-in; /hef.doctor --eval)
+├── tests/                      # smoke.sh (structural/regression + opt-in live tiers) and its parts smoke-*.sh (changelog-check, github-board, lane-cache, lane-grants, lifecycle, lifecycle-ops, merge, recipes, spec-roots, train); fixtures/ (the 9.2.0 launch fixture); workflow.test.js (node --test)
+├── evals/                      # 15 `claude plugin eval` cases (opt-in; /hefesto:hef.doctor --eval)
 ├── docs/                       # this documentation
 ├── .claude/                    # THIS repo's own config — not plugin payload
 │   ├── CLAUDE.md
@@ -58,12 +58,12 @@ sequenceDiagram
     participant RTK as L3 · rtk proxy
     participant Mod as L4 · model tier<br/>(opus)
 
-    Dev->>FW: /hef.brainstorm "user auth idea"
+    Dev->>FW: /hefesto:hef.brainstorm "user auth idea"
     FW->>CC: socratic exploration
     CC->>Mod: refine concept (Q&A)
     Mod-->>CC: refined direction
     CC-->>Dev: ✓ confirmed concept
-    Dev->>FW: /hef.spec "user auth"
+    Dev->>FW: /hefesto:hef.spec "user auth"
     FW->>CC: invoke pipeline (spec → plan → tasks)
     CC->>Mod: reason about spec
     Mod-->>CC: spec draft + plan
@@ -82,7 +82,7 @@ sequenceDiagram
 
 ### What the flow reveals
 
-- **L1 (methodology) shapes thinking, not state.** the SDD pipeline (`/hef.brainstorm`…) defines structure but holds no conversation context.
+- **L1 (methodology) shapes thinking, not state.** the SDD pipeline (`/hefesto:hef.brainstorm`…) defines structure but holds no conversation context.
 - **Sub-agents isolate context.** Dispatched in fresh contexts and discarded — only the digest returns. Primary defence against the >40% "Dumb Zone".
 - **rtk compresses CLI output (60–90%) before it reaches the main context** — the highest-leverage token optimisation in the framework.
 - **Hooks enforce the gates deterministically** (gitleaks on commit, the sensitive-file and destructive-command blocks, the TaskCompleted test gate); the security boundary itself is OS sandboxing (`/sandbox`), which a string-matching hook cannot be.
@@ -92,13 +92,13 @@ sequenceDiagram
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| SDD pipeline | ✅ active | Full pipeline incl. `/hef.brainstorm` → `spec` → `plan` → `review` → `tasks` → `implement` → `verify` |
+| SDD pipeline | ✅ active | Full pipeline incl. `/hefesto:hef.brainstorm` → `spec` → `plan` → `review` → `tasks` → `implement` → `verify` |
 | OpenSpec | ⚪ not adopted | Alternative spec workflow |
 | Superpowers | ⚪ pattern reference | Skill-pack architecture is the influence |
 | Claude Code | ✅ primary runtime | Session model per profile; each command pins a tier |
 | Codex · Opencode · Cursor · Aider | ⚪ alternatives | Alternative runtimes — the methodology layer would still apply; the Codex and Gemini CLIs are also usable as arena providers |
-| Foreign providers (`codex`, `gemini`, `claude`, `aws`) | ⚙️ opt-in | Declared under `providers` in `.claude/project-status.json`; run read-only by `hooks/arena-run.sh` as `/hef.plan --arena --via` readers and the `/hef.review --second-opinion` source; never the gate; `aws` refused for the arena |
-| MCP: github | ⚙️ project-scoped | Root `.mcp.json`; needs `GITHUB_TOKEN` exported |
+| Foreign providers (`codex`, `gemini`, `claude`, `aws`) | ⚙️ opt-in | Declared under `providers` in `.claude/project-status.json`; run read-only by `hooks/arena-run.sh` as `/hefesto:hef.plan --arena --via` readers and the `/hefesto:hef.review --second-opinion` source; never the gate; `aws` refused for the arena |
+| MCP: github | ⚙️ plugin-shipped | Root `.mcp.json`, registered in every project the plugin is installed for; needs `GITHUB_TOKEN` exported |
 | MCP: Semgrep, Snyk, SonarQube | ⚪ optional | Add only when CLI scans aren't enough |
 | **rtk** | ✅ available (auto-detected per machine) | 60–90% token reduction on common dev commands |
 | Fabric | ⚪ pattern reference | Reusable prompt-pattern library |
@@ -112,34 +112,47 @@ sequenceDiagram
 
 ## 🧵 Multi-session orchestration
 
-`/hef.orchestrate` reads the board (a `tasks/` kanban or a GitHub Project, declared in
+`/hefesto:hef.orchestrate` reads the board (a `tasks/` kanban or a GitHub Project, declared in
 `.claude/project-status.json`), registers the item in the **ledger** — one JSON file per item at
-`<git-common-dir>/hefesto/ledger/<id>.json`, shared by every worktree, never committed — and
+`~/.cache/hefesto/ledger/<repo key>/<id>.json` (the key: 32 hex of the sha256 of the board's git common
+dir, so every worktree agrees), outside every sandbox and never committed (since 9.0) — and
 `hooks/session-launch.sh` starts a fresh headless worker (`env HEFESTO_WORKER=1 claude -p …`) in
 `.claude/worktrees/<id>` with a tier, a budget cap and a tool allowlist per role (`plan` /
 `implement` / `verify` / `deploy`). A **separate verifier** that never sees the author's transcript
-judges the result; its tier must rank at least the author's. Only the launcher writes the ledger.
+judges the result; its tier must rank at least the author's. With `orchestrate.lane_mode: "interactive"`
+(per stage or for all) no background worker starts: the stage lane does the work in its own conversation,
+between `session-launch.sh --prepare` (the claim, the worktree, the prompt) and `--finish` (the same
+transcription a worker's outcome gets). With `spec_roots` declared, the launcher makes the worktree and
+starts the session in the item's app folder, with its own `.specify/`. No worker writes the ledger; a
+person's decisions reach it through `ledger.sh` in the orchestrator lane.
 Planning can run from an **RFC** per item (`rfc:` on the item, under `orchestrate.rfc_dir`): the plan role
 hands it to the planner as data and pins its sha256; with `orchestrate.plan_review: "human"` every plan
 waits on `human:plan-approval`, which only a named person clears, and an RFC that moves after approval
 blocks the build until the plan is re-aligned and approved again. Lanes open with plain `claude --name <repo>-<lane>` after a one-time
 `hooks/hefesto-setup.sh`, which writes the lane permissions into `.claude/settings.local.json` (a plugin
-cannot ship them): the helper allowlist, the person's clears in `ask`, only the launcher outside the sandbox,
-`autoAllowBashIfSandboxed: false`, the trusted folder, the gauge. The orchestrator lane is the one place a
+cannot ship them): the helper allowlist, the person's clears in `ask`, the sandbox forced on
+(`enabled` and `failIfUnavailable`) with `api.github.com` denied to it and Edit denied on
+`~/.cache/hefesto/{ledger,approvals,sessions}`; outside the sandbox only hefesto's helpers
+(`session-launch.sh`, `ledger.sh`, `pr-watch.sh`, `status-board.sh`), `gh`, and each `--unsandboxed-command`
+the person names; `autoAllowBashIfSandboxed: false` only with `--strict`; the trusted folder, the gauge; with
+`--lanes`, `crossSessionInbound: "accept"` and the lanes' build cache in `allowWrite`. The orchestrator lane is the one place a
 person decides — every blocked entry becomes a form whose command it then runs behind its dialog — and it
 reaches the stage lanes with one-line cross-session doorbells; a lane reads its work from the ledger, never
 from the message, and launched workers cannot message at all.
 Blocks (`human:*`, `verdict`, `stall`, `budget`, `conflict`, `ci`) are announced at session start to
 the pane that owns them (`orchestrate.panes`); opt-in `orchestrate.publish` writes each item's state
-onto the board and `escalate_after_hours` sends one pointer for a stale human block. `/hef.babysit`
-(`hooks/pr-watch.sh`) keeps a PR moving to the merge gate; `/hef.status` reports AI-delivery metrics
+onto the board and `escalate_after_hours` sends one pointer for a stale human block. `/hefesto:hef.babysit`
+(`hooks/pr-watch.sh`) keeps a PR moving to the merge gate; `/hefesto:hef.status` reports AI-delivery metrics
 from the ledger. A `branches` block names the integration branch (PR base, verifier diff base,
 `human:merge` check), the protected heads, and the promotion chain whose last branch is `released`.
 An **external board** (`ledger.sh board`) is a board repository that feeds several code repos: each
-code repo points at it with `board`, the board lists them in `repos`, the ledger is central (the
-board repo's git common dir, every entry tagged with its `repo`), `next` keeps one worker per repo,
-and every session runs in its entry's repo.
-**No pane and no worker ever merges** — the merge is the human gate. See README §5,
+code repo points at it with `board`, the board lists them in `repos`, the ledger is central (keyed by the
+board repo's git common dir, every entry tagged with its `repo`), `claim` allows one planner,
+`orchestrate.max_builders` builders and one deployer per repo at a time (verify is exempt), and every
+session runs in its entry's repo.
+**No worker ever merges.** By default the person merges on GitHub — the merge is the human gate; with
+`orchestrate.merge_by: "lane"` the deployer lane merges an action the person approved with **Merge** in the
+orchestrator's form. See README §5,
 [install §7](install.md) and `reports/17`.
 
 ## 🖥️ Reference Deployment
@@ -153,7 +166,7 @@ This is the topology I run the framework on. The framework itself is host-agnost
 | 💻 **Primary laptop** | Manjaro Linux | ✅ Full | ❌ No | Day-to-day dev, production deploys, attended sessions |
 | 🖧 **Always-on remote workstation** | Arch Linux | ❌ GitHub only | ✅ Yes | Long-running tasks, mobile resume target, off-hours work |
 
-Both machines install the **same plugin** from the same clone, so Claude Code behaviour is identical on each: same agents, hooks, skills, workflows, MCP server. Only the per-host `settings.json` (env vars, the helper permission rule, hook timeouts) differs — which is exactly the machine-local part a plugin cannot ship.
+Both machines install the **same plugin** from the same clone, so Claude Code behaviour is identical on each: same agents, hooks, skills, workflows, MCP server. Only the machine-local settings differ — each project's `.claude/settings.local.json`, written by `hooks/hefesto-setup.sh` (the lane permissions, the sandbox, the trusted folders), and the per-host `settings.json` (env vars, hook timeouts) — which is exactly the part a plugin cannot ship.
 
 ### 🛡️ Trust Boundaries
 
