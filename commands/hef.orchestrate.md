@@ -54,11 +54,12 @@ the verifier does not count. `ledger.sh claim` enforces it; a launch past a stag
 
 ## Host
 
-Lanes keep their sandbox. The one exception is the launcher, `session-launch.sh`, which a project's setup
-(`hooks/hefesto-setup.sh`, run once in a terminal) lists in `sandbox.excludedCommands`: it starts `claude -p`,
-which a sandboxed shell cannot. Call it exactly as written below — a bare command, no `cd`, no redirect, no
-`$(…)` — or it stays sandboxed and refuses. The same setup makes every command outside hefesto's allowlist
-ask (`autoAllowBashIfSandboxed: false`) and fixes the folder the launcher trusts.
+Lanes keep their sandbox. A project's setup (`hooks/hefesto-setup.sh`, run once in a terminal) lists in
+`sandbox.excludedCommands` only what must run outside it: hefesto's `session-launch.sh` (it starts `claude -p`,
+which a sandboxed shell cannot), `ledger.sh`, `pr-watch.sh` and `status-board.sh`, plus `gh` and any command the
+person added with `--unsandboxed-command`. Call each exactly as written below — a bare command, no `cd`, no
+redirect, no `$(…)` — or it stays sandboxed and refuses. Sandboxed commands run without a dialog (with `--strict`,
+every command outside hefesto's allowlist asks), and the setup fixes the folder the launcher trusts.
 
 ## Pre-Flight
 

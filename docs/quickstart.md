@@ -65,7 +65,9 @@ Start with the single lane; the same project can add the three stage lanes later
 ## 4. Prepare the project
 
 hefesto works in a git repository with a GitHub remote: the builder opens pull requests with `gh` and the deployer
-watches their CI.
+watches their CI. Run the setup for your choice first — step 1 of section 5 or 6 — as soon as the folder is a git
+repository: it writes the rule that lets hefesto's helper run without a permission prompt (before it, each helper call
+asks; approving it is safe).
 
 **A project you already have:**
 
@@ -86,8 +88,8 @@ git init -b main && git commit --allow-empty -m "start"
 gh repo create myproduct --private --source . --push
 ```
 
-Open `claude` in that folder, run `/hefesto:hef.init`, then `/hefesto:hef.constitution`, and commit `.specify/`. The
-first `/hefesto:hef.orchestrate` creates the board (a `tasks/` folder and `.claude/project-status.json`).
+Run the setup (section 5 or 6, step 1), then open `claude` in that folder, run `/hefesto:hef.init`, then `/hefesto:hef.constitution`, and commit `.specify/`. The
+first `/hefesto:hef.orchestrate` creates the board (a `tasks/` folder, `docs/rfcs/` and `.claude/project-status.json`).
 
 ## 5. Single lane
 

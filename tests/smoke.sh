@@ -6432,7 +6432,9 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.
 # History (CHANGELOG.md, .specify/, reports/) keeps what it said then.
 head_ "Commands are spelled the way Claude Code resolves them: /hefesto:hef.<name>"
-ns_bad="$(cd "$REPO" && git grep -n -E '(^|[^A-Za-z0-9_./:-])/hef\.[a-z*]' -- . ':!CHANGELOG.md' ':!.specify' ':!reports' ':!graphify-out' ':!tasks' ':!docs/brand' ':!tests/fixtures' ':!tests/smoke.sh' 2>/dev/null | head -5)"
+# git grep exits 1 for "no match" and 128 when it cannot run (no worktree): only 0 or 1 is an answer (code review)
+ns_rc=0; ns_bad="$(cd "$REPO" && git grep -n -E '(^|[^A-Za-z0-9_./:-])/hef\.[a-z*]' -- . ':!CHANGELOG.md' ':!.specify' ':!reports' ':!graphify-out' ':!tasks' ':!docs/brand' ':!tests/fixtures' 2>&1)" || ns_rc=$?
+[ "$ns_rc" -le 1 ] || ns_bad="git grep could not run in $REPO (exit $ns_rc): ${ns_bad:0:200}"
 [ -z "$ns_bad" ] && ok "no bare /hef.<name> outside history: every command is /hefesto:hef.<name>" \
   || bad "a bare /hef.<name> does not resolve in Claude Code — write /hefesto:hef.<name>: $(tr '\n' ' ' <<<"$ns_bad" | head -c 400)"
 

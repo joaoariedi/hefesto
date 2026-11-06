@@ -24,7 +24,7 @@ Six declarations of the version move **together**, by script, and `tests/smoke.s
 disagree — that check exists because nothing else would notice a half-bumped release (#19), and
 it is what caught the hand-bumped era:
 
-1. `hooks/release.sh X.Y.Z` (or `/hef.release X.Y.Z`) — bumps `.claude-plugin/plugin.json`,
+1. `hooks/release.sh X.Y.Z` (or `/hefesto:hef.release X.Y.Z`) — bumps `.claude-plugin/plugin.json`,
    `.claude-plugin/marketplace.json` (`metadata.version` **and** `plugins[0].version`), the
    README **Framework Version** footer and date, and the `.claude/CLAUDE.md` title; then
    scaffolds the entry here from the commits since the last tag.
@@ -44,7 +44,7 @@ resolves it (`/hefesto:hef.<name>`), and the docs match what the framework does.
 
 - **Several apps in one repository** (#172; `docs/install.md` §15). Declare them in the code repository's
   `.claude/project-status.json` as `"spec_roots": {"backend": "backend", "web": "apps/web"}`. An item names its
-  owning app with an `app:` line (`/hef.ship` asks; `status-board.sh --add --app`), or the orchestrator asks one
+  owning app with an `app:` line (`/hefesto:hef.ship` asks; `status-board.sh --add --app`), or the orchestrator asks one
   form (`ledger.sh list --undecided-app`, `ledger.sh spec-roots <id>`, `ledger.sh record <id> --spec-root <app|.>`).
   Background sessions start in the app's folder, made by the launcher rather than `claude -w`; the planner may
   edit only that app's `.specify/`; an interactive lane's `--prepare` prints an `app:` line. The launcher refuses
@@ -71,7 +71,7 @@ resolves it (`/hefesto:hef.<name>`), and the docs match what the framework does.
   `--help`, and `ledger.sh`'s usage text.
 - **The spec root is discovered**: every spec subcommand of `speckit-helper.sh` runs from the nearest folder holding
   `.specify/` (never above the repository top). In a single-app repository, a subfolder now uses the top
-  `.specify/` where it used to create a stray one there. `check-specify-dir` (`/hef.init`) still reads the current
+  `.specify/` where it used to create a stray one there. `check-specify-dir` (`/hefesto:hef.init`) still reads the current
   folder.
 - **The guards** (`implement-phase-test-guard.sh`, `plan-phase-write-block.sh`) are armed by the marker of the
   session folder's spec root or of the edited file's. `spec-cite-probe.sh` reads those two roots' specs, not every

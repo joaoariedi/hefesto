@@ -66,7 +66,9 @@ Comece com uma sessão; o mesmo projeto pode ganhar as outras três depois (rode
 ## 4. Prepare o projeto
 
 O hefesto trabalha num repositório git com um remoto no GitHub: a builder abre pull requests com o `gh` e a deployer
-acompanha a CI deles.
+acompanha a CI deles. Rode antes a preparação da sua escolha — o passo 1 da seção 5 ou 6 — assim que a pasta for um
+repositório git: ela grava a regra que deixa o ajudante do hefesto rodar sem pedido de permissão (antes dela, cada
+chamada do ajudante pergunta; aprovar é seguro).
 
 **Um projeto que você já tem:**
 
@@ -87,8 +89,8 @@ git init -b main && git commit --allow-empty -m "start"
 gh repo create meuproduto --private --source . --push
 ```
 
-Abra o `claude` nessa pasta, rode `/hefesto:hef.init`, depois `/hefesto:hef.constitution`, e faça commit da
-`.specify/`. O primeiro `/hefesto:hef.orchestrate` cria o quadro (uma pasta `tasks/` e o `.claude/project-status.json`).
+Rode a preparação (seção 5 ou 6, passo 1), depois abra o `claude` nessa pasta, rode `/hefesto:hef.init`, depois `/hefesto:hef.constitution`, e faça commit da
+`.specify/`. O primeiro `/hefesto:hef.orchestrate` cria o quadro (uma pasta `tasks/`, a `docs/rfcs/` e o `.claude/project-status.json`).
 
 ## 5. Uma sessão
 
