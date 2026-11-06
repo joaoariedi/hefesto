@@ -35,6 +35,39 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased] - 9.3.0
+
+**One repository can hold several apps, each with its own `.specify/`: the spec commands, the guards, the launcher
+and the ledger find the app's folder instead of assuming the repository top.**
+
+### Added
+
+- **Several apps in one repository** (#172; `docs/install.md` §15). Declare them in the code repository's
+  `.claude/project-status.json` as `"spec_roots": {"backend": "backend", "web": "apps/web"}`. An item names its
+  owning app with an `app:` line (`/hef.ship` asks; `status-board.sh --add --app`), or the orchestrator asks one
+  form (`ledger.sh list --undecided-app`, `ledger.sh spec-roots <id>`, `ledger.sh record <id> --spec-root <app|.>`).
+  Background sessions start in the app's folder, made by the launcher rather than `claude -w`; the planner may
+  edit only that app's `.specify/`; an interactive lane's `--prepare` prints an `app:` line. The launcher refuses
+  an undecided item, an undeclared app, an app folder with no `.specify/`, and one that links out of the
+  repository.
+- **The constitution is inherited**: in an app, `speckit-helper.sh constitution` prints the repository's (marked
+  inherited), then the app's.
+- `hooks/spec-root-lib.sh`, the one place that finds a spec root and reads `spec_roots`.
+
+### Changed
+
+- **The spec root is discovered**: every spec subcommand of `speckit-helper.sh` runs from the nearest folder holding
+  `.specify/` (never above the repository top). In a single-app repository, a subfolder now uses the top
+  `.specify/` where it used to create a stray one there. `check-specify-dir` (`/hef.init`) still reads the current
+  folder.
+- **The guards** (`implement-phase-test-guard.sh`, `plan-phase-write-block.sh`) are armed by the marker of the
+  session folder's spec root or of the edited file's. `spec-cite-probe.sh` reads those two roots' specs, not every
+  declared app's, because requirement ids repeat across apps. `precompact-progress.sh` reads the session folder's
+  spec root.
+- **`spec_dir` is stored relative to the item's worktree**, so a worktree move leaves no stale path. Entries written
+  by 9.2 keep their absolute path, and an item planned before `spec_roots` keeps the app its spec folder names.
+- With no `spec_roots`, the launcher's lines are byte-identical to 9.2.0's (`tests/fixtures/launch-920.txt`).
+
 ## [9.2.0] - 2026-11-05
 
 **The lanes can run from a GitHub Project, build with a cache of their own, and a launched worker's hooks no longer

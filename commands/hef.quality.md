@@ -5,6 +5,10 @@ description: "Run comprehensive quality checks"
 
 Use the Task tool to spawn a quality-guardian agent with model: "opus" to run all available quality checks.
 
+**Several apps in one repository** (`spec_roots`): lint, types, formatting and tests run from the owning app's
+folder (the nearest folder holding `.specify/`) with that app's own commands. The repository-wide checks run once
+from the repository top: secrets, the CI and workflow files under `.github/`, and a root `Makefile` when one exists.
+
 ## Quality Checks
 
 ### 0. Secrets Detection (Mandatory First)

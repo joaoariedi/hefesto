@@ -23,8 +23,11 @@ INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 [ -z "$CWD" ] || [ -z "$FILE" ] && exit 0
-[ -f "$CWD/.specify/.implement-in-progress" ] && exit 0
-[ -d "$CWD/.specify/specs" ] || exit 0
+# monorepo-spec-roots FR-005: the spec roots of the cwd and of the edited test (an app's test is checked against
+# that app's specs). Not every configured root: FR ids repeat across apps.
+# shellcheck source=hooks/spec-root-lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/spec-root-lib.sh"
+spec_armed "$CWD" "$FILE" .implement-in-progress >/dev/null && exit 0
 
 # Same test-file notion as implement-phase-test-guard.sh; .specify/ itself never counts.
 case "$FILE" in
@@ -44,7 +47,8 @@ echo "$NOW" > "$STAMP"
 
 rel="${FILE#"$CWD"/}"
 found=0
-for d in "$CWD"/.specify/specs/*/; do
+while IFS= read -r root; do
+for d in "$root"/.specify/specs/*/; do
   [ -f "$d/spec.md" ] || continue
   name="${d%/}"; name="${name##*/}"
   hits="$(printf '%s\n' "$ids" | while read -r id; do grep -qwF "$id" "$d/spec.md" && printf '%s ' "$id"; done)"
@@ -52,6 +56,7 @@ for d in "$CWD"/.specify/specs/*/; do
   found=1
   echo "hefesto: $rel cites ${hits% } — declared by spec '$name' — and this edit is outside an implement phase." >&2
 done
+done < <(spec_roots_of "$CWD" "$FILE")
 if [ "$found" -eq 1 ]; then
   echo "  If the behaviour changed, update the spec (.specify/specs/<name>/spec.md) or re-run /hef.verify; a test that moves while the spec stands still is how a spec rots." >&2
 fi

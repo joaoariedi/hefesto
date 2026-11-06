@@ -178,6 +178,7 @@ ghb_add() { # one new issue in the todo column; prints its id (FR-008)
   gh_project_ids; opt="$(ghb_option todo)" || exit 1          # a board that cannot take the item refuses before any write
   tmp="$(mktemp)" && err="$(mktemp)" || die "status-board: mktemp failed"
   [ -n "$bf" ] || bf="$tmp"
+  if [ -n "${ADD_APP:-}" ]; then { [ "$bf" = "$tmp" ] || cat "$bf"; printf 'app: %s\n' "$ADD_APP"; } > "$tmp.app" && mv "$tmp.app" "$tmp" && bf="$tmp"; fi   # #172
   lbl="$(cfg '.incident_label // "bug"')"
   if [ "$ADD_INC" = 1 ]; then url="$("$GH" issue create -R "$GREPO" --title "$ADD_TITLE" --body-file "$bf" --label "$lbl" 2>"$err")"
   else url="$("$GH" issue create -R "$GREPO" --title "$ADD_TITLE" --body-file "$bf" 2>"$err")"; fi \
@@ -190,7 +191,7 @@ ghb_add() { # one new issue in the todo column; prints its id (FR-008)
     || ghb_fail "it was created in another repo than $GREPO"
   n="${BASH_REMATCH[1]}"; id="$PREFIX-$n"
   if [ "$ADD_RFC" = 1 ]; then
-    printf 'rfc: %s/%s.md\n' "$(cfg '.orchestrate.rfc_dir // "docs/rfcs"' | sed 's:/*$::')" "$id" > "$tmp"
+    { printf 'rfc: %s/%s.md\n' "$(cfg '.orchestrate.rfc_dir // "docs/rfcs"' | sed 's:/*$::')" "$id"; [ -z "${ADD_APP:-}" ] || printf 'app: %s\n' "$ADD_APP"; } > "$tmp"
     "$GH" issue edit "$n" -R "$GREPO" --body-file "$tmp" >/dev/null 2>"$err" || ghb_fail "gh issue edit failed: $(tail -1 "$err" | cut -c1-200)"
   fi
   item="$("$GH" project item-add "$PROJECT" --owner "$OWNER" --url "$url" --format json 2>"$err" | jq -r '.id // empty')"
