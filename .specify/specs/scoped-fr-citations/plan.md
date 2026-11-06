@@ -199,3 +199,6 @@ No sketch — trivial: `docs/sdd.md`, `commands/hef.*.md` (prose), `CHANGELOG.md
 4. Docs and command prose; CHANGELOG.
 5. Re-run `tests/smoke.sh`, `req-coverage --all` and `req-coverage scoped-fr-citations`; mutation-check
    each new fixture.
+
+## Reviewed 2026-11-06
+Plan review by `code-reviewer` (fresh context): APPROVE after one revision round (owner: "apply all five, re-review once"). Notes for tasks: N1 `docs/sdd.md` says baseline/init specs are legacy until marked; N2 the exact scoped-UNCOVERED row string (`FR-NNN   UNCOVERED  — bare: <file:line> … — cite as <spec>/FR-NNN`); N3 fixtures assert the FR-006 header in both modes, FR-004's cap of 3 (≥4 bare citations), and FR-009 mixed mode (a legacy spec sharing the id in the `--all` collision fixture).
