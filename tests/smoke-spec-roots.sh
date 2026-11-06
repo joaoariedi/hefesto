@@ -46,7 +46,7 @@ sr_launch_lines() { # hooks-dir → the normalised plan + implement dry runs of 
   local b32="\\'\\\\'\\'" b5="'\\''"; out="${out//"$b32"/$b5}"
   # 9.3.0 spells every command the way Claude Code resolves a plugin component (/hefesto:hef.<name>); the fixture is
   # 9.2.0's, so the spelling is mapped back: everything else must still be byte-identical
-  out="${out//\/hefesto:hef./\/hef.}"
+  local ns_full="/hefesto:hef." ns_bare="/hef."; out="${out//"$ns_full"/$ns_bare}"   # no backslash: bash 3.2 keeps it in the replacement
   sed -e "s#$t#<TOP>#g" -e "s#$cfg#<CFG>#g" -e "s#$hd#<HOOKS>#g" -e "s#$HOME#<HOME>#g" -e 's#worker-cache/[^/ "]*#worker-cache/<KEY>#g' \
       -e 's/\(untrusted-[a-z]*-\{0,1\}[a-z]* HEF-1\) [0-9a-f]\{8\}/\1 <N>/g' -e 's/untrusted-end [0-9a-f]\{8\}/untrusted-end <N>/g' <<<"$out"
   rm -rf "$t" "$cfg"
