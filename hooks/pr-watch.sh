@@ -1,5 +1,5 @@
 #!/bin/bash
-# pr-watch.sh — the mechanical half of /hef.babysit: a FETCHER over `gh` + `jq` that watches ONE
+# pr-watch.sh — the mechanical half of /hefesto:hef.babysit: a FETCHER over `gh` + `jq` that watches ONE
 # pull request up to the human merge gate. Design and evidence: reports/18 #2 and addendum A2
 # (each CI failure −15 % merge odds, reviewer abandonment 38 % — report 17 §1f); spec
 # .specify/specs/pr-babysitter/.
@@ -125,7 +125,7 @@ safe() { tr -cd 'A-Za-z0-9._/@:#-' <<<"$1" | head -c 200; }
 pr_json() { # $1 pr or ""
   local out
   out=$("$GH" pr view ${1:+"$1"} --json number,url,headRefName,baseRefName,headRefOid,state,isDraft 2>&1) \
-    || die "pr-watch resolve: no pull request${1:+ $1} for this branch — open one with /hef.pr ($(tail -1 <<<"$out"))"
+    || die "pr-watch resolve: no pull request${1:+ $1} for this branch — open one with /hefesto:hef.pr ($(tail -1 <<<"$out"))"
   printf '%s' "$out"
 }
 

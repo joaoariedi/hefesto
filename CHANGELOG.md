@@ -37,8 +37,8 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased] - 9.3.0
 
-**One repository can hold several apps, each with its own `.specify/`: the spec commands, the guards, the launcher
-and the ledger find the app's folder instead of assuming the repository top.**
+**One repository can hold several apps, each with its own `.specify/`; every command is written the way Claude Code
+resolves it (`/hefesto:hef.<name>`), and the docs match what the framework does.**
 
 ### Added
 
@@ -56,6 +56,19 @@ and the ledger find the app's folder instead of assuming the repository top.**
 
 ### Changed
 
+- **Commands are written `/hefesto:hef.<name>`** in the docs, the README, the commands, agents, skills, hooks' messages
+  and the lanes' prompts. Claude Code namespaces a plugin's components and offers no alias without the prefix, so the
+  bare `/hef.<name>` the docs used to show could not be pasted (install.md said it worked; it did not). A smoke check
+  keeps a bare spelling out of everything but the history.
+- **The quick start is a step-by-step guide** (`docs/quickstart.md`, and the Portuguese one, now the same text):
+  the tools per OS (Linux needs `bubblewrap` and `socat` for the sandbox; macOS has it built in), installing and
+  upgrading, choosing one lane or four, preparing a project you have or a new one, then each setup; upgrade notes for
+  9.1–9.3.
+- **The docs were checked against the code** and corrected where they had drifted: the ledger's location (in
+  `~/.cache/hefesto` since 9.0), the commands that run outside the sandbox, the orchestrator pane (it keeps its
+  sandbox), the stage limits (one planner, `max_builders` builders, one deployer), the permission rule's path (the
+  profile's plugin cache, not the clone), `plan_review`'s default, the four-lane-only features, the setup's flags and
+  `--help`, and `ledger.sh`'s usage text.
 - **The spec root is discovered**: every spec subcommand of `speckit-helper.sh` runs from the nearest folder holding
   `.specify/` (never above the repository top). In a single-app repository, a subfolder now uses the top
   `.specify/` where it used to create a stray one there. `check-specify-dir` (`/hef.init`) still reads the current

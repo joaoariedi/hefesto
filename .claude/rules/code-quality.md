@@ -24,7 +24,7 @@ present in every revision of a spec, against 100% for rules that name a file). S
 not have *more* functions over the limits than its `HEAD` version; without `lizard` the commit passes and
 says the check was skipped. The file limit needs no tool: a staged file that newly goes over 500 lines of
 code is blocked, and one already over that grows gets an advisory (the two exemptions below are skipped).
-Brownfield debt stays visible and non-blocking; the change that made it worse is blocked. `/hef.quality` reports the
+Brownfield debt stays visible and non-blocking; the change that made it worse is blocked. `/hefesto:hef.quality` reports the
 absolute picture.
 
 ### The two exemptions

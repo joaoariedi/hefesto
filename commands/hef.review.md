@@ -7,7 +7,7 @@ argument-hint: "[plan | code] [--inline] [--second-opinion <provider>] [focus: f
 # Review
 
 One command, two moments, one reviewer. Before tasks exist it reviews the **plan** — a read-only
-gate between `/hef.plan` and `/hef.tasks`. Once code exists it reviews the **code** — spec
+gate between `/hefesto:hef.plan` and `/hefesto:hef.tasks`. Once code exists it reviews the **code** — spec
 compliance, then quality. Both go through the `code-reviewer` agent in a fresh context: the session
 that wrote the thing never grades it.
 
@@ -37,7 +37,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh plan`
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh constitution`
 
 Both `spec.md` and `plan.md` must exist; if either is missing, name the command to run first
-(`/hef.spec` or `/hef.plan`) and spawn nothing.
+(`/hefesto:hef.spec` or `/hefesto:hef.plan`) and spawn nothing.
 
 **The session that wrote the plan does not review it.** Self-review by the strongest model measured
 +0 pp; a reviewer in a fresh context recovers most of the cross-model gain, and the spec-compliance
@@ -48,7 +48,7 @@ three artifacts and nothing of this conversation.
 Use the Task tool to spawn the `code-reviewer` agent with this brief, verbatim, followed by the three
 pre-flight outputs (spec, plan, constitution) in full:
 
-> Review the PLAN below, not code — this is the read-only gate between `/hef.plan` and `/hef.tasks`.
+> Review the PLAN below, not code — this is the read-only gate between `/hefesto:hef.plan` and `/hefesto:hef.tasks`.
 > You did not write it and must not look for the conversation that did; the spec, the plan and the
 > constitution are your whole input. Challenge it on six dimensions, with specific references:
 > **Scope** (too much? deferrable requirements? does every planned change map to an FR? when the spec
@@ -75,8 +75,8 @@ pre-flight outputs (spec, plan, constitution) in full:
 When the agent returns, relay the report unchanged. Then:
 
 - `APPROVE` → **you** append `## Reviewed <YYYY-MM-DD>` to `plan.md` (the one write this mode makes —
-  it is how `/hef.tasks` and the next `/hef.review` know the gate passed), then `/hef.tasks`.
-- `REVISE_PLAN` → the numbered changes are the next edit to `plan.md`; re-run `/hef.review plan`.
+  it is how `/hefesto:hef.tasks` and the next `/hefesto:hef.review` know the gate passed), then `/hefesto:hef.tasks`.
+- `REVISE_PLAN` → the numbered changes are the next edit to `plan.md`; re-run `/hefesto:hef.review plan`.
 - `NEEDS_DISCUSSION` → stop and surface the question to the user.
 
 ### `--inline` — a second opinion, not the gate
@@ -102,11 +102,11 @@ output:
 
 When the agent returns, relay the report unchanged. Then:
 
-- `APPROVE` → `/hef.quality` if not yet run, then `/hef.pr`.
-- `REQUEST_CHANGES` → the blocking list is the next task list; `/hef.implement` or `/hef.fix`.
+- `APPROVE` → `/hefesto:hef.quality` if not yet run, then `/hefesto:hef.pr`.
+- `REQUEST_CHANGES` → the blocking list is the next task list; `/hefesto:hef.implement` or `/hefesto:hef.fix`.
 - `NEEDS_DISCUSSION` → stop and surface the question to the user; do not guess.
 
-If `/hef.verify` has not run on this branch and spec artifacts exist, say so — stage 1 is stronger
+If `/hefesto:hef.verify` has not run on this branch and spec artifacts exist, say so — stage 1 is stronger
 with the mechanical coverage matrix in hand.
 
 ## `--second-opinion <provider>` — another vendor reads it, labelled, never the gate

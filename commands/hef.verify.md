@@ -5,7 +5,7 @@ description: "Post-implementation traceability gate: every FR mapped to the test
 
 # Verify
 
-The missing half of the traceability chain. `/hef.analyze` maps requirements to *tasks*
+The missing half of the traceability chain. `/hefesto:hef.analyze` maps requirements to *tasks*
 before code exists; this command maps requirements to *tests* after it does — mechanically — and
 then has `code-reviewer` check that the code behind those tests is the code the spec asked for.
 
@@ -32,7 +32,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh detect-te
 ## Instructions
 
 **This command is read-only.** It reports; it does not fix. A finding here is input to
-`/hef.implement` (or `/hef.fix`), never something to patch inline.
+`/hefesto:hef.implement` (or `/hefesto:hef.fix`), never something to patch inline.
 
 ### 1. Read the coverage matrix
 
@@ -86,9 +86,9 @@ Scope creep is reported, not blocking — it is the reviewer's call, and the PR 
 
 ### 5. Next step
 
-- `FAIL` → back to `/hef.implement` for the uncovered or failing requirement (a missing test
-  is a task, not a comment), or `/hef.spec` if the spec is what drifted.
-- `PASS` → `/hef.quality`, then `/hef.review` for the full two-stage review, then `/hef.pr`.
+- `FAIL` → back to `/hefesto:hef.implement` for the uncovered or failing requirement (a missing test
+  is a task, not a comment), or `/hefesto:hef.spec` if the spec is what drifted.
+- `PASS` → `/hefesto:hef.quality`, then `/hefesto:hef.review` for the full two-stage review, then `/hefesto:hef.pr`.
 
 ## Why this exists
 

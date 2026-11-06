@@ -20,13 +20,13 @@ The quality gate for all code changes. Runs a 7-step validation pipeline:
 2. 🔑 Secrets detection (mandatory, blocks on findings)
 3. 📝 Code quality validation (lint, types, formatting)
 4. 🔒 Security assessment (delegates to the built-in `/security-review` + LLM security rules)
-5. ⚡ Performance validation (delegates to `performance-audit` skill)
+5. ⚡ Performance validation (applies the `performance-audit` skill's methodology — the skill itself is `disable-model-invocation: true`, so it is not invoked)
 6. 🏛️ **Architectural pattern validation** — SOLID principle checks with chain-of-thought for OCP and DIP
 7. 🧪 Regression prevention (full test suite)
 
-Enforces both Iron Laws from `rules/code-quality.md`: **verification before completion** (proved with `/verify`) and **no fixes without root-cause investigation** (the `systematic-debugging` skill).
+Enforces both Iron Laws from `.claude/rules/code-quality.md` (copied to `~/.claude/rules/`): **verification before completion** (proved with `/verify`) and **no fixes without root-cause investigation** (the `systematic-debugging` skill).
 
-**When to use**: Before any commit, PR, or merge. Spawned automatically by `/hef.quality`.
+**When to use**: Before any commit, PR, or merge. Spawned automatically by `/hefesto:hef.quality`.
 
 ### 🔍 code-reviewer
 
@@ -34,13 +34,13 @@ Two-stage code review specialist. **Stage 1** validates spec compliance (impleme
 
 Produces a structured review report with `APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION` verdict.
 
-**When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle). Spawned by `/hef.review`; `/hef.verify` runs its stage 1 with the mechanical coverage matrix in hand.
+**When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle). Spawned by `/hefesto:hef.review`; `/hefesto:hef.verify` runs its stage 1 with the mechanical coverage matrix in hand.
 
 ### 📝 review-coordinator
 
 Manages the PR lifecycle up to the merge gate — creation, review coordination, feedback integration. Generates comprehensive PR descriptions with quality metrics. Supports GitHub and GitLab.
 
-**When to use**: When creating PRs or managing review workflows. Spawned by `/hef.pr`. It never merges — PRs are merged one at a time, by the user, each re-tested on the updated base.
+**When to use**: When creating PRs or managing review workflows. Spawned by `/hefesto:hef.pr`. It never merges — PRs are merged one at a time, by the user, each re-tested on the updated base.
 
 ### 🔒 forensic-specialist
 
@@ -58,7 +58,7 @@ Read-only by construction (`Read`, `Grep`, `Glob`, `Bash` only). It must never m
 
 ### 🔎 truth-scout
 
-The second one-shot subagent, for the **current** project: `/hef.plan --arena [K]` spawns two or three
+The second one-shot subagent, for the **current** project: `/hefesto:hef.plan --arena [K]` spawns two or three
 of them in one message at different tiers (`sonnet`, `opus`, `fable`) with the same numbered question
 list, and each returns a `<truth-digest>` — up to twelve claims, every one with a `path:line` it read
 in that run — never raw files or a transcript. The planner verifies the citations with
@@ -74,7 +74,7 @@ Read-only by construction (`Read`, `Grep`, `Glob`, `Bash` — and the never-list
 plan-phase write-block denies Edit/Write outside `.specify/` regardless. A question about another
 repository returns `OUT_OF_SCOPE` — that is `repo-scout`'s job.
 
-**When to use**: only through `/hef.plan --arena`; by hand it is one reader, which is what the default
+**When to use**: only through `/hefesto:hef.plan --arena`; by hand it is one reader, which is what the default
 Phase 0 already is.
 
 > Built-in agents handle general tasks: `Explore` (codebase search), `Plan` (architecture), `general-purpose` (implementation).
@@ -119,14 +119,14 @@ They are not interchangeable, and none supersedes the others:
 
 Reach for a **subagent** by default — you want an answer, not a colleague. Reach for an **Agent Team** when workers must *challenge each other*: five teammates trying to disprove each other's hypotheses beat sequential investigation, which anchors on the first plausible theory.
 
-**`workflow`** (`workflows/workflow.js`) is the framework's workflow — invoked as `hefesto:workflow` under a plugin install, since plugin components are namespaced. It is named distinctly from the `/hef.implement` **command** on purpose: they are two ways to execute `tasks.md`, and a shared name invited picking the wrong one. It executes `tasks.md` with the orchestration moved into code:
+**`workflow`** (`workflows/workflow.js`) is the framework's workflow — invoked as `hefesto:workflow` under a plugin install, since plugin components are namespaced. It is named distinctly from the `/hefesto:hef.implement` **command** on purpose: they are two ways to execute `tasks.md`, and a shared name invited picking the wrong one. It executes `tasks.md` with the orchestration moved into code:
 
 - **Phase order is enforced, not trusted.** Spec-kit declares Phase N+1 blocked by Phase N. A script guarantees that barrier; a model can talk itself into skipping ahead.
 - **The implementer never grades its own homework.** Every task is checked by three agents that did not write it, through *different* lenses — one reads the test diff hunting for a weakened assertion, one checks the requirement rather than the test, and one runs that task's own test file itself (the full suite runs once per phase, at the phase gate). Any single refutation blocks the task. This is the Verification Iron Law made structural.
 - **`[P]` is not trusted either.** The marker is model-written and nothing enforces it, so two `[P]` tasks in one phase can name the same file. The script batches them by *actual file disjointness*; a task declaring no files is serialized, because it cannot be proven safe.
 - **`tasks.md` is written once, at the end**, by a single agent — parallel implementers ticking their own checkboxes would race on one file.
 
-> **Why the whole pipeline is not one workflow.** A workflow cannot take mid-run input. But `/hef.clarify` asks you questions, `/hef.review` is a sign-off, and `/hef.checklist` is a gate. Encoding the full pipeline as one workflow would silently delete every human gate and turn spec-*driven* development into fire-and-forget. Run the gated phases first; the workflow starts where the human sign-off ends.
+> **Why the whole pipeline is not one workflow.** A workflow cannot take mid-run input. But `/hefesto:hef.clarify` asks you questions, `/hefesto:hef.review` is a sign-off, and `/hefesto:hef.checklist` is a gate. Encoding the full pipeline as one workflow would silently delete every human gate and turn spec-*driven* development into fire-and-forget. Run the gated phases first; the workflow starts where the human sign-off ends.
 
 **Agent Teams (Experimental)** — requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
 

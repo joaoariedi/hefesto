@@ -7,7 +7,7 @@ runs: 3
 context:
   scaffold_script: scaffold.sh
 execution:
-  prompt: "/hef.orchestrate --dry-run"
+  prompt: "/hefesto:hef.orchestrate --dry-run"
   max_turns: 14
   timeout_seconds: 360
   allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]

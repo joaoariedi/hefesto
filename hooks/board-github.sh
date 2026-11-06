@@ -215,7 +215,7 @@ ghb_scope_check() { # --check: reads need read:project; --add and publish write,
 ghb_check_config() { # --check on a github board: the lane config and every mapped column (code review 2026-11-04)
   [ "$MODE" = check ] || return 0
   if [ -z "$(cfg '.repo // empty')" ] || [ -z "$(cfg '.id_prefix // empty')" ]; then
-    printf '  [warn]    no "repo" and "id_prefix": this board serves /hef.status only, not the lanes (docs/install.md §14)\n'; return 0
+    printf '  [warn]    no "repo" and "id_prefix": this board serves /hefesto:hef.status only, not the lanes (docs/install.md §14)\n'; return 0
   fi
   local res st k n o
   SFIELD="$(cfg '.status_field // "Status"')"   # read here: what the subshell sets never reaches the report lines

@@ -1,13 +1,16 @@
 #!/bin/bash
 # ledger.sh — the machine-readable state of one board item as it moves through the session
-# pipeline (/hef.orchestrate, session-launch.sh). One JSON file per item, written ONLY by this
-# helper, in the repository's git COMMON dir:
+# pipeline (/hefesto:hef.orchestrate, session-launch.sh). One JSON file per item, written ONLY by this
+# helper, outside the repository (hefesto 9, board-lib.sh ledger_home / ledger_of_common):
 #
-#   <git-common-dir>/hefesto/ledger/<id>.json      (HEFESTO_LEDGER_DIR overrides, for tests)
+#   ~/.cache/hefesto/ledger/<key>/<id>.json        (<key>: a hash of the board's git common dir;
+#                                                   HEFESTO_LEDGER_DIR overrides, for tests only)
 #
-# Why there: it is shared by every worktree of the repository, never committed, never a merge
-# conflict, not under .claude/ (constitution 1), and inside the sandbox's writable root — the
-# ~/.cache location report 17 proposed is not writable from a sandboxed Bash tool.
+# Why there: one folder per board, whichever worktree or symlinked cwd asks; never committed, never a
+# merge conflict, not under .claude/ (constitution 1), and outside every sandbox's write set, beside the
+# approval store — so a lane cannot rename the ledger and rebuild a forged one, and every writer runs
+# unsandboxed. hefesto ≤ 8 kept it in <git-common-dir>/hefesto/ledger; the first call that can write
+# here moves it once (board-lib.sh ledger_settle).
 #
 # FETCHER (speckit-helper.sh contract): the answer on stdout at exit 0, or the offending value and
 # the expected shape on stderr at non-zero. No exit-0 sentinel (constitution 5). Usage errors exit 2.
@@ -33,11 +36,19 @@ usage: ledger.sh <subcommand> …
   block <id> --kind <kind> [--question <path>]
   unblock <id> [--reviewed-by-human --by <name>] [--merge-sha <sha>]   human:* kinds need artifact evidence (intake and plan-approval: a person's name; merge: the branch, or the PR's merge commit once the branch is deleted)
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
-  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k] [--rfc] [--body-from-board]   (--body-file / --body-from-board re-hash the item; --rfc pins its RFC)
+  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k] [--rfc] [--body-from-board] [--spec-root <app|.>]   (--spec-root: the owning app, or . for the top, until spec_dir is recorded; --body-file / --body-from-board re-hash the item; --rfc pins its RFC)
   register <id> --ref <column>#<id>                     route, detect the kind and init in one call; an existing entry is left untouched
   questions <id>                                        the planner's open questions (human:clarify, human:plan-review), delimited as data
   answer <id> --reviewed-by-human --by <name> [--file f]  the person's answers (stdin or --file) → copied, hashed; clears clarify / plan-review
   revise <id> --reviewed-by-human --by <name> [--notes-file f]  a plan waiting on approval goes back to the planner with the person's notes
+  request <id> --to <lane> (--scope-file f [--supersedes <aid>] | --recipe <env> --version v [--sha s] | --merge | --train <name> --env <env> --pr <repo>=<n> …)   the orchestrator's proposed action, pending the person
+  approve <aid> --sha <s> --to <lane> --title <t> [--irreversible-confirmed] --reviewed-by-human --by <name>   the person's signature on an action (person-only)
+  action <take|heads|step|done|stop|show> <aid> [<n>|--step n] [--evidence-file f|--reason-file f] [--block conflict]   the named lane works an approved action
+  actions [--to <lane>] [--status s] [--since d]        list the actions
+  op new --title <t> | op close <OP-n> --outcome-file f | op drop <OP-n> --reason-file f   an op entry, which holds approved actions only
+  direct <id> --to <lane> [--file f] | directives [--to <lane>] [--open] | directive <id> <n> (--done | --refused-file f)   the orchestrator's directive to a lane (stdin or --file)
+  note <id> [--file f]                                  the claiming lane's progress note (stdin or --file), read back at its next start
+  park --all | release <id> --reviewed-by-human --by <name> | lanes [--modes]   before an upgrade, the claims that need a fresh note; a person frees an interactive claim; the lane map
   show <id> | list [--phase p] [--blocked] [--active] [--today] | list --undecided-app | next [--stage plan|build|deploy]
   spec-roots <id>                                       the apps declared by the entry repository, and its spec_root (the app form)
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
@@ -336,7 +347,7 @@ metrics_render() { # stdin = the JSON object; $1 since (or "")
 }
 
 # external-board FR-003: one worker per REPOSITORY. An entry is skipped while another entry of its repo is
-# owned, so ops and ui run side by side. In-repo mode keeps today's `next` (no filter; /hef.orchestrate
+# owned, so ops and ui run side by side. In-repo mode keeps today's `next` (no filter; /hefesto:hef.orchestrate
 # step 2 still stops on any owned entry) — the existing suite pins that. Uses SEL, ORDER, STAGE, FILES.
 claim_lock() { # one claim at a time per ledger: check-then-write must not interleave. A lock older than a minute is a crashed claim's.
   local i=0 l="$DIR/.claim.lock"
@@ -441,7 +452,7 @@ case "$SUB" in
     OWNER=$(jq -r '.owner.session_name // empty' <<<"$E")
     [ -z "$OWNER" ] || die "ledger claim $ID: already owned by $OWNER (expected owner=null; wait for its run to finish)"
     # One worker per repository (report 17 §1f), enforced here under the lock taken above: two lanes whose passes
-    # started in the same second both passed /hef.orchestrate's own check and both launched. Another owned
+    # started in the same second both passed /hefesto:hef.orchestrate's own check and both launched. Another owned
     # entry in this repo → busy.
     # lanes-in-lane FR-001: a limit per stage, not per repository — one planner, `max_builders` builders
     # (default 1), one deployer at a time, so the four lanes overlap; builders are the ones that change code.
@@ -581,11 +592,11 @@ case "$SUB" in
     case "$KIND" in
       human:plan-review)
         [ -n "$SPEC_DIR" ] || die "ledger unblock $ID: $KIND needs spec_dir recorded (ledger.sh record $ID --spec-dir …)"
-        grep -q '^## Reviewed' "$SPEC_DIR/plan.md" 2>/dev/null || die "ledger unblock $ID: $KIND needs a '## Reviewed' section in $SPEC_DIR/plan.md (run /hef.review)" ;;
+        grep -q '^## Reviewed' "$SPEC_DIR/plan.md" 2>/dev/null || die "ledger unblock $ID: $KIND needs a '## Reviewed' section in $SPEC_DIR/plan.md (run /hefesto:hef.review)" ;;
       human:clarify)
         [ -n "$SPEC_DIR" ] || die "ledger unblock $ID: $KIND needs spec_dir recorded"
         [ -f "$SPEC_DIR/spec.md" ] || die "ledger unblock $ID: $KIND needs $SPEC_DIR/spec.md"
-        ! grep -q 'NEEDS CLARIFICATION' "$SPEC_DIR/spec.md" || die "ledger unblock $ID: $KIND — [NEEDS CLARIFICATION] markers remain in $SPEC_DIR/spec.md (run /hef.clarify)" ;;
+        ! grep -q 'NEEDS CLARIFICATION' "$SPEC_DIR/spec.md" || die "ledger unblock $ID: $KIND — [NEEDS CLARIFICATION] markers remain in $SPEC_DIR/spec.md (run /hefesto:hef.clarify)" ;;
       human:plan-approval) plan_approval_clear; exit 0 ;;
       human:merge)
         VIA=$(merge_evidence "$E" "$MSHA" flag) || exit 1

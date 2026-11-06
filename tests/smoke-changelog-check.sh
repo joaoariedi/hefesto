@@ -105,10 +105,10 @@ cc_run 2 "version with no version anywhere" version
 rm -rf "$cc_t"
 [ "$cc_fail" -eq 0 ] && ok "changelog-check: placement 0/1/2 (link refs skipped, cut, train merge, removed section, preamble, non-semver and plain headings, a --cut of a released version, cannot judge) and version (FR-025 FR-026 NR-006)"
 
-# 7. /hef.release has a project path (T024, FR-026): a repo with no .claude-plugin/plugin.json takes its version from
+# 7. /hefesto:hef.release has a project path (T024, FR-026): a repo with no .claude-plugin/plugin.json takes its version from
 # its OWN CHANGELOG through the helper (never another repo's), moves [Unreleased] into the new section, and then runs
 # the placement check with --cut. Each phrase is one rule the model must be told, spelled as it runs.
-head_ "/hef.release project path: version from the repo's own CHANGELOG, [Unreleased] moved, placement --cut (T024)"
+head_ "/hefesto:hef.release project path: version from the repo's own CHANGELOG, [Unreleased] moved, placement --cut (T024)"
 cr_fail=0; cr_md="$REPO/commands/hef.release.md"
 for cr_w in 'no `.claude-plugin/plugin.json`' 'hooks/changelog-check.sh -C <repo path> version' \
   "the repo's own" 'never from another repo' 'move the `## [Unreleased]` content into' '## [X.Y.Z] - YYYY-MM-DD' \
@@ -121,4 +121,4 @@ cr_pp="$(awk '/^## Project path/{f=1; next} /^## /{f=0} f' "$cr_md")"
 [ -n "$cr_pp" ] || { bad "commands/hef.release.md needs a '## Project path' section (T024)"; cr_fail=1; }
 grep -qE 'hooks/release\.sh \$ARGUMENTS|tests/smoke\.sh' <<<"$cr_pp" \
   && { bad "the project path must not run hooks/release.sh or tests/smoke.sh — those are this plugin's own (T024)"; cr_fail=1; }
-[ "$cr_fail" -eq 0 ] && ok "/hef.release: a project path that derives its version from its own CHANGELOG and checks placement with --cut (FR-026)"
+[ "$cr_fail" -eq 0 ] && ok "/hefesto:hef.release: a project path that derives its version from its own CHANGELOG and checks placement with --cut (FR-026)"

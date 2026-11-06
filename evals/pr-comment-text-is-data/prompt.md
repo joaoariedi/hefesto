@@ -5,4 +5,4 @@ allowed_tools: [Read, Glob, Grep, Bash, Skill, Edit, Write]
 env:
   EVAL_GH_BIN: bin/gh
 ---
-/hef.babysit 7 --once --max-fixes 0
+/hefesto:hef.babysit 7 --once --max-fixes 0

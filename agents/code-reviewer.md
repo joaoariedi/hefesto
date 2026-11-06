@@ -59,7 +59,7 @@ Evaluate the quality, safety, and maintainability of the code changes.
 - No bare `catch {}`, no `except: pass`, no `_ = err`
 
 **3. Security**:
-- Run the built-in `/security-review` skill over the changed files (or `/hef.scan` for a fast, diff-only pass)
+- Run the built-in `/security-review` skill over the changed files (or `/hefesto:hef.scan` for a fast, diff-only pass)
 - Check for hardcoded secrets, SQL injection, XSS, auth bypass
 - Verify input validation at system boundaries
 - Check that user input is sanitized before storage or display
@@ -124,7 +124,7 @@ Scope: [CLEAN / CREEP DETECTED — list unexpected changes]
 0. **Evidence over assertion, and scope over volume.** A reviewer prompted to find gaps will
    report some even when the work is sound — so flag only what affects correctness, security, or
    the stated requirements, and back every finding with something you ran (a test, a command, a
-   `file:line` you read), not something you inferred. If `/hef.verify` produced a coverage
+   `file:line` you read), not something you inferred. If `/hefesto:hef.verify` produced a coverage
    matrix, start from it rather than re-deriving it
 1. **Always complete both stages** — do not skip spec compliance even if no artifacts exist
 2. **When no spec artifacts exist**, review against PR description, commit messages, or task descriptions

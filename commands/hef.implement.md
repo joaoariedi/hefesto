@@ -67,7 +67,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement
    - Use `test-specialist` agent patterns to identify test location and conventions
    - Write a test that validates the task's acceptance criteria
    - **Cite the task's requirement id in the test** — `@pytest.mark.req("FR-003")`, a
-     `describe("[FR-003] …")` title, or a `# FR-003` comment. `/hef.verify` maps requirements
+     `describe("[FR-003] …")` title, or a `# FR-003` comment. `/hefesto:hef.verify` maps requirements
      to tests by that token; an uncited test covers nothing as far as the spec is concerned
    - Test MUST fail at this point (implementation doesn't exist yet)
    - Run the test to confirm failure
@@ -132,5 +132,5 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement
    ```
 
 7. **Suggest next steps**:
-   - `/hef.verify` — requirement traceability plus spec-compliance review of the diff
-   - `/hef.quality` → `/hef.review` → `/hef.pr`
+   - `/hefesto:hef.verify` — requirement traceability plus spec-compliance review of the diff
+   - `/hefesto:hef.quality` → `/hefesto:hef.review` → `/hefesto:hef.pr`

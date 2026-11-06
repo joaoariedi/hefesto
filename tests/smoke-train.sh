@@ -135,7 +135,7 @@ for tr_rm in origin sshr gitr; do
   [ ! -f "$tr_t/ESCAPED" ] || { bad "hef_git_neutral must stop a fetch of '$tr_rm' running a program from .git/config"; x_fail=1; rm -f "$tr_t/ESCAPED"; }
 done
 # every fetch a hook runs passes --upload-pack (hef_fetch_origin, or the launcher's GIT_FETCH_SAFE) — the launcher
-# fetches in the lane's repo at every pass (code review of PR B) — except /hef.doctor's, in the plugin's own clone;
+# fetches in the lane's repo at every pass (code review of PR B) — except /hefesto:hef.doctor's, in the plugin's own clone;
 # and the launcher, which does not source lane-lib.sh, pins the same keys as HEF_GIT_NEUTRAL
 tr_safe="$(sed -n 's/^GIT_FETCH_SAFE=(\([^)]*\)).*$/\1/p' "$REPO/hooks/session-launch.sh")"   # the launcher's fetch words, expanded
 [ -n "$tr_safe" ] || { bad "session-launch.sh must define GIT_FETCH_SAFE, the words of its fetches"; x_fail=1; }

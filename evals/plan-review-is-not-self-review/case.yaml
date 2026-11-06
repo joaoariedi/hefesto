@@ -7,7 +7,7 @@ runs: 3
 context:
   scaffold_script: scaffold.sh
 execution:
-  prompt: "/hef.review plan"
+  prompt: "/hefesto:hef.review plan"
   max_turns: 12
   timeout_seconds: 360
   allowed_tools: [Read, Glob, Grep, Bash, Edit, Skill, Agent]

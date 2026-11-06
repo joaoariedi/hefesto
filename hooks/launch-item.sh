@@ -82,7 +82,7 @@ app_check() {
   local w="$1" fail="${2:-die}" base="$1"
   [ -e "$w" ] || [ ! -L "$w" ] || "$fail" "session-launch $ROLE $ID: $w is a dangling link, not a worktree — remove it and re-run"
   [ -e "$w" ] || [ "$DRY" != 1 ] || base="$TOP"
-  [ -d "$base/$APPDIR/.specify" ] || "$fail" "session-launch $ROLE $ID: app folder $APPDIR has no .specify/ in $base — run /hef.init from $APPDIR and commit it first"
+  [ -d "$base/$APPDIR/.specify" ] || "$fail" "session-launch $ROLE $ID: app folder $APPDIR has no .specify/ in $base — run /hefesto:hef.init from $APPDIR and commit it first"
   case "$(cd "$base/$APPDIR" && pwd -P)/" in "$(cd "$base" && pwd -P)"/?*) ;; *) "$fail" "session-launch $ROLE $ID: app folder $APPDIR resolves outside $base (a link) — an app folder is a plain folder in the repository" ;; esac
   case "$(cd "$base/$APPDIR/.specify" && pwd -P)/" in "$(cd "$base" && pwd -P)"/?*) ;; *) "$fail" "session-launch $ROLE $ID: $APPDIR/.specify resolves outside $base (a link) — the planner's edit rule would write through it" ;; esac
 }

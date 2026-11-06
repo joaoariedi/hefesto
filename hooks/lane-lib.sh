@@ -29,7 +29,7 @@ setup_settings() { # $1 a folder in the project → the settings JSON of its mai
 # What an excluded (unsandboxed) command line must be — a redirection would leave the sandbox with it (plan review
 # round 3: `gh pr view 7 --json body -q .body > <store>/<aid>.json`).
 # A `#` starts a comment only at the start of a word, so inside one it is literal: `--ref todo#HEF-24`, the form
-# /hef.ship writes, was denied (live check 2026-10-29). A word still never STARTS with `#` (or `~`).
+# /hefesto:hef.ship writes, was denied (live check 2026-10-29). A word still never STARTS with `#` (or `~`).
 PLAIN_UNQ="[^][[:space:]'\"\$\`;&|<>(){}\\\\*?!~]"
 PLAIN_QUO="'[^']*'|\"[^\"\$\`\\\\!]*\""
 PLAIN_UNQ0="[^][[:space:]'\"\$\`;&|<>(){}\\\\*?!~#]"   # the first character of an unquoted word: never a #

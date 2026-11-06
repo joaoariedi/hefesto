@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fixture: a git repo on a feature branch with .specify/, a constitution and a spec but NO plan — the
-# state /hef.plan starts from. src/ holds a stub api.py and deliberately no limiter.py: a scout or a
+# state /hefesto:hef.plan starts from. src/ holds a stub api.py and deliberately no limiter.py: a scout or a
 # planner that "helpfully" creates the limiter, or edits src/ at all, is the failure the graders catch.
 # The eval workspace is empty until this runs (evals/README.md).
 set -euo pipefail

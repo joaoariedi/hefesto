@@ -6,7 +6,7 @@
 
 lanes_sha256() { { sha256sum 2>/dev/null || shasum -a 256; } < "$1" | cut -c1-64; }
 
-# register (FR-005): /hef.orchestrate step 1 in ONE call — routing, kind, the raw body's hash, init — so the
+# register (FR-005): /hefesto:hef.orchestrate step 1 in ONE call — routing, kind, the raw body's hash, init — so the
 # lanes' allowlist can match it (a rule must match every part of a compound shell line). It runs with no
 # dialog, so it may never stand in for the person's `record --body-file`: an existing entry is left untouched
 # (ledger init is idempotent as well; the check here says so instead of re-reading the item).
@@ -69,7 +69,7 @@ person_gate() { # $1 kind, $2 verb (default unblock)
     || die "ledger $v $ID: $1 needs --reviewed-by-human --by <your name> — a person read it and answers the permission prompt for this command; never allowlist it"
 }
 
-# human:plan-approval (FR-006): a person approves a background plan. The planner's own /hef.review writes
+# human:plan-approval (FR-006): a person approves a background plan. The planner's own /hefesto:hef.review writes
 # '## Reviewed', so that file can never be the evidence here — only a named person, recorded. Approving at
 # phase plan-review moves the entry to tasks; at tasks (an RFC changed after approval) it clears in place.
 plan_approval_clear() {

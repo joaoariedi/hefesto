@@ -4,14 +4,14 @@
 # PostToolUse on Edit|Write, advisory (exit 0, stderr), throttled to once a minute per file.
 #
 # The traceability chain is FR-NNN in spec.md → the token FR-NNN in a test file (req-coverage,
-# /hef.verify). That check runs ONCE, at implementation. Afterwards nothing watches the other
-# direction: a hotfix, a /hef.fix, or a refactor that edits a test citing FR-004 can change what
+# /hefesto:hef.verify). That check runs ONCE, at implementation. Afterwards nothing watches the other
+# direction: a hotfix, a /hefesto:hef.fix, or a refactor that edits a test citing FR-004 can change what
 # the requirement means in practice while spec.md still claims the old behaviour. That is the
 # "spec rot" the SDD critics measure (Scott Logic 2025-11; Thoughtworks *Assess*), and the reason
 # this framework never calls the spec the source of truth: the tests are. So when the tests move,
 # the spec's owner should hear about it — at the edit, not at the next audit.
 #
-# During /hef.implement the marker is set and citing tests are expected to change: silent then.
+# During /hefesto:hef.implement the marker is set and citing tests are expected to change: silent then.
 set -uo pipefail
 HEF_LL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-lib.sh"   # git here ignores core.fsmonitor/hooksPath (lane-lib.sh)
 if [ -f "$HEF_LL" ]; then
@@ -58,6 +58,6 @@ for d in "$root"/.specify/specs/*/; do
 done
 done < <(spec_roots_of "$CWD" "$FILE")
 if [ "$found" -eq 1 ]; then
-  echo "  If the behaviour changed, update the spec (.specify/specs/<name>/spec.md) or re-run /hef.verify; a test that moves while the spec stands still is how a spec rots." >&2
+  echo "  If the behaviour changed, update the spec (.specify/specs/<name>/spec.md) or re-run /hefesto:hef.verify; a test that moves while the spec stands still is how a spec rots." >&2
 fi
 exit 0
