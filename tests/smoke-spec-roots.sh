@@ -511,6 +511,10 @@ sr_w="$(cd "$(mktemp -d)" && pwd -P)"
   && printf '# Backend\n' > backend/.specify/memory/constitution.md && printf '# Spec\nFR-001 x\n' > backend/.specify/specs/triage/spec.md ) >/dev/null 2>&1
 for sr_d in backend backend/internal/svc; do
   [ "$(cd "$sr_w/$sr_d" && bash "$REPO/hooks/speckit-helper.sh" check-spec 2>&1)" = "SPEC_FOUND: triage" ] || { bad "SC-001 check-spec from $sr_d finds backend's spec"; x_fail=1; }
+  # FR-007 (HEF-1): check-tasks-inputs is spec-root scoped too — backend's spec, no plan → the light path.
+  # The subfolder iteration is the one that proves the dispatch: from backend/ itself $PWD already is the root
+  sr_ti="$(cd "$sr_w/$sr_d" && bash "$REPO/hooks/speckit-helper.sh" check-tasks-inputs 2>&1)"
+  [ "$sr_ti" = "LIGHT_PATH: triage" ] || { bad "FR-007 check-tasks-inputs from $sr_d must answer 'LIGHT_PATH: triage' (spec-root dispatch) — got '$sr_ti'"; x_fail=1; }
   (cd "$sr_w/$sr_d" && bash "$REPO/hooks/speckit-helper.sh" plan-phase-start && bash "$REPO/hooks/speckit-helper.sh" plan-phase-end \
     && bash "$REPO/hooks/speckit-helper.sh" implement-phase-start && bash "$REPO/hooks/speckit-helper.sh" implement-phase-end) >/dev/null 2>&1 \
     || { bad "SC-001 the phase markers work from $sr_d"; x_fail=1; }

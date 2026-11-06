@@ -532,6 +532,44 @@ fi
 
 rm -rf "$hc_tmp"
 
+# FR-001 FR-005 (HEF-1): /hefesto:hef.tasks pre-flight must accept spec.md without plan.md — the
+# hef.agent Light route skips the plan. Exact strings AND exit codes, so a predicate that answers the
+# wrong path (or refuses the light one) cannot pass.
+tl="$(mktemp -d)"
+( cd "$tl" && git init -q . && git checkout -q -b feature/lite && mkdir -p .specify/specs/lite ) >/dev/null 2>&1
+tl_q() { (cd "$tl" && "$HELPER" check-tasks-inputs 2>/dev/null); }
+tl_fail=0
+o="$(tl_q)"; rc=$?
+{ [ "$rc" -ne 0 ] && [ "$o" = "NO_SPEC_FOR_BRANCH: lite" ]; } || { bad "check-tasks-inputs with no spec.md must print 'NO_SPEC_FOR_BRANCH: lite' and exit 1; got '$o' at exit $rc (FR-001)"; tl_fail=1; }
+: > "$tl/.specify/specs/lite/spec.md"
+o="$(tl_q)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$o" = "LIGHT_PATH: lite" ]; } || { bad "check-tasks-inputs with spec.md only must print 'LIGHT_PATH: lite' at exit 0; got '$o' at exit $rc (FR-001)"; tl_fail=1; }
+# FR-004: check-plan keeps its answer — the light path is a new predicate, not a loosened old one
+o="$(cd "$tl" && "$HELPER" check-plan 2>/dev/null)"; rc=$?
+{ [ "$rc" -ne 0 ] && [ "$o" = "NO_PLAN_FOR_BRANCH: lite" ]; } || { bad "check-plan with no plan.md must still print 'NO_PLAN_FOR_BRANCH: lite' and exit 1; got '$o' at exit $rc (FR-004)"; tl_fail=1; }
+: > "$tl/.specify/specs/lite/plan.md"
+o="$(tl_q)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$o" = "FULL_PATH: lite" ]; } || { bad "check-tasks-inputs with spec.md + plan.md must print 'FULL_PATH: lite' at exit 0; got '$o' at exit $rc (FR-001)"; tl_fail=1; }
+[ "$tl_fail" -eq 0 ] && ok "check-tasks-inputs answers light / full / no-spec by string and exit code (FR-001, FR-005)"
+rm -rf "$tl"
+
+# FR-002 FR-003 SC-003 (HEF-1): the command uses the predicate, names the light-path header, no longer
+# requires both files, and keeps the `plan` fetch OUT of Pre-Flight (run top to bottom, its loud failure
+# would read as a stop on the light path).
+tc="$REPO/commands/hef.tasks.md"
+tc_pre="$(sed -n '/^## Pre-Flight/,/^## Instructions/p' "$tc")"
+tc_fail=0
+grep -qF 'speckit-helper.sh check-tasks-inputs' <<<"$tc_pre" || { bad "commands/hef.tasks.md Pre-Flight must run check-tasks-inputs (FR-002)"; tc_fail=1; }
+grep -qE 'speckit-helper\.sh (plan|check-plan)`' <<<"$tc_pre" && { bad "commands/hef.tasks.md Pre-Flight must not run 'plan' or 'check-plan' — the plan loads only on FULL_PATH (FR-002)"; tc_fail=1; }
+grep -qF '<!-- Light path: generated from spec.md alone — no plan.md -->' "$tc" || { bad "commands/hef.tasks.md must name the light-path header line (FR-003)"; tc_fail=1; }
+grep -qF 'Both `plan.md` and `spec.md` must exist' "$tc" && { bad "commands/hef.tasks.md still says both plan.md and spec.md are required (SC-003)"; tc_fail=1; }
+# FR-006: the new predicate is named where the helper's subcommands are listed (the counts: SC-006 below)
+grep -qF '`check-tasks-inputs`' "$REPO/docs/hooks.md" || { bad "docs/hooks.md must list check-tasks-inputs (FR-006)"; tc_fail=1; }
+# Captured first: the helper exits 1 on an unknown command, and under pipefail a pipe would read that as no match
+tc_usage="$("$HELPER" no-such-subcommand 2>&1)"
+grep -qF 'check-tasks-inputs' <<<"$tc_usage" || { bad "speckit-helper.sh usage text must name check-tasks-inputs (FR-006)"; tc_fail=1; }
+[ "$tc_fail" -eq 0 ] && ok "hef.tasks pre-flight accepts the light path: predicate, header line, no plan fetch in Pre-Flight (FR-002, FR-003, SC-003)"
+
 head_ "Workflow resilience"
 
 # These guard shape invariants that tests/workflow.test.js CANNOT reach. A behaviour test proves the

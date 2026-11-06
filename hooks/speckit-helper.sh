@@ -48,7 +48,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # req-coverage --all re
 # shellcheck source=hooks/spec-root-lib.sh
 . "$(dirname "$SELF")/spec-root-lib.sh"
 case "${1:-}" in
-  spec|plan|check-spec|check-plan|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
+  spec|plan|check-spec|check-plan|check-tasks-inputs|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
   constitution|list-specs|list-specs-dir|check-plan-review|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
   detect-stack|detect-test-framework|mutation-*)   # a glob ends the list: the docs' subcommand count reads simple arms only
     SPEC_ROOT="$(spec_root_find "$PWD")" && cd "$SPEC_ROOT" || { echo "speckit-helper: cannot enter the spec root of $PWD" >&2; exit 1; } ;;
@@ -243,6 +243,12 @@ case "$1" in
       echo "NO_PLAN_FOR_BRANCH: $BRANCH"
       exit 1
     fi
+    ;;
+  check-tasks-inputs)
+    # /hefesto:hef.tasks: spec + plan is the full path; spec alone is hef.agent's light path (HEF-1)
+    d=".specify/specs/$BRANCH"
+    [ -f "$d/spec.md" ] || { echo "NO_SPEC_FOR_BRANCH: $BRANCH"; exit 1; }
+    if [ -f "$d/plan.md" ]; then echo "FULL_PATH: $BRANCH"; else echo "LIGHT_PATH: $BRANCH"; fi
     ;;
   check-artifacts)
     for f in tasks.md plan.md spec.md; do
@@ -764,7 +770,8 @@ case "$1" in
     echo "Unknown command: $1"
     echo "Usage: speckit-helper.sh <command>"
     echo "Commands: branch, check-git-root, spec, plan, check-spec, check-plan,"
-    echo "  check-artifacts, all-artifacts, clarifications, checklists, checklists-dir,"
+    echo "  check-tasks-inputs, check-artifacts, all-artifacts, clarifications,"
+    echo "  checklists, checklists-dir,"
     echo "  checklists-content, constitution, list-specs, list-specs-dir, check-specify-dir,"
     echo "  detect-stack, detect-test-framework, list-config-files, list-rules, readme-head,"
     echo "  check-plan-review, detect-existing-code, trivial-change-check,"
