@@ -276,3 +276,11 @@ All six round-2 changes were found present; the reviewer raised:
 4. Sibling-dir list: grep `ledger-recipes.sh` in any form; add `smoke.sh:2421` (`ss_md`), `:2932` (`lh_md`), `:5666` (`l3_bin`).
 5. (optional) A US4 inside-repo symlinked-column positive case.
 6. (optional) `check-attr` value `unset` (`-filter`, disables filters): accept it, or keep refusing with a precise message.
+
+## Plan review 2026-11-07 — round 4 (fresh-context code-reviewer, APPROVE) — the one re-review the person allowed after round 3
+Approved on condition that tasks.md carries:
+1. Retarget the `--was` guard mutation at `tests/smoke.sh:3393–3396` (its sed hits `status-board.sh:263`, inside the moved `mark_item`): `ik_md` gets `board-mark.sh` by `cp` (never `ln -s` a file a `sed_i` touches), the sed targets `$ik_md/board-mark.sh`, `cmp -s` against `$REPO/hooks/board-mark.sh`.
+2. `--locate`'s first field: print the column file name (`$(col "$col")`, as `--mark` does) — state it in `docs/hooks.md`.
+3. The new smoke block restores `EB_KCFG` on `eb_k` and the `ls_t` config when it ends.
+
+## Reviewed 2026-11-07
