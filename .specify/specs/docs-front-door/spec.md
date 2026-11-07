@@ -108,9 +108,11 @@ changes.
 - **Given** a person wants to change hefesto itself
 - **When** they follow the README's "Contribute" link
 - **Then** `docs/contributing.md` tells them how to run the smoke suite (`tests/smoke.sh`, the live tier
-  with `SMOKE_LIVE=1`, `node --test` for `workflows/`), the commit convention (conventional subjects, the
-  co-author trailer, enforced by the commit hook), the branch names, the PR convention (a PR per change,
-  merged with a merge commit, never squash), and how a change is reviewed (`/hefesto:hef.review` code mode
+  with `SMOKE_LIVE=1`, `node --test` for `workflows/`), the commit convention (a conventional subject,
+  enforced by the commit hook `hooks/quality-before-commit.sh:66-69`; the co-author trailer, a
+  `.claude/rules/git-workflow.md` convention the hook does not check), the branch names, the merge
+  convention (merge commits, never squash or rebase — the `human:merge` gate is an ancestry check,
+  `docs/install.md` §7 step 2), and how a change is reviewed (`/hefesto:hef.review` code mode
   through a fresh-context reviewer, CI `smoke` + `smoke-macos`, a person merges)
 - **Edge:** a contributor without the `claude` CLI logged in can still run tier 1 (the end-to-end check
   self-skips)
@@ -146,11 +148,11 @@ changes.
 | FR-004 | `docs/install-linux.md` lists the tools per distribution (Ubuntu/Debian, Fedora, Arch: `git jq bubblewrap socat`, `gh`), the one install command, the wizard's behaviour and options, `gh auth login`, and the check with `/hefesto:hef.doctor`; it ends with a link to the quick start. | P1 | US2 |
 | FR-005 | `docs/install-macos.md` does the same for macOS (`xcode-select --install`, `brew install jq gh`, the sandbox is built in, stock `/bin/bash` 3.2 suffices). | P1 | US2 |
 | FR-006 | `docs/install-windows.md` says WSL (WSL 2) is required and native Windows is not supported, shows how to install WSL 2 with a Linux distribution, says to run everything inside the WSL terminal, and hands over to `install-linux.md` without repeating its steps. | P1 | US2 |
-| FR-007 | The per-OS tool commands and the quick install walkthrough appear only on the per-OS pages; `README.md`, both quick starts and `docs/install.md` link the pages instead (the README keeps the one install command line; each quick start keeps one sentence naming `install.sh` as the install-and-upgrade command, without the curl line or the walkthrough; `docs/install.md` §1 keeps the wizard's full option reference as its single owner). | P1 | US2 |
+| FR-007 | The per-OS tool commands and the quick install walkthrough appear only on the per-OS pages; `README.md`, both quick starts and `docs/install.md` link the pages instead (the README keeps the one install command line; each quick start keeps one sentence naming `install.sh` as the install-and-upgrade command, without the curl line or the walkthrough; `docs/install.md` §1 keeps the wizard's full option reference as its single owner). The Linux and macOS pages' §2 also carry the two other install forms the README and `docs/install.md:14` hold today: the pinned-tag URL (`…/v<X.Y.Z>/install.sh`, 7.10.0 or later) and clone-first (`git clone … ~/.claude-framework && bash ~/.claude-framework/install.sh`). | P1 | US2 |
 | FR-008 | `docs/quickstart.md`, `docs/install.md` and `SETUP.md` each open with a one-line statement of their job and links to the others and to the per-OS pages. | P1 | US3 |
 | FR-009 | `docs/install.md` keeps its §1–§7 numbering and every section a guard requires; inbound `install.md §N` citations still resolve to the same content. | P1 | US3 |
-| FR-010 | `SETUP.md` keeps every step, check, command and rule; only cross-references change, and the allowlist-rule guard (`tests/smoke.sh:778-785`) stays green. | P1 | US3 |
-| FR-011 | `docs/contributing.md` exists and covers: running the smoke suite (tier 1, `SMOKE_LIVE=1`, `node --test`), commit convention and trailer, branch names, PR and merge-commit convention, review (`/hefesto:hef.review`, CI jobs, a person merges); each claim is traceable to a repo file. | P1 | US4 |
+| FR-010 | `SETUP.md` keeps every step, check, command and rule; only cross-references change, and the allowlist-rule guard (`tests/smoke.sh:778-785`) stays green. SETUP.md is read through `curl`, so every new link in it is an absolute GitHub URL (`https://github.com/joaoariedi/hefesto/blob/main/docs/…`), not a relative path. | P1 | US3 |
+| FR-011 | `docs/contributing.md` exists and covers: running the smoke suite (tier 1, `SMOKE_LIVE=1`, `node --test`), commit convention (subject hook-enforced; trailer a `git-workflow.md` rule), branch names, merge-commit convention (cited from the `human:merge` ancestry gate), review (`/hefesto:hef.review`, CI jobs, a person merges); each claim is traceable to a repo file. | P1 | US4 |
 | FR-012 | `README.md` links `docs/contributing.md` from its contribute section. | P1 | US4 |
 | FR-013 | The README presents single lane and four-or-more lanes with a choosing rule consistent with quick start §3, and points to quick start §5 and §6. | P2 | US5 |
 | FR-014 | `docs/quickstart.pt-BR.md` mirrors the English quick start's sections, hand-overs, links and commands. | P2 | US6 |
@@ -164,7 +166,7 @@ changes.
 |----|-----------|-------------------|
 | SC-001 | `wc -l README.md` < 150 | the new guard (FR-016) and a manual count |
 | SC-002 | `tests/smoke.sh` tier 1 passes with zero failures, including doc counts, links, command spelling, quick-start and SETUP guards | run `tests/smoke.sh` |
-| SC-003 | Each new guard goes red when its condition is broken (a README padded past 150 lines, the contributing link removed, `WSL` removed from the Windows page, `bubblewrap` removed from the Linux page) | in-suite: the guard is a function of a root, run on mutated temp copies by `tests/smoke.sh` itself |
+| SC-003 | Each new guard goes red when its condition is broken (a README padded past 150 lines, the contributing link removed, `WSL` removed from the Windows page, `bubblewrap` removed from the Linux page, a per-OS link removed from a quick start) | in-suite: the guard is a function of a root, run on mutated temp copies by `tests/smoke.sh` itself |
 | SC-007 | No doc cites a README section by number (`README §`) after the move | `grep -rn 'README §' docs/ SETUP.md` returns nothing |
 | SC-004 | Every heading removed from `README.md` appears in the plan's destination table with a `docs/` target that contains the facts | review against the plan |
 | SC-005 | `grep -rn 'bubblewrap socat' README.md docs/quickstart*.md docs/install.md` returns nothing; the per-OS pages contain them | grep |
@@ -172,5 +174,9 @@ changes.
 
 ## Clarifications
 <!-- Max 3 [NEEDS CLARIFICATION] markers allowed -->
-_None._ Every open point was decided from the code; the decisions and their evidence are listed under
-"Decisions taken here".
+No open markers. Every open point was decided from the code; the decisions and their evidence are listed
+under "Decisions taken here". The item's owner answered the plan-review questions on 2026-11-07:
+
+- **Q: Direction — README skeleton, three per-OS pages, `docs/contributing.md`, quick start and
+  `install.md` reshaped?** A: Yes, this structure.
+- **Q: Round 2 plan-review changes (six, `plan-review.md`)?** A: Apply all six, re-review once.

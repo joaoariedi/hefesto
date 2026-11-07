@@ -18,3 +18,17 @@
 6. Minor: `yes x | head -150` → a loop (SIGPIPE pattern constitution 3 names); the quick starts' intro paragraphs (`:3-5,15-17`, both languages) must be rewritten too ("Linux and macOS" → add Windows (WSL); SC-005 depends on it).
 
 All six are edits to plan.md/spec.md; none needs a product decision. A person can approve applying them and re-run `/hefesto:hef.review plan`.
+
+**2026-11-07 — the owner answered: "Apply all six, re-review once"; direction approved.** Applied:
+1. Pinned-tag + clone-first forms → per-OS pages §2 (Sketch 2b, FR-007, destination table, install.md row).
+2. Sketch 4: `bubblewrap` mutation + `qs_links` function with a quick-start link mutation; Constitution box = five mutations.
+3. Sketch 5 / FR-011 / US4: "one PR per change" dropped; subject hook-enforced (`:66-69`), trailer a `git-workflow.md` rule; merge commits cited from install.md §7 step 2 (`:318-319`).
+4. SETUP.md links are absolute GitHub URLs (Affected Files, FR-010).
+5. Windows row reconciled with Sketch 2 ("Linux filesystem" claim removed).
+6. Counted `while` loop instead of `yes | head`; both quick starts' openings `:3-5` (and §1 `:15-17`) rewritten in Affected Files + Sketch 3.
+
+## Round 3 — APPROVE (2026-11-07)
+All six round-2 items verified resolved. Two task-level notes, carried into tasks.md:
+1. Per-OS pages §1 open with the Claude Code prerequisite sentence (from `docs/quickstart.md:15-16` / `README.md:397`) — else FR-003 loses it.
+2. The guard task adds mutations for the three un-mutated `fd_check` branches: README per-OS links, macOS `brew install`, Windows `(install-linux.md)` hand-over.
+Also: the `fd_fail` block needs its closing `ok` line; reword the quick-start `bad` message at `tests/smoke.sh:6024`.
