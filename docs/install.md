@@ -2,17 +2,19 @@
 
 [← back to README](../README.md)
 
+This is the install and configuration **reference**: the wizard's full behaviour, the manual install, profiles,
+optional configuration, the sandbox, updating, what the plugin cannot ship, and the orchestrator (§7). To install
+quickly, use your OS's page — [Linux](install-linux.md) · [macOS](install-macos.md) ·
+[Windows (WSL)](install-windows.md); to set a project up after that, the [quick start](quickstart.md); to have Claude
+walk you through it, [`SETUP.md`](../SETUP.md).
+
 ### 1️⃣ Install as a Plugin (recommended)
 
 The framework is a Claude Code plugin. **The hooks ship with it** — you no longer hand-write `settings.json`, which is where every previous version leaked its most-reported friction.
 
-**The quick way: the installation wizard.** In a normal terminal (not inside a Claude Code
-session), run:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh)
-# pinned to a release:  …/hefesto/v<X.Y.Z>/install.sh  ·  from a clone:  bash ~/.claude-framework/install.sh
-```
+**The quick way: the installation wizard.** The install command, its pinned-release and clone-first forms, and the
+tools it needs are on the per-OS pages ([Linux](install-linux.md) · [macOS](install-macos.md) ·
+[Windows (WSL)](install-windows.md)); what follows is everything the wizard does.
 
 It does every step in this section, *Updating* (§5) and §6 for each profile it finds: it reports
 the clone, each profile's installed version and any old install, prints the numbered plan with the
@@ -133,6 +135,11 @@ Two things the plugin cannot ship, because they are machine-local by design:
 > The same applies to the other helpers the commands call — `status-board.sh` (`/hefesto:hef.status`), `ledger.sh` and `session-launch.sh` (`/hefesto:hef.orchestrate`), `pr-watch.sh` (`/hefesto:hef.babysit`), `arena-run.sh` (`--arena --via`, `--second-opinion`), `release.sh` (`/hefesto:hef.release`): they prompt on first use; allow them in the same form if you use those commands — never `ledger.sh` as a whole, and never `pr-watch.sh reply` or `comment`, which `hefesto-setup.sh` keeps in `ask`.
 
 Export `GITHUB_TOKEN` if you want the bundled GitHub MCP server to connect.
+
+**Optional tools** — auto-detected, silent when absent: `gitleaks` (the secrets gate), `lizard` (the
+function complexity gate — the commit says when it was skipped), `shellcheck`, `rtk` (CLI output compression),
+`graphify` (knowledge graph), `GITHUB_TOKEN` (the bundled GitHub MCP server), and on Linux `bubblewrap` + `socat`
+for the OS sandbox below, the boundary the hooks cannot be.
 
 #### Turn on the sandbox
 
@@ -366,7 +373,7 @@ For the short path — install, one lane or four, a new or a running project —
    the exact `git push origin <branch>` line for you to run with the `!` prefix and ends the
    pass. It never merges, approves, force-pushes, or edits CI configuration — a fix that would
    need any of those becomes a question for you.
-8. **Running the by-stage layout** (README §5): `/hefesto:hef.orchestrate --stage plan` plans the next
+8. **Running the by-stage layout** ([Pane layouts](#pane-layouts), below): `/hefesto:hef.orchestrate --stage plan` plans the next
    queued item in a fresh session that writes only under `.specify/`; `--stage build` builds it;
    `--stage deploy` runs one babysitter pass on the next PR; `--stage all` runs the three in a row in this
    session, a catch-up. With no `--stage` it is the orchestrator pass. Two settings matter: every role's
@@ -739,10 +746,86 @@ Spend: `--max-budget-usd` caps each session; the launcher also refuses when toda
 the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the
 `runs[]` on each entry.
 
-**Two hosts, if you run the by-stage layout** (README §5): the `deploy` pane splits along the
+**Two hosts, if you run the by-stage layout** ([Pane layouts](#pane-layouts), below): the `deploy` pane splits along the
 trust boundary in `docs/architecture.md` — CI, the PR and the babysitter on the always-on
 workstation that holds GitHub access only; environment transitions and the production release on
 the laptop that holds the credentials. The ledger is per machine (`~/.cache/hefesto/`), so the laptop's
 `hooks/ledger.sh list --phase merged` does not see the workstation's entries: board write-back (HEF-4, opt-in
 `orchestrate.publish: true`) and the pull requests themselves are what make that queue visible across both
 machines without a message.
+
+#### Pane layouts
+
+The way the harness is meant to be run once a project is live: **one long-lived pane per
+responsibility, short-lived workers for the code**, and one shared truth nobody has to repeat to
+anybody. The evidence for that shape — and against a mesh of sessions that talk to each other — is
+[`reports/17-multi-agent-session-orchestration.md`](../reports/17-multi-agent-session-orchestration.md).
+
+| Pane (start it with `claude --name <repo>-<role>`) | Responsibility | Runs | Owns |
+|---|---|---|---|
+| 📋 `<repo>-project` | the board and the documents: intake, specs, tasks, status | `/hefesto:hef.status`, `/hefesto:hef.brainstorm` → `/hefesto:hef.spec` → `/hefesto:hef.clarify` → `/hefesto:hef.plan` → `/hefesto:hef.review` → `/hefesto:hef.tasks`, `/hefesto:hef.adr`, and `/hefesto:hef.orchestrate` to dispatch workers | `tasks/`, `.specify/`, `docs/`, the ledger |
+| ✨ `<repo>-feature` | one feature at a time, by hand, in its own worktree | `/hefesto:hef.implement` or `hefesto:workflow`, `/hefesto:hef.verify`, `/hefesto:hef.quality`, `/hefesto:hef.review`, `/hefesto:hef.pr` | one branch |
+| 🔧 `<repo>-chore` | general tasks, fixes, merges, releases | `/hefesto:hef.fix`, `/hefesto:hef.doctor`, `/hefesto:hef.release`; the merges themselves | `main` |
+| 🤖 workers (headless, launched by `/hefesto:hef.orchestrate`) | one board item each, then they exit | the size-routed pipeline, then a separate read-only verifier | one worktree under `.claude/worktrees/<id>` |
+
+That is the layout **by object** — the documents, one feature, `main` — a convention for panes you run by
+hand, **not the lanes layout**: no hefesto code knows these names, and `hefesto-setup.sh --lanes` maps only
+the four stage lanes below. The same spine also runs
+**by stage**, the layout of Galbiati's deck (`reports/18-…`, addendum A2): one pane per stage,
+each launching headless sessions for its stage's work and holding that stage's human gates.
+A repository that integrates on a branch other than `main` (say `dev → stg → main`) declares it
+under `branches` in `.claude/project-status.json` — PR base, verifier diff base, merge check,
+protected heads and the promotion chain all follow (step 12 above).
+Each long-lived pane has a `/compact` prompt shaped to what it owns — orchestrator, planner, builder,
+deployer — in [Performance → Compact prompts per pane](performance.md#-compact-prompts-per-pane).
+Set a project up once with `hooks/hefesto-setup.sh` (`--lanes` for four), then open each lane with plain
+`claude --name <repo>-<lane>` — any wrapper that passes claude's arguments on works. `/hefesto:hef.ship "<idea>"` in
+the orchestrator takes work to a PR; every decision is a form there, and the orchestrator rings the stage
+lanes (or, in a single lane, runs the stages itself) — the [quick start](quickstart.md) has both flows.
+A board kept in its own repository can feed several code repos — a `board` pointer in each, a
+`repos` map in the board, one central ledger, and per repo one planner, `orchestrate.max_builders` builders
+(default 1) and one deployer at a time (step 13 above).
+
+| Pane | Owns (ledger phases) | Human gates | Launches / runs |
+|---|---|---|---|
+| 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | every `human:*` gate — intake, clarify, plan review, plan approval, merge | `/hefesto:hef.ship` (new work), `/hefesto:hef.orchestrate` (asks each decision as a form and runs its command, then rings each stage lane — or runs the stage itself when no lane is open), `/hefesto:hef.status` ([quick start](quickstart.md)) |
+| 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | — (its questions go to the orchestrator) | `/hefesto:hef.orchestrate --stage plan` (a fresh planner: spec from the item's RFC → plan → fresh-context review → tasks, writes only under `.specify/`; with `plan_review: "human"` it then waits on `human:plan-approval`), or by hand `/hefesto:hef.brainstorm` → `/hefesto:hef.spec` → `/hefesto:hef.clarify` → `/hefesto:hef.plan` → `/hefesto:hef.review` → `/hefesto:hef.tasks` |
+| 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | `/hefesto:hef.orchestrate --stage build` (the implement worker — continuing from the planner's tasks when there are any — then the separate verifier) |
+| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, tag/deploy | `/hefesto:hef.orchestrate --stage deploy` (one headless `/hefesto:hef.babysit --once` pass on the next PR), or by hand `/hefesto:hef.babysit` (`/loop 25m /hefesto:hef.babysit <n> --once` while a review is pending); `/hefesto:hef.release`; the merge itself, by a person |
+
+Choose by object when one person runs the repository and a feature should stay in one pane end to
+end; by stage when more than one person attends, when the panes sit on different hosts (CI and the
+PR on the workstation, the production release on the laptop), or when each stage should own its own
+clarifications. Either way a pane never does a stage's work in its own context: it launches a fresh
+session per item, or does the human step by hand, then runs its own `/compact` prompt before the
+next item ([Performance → Compact prompts per pane](performance.md#-compact-prompts-per-pane)).
+The ledger does not know which layout is in use.
+
+**The shared truth is three things, none of them a conversation:** the board (`tasks/` or the
+GitHub Project), the ledger (`~/.cache/hefesto/ledger/<key>/<id>.json` — one folder per board, outside
+every sandbox, never committed; `hooks/ledger.sh dir` prints it), and the pull requests. Every pane opened in the checkout is told at start which entries
+are blocked, on what, and whose they are (`ledger: HEF-7 blocked_on human:merge … → orchestrator pane`), so
+nothing has to be announced; `orchestrate.panes` in `.claude/project-status.json` renames the panes.
+
+**A message is a pointer, never a payload.** Panes can message each other (Claude Code's
+cross-session messaging; `claude agents --json` lists them by the name you gave). Keep it to one
+line — an id, a phase, a path: `ledger HEF-7 pr https://…/pull/7 — merge?` — never a diff, a review
+or a transcript. Each inbound message costs the receiver a full-context turn, and the ledger already
+holds everything the line points at.
+
+**Aligning a release across the panes** is a sequence the ledger makes visible, not a meeting:
+
+1. `project` dispatches or a person in `feature` claims an item (`hooks/ledger.sh claim HEF-7
+   --session <repo>-feature --role implement`) — the orchestrator then leaves it alone.
+2. The PR lands the item in `pr`, blocked on `human:merge`. That block is the release queue.
+3. `chore` merges (a person, with a merge commit), then `git pull --ff-only`,
+   `hooks/ledger.sh unblock HEF-7`, `hooks/ledger.sh advance HEF-7 merged`, and removes the worktree.
+4. When `hooks/ledger.sh list --phase merged` is the release, `chore` runs `/hefesto:hef.release X.Y.Z`,
+   tags, and sends `project` one line: `release X.Y.Z tagged — HEF-7 HEF-8`.
+5. `project` moves the items to `DONE.md`; `/hefesto:hef.status` shows the quarter delivered.
+
+A hand-run item in `feature` reaches the same release queue in one call from its branch:
+`hooks/ledger.sh handoff <id> --pr <url>` (step 9 above). Two rules keep the panes honest: every person-only
+command runs in the orchestrator behind its permission dialog (`hefesto-setup.sh` keeps them in `ask`; a sandboxed
+command runs without a dialog, and `--strict` makes every unlisted command ask too); and no pane ever merges, approves
+or pushes `main` for a worker — branch protection on `main` is the backstop, not the prompt.

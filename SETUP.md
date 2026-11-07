@@ -11,6 +11,13 @@ Claude checks your machine, tells you what it found, and guides you one step at 
 upgrading, fixing a broken install, or setting up a project. Answer its questions and do what it
 asks. You can type the same request again at any time; it picks up where things stand.
 
+This file is the runbook Claude follows. To do it yourself instead: install from your OS's page
+([Linux](https://github.com/joaoariedi/hefesto/blob/main/docs/install-linux.md) ·
+[macOS](https://github.com/joaoariedi/hefesto/blob/main/docs/install-macos.md) ·
+[Windows (WSL)](https://github.com/joaoariedi/hefesto/blob/main/docs/install-windows.md)), then follow the
+[quick start](https://github.com/joaoariedi/hefesto/blob/main/docs/quickstart.md); the reference is
+[`install.md`](https://github.com/joaoariedi/hefesto/blob/main/docs/install.md).
+
 ---
 
 **For Claude: this file is your instructions for this conversation.** The engineer asked you to
@@ -78,7 +85,7 @@ nothing: ask the engineer to restart Claude Code inside a git project, and run S
 
 | What Step 1 shows | Situation | Go to |
 |---|---|---|
-| `git`, `jq`, `claude`, or on Linux `bwrap` or `socat`, is `MISSING` | a tool is missing | Tell the engineer how to install it (Linux: their package manager, for `bwrap` the package `bubblewrap`; macOS: `brew install <tool>`), wait until they have, run Step 1 again. |
+| `git`, `jq`, `claude`, or on Linux `bwrap` or `socat`, is `MISSING` | a tool is missing | Tell the engineer how to install it (Linux: their package manager, for `bwrap` the package `bubblewrap`; macOS: `brew install <tool>`; the per-OS pages list every command: [Linux](https://github.com/joaoariedi/hefesto/blob/main/docs/install-linux.md), [macOS](https://github.com/joaoariedi/hefesto/blob/main/docs/install-macos.md), [Windows (WSL)](https://github.com/joaoariedi/hefesto/blob/main/docs/install-windows.md)), wait until they have, run Step 1 again. |
 | `gh` is `MISSING` | fine for now | Recommend installing it now. It is required, with `gh auth login` done, before Step 4. |
 | `clone: none`, a profile below `latest` or with `hefesto=-`, `old-plugin=yes`, a `legacy:` line, or local changes in the clone | install or upgrade | Step 2 |
 | every profile at `latest`, but the session line is missing or shows an older version | the session is stale, or something is broken | Step 3 |

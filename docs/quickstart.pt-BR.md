@@ -1,8 +1,11 @@
 # Guia rápido
 
-Instale o hefesto e escolha uma de duas formas de trabalhar: **uma sessão** ou **quatro sessões**. Toda decisão —
-aprovar um plano, responder uma pergunta, pedir mudanças — é um formulário numa sessão só, a orchestrator; nada é
-copiado entre sessões. Linux e macOS. O guia completo, em inglês, é o [`install.md`](install.md).
+Esta página leva você de um hefesto instalado até o trabalho saindo: prepare um projeto e escolha uma de duas formas
+de trabalhar — **uma sessão** ou **quatro ou mais sessões**. Toda decisão — aprovar um plano, responder uma pergunta,
+pedir mudanças — é um formulário numa sessão só, a orchestrator; nada é copiado entre sessões. Linux, macOS e Windows
+(WSL) — instale pela página do seu sistema (em inglês): [Linux](install-linux.md) · [macOS](install-macos.md) ·
+[Windows (WSL)](install-windows.md). A referência de instalação e configuração, em inglês, é o
+[`install.md`](install.md); para o Claude guiar você, [`SETUP.md`](../SETUP.md).
 
 *In English: [`quickstart.md`](quickstart.md).*
 
@@ -12,34 +15,13 @@ copiado entre sessões. Linux e macOS. O guia completo, em inglês, é o [`insta
 
 ## 1. Antes de começar
 
-O hefesto roda dentro do [Claude Code](https://code.claude.com/docs/en/setup) (o comando `claude`). Ele também
-precisa de `git` e `jq`, e do `gh` para pull requests e quadros no GitHub. As sessões rodam dentro do sandbox do
-Claude Code, que no Linux precisa de `bubblewrap` e `socat`; no macOS o sandbox já vem no sistema.
-
-| | Instale as ferramentas |
-|---|---|
-| **macOS** | `xcode-select --install` (git), depois `brew install jq gh` |
-| **Ubuntu / Debian** | `sudo apt install git jq bubblewrap socat`, e o gh em [cli.github.com](https://cli.github.com) |
-| **Fedora** | `sudo dnf install git jq bubblewrap socat gh` |
-| **Arch** | `sudo pacman -S git jq bubblewrap socat github-cli` |
-
-Depois entre no gh uma vez: `gh auth login`. No macOS tudo roda com o `/bin/bash` 3.2 e as ferramentas BSD que vêm
-no sistema; não precisa do bash do Homebrew.
+Instale o hefesto primeiro: [Linux](install-linux.md) · [macOS](install-macos.md) · [Windows (WSL)](install-windows.md).
+Cada página lista as ferramentas, o único comando de instalação e a conferência.
 
 ## 2. Instalar ou atualizar o hefesto
 
-O mesmo comando instala e atualiza o hefesto. Feche todas as janelas do Claude Code e, num terminal normal:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh) --lang pt
-```
-
-Ele mostra o que encontrou e os passos que recomenda, e pergunta sobre cada um; aperte Enter para aceitar. Ele nunca
-usa `sudo`, e copia todo arquivo que substitui para `~/hefesto-old/` antes. No fim aparece
-`Tudo certo: todos os perfis rodam o hefesto <versão>.` Opções: `--version v9.3.0` (uma release), `--dry-run`
-(mostra o plano, não muda nada), `--help`.
-
-Confira no Claude Code com `/hefesto:hef.doctor`.
+O comando `install.sh` da página do seu sistema instala o hefesto e também o atualiza (acrescente `--lang pt` para o
+assistente falar português).
 
 **Depois de atualizar**, em todo projeto preparado para o hefesto, rode a preparação de novo na pasta principal dele
 e reinicie as sessões do Claude Code dele:
@@ -52,12 +34,12 @@ As primeiras linhas de uma sessão de um projeto de quatro sessões avisam quand
 `/hefesto:hef.orchestrate` para e diz o comando. O que mudou entre as releases: [Notas de atualização](#notas-de-atualização)
 abaixo.
 
-## 3. Uma sessão ou quatro sessões?
+## 3. Uma sessão ou quatro ou mais sessões?
 
-|  | **Uma sessão** | **Quatro sessões** |
+|  | **Uma sessão** | **Quatro ou mais sessões** |
 |---|---|---|
 | Para | experimentos, projetos pequenos, uma feature por vez | um fluxo contínuo de RFCs e correções |
-| Sessões abertas | uma: a orchestrator | a orchestrator + planner, builder e deployer |
+| Sessões abertas | uma: a orchestrator | a orchestrator + planner, builder e deployer — e mais builders com `orchestrate.max_builders` |
 | Quem roda as etapas | sessões em segundo plano que a orchestrator abre | as três sessões de etapa, chamadas pela orchestrator |
 | Preparação | `hefesto-setup.sh` | `hefesto-setup.sh --lanes` |
 

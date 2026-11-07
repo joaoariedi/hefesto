@@ -152,8 +152,8 @@ board repo's git common dir, every entry tagged with its `repo`), `claim` allows
 session runs in its entry's repo.
 **No worker ever merges.** By default the person merges on GitHub — the merge is the human gate; with
 `orchestrate.merge_by: "lane"` the deployer lane merges an action the person approved with **Merge** in the
-orchestrator's form. See README §5,
-[install §7](install.md) and `reports/17`.
+orchestrator's form. See [install §7, Pane layouts](install.md#pane-layouts)
+and `reports/17`.
 
 ## 🖥️ Reference Deployment
 
