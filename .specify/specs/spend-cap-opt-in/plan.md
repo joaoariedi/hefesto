@@ -119,8 +119,11 @@ Mutation rules (review 2026-11-07):
   (never a line deletion — the `if/else/fi` must still parse; the empty cap then reads as 0 → refused → red);
   (e) ← `>=` → `>`; (d) ← `s|exit !(t + c > d)|exit 1|` (both set, never hits → the launch proceeds → red);
   (h) ← `s|test("budget")|test("never-a-subtype")|` (no `budget` block → red) — (d) and (h) are inherited guards
-  whose mutations exist today only as comments (`:2061`, `:2071`); these replace those comments, run via
-  `SL_BIN=… sr2` with the `cmp -s` applied-check, and the mutation-count `ok` line (`:2362`) is updated;
+  whose mutations exist today only as comments (`:2061`, `:2071`). They run **after `sr2` is defined (`:2090`)**,
+  via `SL_BIN=… sr2` with the `cmp -s` applied-check, on **fresh ledger entries** in the HEF-8.. range the run-path
+  cases already use — never HEF-4 (`:2088-2108` assert it is still queued) or HEF-6 (`:2075` asserts its `budget`
+  block) — with `sr_res` set explicitly for each mutated run (a 0-cost result for (d), so the shared ledger is not
+  inflated); the comments at `:2061`/`:2071` point at them, and the mutation-count `ok` line (`:2362`) is updated;
   (i) ← `l3_mut board-setup.sh` re-adding
   `usd_cap: 20, daily_usd_cap: 100` to the `:41` literal, then `bash "$l3_md/status-board.sh" --init` in a **fresh**
   temp repo (init never overwrites a config, `board-setup.sh:40`); `status-board.sh:41` resolves `board-setup.sh` as a
@@ -142,6 +145,9 @@ No sketch — text edits and dropping two keys from a jq literal (`hooks/board-s
   one-line amendment (D1 confirmed by the owner, spec Clarifications).
 - Round 4: real mutations for the inherited (d)/(h) guards; the `session-orchestration` amendment is now under
   FR-007. If the single-awk fallback is taken, the (d)/(e) seds anchor on the folded expression instead.
+- Round 5 (REVISE_PLAN, folded in; 5-round cap reached → human plan review): the (d)/(h) mutations run after
+  `:2090` on fresh entries with explicit `sr_res`; SC-003's grep also matches `($100) a day` / `(US$ 100) por dia`
+  (`docs/quickstart.md:162`, `docs/quickstart.pt-BR.md:167`).
 
 ## Constitution Compliance
 - [x] **1 payload not under `.claude/`**: all edits at the repo root paths.

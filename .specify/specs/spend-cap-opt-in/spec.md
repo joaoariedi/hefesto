@@ -92,7 +92,7 @@ one-line amendment pointing here.
 |----|-----------|-------------------|
 | SC-001 | `bash tests/smoke.sh` passes, including the rewritten default-cap assertion (`tests/smoke.sh:1993` now asserts the flag's absence) | run the suite |
 | SC-002 | Every test added for FR-001..FR-006 fails when its guarded line is reverted to the `// 20` / `// 100` defaults | the mutation embedded next to each test |
-| SC-003 | No file in `hooks/`, `commands/`, `docs/`, `README.md`, `SETUP.md` states 20/100 USD as a default cap | `grep -rnE '\$ ?20 (a run|by default)|\$ ?100 a day|usd_cap.{0,4}// (20|100)|US\$ 20 por padrão|usd_cap: 20, daily_usd_cap: 100|"usd_cap": ?20|"daily_usd_cap": ?100'` over those paths returns nothing — and, run on the tree before the change, hits all seven doc files plus `hooks/session-launch.sh:194` and `hooks/board-setup.sh:41` (so the check can fail) |
+| SC-003 | No file in `hooks/`, `commands/`, `docs/`, `README.md`, `SETUP.md` states 20/100 USD as a default cap | `grep -rnE '\$ ?20 (a run|by default)|\$ ?100 a day|usd_cap.{0,4}// (20|100)|US\$ 20 por padrão|\((US)?\$ ?100\)|usd_cap: 20, daily_usd_cap: 100|"usd_cap": ?20|"daily_usd_cap": ?100'` over those paths returns nothing — and, run on the tree before the change, hits all seven doc files plus `hooks/session-launch.sh:194` and `hooks/board-setup.sh:41` (so the check can fail) |
 | SC-004 | `tests/smoke-spec-roots.sh` still equals `tests/fixtures/launch-920.txt` (its fixture sets explicit caps) | run that suite |
 
 ## Clarifications
