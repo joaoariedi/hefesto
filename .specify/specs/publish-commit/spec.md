@@ -50,7 +50,10 @@ committing into a half-finished merge, writing outside the board repo, or losing
   a program executed unsandboxed). For the same reason the commit adds `commit.gpgsign=false` to that
   pinned set — `gpg.program` is a program-running key too — so a publish commit is unsigned; a board repo
   that requires signed commits leaves `publish_commit` off (documented). A failed commit is then a real
-  git failure: no identity, an unwritable object store, a locked index (D4).
+  git failure: no identity, an unwritable object store, a locked index (D4). A `filter` attribute on the
+  column file (a clean/process filter in `.gitattributes`) runs a program on commit that no `GIT_CONFIG_*`
+  pin reaches, so a column whose `git check-attr filter` is not `unspecified` is refused before the mark
+  (plan review round 2, change 4). Confirmed by the person 2026-11-07.
 - **D8 One publish at a time per ledger.** D4's rollback is safe only if the column file holds nothing
   but this publish's marker; a lock (per ledger directory, shared by every repo the board feeds) spans
   locate → guards → mark → commit, so two publishes on the same column cannot sweep or roll back each
@@ -71,6 +74,10 @@ committing into a half-finished merge, writing outside the board repo, or losing
   recorded, nothing is pushed, and the output names the branch
 - **Edge:** the state is unchanged → no mark, no commit, `publish: unchanged` (as today)
 - **Edge:** the item sits in DONE (`--mark` leaves it alone) → no commit, `published` recorded as today
+- **Edge:** the heading already carried the marker, so the mark leaves the file equal to `HEAD` (nothing to
+  commit) → no commit, `published` recorded, the output says `nothing to commit` — never a retry loop
+- **Edge:** an in-repo board with `publish_commit: true` → today's mark, no commit, one line saying
+  `publish_commit` applies to an external board only
 - **Error / negative:** `publish_commit` absent or not exactly `true` → the file is marked and left
   uncommitted, byte-identical to today's behaviour
 
@@ -101,6 +108,10 @@ committing into a half-finished merge, writing outside the board repo, or losing
 - **Error / negative:** a column outside the board repo → non-zero, nothing written; no `git` command is
   ever run against a repository other than the board repo
 - **Edge:** a column symlinked to another file INSIDE the board repo → allowed, the target is committed
+- **Error / negative:** the path `--mark` reports differs from the located path → non-zero naming both
+  paths; publish touches neither file (no rollback of the located path) and records nothing
+- **Error / negative:** the column file has a `filter` attribute (`git check-attr filter` not
+  `unspecified`) → refused before the mark, naming the filter; nothing written (D5)
 
 ### US5: A failed commit is retried, not lost [P1]
 - **Given** `publish_commit: true`, all guards pass, and `git commit` fails (no user identity with
@@ -123,24 +134,24 @@ committing into a half-finished merge, writing outside the board repo, or losing
 | ID | Requirement | Priority | Scenario |
 |----|-------------|----------|----------|
 | FR-001 | `ledger.sh publish` commits the marked column file in the board repo only when the board is external, the source is `tasks-repo`, and both `orchestrate.publish` and `orchestrate.publish_commit` are exactly `true`; otherwise behaviour is unchanged, and on an in-repo board with `publish_commit: true` one line says it was not committed (D1, D2). | P1 | US1 |
-| FR-002 | Before `--mark`, `publish` refuses (non-zero, nothing written) when the item's column file has unstaged or staged changes or is untracked in the board repo; other paths do not block. | P1 | US2 |
+| FR-002 | Before `--mark`, `publish` refuses (non-zero, nothing written) when the item's column file has unstaged or staged changes, is untracked in the board repo, or has a `filter` attribute (`git check-attr filter` not `unspecified`, D5); other paths do not block. | P1 | US2 |
 | FR-003 | Before `--mark`, `publish` refuses when the board repo (the worktree at `board_top`) has a merge, rebase (merge or apply backend), cherry-pick or revert in progress, or HEAD is detached, naming which. | P1 | US3 |
-| FR-004 | `status-board.sh --mark` reports the absolute, symlink-resolved path of the file it rewrote, and offers a write-nothing locate of the same path; `publish` refuses a path outside `board_top` before marking and commits exactly the path `--mark` reported. Existing `--mark` output consumers (`not marked` on DONE) keep working. | P1 | US4 |
+| FR-004 | `status-board.sh --mark` reports the absolute, symlink-resolved path of the file it rewrote, and offers a write-nothing locate of the same path; `publish` refuses a path outside `board_top` before marking and commits exactly the path `--mark` reported; a reported path that differs from the located one → non-zero naming both, nothing touched. Existing `--mark` output consumers (`not marked` on DONE) keep working. | P1 | US4 |
 | FR-005 | The commit is `git -C <board_top> commit -m "board: <id> <marker>" -- <abs path>` (a pathspec commit, git's `--only` mode): one path, under the neutral git config plus `commit.gpgsign=false`, never unsetting a pinned key, no push, no branch change (D3, D5, D6, D7). | P1 | US1 |
-| FR-006 | Order is mark → commit → re-hash → record `published`. On a failed commit, the column path is restored to its `HEAD` content, the error names git's reason, and neither the body hash nor `published` is written, so the next pass retries. A per-ledger lock spans locate → commit (D8). | P1 | US5 |
+| FR-006 | Order is mark → commit → re-hash → record `published`. On a failed commit, the column path is restored to its `HEAD` content, the error names git's reason, and neither the body hash nor `published` is written, so the next pass retries. A mark that leaves the file equal to `HEAD` (`git diff --quiet HEAD -- <abs>`) skips the commit and records `published` — no retry loop. A per-ledger lock spans locate → commit (D8). | P1 | US5 |
 | FR-007 | The success line names the branch committed on (`… committed on <branch>, not pushed`). | P2 | US1, US6 |
-| FR-008 | `docs/install.md` and `docs/hooks.md` document `orchestrate.publish_commit`: external only, branch expectation, path-limited, never pushed, unsigned with hooks not run, a git identity required, the refusals; `CHANGELOG.md` gets an Unreleased entry. | P2 | US6 |
+| FR-008 | `docs/install.md` and `docs/hooks.md` document `orchestrate.publish_commit`: external only, branch expectation, path-limited, never pushed, unsigned with hooks not run, a git identity required, a column with a `filter` attribute refused, the refusals; `CHANGELOG.md` gets an Unreleased entry. | P2 | US6 |
 | FR-009 | The new logic lives in a sourced helper beside `ledger.sh` (it is over the file limit), failing loudly per constitution 5: every refusal exits non-zero with the offending path or state. | P2 | all |
 
 ## Success Criteria
 
 | ID | Criterion | Validation Method |
 |----|-----------|-------------------|
-| SC-001 | On the existing external fixture (`tests/smoke.sh`, `eb_*`), publish with `publish_commit: true` adds exactly one commit on the board repo's branch touching only the column file, with the fixed message, and records `published`. | smoke assertion on `git log -1 --name-only` and the ledger entry |
-| SC-002 | Each refusal (dirty column, staged column, untracked column, merge, rebase, cherry-pick, detached HEAD, column outside the board repo) leaves the column file byte-identical, no new commit, `published` unchanged. | one smoke assertion per refusal, comparing sha256 and `HEAD` |
+| SC-001 | On the existing external fixture (`tests/smoke.sh`, `eb_*`), publish with `publish_commit: true` adds exactly one commit on the board repo's branch touching only the column file, with the fixed message, and records `published`; a mark that leaves the file equal to `HEAD` makes no commit and records `published`; a DONE item makes no commit and records `published`; an in-repo board with the flag on prints the one-liner and makes no commit. | smoke assertion on `git log -1 --name-only` and the ledger entry |
+| SC-002 | Each refusal (dirty column, staged column, untracked column, filter attribute on the column, `--mark`/`--locate` path mismatch, merge, rebase, cherry-pick, detached HEAD, column outside the board repo) leaves the column file byte-identical, no new commit, `published` unchanged. | one smoke assertion per refusal, comparing sha256 and `HEAD` |
 | SC-003 | A commit with no identity (`user.useConfigOnly=true`, no `user.email`, global/system config off) → non-zero, file restored to HEAD, body hash and `published` unchanged; with the identity restored the next publish commits. A `pre-commit` hook in the board repo that would fail is NOT run (the commit succeeds). | smoke assertion |
 | SC-004 | With `publish_commit` off, absent or `"true"` (string), publish output and board state match today's test exactly; the existing FR-006 external-board assertions stay green. | existing + one new smoke assertion |
-| SC-005 | Every guard is mutation-tested (constitution 3): disabling each of the dirty check, the sequencer check, the in-repo path check, the commit-before-record order, the rollback, the lock, and the `-- <path>` pathspec turns the suite red. | mutation list in the plan, run during `/hefesto:hef.verify` |
+| SC-005 | Every guard is mutation-tested (constitution 3): disabling each of the dirty check, the sequencer check, the in-repo path check, the filter-attribute check, the nothing-to-commit skip, the commit-before-record order, the rollback, the lock, and the `-- <path>` pathspec turns the suite red. | mutation list in the plan, run during `/hefesto:hef.verify` |
 | SC-006 | `tests/smoke.sh` tier 1 and `node --test` pass; `bash -n` / shellcheck clean on touched hooks; macOS static guard passes (no GNU-only flags). | CI-equivalent local run |
 
 ## Files touched (expected)
@@ -153,6 +164,14 @@ committing into a half-finished merge, writing outside the board repo, or losing
 
 ## Clarifications
 
-_None — every open point was decidable from the code and the item; decisions are D1–D8 above._
+_No [NEEDS CLARIFICATION] markers — every open point was decidable from the code and the item; decisions are D1–D8 above._
 D5 was revised after the plan review (2026-11-06): its first wording ("honour hooks and signing")
 contradicted the repository's own security invariant (`hef_git_neutral`); the invariant wins.
+
+### Session 2026-11-07 (answers from the item's owner)
+- Q: D5 (hooks and signing) — the publish commit keeps `hef_git_neutral`'s pins (board-repo hooks not
+  run) and adds `commit.gpgsign=false` (unsigned); confirm? → A: **Confirm.** D5 stands as written.
+- Q: Plan review round 2 asked for six changes (mutation retarget to `board-mark.sh`, nothing-to-commit
+  skip, mismatch touches nothing, `filter` attribute refusal, in-repo + DONE tests, explicit fixture
+  commit) — apply? → A: **Apply all six, re-review once.** Applied to the plan and reflected here (US1
+  edges, US4 negatives, FR-002/004/006, SC-001/002/005).
