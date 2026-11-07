@@ -30,9 +30,10 @@ committing into a half-finished merge, writing outside the board repo, or losing
   and the entry's source is `tasks-repo`. On an in-repo board the column file lives in the code repo the
   person works in, where an automatic commit is exactly the sweep the item warns about: `publish` does not
   commit and says so in one line. A `github-project` source writes no file and is unaffected.
-- **D2 Off unless exactly `true`.** Read as `.orchestrate.publish_commit // false` from the board config,
-  like `orchestrate.publish`; it has effect only when `orchestrate.publish` is also `true`. Any other
-  value (string `"true"`, number) is off.
+- **D2 Off unless exactly `true`.** Read as `.orchestrate.publish_commit == true` from the board config
+  (a JSON boolean comparison: `jq -r '… // false'` would print `true` for the STRING `"true"` too — plan
+  review round 3, change 1); it has effect only when `orchestrate.publish` is also `true`. Any other
+  value (string `"true"`, number, absent) is off.
 - **D3 Branch expectation.** The commit lands on whatever branch the board repo's top currently has
   checked out — commonly `main`, since a board repo may take commits straight on main. `publish` never
   switches branch, never creates one, never pushes; pushing stays the person's. A detached HEAD is
@@ -110,8 +111,9 @@ committing into a half-finished merge, writing outside the board repo, or losing
 - **Edge:** a column symlinked to another file INSIDE the board repo → allowed, the target is committed
 - **Error / negative:** the path `--mark` reports differs from the located path → non-zero naming both
   paths; publish touches neither file (no rollback of the located path) and records nothing
-- **Error / negative:** the column file has a `filter` attribute (`git check-attr filter` not
-  `unspecified`) → refused before the mark, naming the filter; nothing written (D5)
+- **Error / negative:** the column file has a `filter` attribute (`git check-attr filter` neither
+  `unspecified` nor `unset`) → refused before the mark, naming the filter; nothing written (D5).
+  `unset` (`-filter` in `.gitattributes`) disables filters, so it is accepted
 
 ### US5: A failed commit is retried, not lost [P1]
 - **Given** `publish_commit: true`, all guards pass, and `git commit` fails (no user identity with
@@ -134,7 +136,7 @@ committing into a half-finished merge, writing outside the board repo, or losing
 | ID | Requirement | Priority | Scenario |
 |----|-------------|----------|----------|
 | FR-001 | `ledger.sh publish` commits the marked column file in the board repo only when the board is external, the source is `tasks-repo`, and both `orchestrate.publish` and `orchestrate.publish_commit` are exactly `true`; otherwise behaviour is unchanged, and on an in-repo board with `publish_commit: true` one line says it was not committed (D1, D2). | P1 | US1 |
-| FR-002 | Before `--mark`, `publish` refuses (non-zero, nothing written) when the item's column file has unstaged or staged changes, is untracked in the board repo, or has a `filter` attribute (`git check-attr filter` not `unspecified`, D5); other paths do not block. | P1 | US2 |
+| FR-002 | Before `--mark`, `publish` refuses (non-zero, nothing written) when the item's column file has unstaged or staged changes, is untracked in the board repo, or has a `filter` attribute (`git check-attr filter` neither `unspecified` nor `unset`, D5); other paths do not block. | P1 | US2 |
 | FR-003 | Before `--mark`, `publish` refuses when the board repo (the worktree at `board_top`) has a merge, rebase (merge or apply backend), cherry-pick or revert in progress, or HEAD is detached, naming which. | P1 | US3 |
 | FR-004 | `status-board.sh --mark` reports the absolute, symlink-resolved path of the file it rewrote, and offers a write-nothing locate of the same path; `publish` refuses a path outside `board_top` before marking and commits exactly the path `--mark` reported; a reported path that differs from the located one → non-zero naming both, nothing touched. Existing `--mark` output consumers (`not marked` on DONE) keep working. | P1 | US4 |
 | FR-005 | The commit is `git -C <board_top> commit -m "board: <id> <marker>" -- <abs path>` (a pathspec commit, git's `--only` mode): one path, under the neutral git config plus `commit.gpgsign=false`, never unsetting a pinned key, no push, no branch change (D3, D5, D6, D7). | P1 | US1 |
@@ -147,8 +149,8 @@ committing into a half-finished merge, writing outside the board repo, or losing
 
 | ID | Criterion | Validation Method |
 |----|-----------|-------------------|
-| SC-001 | On the existing external fixture (`tests/smoke.sh`, `eb_*`), publish with `publish_commit: true` adds exactly one commit on the board repo's branch touching only the column file, with the fixed message, and records `published`; a mark that leaves the file equal to `HEAD` makes no commit and records `published`; a DONE item makes no commit and records `published`; an in-repo board with the flag on prints the one-liner and makes no commit. | smoke assertion on `git log -1 --name-only` and the ledger entry |
-| SC-002 | Each refusal (dirty column, staged column, untracked column, filter attribute on the column, `--mark`/`--locate` path mismatch, merge, rebase, cherry-pick, detached HEAD, column outside the board repo) leaves the column file byte-identical, no new commit, `published` unchanged. | one smoke assertion per refusal, comparing sha256 and `HEAD` |
+| SC-001 | On the existing external fixture (`tests/smoke.sh`, `eb_*`), publish with `publish_commit: true` adds exactly one commit on the board repo's branch touching only the column file, with the fixed message, and records `published`; a mark that leaves the file equal to `HEAD` makes no commit and records `published`; a DONE item makes no commit and records `published`; an in-repo board with the flag on prints the one-liner and makes no commit; a column symlinked to another file inside the board repo commits the target. | smoke assertion on `git log -1 --name-only` and the ledger entry |
+| SC-002 | Each refusal (dirty column, staged column, untracked column, filter attribute on the column, `--mark`/`--locate` path mismatch, merge, rebase, cherry-pick, detached HEAD, column outside the board repo) leaves the column file byte-identical, no new commit, `published` unchanged, and prints its own contract message (so a later guard or git itself cannot mask a dropped one). | one smoke assertion per refusal, comparing sha256 and `HEAD` and grepping the message |
 | SC-003 | A commit with no identity (`user.useConfigOnly=true`, no `user.email`, global/system config off) → non-zero, file restored to HEAD, body hash and `published` unchanged; with the identity restored the next publish commits. A `pre-commit` hook in the board repo that would fail is NOT run (the commit succeeds). | smoke assertion |
 | SC-004 | With `publish_commit` off, absent or `"true"` (string), publish output and board state match today's test exactly; the existing FR-006 external-board assertions stay green. | existing + one new smoke assertion |
 | SC-005 | Every guard is mutation-tested (constitution 3): disabling each of the dirty check, the sequencer check, the in-repo path check, the filter-attribute check, the nothing-to-commit skip, the commit-before-record order, the rollback, the lock, and the `-- <path>` pathspec turns the suite red. | mutation list in the plan, run during `/hefesto:hef.verify` |
@@ -175,3 +177,7 @@ contradicted the repository's own security invariant (`hef_git_neutral`); the in
   skip, mismatch touches nothing, `filter` attribute refusal, in-repo + DONE tests, explicit fixture
   commit) — apply? → A: **Apply all six, re-review once.** Applied to the plan and reflected here (US1
   edges, US4 negatives, FR-002/004/006, SC-001/002/005).
+- Q: Plan review round 3 raised six changes (D2 as a boolean comparison, per-refusal message assertions
+  and a delegating M14 stub, `ls_md` copies `board-mark.sh`, the full sibling-dir list, an inside-repo
+  symlinked-column positive case, `check-attr` value `unset` accepted) — apply? → A: **Apply all six,
+  re-review once.** Applied to the plan and reflected here (D2, US4, FR-002, SC-001).

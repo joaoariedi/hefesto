@@ -19,7 +19,7 @@ See `research.md` (truth map). Key findings:
 | `hooks/ledger-publish.sh` | create | sourced: `publish_commit_on`, `publish_guard <abs>`, `publish_commit_file <id> <marker> <abs>`, `publish_lock`/`publish_unlock` |
 | `hooks/ledger.sh` | modify | source the helper (existence-checked); `publish)` tasks-repo branch: lock → locate → guards → mark → verify path → commit → re-hash → `published`; in-repo note; usage line |
 | `tests/smoke.sh` | modify | new block after the FR-006 publish block (:4078) on the `eb_*` fixture: success, the refusals, the failing hook, off/string-true |
-| `tests/smoke.sh` (mutation dirs + structural) | modify | every mutation dir that copies `ledger.sh` or `status-board.sh` and symlinks its siblings (`:1784`, `:2001`, `:2207`, `:2822`, `:2974`, `:3068`, `:3369`, and any other `ln -s "$REPO/hooks/ledger-recipes.sh"` site — find them with grep) gains `ledger-publish.sh` and `board-mark.sh` symlinks, or the existence check kills those tests; the structural/shellcheck lists name both new files (follow `ledger-lifecycle.sh`) |
+| `tests/smoke.sh` (mutation dirs + structural) | modify | every dir that names `ledger-recipes.sh` in ANY form (`ln -s`, a `for f in …` list, a `cp` list — `grep -n 'ledger-recipes.sh' tests/smoke.sh`): `:1761`/`:1784` (`lg_md2`), `:2001` (`sl_md`), `:2207` (`st_mutdir`), `:2421` (`ss_md`, for-list), `:2822` (`pw_mutdir`), `:2932` (`lh_md`, for-list), `:2974` (`ls_hd`), `:3068` (`ls_md`), `:3369` (`ik_md`), `:5666` (`l3_bin`, cp-list) gains `ledger-publish.sh` and `board-mark.sh` in the same form, or the existence check kills those tests. **Exception `ls_md` (`:3068`):** `board-mark.sh` is `cp`'d (it already `cp`s `status-board.sh`, and a later `cp`/`sed` over a symlink writes through to the repo file), `ledger-publish.sh` is `ln -s`. The structural/shellcheck lists name both new files (follow `ledger-lifecycle.sh`) |
 | `docs/hooks.md` | modify | `ledger.sh publish` entry: `publish_commit`; `status-board.sh` entry: `--locate`, the `path:` line |
 | `docs/install.md` | modify | external-board section: `orchestrate.publish_commit`, the branch expectation, the refusals, and that a column with a git `filter` attribute is refused (a filter runs a program on commit) |
 | `CHANGELOG.md` | modify | Unreleased entry |
@@ -55,8 +55,9 @@ entry is unchanged (`published` keeps its shape). No migration.
 2. **Guards run before `--mark`, in a cheap-to-expensive order**: inside `btop` (string prefix on physical
    paths, then `git ls-files --error-unmatch`) → sequencer state (`git rev-parse --path-format=absolute
    --git-path MERGE_HEAD|rebase-merge|rebase-apply|CHERRY_PICK_HEAD|REVERT_HEAD`) → detached HEAD
-   (`git symbolic-ref -q --short HEAD`) → filter attribute (`git check-attr filter -- <abs>` value not
-   `unspecified`: a clean/process filter runs a program on commit that no `GIT_CONFIG_*` pin reaches, spec D5)
+   (`git symbolic-ref -q --short HEAD`) → filter attribute (`git check-attr filter -- <abs>` value neither
+   `unspecified` nor `unset`: a clean/process filter runs a program on commit that no `GIT_CONFIG_*` pin
+   reaches, spec D5; `unset` is `-filter`, which disables filters; `set` and any driver name are refused)
    → dirty (`git status --porcelain=v1 -- <abs>` non-empty).
    Every git call is `git -C "$btop"`; the path is never passed to a git outside `btop`.
 3. **One lock** (spec D8, FR-006; `$DIR/.publish.lock`, the `claim_lock` mkdir pattern, stale after one
@@ -126,7 +127,7 @@ publish_guard() { # $1 id, $2 btop, $3 abs → 0, or die
   done
   git -C "$2" symbolic-ref -q --short HEAD >/dev/null || die "ledger publish $1: the board repo's HEAD is detached …"
   s=$(git -C "$2" check-attr filter -- "$3") || die "…git check-attr failed"; s=${s##*: }
-  [ "$s" = unspecified ] || die "ledger publish $1: $3 has a git filter ($s) — …; nothing written"
+  case "$s" in unspecified|unset) ;; *) die "ledger publish $1: $3 has a git filter ($s) — …; nothing written" ;; esac
   s=$(git -C "$2" status --porcelain=v1 -- "$3") || die "…git status failed"
   [ -z "$s" ] || die "ledger publish $1: $3 has uncommitted changes (${s:0:2}) — commit or discard them first; nothing written"
 }
@@ -167,7 +168,8 @@ tasks-repo)
   fi
   …re-read + record --body-file (:821–822), now after the commit…
 ```
-`publish_commit_on` = `is_external && [ "$(cfgp '.orchestrate.publish_commit // false')" = true ]`; on an
+`publish_commit_on` = `is_external && [ "$(cfgp '.orchestrate.publish_commit == true')" = true ]` (a boolean
+comparison: `// false` would print `true` for the string `"true"`, contradicting D2 — round 3, change 1); on an
 in-repo board with the flag true, the arm prints the "external board only" line. `publish_unlock` runs on
 the EXIT trap (as `claim_lock` does, `ledger.sh:362`).
 
@@ -182,16 +184,24 @@ ebg "$eb_k" commit -q -m 'fixture: FR-006 mark' -- tasks/TODO.md
 # ledger.sh cannot pass -c like ebg (smoke.sh:3901): give the board repo an identity (CI runners have none)
 git -C "$eb_k" config user.email t@example.invalid; git -C "$eb_k" config user.name t
 # success: one commit, only tasks/TODO.md, fixed message, published recorded, nothing on the code repo
-# refusals (each: sha256 of the column unchanged, HEAD unchanged, .published unchanged):
+# refusals (each: sha256 of the column unchanged, HEAD unchanged, .published unchanged, AND a grep of that
+#   refusal's own contract message from the API table — without it M1 survives (ls-files --error-unmatch
+#   refuses an outside path too) and M3 survives (git itself refuses a partial commit during a merge/cherry-pick)):
 #   echo >> TODO.md | git add TODO.md | untracked column (git rm --cached) | MERGE_HEAD touched in the git dir
-#   | rebase-merge dir | detached HEAD | column symlinked to $eb_t/outside.md
+#   | rebase-merge dir | CHERRY_PICK_HEAD | detached HEAD | column symlinked to $eb_t/outside.md
+# inside-repo symlink (US4 positive): TODO.md → tasks/real-todo.md (both tracked) → the commit names the
+#   target tasks/real-todo.md only, the symlink is unchanged
+# `.gitattributes` `tasks/TODO.md -filter` (value `unset`) → accepted, the publish commits
 # failed commit: unset user.email + GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 + user.useConfigOnly=true
 #   (GIT_CONFIG_COUNT/KEY_0/VALUE_0 — hef_git_neutral appends after them, lane-lib.sh:117) → rc≠0, column == HEAD,
 #   body hash + published unchanged; identity restored → next publish commits
 # a failing .git/hooks/pre-commit is NOT run → the publish commits (hooks pinned off, spec D5)
 # another file staged → commit names only TODO.md; the other stays staged
 # `.gitattributes` `tasks/TODO.md filter=x` (committed) → refused naming the filter; file + HEAD unchanged
-# --mark/--locate mismatch (a stub SB printing another path:) → die naming both; neither file touched, nothing recorded
+# --mark/--locate mismatch: a stub SB that DELEGATES to the real status-board.sh (so --locate and the mark
+#   really run) and then rewrites --mark's `path:` line to another tracked file → die naming both paths; the
+#   located file KEEPS the mark (M14: a rollback of the located path would strip it), the other file is
+#   untouched, no commit, nothing recorded
 # nothing to commit: publish the same state with the heading already showing the marker but published cleared
 #   → rc 0, no new commit, "nothing to commit", published recorded; a second pass says unchanged (no loop)
 # DONE item with the flag on → no commit, published recorded as today
@@ -204,7 +214,8 @@ Each guard gets a mutation (SC-005), listed in Risks.
 **Existing mutation retarget (round 2, change 1):** the replace-not-stack mutation at `tests/smoke.sh:3090–3092`
 seds `while ((sp = …` in a copy of `status-board.sh`; that awk moves to `board-mark.sh`, so the test copies
 `board-mark.sh` (`cp`, not `ln -s` — a symlink would mutate the repo file) into `ls_md`, applies the sed there,
-and keeps its `cmp -s` did-it-apply check against `$REPO/hooks/board-mark.sh`.
+and keeps its `cmp -s` did-it-apply check against `$REPO/hooks/board-mark.sh`. `ls_md` gets
+`ledger-publish.sh` as an `ln -s` (it is never sed'd there) — round 3, change 3.
 
 ## Constitution Compliance
 - [x] **Principle 1** (payload not under `.claude/`): the new file is `hooks/ledger-publish.sh` at the root payload.
@@ -257,8 +268,8 @@ identity, the sandbox-write Risks row replaced, the lock written into the spec (
 5. Tests: in-repo board + flag on → the FR-001 one-liner and no commit (`ls_t`, `:2951`); a DONE item with the flag on → no commit, `published` recorded.
 6. Fixture: commit `-- tasks/TODO.md` explicitly (the FR-006 block leaves it dirty, `:4063`; `.claude/` is in `info/exclude`).
 
-## Plan review 2026-11-07 — round 3 (fresh-context code-reviewer, REVISE_PLAN) — NOT applied; waits on a person
-The person allowed one re-review after round 2; this is it. All six round-2 changes were found present; the reviewer raised:
+## Plan review 2026-11-07 — round 3 (fresh-context code-reviewer, REVISE_PLAN) — applied 2026-11-07 on the person's answer ("apply all six, re-review once"); 5 and 6 taken (symlink positive case; `unset` accepted)
+All six round-2 changes were found present; the reviewer raised:
 1. D2 expression: `jq -r '.orchestrate.publish_commit // false'` prints `true` for the STRING `"true"` (contradicts D2, SC-004, M10) → use `cfgp '.orchestrate.publish_commit == true'` and reword D2.
 2. Message assertions: each refusal case must also grep its own contract message, or M1 (shadowed by `ls-files --error-unmatch`) and M3 (git refuses a partial commit during merge/cherry-pick itself) survive; M14's stub SB must delegate the real mark then print a wrong `path:`, asserting the located file keeps the mark.
 3. `ls_md` (`smoke.sh:3068`): `cp` `board-mark.sh` (not `ln -s` — a later `cp` over a symlink writes through to the repo file), `ln -s` `ledger-publish.sh`; fix the Affected Files row.
