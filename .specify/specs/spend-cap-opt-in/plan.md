@@ -23,6 +23,7 @@
 | `README.md` | modify | `:307` example without caps (or marked optional) |
 | `SETUP.md` | modify | `:227` decision "spend limits (optional; none by default)"; `:261-262` example drops caps |
 | `tests/smoke.sh` | modify | `:1993` assert NO flag with no orchestrate block; add null-cap and daily-only cases near `:2060-2065`; add no-daily-cap high-spend case; `--init` assertion at `:5453` checks no cap keys; mutations for each |
+| `.specify/specs/session-orchestration/spec.md` | modify | FR-007: one-line amendment after FR-009 (`:109`), FR-013 (`:113`, "default 25") and the 2026-09-27 Clarifications (`:137-140`, "5 / 25"): "Amended 2026-11-07 (HEF-19): caps are opt-in, no default — see `spend-cap-opt-in`"; the original text stays as history |
 | `CHANGELOG.md` | not here | release step (`/hefesto:hef.release`) owns it |
 
 ## Data Model
@@ -93,7 +94,7 @@ sl_def="$(sl implement HEF-1 --dry-run 2>&1)"
 grep -qE -- '--model opus' <<<"$sl_def" && ! grep -qF -- '--max-budget-usd' <<<"$sl_def" || bad "no orchestrate block → no --max-budget-usd (HEF-19 FR-001)"
 # null cap, and a daily-only cap: spent 3.45 ≥ 2 → refused before claim; spent < 10 → proceeds
 printf '{…"orchestrate":{"usd_cap":null,"daily_usd_cap":2}}\n' > "$sr_t/.claude/project-status.json"
-# no daily cap with spend far over the old 100 default → launch proceeds (FR-003)
+# no daily cap, usd_cap 500 (spend kept small; the old 100 default would refuse 500) → launch proceeds (FR-003)
 # Mutations: `// empty` → `// 20` (flag reappears → red); the `[ -n "$DAILY_CAP" ]` guard removed (awk reads 0 → every launch refused → red); `>=` → `>` at equality (red)
 jq -e '.orchestrate | has("usd_cap") or has("daily_usd_cap") | not' "$l3_n/.claude/project-status.json"
 ```
@@ -108,10 +109,19 @@ Mutation rules (review 2026-11-07):
 - **Explicit cases:** (a) no orchestrate block → no flag (rewrite `:1993`); (b) `"usd_cap": null` dry-run → no flag;
   (c) `usd_cap 5` → `--max-budget-usd 5` (`:1965`, unchanged); (d) both set, 3.45 + 5 > 8 → refused (`:2062`, unchanged);
   (e) daily-only `daily_usd_cap` equal to today's spend (read from `"$LEDGER" list --today` and written into the config with jq, never hardcoded — earlier cases have already spent) → refused before claim, message names "daily cap" and the spend;
-  (f) daily-only above today's spend → proceeds, no flag; (g) no daily cap, today's spend raised over 100 by the fake
-  result → proceeds; (h) budget block (`:2070-2075`, unchanged); (i) `--init` writes no cap keys (`:5453`).
-- **Mutations:** cases (a)/(b) ← `usd_cap // 20`; (g) ← `daily_usd_cap // 100`; (e) ← `>=` → `>`; guard
-  `[ -n "$DAILY_CAP" ]` removed → (g) red; (i) ← `l3_mut board-setup.sh` re-adding
+  (f) daily-only above today's spend → proceeds, no flag; (g) no daily cap with `usd_cap: 500` (today's spend stays
+  small — the shared `sr_t` ledger is **not** inflated, so the later `sr2` cases at `:2090-2323` under their own
+  25/100 daily caps are unaffected) → proceeds; with the `// 100` mutation, spent + 500 > 100 → refused → red;
+  (h) budget block (`:2070-2075`, unchanged); (i) `--init` writes no cap keys (`:5453`).
+- **Mutations:** cases (a)/(b) ← `usd_cap // 20`; (a) ← the Sketch 3 flag guard dropped,
+  `s|\[ -z "\$USD_CAP" \] \|\| CMD+=|CMD+=|` (an empty `--max-budget-usd` token reappears → red); (g) ←
+  `daily_usd_cap // 100`; (g) ← the daily guard neutralised by substitution, `s|\[ -n "\$DAILY_CAP" \]|true|`
+  (never a line deletion — the `if/else/fi` must still parse; the empty cap then reads as 0 → refused → red);
+  (e) ← `>=` → `>`; (d) ← `s|exit !(t + c > d)|exit 1|` (both set, never hits → the launch proceeds → red);
+  (h) ← `s|test("budget")|test("never-a-subtype")|` (no `budget` block → red) — (d) and (h) are inherited guards
+  whose mutations exist today only as comments (`:2061`, `:2071`); these replace those comments, run via
+  `SL_BIN=… sr2` with the `cmp -s` applied-check, and the mutation-count `ok` line (`:2362`) is updated;
+  (i) ← `l3_mut board-setup.sh` re-adding
   `usd_cap: 20, daily_usd_cap: 100` to the `:41` literal, then `bash "$l3_md/status-board.sh" --init` in a **fresh**
   temp repo (init never overwrites a config, `board-setup.sh:40`); `status-board.sh:41` resolves `board-setup.sh` as a
   sibling, so the mutated copy is the one sourced.
@@ -127,11 +137,16 @@ No sketch — text edits and dropping two keys from a jq literal (`hooks/board-s
 - `hooks/session-launch.sh` has ~485 code lines: keep Sketch 2 as compact as written (no extra helper
   scaffolding) so the 500-line delta gate is not crossed; if it would be, fold the two awk calls into one
   expression (`exit !(c == "" ? t >= d : t + c > d)`).
+- Round 3: case (g) uses a large `usd_cap` instead of inflating the shared ledger; the Sketch 3 flag guard gets
+  its own mutation; the `DAILY_CAP` guard mutation substitutes `true`; `session-orchestration` FR-009/FR-013 get a
+  one-line amendment (D1 confirmed by the owner, spec Clarifications).
+- Round 4: real mutations for the inherited (d)/(h) guards; the `session-orchestration` amendment is now under
+  FR-007. If the single-awk fallback is taken, the (d)/(e) seds anchor on the folded expression instead.
 
 ## Constitution Compliance
 - [x] **1 payload not under `.claude/`**: all edits at the repo root paths.
 - [x] **2 namespaced commands**: no command added or renamed.
-- [x] **3 mutation-tested guards**: every new/changed assertion carries a mutation (Sketch 4); assertions on the emitted command line, not model data.
+- [x] **3 mutation-tested guards**: every guard the launcher keeps or adds — including the inherited both-caps (d) and budget-block (h) guards — carries a mutation (Sketch 4); assertions on the emitted command line, not model data.
 - [x] **4 zero-install**: bash + jq + awk only.
 - [x] **5 fail loudly**: refusals still exit non-zero naming the cap; an unset cap is a documented state, not a sentinel.
 

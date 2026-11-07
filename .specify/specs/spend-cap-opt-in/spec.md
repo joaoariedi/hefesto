@@ -8,8 +8,9 @@ The launcher's spend limits become opt-in. Today `hooks/session-launch.sh:194` r
 `orchestrate.usd_cap // 20` and `orchestrate.daily_usd_cap // 100`, so a project that sets no cap is
 silently capped at 20 USD per session and 100 USD per day. After this change a project with no cap
 configured launches with no `--max-budget-usd` and no daily refusal; a project that sets a value keeps
-exactly today's behaviour. This amends `session-orchestration` FR-011 (session cap) and FR-013 (daily cap)
-only in their defaults.
+exactly today's behaviour. This amends `session-orchestration` FR-009 (the launcher's `--max-budget-usd` and
+daily refusal) and FR-013 (the orchestrator's daily cap, "default 25") only in their defaults; that spec gets a
+one-line amendment pointing here.
 
 ## Decisions (made from the code, recorded so the reviewer can check them)
 - **D1 — each cap is independent.** "Opt-in" applies to each key on its own: `usd_cap` governs
@@ -82,7 +83,7 @@ only in their defaults.
 | FR-004 | With only `daily_usd_cap` set, a launch is refused before any claim when today's spend ≥ the daily cap; the message names the daily cap and today's spend | P2 | US3 |
 | FR-005 | The deploy stage's merge record still passes over a hit daily cap (it launches nothing); babysitting still refuses | P2 | US3 |
 | FR-006 | `status-board.sh --init` writes an `orchestrate` block with no `usd_cap` / `daily_usd_cap` keys; its other keys are unchanged | P2 | US4 |
-| FR-007 | The orchestrate guide (`commands/hef.orchestrate.md`), `docs/install.md`, `docs/hooks.md` (the `session-launch.sh` row, "$20 a run and $100 a day"), `docs/quickstart.md`, `docs/quickstart.pt-BR.md`, `README.md` and `SETUP.md` describe the caps as opt-in, open by default; the orchestrator's "Spend today" line reports spend with no cap when none is set | P2 | US4 |
+| FR-007 | The orchestrate guide (`commands/hef.orchestrate.md`), `docs/install.md`, `docs/hooks.md` (the `session-launch.sh` row, "$20 a run and $100 a day"), `docs/quickstart.md`, `docs/quickstart.pt-BR.md`, `README.md` and `SETUP.md` describe the caps as opt-in, open by default; the orchestrator's "Spend today" line reports spend with no cap when none is set; `session-orchestration` FR-009/FR-013 and its 2026-09-27 cap Clarification carry a one-line amendment pointing here | P2 | US4 |
 | FR-008 | `tests/smoke.sh` covers: the no-cap dry-run (no flag), the null-cap dry-run, the set-cap dry-run (flag), the daily refusal with both caps, the daily-only refusal, no refusal with no daily cap even when spend is high, the budget block, and the init defaults — each with a mutation that turns it red | P1 | US1–US4 |
 
 ## Success Criteria
@@ -95,4 +96,8 @@ only in their defaults.
 | SC-004 | `tests/smoke-spec-roots.sh` still equals `tests/fixtures/launch-920.txt` (its fixture sets explicit caps) | run that suite |
 
 ## Clarifications
-_None — D1 resolves the only reading the item text leaves open; the reviewer may revisit it._
+### Session 2026-11-07 (answered by the item's owner)
+- Q: With only `daily_usd_cap` set (no `usd_cap`), does the daily cap still apply (D1)? → A: Yes, a set cap
+  applies. D1 stands as written: the daily-only branch refuses at spent today ≥ `daily_usd_cap`.
+- Q: How are plan-review rounds handled? → A: Apply the review's changes and re-review until APPROVE (standing
+  decision 2026-11-07, cap 5 rounds).
