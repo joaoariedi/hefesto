@@ -168,3 +168,5 @@ No sketch — text edits and dropping two keys from a jq literal (`hooks/board-s
 1. Edit `tests/smoke.sh:1993` and add the FR-003/FR-004 cases; run the suite, see red.
 2. Apply Sketches 1–3 to `hooks/session-launch.sh`; drop the keys at `hooks/board-setup.sh:41`.
 3. Update the seven doc files (including `docs/hooks.md:34`); run SC-003 grep, `bash tests/smoke.sh`, `bash tests/smoke-spec-roots.sh`.
+
+## Reviewed 2026-11-08 — approved by the person

@@ -101,3 +101,6 @@ one-line amendment pointing here.
   applies. D1 stands as written: the daily-only branch refuses at spent today ≥ `daily_usd_cap`.
 - Q: How are plan-review rounds handled? → A: Apply the review's changes and re-review until APPROVE (standing
   decision 2026-11-07, cap 5 rounds).
+- Q: The plan reached the five-round review cap with a final REVISE_PLAN (folded in) — how to proceed? → A: Approve
+  the plan and tasks together: write the Reviewed line, generate tasks.md, and proceed to the build with no second
+  approval form for this item (answered 2026-11-08).
