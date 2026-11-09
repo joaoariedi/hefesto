@@ -60,6 +60,9 @@ usage: ledger.sh <subcommand> …
   escalate [--record <id>]                              old human:* blocks as one-line pointers (opt-in: orchestrate.escalate_after_hours)
   branches [--configured] [--repo <name>]              the resolved branch model as JSON with .source (repo file | board | default; defaults = trunk on main)
   where <id>                                            per environment: does it contain the entry's branch (local, then origin/)
+  merge-by [--explain]                                  orchestrate.merge_by resolved: person | lane | auto (auto only with a matching grant)
+  merge-auto preview | grant --sha <s> --reviewed-by-human --by <name> | revoke --reviewed-by-human --by <name> | show   the standing auto-merge grant a person gives
+  automerge <id> [--if-merged]                          merge a green PR into the integration branch under the grant (0 merged, 2 skipped, 3 blocked, 4 pending, 5 open)
 EOF
   exit 2
 }
@@ -105,6 +108,10 @@ else die "ledger: EVAL_GH_BIN=$EVAL_GH_BIN is set but $HERE/lane-lib.sh is missi
 [ -f "$HERE/ledger-recipes.sh" ] || die "ledger: $HERE/ledger-recipes.sh not found — the plugin install is incomplete (reinstall it)"
 # shellcheck source=hooks/ledger-recipes.sh
 . "$HERE/ledger-recipes.sh"
+# merge_by auto: the person's standing grant, merge-by, automerge (HEF-30)
+[ -f "$HERE/ledger-automerge.sh" ] || die "ledger: $HERE/ledger-automerge.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/ledger-automerge.sh
+. "$HERE/ledger-automerge.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -390,7 +397,7 @@ trusted_check
 caller_gate "$@"
 DIR=$(ledger_dir) || exit 1
 ledger_settle "$DIR" "$(jq -r '.git_common // empty' <<<"$BCTX")" || exit 1
-case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|park|-h|--help) ;; *) ledger_mkdir ;; esac
+case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|park|merge-by|-h|--help) ;; *) ledger_mkdir ;; esac
 
 case "$SUB" in
   dir) echo "$DIR" ;;
@@ -665,6 +672,7 @@ case "$SUB" in
       --branch)   setf '.branch = $v' "${2:-}"; shift ;;
       --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; setf '.route = $v' "$2"; shift ;;
       --pr)       E=$(pr_append "${2:-}" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot record the PR '${2:-}'"; shift ;;   # .prs[]; ledger-lifecycle.sh
+      --verified-head) verified_head_set "${2:-}"; shift ;;   # the verify launcher's; ledger-automerge.sh
       --spec-dir) spec_dir_set "${2:-}"; shift ;;      # ledger-lanes.sh: relative to the worktree, no '..'
       --spec-root) spec_root_set "${2:-}"; shift ;;    # a declared app or . (the top), until spec_dir is recorded
       --item-kind) in_list "${2:-}" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '${2:-}')"; setf '.item_kind = $v' "$2"; shift ;;
@@ -708,6 +716,9 @@ case "$SUB" in
   actions) actions_list "$@" ;;
   drop|fold|supersede) terminal_cmd "$SUB" "$@" ;;   # US1 — person-only; ledger-lifecycle.sh
   reopen) reopen_cmd "$@" ;;   # US2 — person-only; ledger-lifecycle.sh
+  merge-by) merge_by_cmd "$@" ;;        # HEF-30; ledger-automerge.sh
+  merge-auto) merge_auto_cmd "$@" ;;    # grant/revoke person-only, in the ask rules
+  automerge) automerge_cmd "$@" ;;
   deployed) deployed_cmd "$@" ;;   # US3 — any lane, git decides; ledger-lifecycle.sh
   op) case "${1:-}" in close|drop) op_end "$@"; exit $? ;; new) ;; *) usage ;; esac; shift   # close|drop: US5, ledger-actions.sh
     # shellcheck disable=SC2034 # read by ledger-actions.sh

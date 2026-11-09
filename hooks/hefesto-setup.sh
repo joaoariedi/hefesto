@@ -129,8 +129,10 @@ for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
           "Bash($h/ledger.sh direct:*)" "Bash($h/ledger.sh directives:*)" "Bash($h/ledger.sh directive:*)" "Bash($h/ledger.sh note:*)"
           "Bash($h/ledger.sh park --all)" "Bash($h/ledger.sh lanes:*)" "Bash($h/ledger.sh dir)"
           "Bash($h/ledger.sh deployed:*)"   # git decides, any lane (lanes-parity US3)
+          "Bash($h/ledger.sh merge-by:*)" "Bash($h/ledger.sh merge-auto preview)" "Bash($h/ledger.sh merge-auto show)"   # read-only (HEF-30)
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/run-follow.sh:*)")
-  for c in unblock record claim advance handoff block revise answer approve release drop fold supersede reopen "op close" "op drop"; do
+  # merge-auto grant/revoke: a person turns auto-merge on or off — the dialog is the signature (HEF-30 FR-015)
+  for c in unblock record claim advance handoff block revise answer approve release drop fold supersede reopen "op close" "op drop" "merge-auto grant" "merge-auto revoke"; do
     ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
   done
   # pr-watch's two verbs that write to GitHub (a reply, a comment) ask — the rest of it reads
@@ -354,7 +356,27 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   | (if .sandbox then .sandbox |= keep_own_empty($old.sandbox) else . end)
   | with_entries(select((.key != "permissions" and .key != "sandbox" and .key != "env") or .value != {} or ($old[.key] == {})))' <<<"$CUR")" || die "could not merge into $F (nothing was written)"
 
-if [ "$MODE" = print ]; then jq . <<<"$NEW"; exit 0; fi
+# HEF-30 FR-015 (spec D6): orchestrate.decider, the --by name the orchestrator records decisions with, from
+# `git config user.name` — written only when the key is absent, never overwritten; a label, not proof (the permission
+# dialog stays the proof). The board config is a file a lane can write, so a symlink there is never written through.
+# --remove leaves it: the key belongs to the board, not to these settings.
+decider_plan() { # → DEC_MSG, and DEC_NEW (the name to write) when setup would write it
+  DEC_NEW=""; DEC_MSG=""
+  [ -f "$BCFG" ] || { DEC_MSG="no board config at $BCFG — orchestrate.decider not written"; return 0; }
+  if jq -e '(.orchestrate // {}) | type == "object" and has("decider")' "$BCFG" >/dev/null 2>&1; then
+    DEC_MSG="orchestrate.decider is set ($(jq -c '.orchestrate.decider' "$BCFG")) — left as it is"; return 0; fi
+  jq -e '(.orchestrate // {}) | type == "object"' "$BCFG" >/dev/null 2>&1 || { DEC_MSG="$BCFG has no orchestrate object setup can add to — orchestrate.decider not written"; return 0; }
+  [ ! -L "$BCFG" ] || { DEC_MSG="$BCFG is a symlink — orchestrate.decider not written (set it there by hand)"; return 0; }
+  DEC_NEW="$(git -C "$TOP" config user.name 2>/dev/null)"
+  [ -n "$DEC_NEW" ] || { DEC_MSG="git config user.name is empty — orchestrate.decider not written; the orchestrator asks your name once per session"; return 0; }
+  # the ledger's --by rule (ledger-lanes.sh person_gate): a decider it would refuse is never written
+  [[ "$DEC_NEW" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
+    || { DEC_MSG="git config user.name '$(printf '%s' "$DEC_NEW" | head -c 64 | tr -d '\n\r')' is not a name the ledger accepts as --by (letters, digits, space . _ @ -) — orchestrate.decider not written; set it by hand"; DEC_NEW=""; return 0; }
+  DEC_MSG="orchestrate.decider: \"$DEC_NEW\" (from git config user.name) in $BCFG"
+}
+[ "$MODE" = remove ] || decider_plan
+# --print's stdout stays the settings JSON (callers parse it); the decider it would write goes to stderr
+if [ "$MODE" = print ]; then jq . <<<"$NEW"; [ -z "${DEC_NEW:-}" ] || echo "decider: $DEC_MSG" >&2; exit 0; fi
 if [ "$MODE" != remove ] && [ -n "$LCP" ]; then
   mkdir -p "$LCP" "$LCPROBE" && chmod 700 "$LCP" || die "cannot create the lanes' build cache $LCP (nothing was written)"
   # the probe write must succeed here, outside the sandbox: lane-build.sh reads a failed write as "sandboxed"
@@ -378,6 +400,10 @@ if [ "$MODE" != remove ] && ! git -C "$TOP" check-ignore -q .claude/settings.loc
   printf '/.claude/settings.local.json\n' >> "$CDIR/info/exclude" && echo "kept out of git: added .claude/settings.local.json to $CDIR/info/exclude"
 fi
 [ "$MODE" = remove ] && exit 0
+if [ -n "${DEC_NEW:-}" ]; then
+  DT="$(mktemp "$(dirname "$BCFG")/.project-status.XXXXXX")" && jq --arg d "$DEC_NEW" '.orchestrate.decider = $d' "$BCFG" > "$DT" && jq -e . "$DT" >/dev/null \
+    && mv "$DT" "$BCFG" && echo "wrote $DEC_MSG" || { rm -f "${DT:-}"; echo "could not write orchestrate.decider into $BCFG — set it by hand"; }
+else echo "decider: $DEC_MSG"; fi
 if [ "$LANES" = 1 ] && [ "$(jq -r '.crossSessionInbound // ""' <<<"$NEW")" != accept ]; then
   echo "note: crossSessionInbound is '$(jq -r '.crossSessionInbound' <<<"$NEW")' in $F (your setting, kept) — the stage lanes will not receive the orchestrator's doorbells until it is \"accept\""
 fi

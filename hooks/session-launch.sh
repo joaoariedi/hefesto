@@ -248,6 +248,9 @@ INTEG="$(jq -r .integration <<<"$BM")"; PROT="$(jq -r '.protected | join(", ")' 
 # The explicit PR base only when a branches block is declared: unconfigured, `gh pr create` keeps the
 # repository's default branch (a `master` trunk has no `main`) — code review B2.
 PR_BASE_RULE=""; "$LEDGER" branches --configured 2>/dev/null && PR_BASE_RULE="Open the PR against $INTEG (gh pr create --base $INTEG). "
+# HEF-30 FR-001/FR-010: merge_by resolved by the helper (auto only under a person's matching grant); a refusal stops
+# the launch — never read as "person"
+MBY=person; case "$ROLE" in verify|deploy) MBY="$("$LEDGER" merge-by)" || die "session-launch $ROLE $ID: ledger.sh merge-by failed (see above) — fix orchestrate.merge_by" ;; esac
 cd "$CALLER_PWD" || die "session-launch: cannot return to $CALLER_PWD"
 # The worktree is derived, never taken from the entry (a ledger field is sandbox-writable): the recorded value
 # must be the derived one, and it is entered only after wt_branch has checked its git pointer.
@@ -415,7 +418,9 @@ case "$ROLE" in
       FAIL=1
     fi
     if [ "$FAIL" = 1 ]; then "$LEDGER" block "$ID" --kind verdict >/dev/null || exit 1
-    else "$LEDGER" advance "$ID" pr >/dev/null && "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
+    # HEF-30 FR-004: the head the gates saw, on the PR; under resolved auto no merge wait — the deploy stage merges it
+    else VH="$(git -C "$WT" rev-parse HEAD 2>/dev/null)"; [ -z "$VH" ] || "$LEDGER" record "$ID" --verified-head "$VH" >/dev/null || exit 1
+      "$LEDGER" advance "$ID" pr >/dev/null || exit 1; [ "$MBY" = auto ] || "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
   deploy)
     # stage-roles FR-008: questions outrank the verdict — a person must read before anything moves; a
     # mergeable PR already at the gate keeps its block (and its `since`); closed leaves the deploy set.
@@ -424,7 +429,8 @@ case "$ROLE" in
     if [ "$Q" -gt 0 ]; then "$LEDGER" block "$ID" --kind human:intake >/dev/null || exit 1
     else
       case "$V" in
-        mergeable) [ "$CURK" = human:merge ] || { "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; } ;;
+        mergeable) if [ "$MBY" = auto ]; then "$LEDGER" automerge "$ID" >&2; case $? in 0|2|3|4) ;; *) exit 1 ;; esac   # HEF-30 FR-010
+                   else [ "$CURK" = human:merge ] || { "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; }; fi ;;
         conflict)  "$LEDGER" block "$ID" --kind conflict >/dev/null || exit 1 ;;
         checks)    [ "$F" -ge "$MAX_FIXES" ] && { "$LEDGER" block "$ID" --kind ci >/dev/null || exit 1; } ;;
         closed)    "$LEDGER" block "$ID" --kind human:intake >/dev/null || exit 1 ;;
@@ -560,6 +566,10 @@ EOF
         fi
       fi
     fi
+    # HEF-30 FR-010 (D4b): under resolved auto, a hand merge is recorded, then the merge helper runs before any
+    # babysitter — merged (0) or skipped to human:merge (2) launches nothing; blocked (3) or pending (4) babysits
+    if [ "$MBY" = auto ] && [ "$DRY" != 1 ]; then AMRC=0; "$LEDGER" automerge "$ID" --if-merged >&2 || { "$LEDGER" automerge "$ID" >&2 || AMRC=$?; }
+      case "$AMRC" in 0|2) [ "$MODE" != prepare ] || echo "done: $ID — the auto-merge pass recorded it; nothing to prepare"; "$LEDGER" show "$ID"; exit 0 ;; 3|4) ;; *) exit 1 ;; esac; fi
     [ "$CAP_HIT" = 0 ] || [ "$MODE" != run ] || die "$CAP_MSG"
     [ -n "$WORKTREE" ] || die "session-launch deploy $ID: no worktree recorded on the entry — the babysitter fixes in the PR's checkout"
     [ -d "$WORKTREE" ] || die "session-launch deploy $ID: recorded worktree missing: $WORKTREE"

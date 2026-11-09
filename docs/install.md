@@ -385,9 +385,21 @@ For the short path — install, one lane or four, a new or a running project —
    Without it, build also takes queued items, as before.
    Other `orchestrate` keys: `max_builders` (default 1, at most 8) builders at once per repository, beside
    one planner and one deployer (the verifier does not count); `max_fixes` (default 3) the babysitter's fix
-   budget per PR; `merge_by` — `person` (the default: you merge on GitHub) or `lane` (the orchestrator drafts a
-   merge action for the deploy lane, approved by you as a form); `merge.checks`, the commands a lane merge runs
-   first (`{repo_path}` and `{base}` placeholders); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
+   budget per PR; `merge_by` — `person` (the default: you merge on GitHub), `lane` (the orchestrator drafts a
+   merge action for the deploy lane, approved by you as a form) or `auto` (the deploy stage merges a green PR into
+   the integration branch itself, through `ledger.sh automerge`, once you granted it: `ledger.sh merge-auto preview`
+   shows what a grant pins — per repo its path, `origin` and integration branch, and the merge checks — and
+   `ledger.sh merge-auto grant --sha <12> --reviewed-by-human --by <name>` records it outside every sandbox; any
+   pinned value that changes makes `ledger.sh merge-by` resolve `person` again until you re-grant, and
+   `ledger.sh merge-auto revoke --reviewed-by-human --by <name>` turns it off; `main`/`master`,
+   an environment or a protected integration branch is never eligible; any other value is refused, and stops the
+   launch); every PR waiting on you is asked in one merge form per pass; `merge.checks`, the commands a lane merge
+   or an auto-merge runs first (`{repo_path}` and `{base}` placeholders; split on whitespace and run without a
+   shell — under `auto` outside the sandbox, in the repo's path, so a check's program must be a bare name on PATH or
+   an absolute path, as written, in hefesto's hooks folder or a system bin folder; a shell or interpreter (`sh`,
+   `env`, `python` …) is refused by name wherever it lives, as are tabs and a leading blank; a bare `npm`/`make`
+   reads that repo's own files); `decider`, the name your decisions are recorded with (setup writes it from `git config user.name` when
+   absent, never over yours; the orchestrator then never asks your name); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
    deploy and release-train scopes a request is built from (8c).
 
 8b. **RFCs, plan approval and the lanes** (lanes v2; [`quickstart.md`](quickstart.md) steps 5–8). An

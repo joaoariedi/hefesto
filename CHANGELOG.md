@@ -51,6 +51,31 @@ it is what caught the hand-bumped era:
   specs are scoped; `hef.tasks`, `hef.implement`, `hef.verify` and `hef.mutate` show the qualified form. The
   matrix header states the mode (`mode: scoped` | `mode: legacy (bare ids count)`).
 - **`spec-cite-probe.sh` names the right spec**: a qualified citation is attributed to the spec it names only.
+- **`orchestrate.merge_by: "auto"`** (HEF-30; `docs/install.md` §7 step 8, `docs/quickstart.md`). Every PR on the
+  production board was a `human:merge` form plus an approve dialog. Under `auto` the deploy launcher runs
+  `ledger.sh automerge <id>` — a helper, never a model — which merges a PR into the **integration branch** with
+  `gh pr merge --merge --match-head-commit <verified head>` when the latest verify, review, quality and scan verdicts
+  (and the item's incident or vulnerability gate) are `PASS` at that head, the PR is CLEAN with green checks, and
+  every pinned merge check exits 0. The verify launcher records `.pr.verified_head` and, under `auto`, sets no
+  `human:merge` block. A miss (an environment or protected base, a moved head, a gate not `PASS`, another origin)
+  blocks `human:merge` with an `auto-merge-skipped` event and the reason; a failing check or a refused merge blocks
+  `ci`; BEHIND or a conflict blocks `conflict`; pending checks record nothing. A PR merged by hand is recorded
+  (`automerge --if-merged`), never reported as closed.
+- **The grant behind `auto`.** Config is a file a lane can write, so `auto` alone never merges: `ledger.sh
+  merge-auto preview` prints what a grant pins — per board repo its path, `origin` and integration branch, and the
+  merge checks — with its sha256, and the person's `merge-auto grant --sha <12> --reviewed-by-human --by <name>`
+  stores it in the approvals store (refused from a worker and from any lane but the orchestrator). `ledger.sh
+  merge-by [--explain]` resolves `auto` only while the grant equals a fresh preview; an invalid `merge_by` is refused
+  and stops the launch. `main`/`master`, an environment or a declared protected integration branch is never
+  eligible. Merge checks run as argv under a 600 s timeout, never through a shell — outside the sandbox, so a
+  check's program must be a bare name on PATH or an absolute path, as written, in hefesto's hooks folder or a system
+  bin folder, and never a shell or interpreter (refused by name, `/bin/sh` as `sh`): a file a lane could write
+  never runs there.
+- **One merge form per pass.** The orchestrator asks every `human:merge` PR in one form (multi-select, up to four
+  per question, 16 per pass, oldest first); a train's irreversible confirmation is one question for all its repos.
+- **`orchestrate.decider`.** `hefesto-setup.sh` writes it from `git config user.name` when absent (never over a
+  value; `--print` shows it, `--remove` leaves it), and the orchestrator uses it as `--by` instead of asking. Setup's
+  ask rules gain `ledger.sh merge-auto grant` and `revoke`.
 
 ### Unchanged
 

@@ -155,12 +155,12 @@ x_fail=0
 lc_t="$(cd "$(mktemp -d)" && pwd -P)"; git -C "$lc_t" init -q -b main . >/dev/null 2>&1
 lc_pd="$(mktemp -d)"
 for lc_f in "$REPO"/hooks/*.sh; do ln -s "$lc_f" "$lc_pd/${lc_f##*/}"; done
-for lc_p in ledger-lifecycle.sh ledger-recipes.sh; do
+for lc_p in ledger-lifecycle.sh ledger-recipes.sh ledger-automerge.sh; do
   [ -f "$REPO/hooks/$lc_p" ] || { bad "hooks/$lc_p must exist (FR-001)"; x_fail=1; }
   grep -qF "[ -f \"\$HERE/$lc_p\" ] || die" "$LC_LG" || { bad "ledger.sh must source $lc_p behind [ -f ] || die (FR-001)"; x_fail=1; }
 done
 (cd "$lc_t" && bash "$lc_pd/ledger.sh" list >/dev/null 2>&1) || { bad "with every part present, ledger.sh list must succeed (the control)"; x_fail=1; }
-for lc_p in ledger-lifecycle.sh ledger-recipes.sh; do
+for lc_p in ledger-lifecycle.sh ledger-recipes.sh ledger-automerge.sh; do
   rm -f "$lc_pd/$lc_p"
   lc_o="$(cd "$lc_t" && bash "$lc_pd/ledger.sh" list 2>&1)" && { bad "ledger.sh must stop when $lc_p is missing (FR-001)"; x_fail=1; }
   grep -qF "$lc_pd/$lc_p not found" <<<"$lc_o" || { bad "the stop for a missing $lc_p must name the file — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }

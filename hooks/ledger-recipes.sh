@@ -98,18 +98,19 @@ merge_pr_of() { # $1 entry JSON → "<owner/repo> <n> <url>" of the current PR, 
     || die "ledger request $ID --merge: no GitHub PR is recorded (ledger.sh record $ID --pr <url>; got '${url:-none}')"
   printf '%s %s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$url"
 }
-merge_checks_get() { # → orchestrate.merge.checks as one JSON line (default []), or die naming the bad entry
-  local ch bad; ch=$(cfgp -c '.orchestrate.merge.checks // []'); [ -n "$ch" ] || ch='[]'
+# The caller's prefix names it in a refusal (merge-auto preview has no entry, so ${ID:-}: ledger.sh runs set -u).
+merge_checks_get() { # [$1 message prefix] → orchestrate.merge.checks as one JSON line (default []), or die naming the bad entry
+  local pre="${1:-ledger request ${ID:-} --merge}" ch bad; ch=$(cfgp -c '.orchestrate.merge.checks // []'); [ -n "$ch" ] || ch='[]'
   jq -e 'type == "array" and all(type == "string" and length > 0)' <<<"$ch" >/dev/null \
-    || die "ledger request $ID --merge: orchestrate.merge.checks must be a list of commands (got $(head -c 200 <<<"$ch"))"
+    || die "$pre: orchestrate.merge.checks must be a list of commands (got $(head -c 200 <<<"$ch"))"
   bad=$(jq -r '[.. | strings | scan("\\{[A-Za-z_][A-Za-z0-9_-]*\\}")] - ["{repo_path}", "{base}"] | first // empty' <<<"$ch")
-  [ -z "$bad" ] || die "ledger request $ID --merge: unknown placeholder $bad in orchestrate.merge.checks (only {repo_path} and {base})"
+  [ -z "$bad" ] || die "$pre: unknown placeholder $bad in orchestrate.merge.checks (only {repo_path} and {base})"
   printf '%s\n' "$ch"
 }
-merge_repo_ctx() { # $1 entry JSON → "<repo path>\t<integration branch>" of the entry's repo; a subshell keeps the cwd
-  ( cd_entry_repo "$1" || exit 1
-    p=$(main_top || git rev-parse --show-toplevel) || die "ledger request $ID --merge: not in a git repository"
-    p=$(cd "$p" && pwd -P) || die "ledger request $ID --merge: cannot enter $p"
+merge_repo_ctx() { # $1 entry JSON, [$2 message prefix] → "<repo path>\t<integration branch>" of the entry's repo; a subshell keeps the cwd
+  ( pre="${2:-ledger request ${ID:-} --merge}"; cd_entry_repo "$1" || exit 1
+    p=$(main_top || git rev-parse --show-toplevel) || die "$pre: not in a git repository"
+    p=$(cd "$p" && pwd -P) || die "$pre: cannot enter $p"
     b=$(branches_model | jq -r .integration) || exit 1
     printf '%s\t%s\n' "$p" "$b" )
 }
