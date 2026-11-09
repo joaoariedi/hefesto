@@ -19,7 +19,7 @@
 #   --model      a TIER (haiku|sonnet|opus|fable), never a model id; the reviewer tier must rank at or
 #                above the author's — a weaker reviewer over a stronger author regressed −8.6 pp
 #   --max-budget-usd  the CLI's only hard spend cap (there is no --max-turns on the CLI); plus a daily
-#                total across the ledger, refused before launch
+#                total across the ledger, refused before launch. Both are opt-in (HEF-19): no cap set → no flag, no daily check
 #   --allowedTools    one comma-joined argument: a variadic list right before the prompt would swallow it.
 #                The plugin's own hooks dir (Bash(<here>/*)) is appended AFTER the config-or-default list:
 #                every hef.* pre-flight is one of those helpers, the path is machine-specific so it cannot
@@ -191,7 +191,8 @@ RT=$(rank "$TIER") || exit 1; RA=$(rank "$AUTHOR_TIER") || exit 1
 if [ "$ROLE" = verify ] && [ "$RT" -lt "$RA" ]; then
   die "session-launch verify $ID: reviewer tier '$TIER' ranks below the author tier '$AUTHOR_TIER' — a weaker reviewer over a stronger author regresses the code (reports/17 §1d); set orchestrate.tiers.verify ≥ implement"
 fi
-USD_CAP="$(cfg '.orchestrate.usd_cap // 20')"; DAILY_CAP="$(cfg '.orchestrate.daily_usd_cap // 100')"   # defaults: a full plan or a large build fits one run (user decision 2026-10-22)
+# Opt-in (HEF-19, owner 2026-11-07): no key, null or false → no limit; a set value is today's rule.
+USD_CAP="$(cfg '.orchestrate.usd_cap // empty')"; DAILY_CAP="$(cfg '.orchestrate.daily_usd_cap // empty')"
 # The plugin's own helpers, appended after whatever the config says (stage-roles FR-003). No default list
 # names gh pr merge / gh pr review / gh api: the babysitter's gh calls all live inside pr-watch.sh.
 HOOKS_RULE="Bash($HERE/*)"
@@ -216,7 +217,13 @@ CFGDIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 E="$("$LEDGER" show "$ID")" || exit 1
 TODAY_SPENT="$("$LEDGER" list --today | jq '[.[].budget.usd_spent] | add // 0')"
 CAP_MSG="session-launch $ROLE $ID: daily cap $DAILY_CAP USD would be exceeded (spent today $TODAY_SPENT + session cap $USD_CAP) — raise orchestrate.daily_usd_cap or wait for tomorrow"
-CAP_HIT=0; awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' && CAP_HIT=1
+# HEF-19 (spec D1): no daily cap → no check (an empty cap would read as 0 and refuse every launch); a
+# daily-only cap counts the next session as 0 and refuses at spent ≥ cap — a board at its limit starts nothing.
+CAP_HIT=0
+if [ -n "$DAILY_CAP" ] && [ -n "$USD_CAP" ]; then awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' && CAP_HIT=1
+elif [ -n "$DAILY_CAP" ]; then CAP_MSG="session-launch $ROLE $ID: daily cap $DAILY_CAP USD reached (spent today $TODAY_SPENT; no session cap set) — raise orchestrate.daily_usd_cap or wait for tomorrow"
+  awk -v t="$TODAY_SPENT" -v d="$DAILY_CAP" 'BEGIN { exit !(t >= d) }' && CAP_HIT=1
+fi
 # deploy checks the cap after its merge record (below), which launches nothing and costs nothing
 [ "$CAP_HIT" = 0 ] || [ "$ROLE" = deploy ] || [ "$MODE" != run ] || die "$CAP_MSG"   # in-lane work spends no USD (FR-019)
 PHASE="$(jq -r .phase <<<"$E")"; SPEC_DIR="$(spec_dir_abs "$E" "$TOP")"   # relative to the worktree since #172
@@ -615,8 +622,9 @@ PROMPT="$PROMPT
 
 This is a headless run: it ends when your turn ends. Spawn every agent in the foreground (the Agent / Task tool with run_in_background: false) and use its result in the same turn; never end a turn to wait for a background agent or task — you would be made to report before the remaining steps run."
 case "$ROLE" in implement) NAME="impl-$ID" ;; verify) NAME="verify-$ID" ;; plan) NAME="plan-$ID" ;; deploy) NAME="deploy-$ID" ;; esac
-CMD=(env "${WORKER_ENV[@]}" HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS" --max-budget-usd "$USD_CAP"
-     --output-format stream-json --verbose --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)
+CMD=(env "${WORKER_ENV[@]}" HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS")
+[ -z "$USD_CAP" ] || CMD+=(--max-budget-usd "$USD_CAP")   # opt-in (HEF-19): no cap set → no flag; set → its old slot (launch-920 fixture)
+CMD+=(--output-format stream-json --verbose --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)
 case "$ROLE" in
   implement|plan)
     # a retry reuses the worktree; a new one is made by `claude -w` in its cwd — so the entry's repo, explicitly

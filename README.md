@@ -304,8 +304,9 @@ holds everything the line points at.
 
 1. Put the board in `tasks/` — one heading per item, `## HEF-1 — title`, then the body a worker
    receives as data — and declare it in `.claude/project-status.json`:
-   `{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":20,"daily_usd_cap":100,"tiers":{"implement":"opus","verify":"fable"}}}`
-   (tiers, never model ids; the reviewer tier must rank at or above the author's).
+   `{"source":"tasks-repo","root":"tasks","orchestrate":{"tiers":{"implement":"opus","verify":"fable"}}}`
+   (tiers, never model ids; the reviewer tier must rank at or above the author's; spend caps `usd_cap` and
+   `daily_usd_cap` are optional, none by default).
 2. Protect `main`: require a pull request before merging, administrators included. Merge with merge
    commits — the `human:merge` gate is cleared by branch ancestry, which a squash never satisfies.
 3. Set the project up once, in a terminal: `bash ~/.claude-framework/hooks/hefesto-setup.sh` — it lists
