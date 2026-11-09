@@ -94,7 +94,7 @@ and then restored (constitution Principle 3).
   green. Mutants: `launcher_gate` call removed; marker dropped at `session-launch.sh:580` (the `--prepare` case red) and at
   `ledger.sh:787` (`tests/smoke.sh:3242-3244` red); the `handoff` lanes refusal removed → each red `hooks/ledger.sh`,
   `hooks/session-launch.sh`
-- [~] T014 [FR-001] [FR-003] [FR-004] Live tier, a task of this item with its output pasted into the task log: the T008 table
+- [x] T014 [FR-001] [FR-003] [FR-004] Live tier, a task of this item with its output pasted into the task log: the T008 table
   against the real matcher — rules written by setup for a stub root beside the repo (accepted by `unsafe_root`) whose
   `ledger.sh` only prints its arguments; `claude -p --settings <file> --permission-mode default`, asserting on the tool result
   (a signature denied for want of a dialog, a mechanic runs, `claim`/`run` denied); the spelling probe with `--plugin-dir <clone>`
@@ -106,6 +106,46 @@ and then restored (constitution Principle 3).
     a fake `claude` (it goes red on a matcher that denies mechanics). The live run itself could not execute in the
     headless build session: its sandbox denies `api.anthropic.com` ("user denied"). Run it from a terminal:
     `SMOKE_LIVE=1 bash tests/smoke.sh` and paste the `live:` and `spelling probe:` lines here.
+  - **Evidence 2026-11-09 (live run by the person, outside the sandbox; classified as `sg_live` does): 31/31 rows
+    want = got.** Every signature line denied for want of a dialog in `-p` (flag-anywhere `*` patterns match, ask
+    outranks allow), every mechanic ran, `claim`/`run` denied. The grammar fallback is not taken; both `--plugin-dir`
+    spellings substitute one slash (`<clone>/hooks`), so the clone's spelling risk is closed.
+    ```
+    live: ask   denied  ledger.sh unblock HEF-1 --by "A" --reviewed-by-human
+    live: ask   denied  ledger.sh unblock HEF-1 --merge-sha 0a1b2c3
+    live: ask   denied  ledger.sh record HEF-1 --worktree w --body-file f
+    live: ask   denied  ledger.sh record HEF-1 --branch b --body-from-board
+    live: ask   denied  ledger.sh record HEF-1 --worktree w --rfc
+    live: ask   denied  ledger.sh release HEF-1 --by "A" --reviewed-by-human
+    live: ask   denied  ledger.sh approve A-1 --sha s --to l --title t --reviewed-by-human --by A
+    live: ask   denied  ledger.sh answer HEF-1 --reviewed-by-human --by A
+    live: ask   denied  ledger.sh revise HEF-1 --reviewed-by-human --by A
+    live: ask   denied  ledger.sh drop HEF-1 --reason-file f
+    live: ask   denied  ledger.sh fold HEF-1 --into HEF-2 --reason-file f
+    live: ask   denied  ledger.sh supersede HEF-1 --by HEF-2 --reason-file f
+    live: ask   denied  ledger.sh reopen HEF-1 --reason-file f
+    live: ask   denied  ledger.sh op close OP-1 --outcome-file f
+    live: ask   denied  ledger.sh op drop OP-1 --reason-file f
+    live: ask   denied  pr-watch.sh reply 12 --body-file f
+    live: ask   denied  pr-watch.sh comment 12 --body-file f
+    live: allow ran     ledger.sh record HEF-1 --worktree w --branch b
+    live: allow ran     ledger.sh unblock HEF-1
+    live: allow ran     ledger.sh release HEF-1
+    live: allow ran     ledger.sh advance HEF-1 pr
+    live: allow ran     ledger.sh handoff HEF-1 --pr https://x/pull/1
+    live: allow ran     ledger.sh block HEF-1 --kind ci
+    live: allow ran     ledger.sh verdict HEF-1 --gate verify --verdict PASS --by s
+    live: allow ran     ledger.sh op new --title t
+    live: allow ran     ledger.sh park --all
+    live: allow ran     ledger.sh dir
+    live: allow ran     ledger.sh board
+    live: allow ran     ledger.sh list --active
+    live: none  denied  ledger.sh claim HEF-1 --session s --role implement
+    live: none  denied  ledger.sh run HEF-1 --role implement --exit 0 --usd 0
+    spelling probe: --plugin-dir <clone>  → <clone>/hooks/speckit-helper.sh recent-commits
+    spelling probe: --plugin-dir <clone>/ → <clone>/hooks/speckit-helper.sh recent-commits
+    ```
+    (`<clone>` = the person's `~/.claude-framework`; the probe printed the literal path.)
 
 ### P2 — Should Have
 - [x] T015 [P] [US5] [FR-009] `docs/install.md` §2 (`:117-133`): the signature set, one spelling per root (the form the T014
