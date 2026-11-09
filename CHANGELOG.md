@@ -35,6 +35,30 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+### Added
+
+- **Spec-qualified requirement citations** (HEF-3; `docs/sdd.md`). Every spec has an `FR-001`, so a test citing a
+  bare id covered every spec that declares it — measured on this repository, each `req-coverage` run listed 10–33
+  ids "declared by other specs", and the collision kept several specs green. A test now cites `<spec>/FR-NNN`
+  (the spec's directory name), which covers that spec only. A qualified citation of another spec is `ELSEWHERE`
+  when that spec exists and declares the id, and `UNKNOWN` (failing) when it does not — a typo in a qualifier
+  fails instead of vanishing. An id list such as `FR-001/FR-002` still reads as two bare ids.
+- **Scoped specs, opt-in per spec.** A `spec.md` carrying `<!-- req-coverage: scoped -->` counts only its own
+  qualified citations; an `UNCOVERED` row then names up to three bare citations it ignored and the form to use
+  (`bare: <file:line> … — cite as <spec>/FR-NNN`). The `/hefesto:hef.spec` template writes the marker, so new
+  specs are scoped; `hef.tasks`, `hef.implement`, `hef.verify` and `hef.mutate` show the qualified form. The
+  matrix header states the mode (`mode: scoped` | `mode: legacy (bare ids count)`).
+- **`spec-cite-probe.sh` names the right spec**: a qualified citation is attributed to the spec it names only.
+
+### Unchanged
+
+- **Unmarked specs are legacy and behave as before** — bare ids count — so shipped specs and adopters'
+  `req-coverage.yml` CI stay green on upgrade with no migration (here: 15 shipped, 0 failing, before and after).
+  Specs from `/hefesto:hef.baseline` and `/hefesto:hef.init` stay legacy until marked; `docs/sdd.md` describes the
+  move to scoped. `req-coverage` arguments, exit codes and the `--all` skip rule are unchanged.
+
 ## [9.3.0] - 2026-11-06
 
 **One repository can hold several apps, each with its own `.specify/`; every command is written the way Claude Code

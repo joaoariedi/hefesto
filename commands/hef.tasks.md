@@ -84,9 +84,11 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh plan`
    - Every task references at least one US# or FR-NNN
    - Every task includes a target file path
    - Tasks within a phase are ordered by dependency
-   - A task that implements an FR must produce a test that **cites that FR id** (marker, describe
-     title, or comment); `/hefesto:hef.verify` maps requirements to tests by that token, so a task whose
-     test does not cite its FR leaves the requirement `UNCOVERED` no matter how good the code is
+   - A task that implements an FR must produce a test that **cites that FR id** in the qualified
+     form `<spec>/FR-NNN` (marker, describe title, or comment; `<spec>` is the spec's directory name);
+     `/hefesto:hef.verify` maps requirements to tests by that token, so a task whose test does not cite
+     its FR leaves the requirement `UNCOVERED` no matter how good the code is. A spec carrying
+     `<!-- req-coverage: scoped -->` (every new one) ignores a bare `FR-NNN`
 
 4. **Create TaskCreate entries** in the Claude Code task tracker:
    - One TaskCreate per task from the generated tasks.md
