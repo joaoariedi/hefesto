@@ -31,6 +31,13 @@ Truth map: `research.md`. Decisions D1–D7 are in `spec.md`. The key facts:
   6. Nits applied: SC-001 wording; SC-004 extractor skips the read-only `case` at `hooks/ledger.sh:393` and reads
      `board` from the `if` at `:388`; Sketch 3 comments that `record * --rfc*` also matches the launcher-only
      `--rfc-snapshot` (an over-ask on a flag no lane issues, never an under-ask).
+- **Plan review round 3 (REVISE_PLAN), applied:** (1) the root reorder must not move the status line onto a
+  version-pinned cache path: `${roots[0]}` at `hooks/hefesto-setup.sh:232,385` becomes a `gauge_root` (Sketch 2);
+  (2) every test site issuing `claim`/`run` is listed, with the helper form (Affected Files); (3) SC-007 gains the
+  terminal case and the lane-guard forgery case (step 5); (4) the live tier probes both `--plugin-dir <clone>` and
+  `<clone>/`, and the launcher's per-call marker carries a comment (step 4c). The reviewer judged both of the
+  person's decisions sound against the code; the marker is a brake against sessions, not a secret — a person in a
+  terminal can set it, and the CHANGELOG says no more than that.
 
 ## Affected Files
 | File | Change Type | Description |
@@ -45,9 +52,20 @@ Truth map: `research.md`. Decisions D1–D7 are in `spec.md`. The key facts:
 | `docs/hooks.md` | modify | `:39`, the `hefesto-setup.sh` row: one spelling, the signature set |
 | `SETUP.md` | modify | `:136-141`: the "doubled slash … single-slash entry is a hedge" paragraph → one spelling per root kind |
 
-The direct `claim`/`run` calls in `tests/smoke.sh` (`:2009`, `:2571`, `:2583`, and the `lg`/`lg2` helpers wherever
-they issue `claim`/`run`) set the launcher marker the way the launcher does; the mutants at those lines keep their
-meaning.
+FR-010 test sites (the suite runs from a Claude session's Bash tool, so `CLAUDE_CODE_SESSION_ID` is set): every
+`claim`/`run` a test issues as a launcher stand-in goes through `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1
+bash …` — in the helpers `lg()` (`tests/smoke.sh:1908`), `lg2()` (`:2326`) and `lc()` (`tests/smoke-lifecycle.sh:89`,
+used for claim/run at `smoke-lifecycle.sh:232,236,262,338,502,504` and `smoke-lifecycle-ops.sh:295,301,309`) only for
+the `claim`/`run` subcommands, and at the direct calls `tests/smoke.sh:2009,2571,2583,6270`. The mutants at those
+lines keep their meaning. `tests/smoke-lifecycle-ops.sh:295` ("a bare hand claim must succeed") is rewritten: the
+bare hand claim is now the FR-010 refusal (SC-007's terminal case), and the FR-044 assertion that follows (a claim
+with no `--pid` is interactive) runs on a marked claim.
+
+| File | Change Type | Description |
+|------|------------|-------------|
+| `tests/smoke-lifecycle.sh` | modify | also: `lc()` marks its `claim`/`run` calls |
+| `tests/smoke-lifecycle-ops.sh` | modify | `:295` rewritten as above |
+| `hooks/hefesto-setup.sh` `:232,385` | modify | the status line and its hint use `gauge_root`, not `${roots[0]}` (round 3, item 1) |
 
 (`tests/smoke-github-board.sh` keeps working: the allow list still writes `"Bash($h/status-board.sh --init)"` with a
 variable named `h`.)
@@ -69,7 +87,11 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
    (every other dispatch arm, with today's narrower forms kept: `park --all`, `op new`, `dir`). `pr-watch.sh reply|comment` stay as they are. These lists are the single source the writer,
    `--check` and the test read.
 2. **One spelling per root.** `roots` gains a parallel `kinds` array (clone | installed). Installed roots are
-   added first and the clone last, so a root that is both (setup run from the installed copy) keeps `installed`. `hooks_of <root> <kind>`
+   added first and the clone last, so a root that is both (setup run from the installed copy) keeps `installed`.
+   The reorder changes `${roots[0]}`, which setup reads outside the loop for the context-gauge `statusLine`
+   command (`:232`) and its hint (`:385`): those use `gauge_root` — `$CLONE` when it is in `roots`, else
+   `${roots[0]}` — so the status line keeps a release-stable path (today's behaviour) rather than a
+   version-pinned cache folder that the next `plugin update` deletes. `hooks_of <root> <kind>`
    prints `<root>/hooks` for the clone and `<root>//hooks` for an installed copy (D4). The rule loop runs once
    per root with that `h`; the `bash $h` ask spelling is dropped. Exclusions use the same `h`.
 3. **Writing.** ask = `Bash($h/ledger.sh <s>:*)` for each WHOLE entry, `Bash($h/ledger.sh <sub> * <flag>*)` for each
@@ -94,7 +116,10 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
    cannot forge it: its Bash commands carry `CLAUDE_CODE_SESSION_ID`, and in a set-up project `lane-guard.sh:104-109`
    denies a leading assignment, `env` wrapper or chain on an excluded helper; outside setup `ledger.sh` is not
    sandbox-excluded and its write fails (`hooks/ledger.sh:237`). A person in a terminal is refused too (the answer
-   says launcher-only); `release` stays their tool.
+   says launcher-only); `release` stays their tool. The marker is a brake against sessions, not a secret: a person
+   in a terminal can type it, and the docs/CHANGELOG claim no more. Each of the six call sites carries a comment:
+   the marker is per call, never `export`ed beside `:56`, because the `claude` worker the launcher spawns
+   (`:625`) would inherit an exported one.
 5. **Tests** (part 11 — `tests/smoke.sh:6711` already sources part 10 — `tests/smoke-signatures.sh`):
    - **SC-001** fixture reduction (Sketch 5), exact `permissions.ask` result; mutants: re-add the `//` spelling for
      the clone / the `bash ` spelling → red.
@@ -106,11 +131,17 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
      the production case of `--check` running from the installed copy (`CLONE` = that path). Setup writes; then
      `CLAUDE_PLUGIN_ROOT=$REPO/ --check` passes and the written asks are under `$REPO//hooks`. Mutants: `hooks_of`
      always single-slash → red; the clone added before the installed roots (clone kind wins) → red. And
-     `CLAUDE_PLUGIN_ROOT=/elsewhere --check` exits 1 naming the untrusted folder.
+     `CLAUDE_PLUGIN_ROOT=/elsewhere --check` exits 1 naming the untrusted folder. The same run asserts
+     `.statusLine.command` starts with `$REPO/hooks/` (`gauge_root`); mutant: `gauge_root` = `${roots[0]}` with a
+     second installed root listed first → red.
    - **FR-010 / SC-007 launcher-only**: in a project set up without `--lanes`, `ledger.sh claim <id>` with a fake
      `CLAUDE_CODE_SESSION_ID` → non-zero, message names `session-launch.sh`, entry unchanged; `HEFESTO_LAUNCHER=1`
-     with the session id still set → refused; `run` likewise; `--prepare` (the existing `tests/smoke.sh:6225` case)
-     still claims. Mutants: the check removed from `caller_gate` → red; the marker dropped from
+     with the session id still set → refused; `run` likewise; the **terminal case** the person decided — no
+     `CLAUDE_CODE_SESSION_ID`, no marker (`env -u CLAUDE_CODE_SESSION_ID bash …/ledger.sh claim …`) → non-zero,
+     output names `session-launch.sh` and `release`, entry byte-identical (the rewritten
+     `smoke-lifecycle-ops.sh:295`); the hook half of the forgery defence — through `gd`,
+     `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 $LGL claim …` → `deny`, beside the existing
+     `tests/smoke.sh:5624` pattern; `--prepare` (the existing `tests/smoke.sh:6222-6225` case) still claims. Mutants: the check removed from `caller_gate` → red; the marker dropped from
      `session-launch.sh:580` → the `--prepare` case red.
    - **SC-004** classification completeness. The subcommand source is the union of (i) the `usage` text
      (`hooks/ledger.sh:27-65`, first word of each listed form, `|`-separated alternatives split), (ii) the pre-case
@@ -129,7 +160,11 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
      ask → red. Because this matcher is the plan's own reading of D7, the **live tier** runs the same table against
      the real matcher (rules written by setup for a temp hooks folder whose `ledger.sh` is a stub that only prints its
      arguments, so a mechanic line changes nothing; `claude -p --settings <that file> --permission-mode default`, asserting on the tool
-     result: a signature line is denied for want of a dialog in `-p`, a mechanic line runs) — and running it is a
+     result: a signature line is denied for want of a dialog in `-p`, a mechanic line runs; `claim`/`run`, with no
+     rule, are denied the same way, which the table does not need to tell apart). The same run is the spelling
+     probe: once with `--plugin-dir <clone>` and once with `--plugin-dir <clone>/`, recording the hooks path each
+     substitutes; `docs/install.md` §2 then tells the person the form to type (or, if both yield one slash, says
+     so and the risk is closed) — and running it is a
      **task of this item**, with its output pasted into the task log (Iron Law), not a release-time step. A red
      there means the fallback: `unblock` and `record` move back into `LEDGER_SIGN_WHOLE` (one line each), and the
      item reports that the flag-qualified dialogs are not expressible.
