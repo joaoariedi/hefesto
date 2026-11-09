@@ -17,33 +17,37 @@ Truth map: `research.md`. Decisions D1–D7 are in `spec.md`. The key facts:
   usage text + pre-case dispatches + case arms (step 5); (3) the live-tier grammar run is a task of this item, with
   a stub `ledger.sh`; (4) one `--check` message (API Contracts); (5) FR-008 cites `tests/smoke.sh:6225`; (6) a
   signature ⊆ `is_person_sub` check (SC-006); (7) the defect pass joins the `:275` loop; the suite is part 11.
-- **Plan review round 2 (REVISE_PLAN) — OPEN, waiting on the person (human:plan-review):**
-  1. Root kind must come from `installed_plugins.json` membership, not from `$CLONE`: `--check` runs from the
-     installed copy (`hooks/session-start-context.sh:38,66`), where `CLONE` (`hooks/hefesto-setup.sh:46-47`) *is* the
-     installed path, so Sketch 2 would classify it `clone` and every lane session start would report missing rules.
-     Fix: add installed roots first (or `installed` wins on dedup); mutant forcing the clone kind.
-  2. The FR-005 kind-lookup test's fake root sits under `mktemp -d` (writable → skipped by `unsafe_root`,
-     `tests/smoke.sh:5447,5489`); use a trusted root under `$REPO` (the `L3_SUM` pattern) or list `$REPO` as an
-     `installPath`.
-  3. `claim` and `run` → launcher-only, no rule (a fourth list): without `--lanes` both gates stand down
-     (`hooks/lane-guard.sh:116`, `hooks/ledger.sh:260-261`), no command issues them, so allowing them removes no
-     dialog and drops the single-lane project's only brake. **Decision for the person:** this narrows the item's
-     "every other subcommand is allow" (the item names `claim` as a mechanic to allow).
-  4. `release --reviewed-by-human --by <name>` writes `released by <name>` (`hooks/ledger-notes.sh:84-87`) — allow it
-     (the item's literal list) and accept the name is unproven by a dialog, or add it to `LEDGER_SIGN_FLAG`.
-     **Decision for the person.**
-  5. FR-009 also covers `docs/hooks.md:39` and `SETUP.md:138-141` (both describe the two spellings / old ask list).
-  6. Nits: SC-001 wording ("measured shape"); SC-004 extractor skips the read-only `case` at `hooks/ledger.sh:393` and
-     reads `board` from the `if` at `:388`; comment that `--rfc*` also covers the launcher-only `--rfc-snapshot`.
+- **Plan review round 2 (REVISE_PLAN), applied — with the person's answers (spec Clarifications, 2026-11-09):**
+  1. Root kind from `installed_plugins.json` membership: installed roots are added **before** the clone, so when
+     setup runs from the installed copy (`hooks/session-start-context.sh:66`; `CLONE` is then the installed path,
+     `hooks/hefesto-setup.sh:46-47`) the dedup keeps the `installed` kind (Sketch 2); test + mutant in step 5.
+  2. The kind-lookup test lists `$REPO` itself as an `installPath` in the fake profile (trusted, not under
+     `mktemp -d`), which also reproduces item 1's situation exactly (step 5).
+  3. **Person: launcher-only, no rule.** `claim`/`run` go to a fourth list, `LEDGER_LAUNCHER`, that writes nothing;
+     `ledger.sh` refuses them unless the launcher calls them, in every project (step 4c, FR-010).
+  4. **Person: it asks.** `release --reviewed-by-human` joins `LEDGER_SIGN_FLAG` (17 signature forms); bare
+     `release` stays allowed — it dies at `person_gate` (`hooks/ledger-lanes.sh:68-69`) with nothing written.
+  5. FR-009 covers `docs/hooks.md:39` and `SETUP.md:136-141` (step 6).
+  6. Nits applied: SC-001 wording; SC-004 extractor skips the read-only `case` at `hooks/ledger.sh:393` and reads
+     `board` from the `if` at `:388`; Sketch 3 comments that `record * --rfc*` also matches the launcher-only
+     `--rfc-snapshot` (an over-ask on a flag no lane issues, never an under-ask).
 
 ## Affected Files
 | File | Change Type | Description |
 |------|------------|-------------|
 | `hooks/hefesto-setup.sh` | modify | the classification lists; one spelling per root kind; signature asks with flag wildcards; enumerated ledger allows; `--check` signature + defect checks across the applying files; header text |
+| `hooks/ledger.sh` | modify | `caller_gate` (`:258`): refuse `claim`/`run` unless the launcher calls them (FR-010, step 4c) |
+| `hooks/session-launch.sh` | modify | its six `$LEDGER claim\|run` calls (`:452,580,581,660,690,701`) carry the launcher marker |
 | `tests/smoke-signatures.sh` | create | part 11: the 408 fixture reduction, `--check` defect, the classification completeness, the rule-grammar table, `--prepare` regression; each with a mutation |
 | `tests/smoke.sh` | modify | source part 11; `:5436-5438` assert one spelling and the new allow set instead of the `bash` spelling and "no mechanics allow"; live tier: the grammar table against the real matcher |
 | `tests/smoke-lifecycle.sh` | modify | `:388` one spelling instead of two |
-| `docs/install.md` | modify | §2 `:117-133`: one spelling per root, the signature set, `--check`'s defect report |
+| `docs/install.md` | modify | §2 `:117-133`: one spelling per root, the signature set, launcher-only `claim`/`run`, `--check`'s defect report |
+| `docs/hooks.md` | modify | `:39`, the `hefesto-setup.sh` row: one spelling, the signature set |
+| `SETUP.md` | modify | `:136-141`: the "doubled slash … single-slash entry is a hedge" paragraph → one spelling per root kind |
+
+The direct `claim`/`run` calls in `tests/smoke.sh` (`:2009`, `:2571`, `:2583`, and the `lg`/`lg2` helpers wherever
+they issue `claim`/`run`) set the launcher marker the way the launcher does; the mutants at those lines keep their
+meaning.
 
 (`tests/smoke-github-board.sh` keeps working: the allow list still writes `"Bash($h/status-board.sh --init)"` with a
 variable named `h`.)
@@ -58,44 +62,62 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
 `no ask rule outside the signature set (` plus the rule. Options and exit codes are unchanged.
 
 ## Implementation Approach
-1. **One classification, in setup.** Three bash arrays near the top of the rule section: `LEDGER_SIGN_WHOLE`
+1. **One classification, in setup.** Four bash arrays near the top of the rule section: `LEDGER_SIGN_WHOLE`
    (approve answer revise drop fold supersede reopen "op close" "op drop"), `LEDGER_SIGN_FLAG`
    ("unblock --reviewed-by-human" "unblock --merge-sha" "record --body-file" "record --body-from-board"
-   "record --rfc"), `LEDGER_ALLOW` (every other dispatch arm, with today's narrower forms kept: `park --all`,
-   `op new`, `dir`). `pr-watch.sh reply|comment` stay as they are. These lists are the single source the writer,
+   "record --rfc" "release --reviewed-by-human"), `LEDGER_LAUNCHER` (claim run — no rule written), `LEDGER_ALLOW`
+   (every other dispatch arm, with today's narrower forms kept: `park --all`, `op new`, `dir`). `pr-watch.sh reply|comment` stay as they are. These lists are the single source the writer,
    `--check` and the test read.
-2. **One spelling per root.** `roots` gains a parallel `kinds` array (clone | installed). `hooks_of <root> <kind>`
+2. **One spelling per root.** `roots` gains a parallel `kinds` array (clone | installed). Installed roots are
+   added first and the clone last, so a root that is both (setup run from the installed copy) keeps `installed`. `hooks_of <root> <kind>`
    prints `<root>/hooks` for the clone and `<root>//hooks` for an installed copy (D4). The rule loop runs once
    per root with that `h`; the `bash $h` ask spelling is dropped. Exclusions use the same `h`.
 3. **Writing.** ask = `Bash($h/ledger.sh <s>:*)` for each WHOLE entry, `Bash($h/ledger.sh <sub> * <flag>*)` for each
    FLAG entry; allow = `Bash($h/ledger.sh <s>:*)` for each ALLOW entry (exact forms where today's are exact).
    Strip-then-add is unchanged, so old spellings, stale versions and mechanics asks leave on the first run.
 4. **`--check`.** (a) the kind of `me` (`${CLAUDE_PLUGIN_ROOT:-$CLONE}` with its trailing `/` removed, `:239`) is
-   looked up in the `roots`/`kinds` arrays setup itself built: `me` equal to `$CLONE` → clone, equal to an installed
-   root → installed. **`me` in neither** (an untrusted or skipped root — inside the project or a temp folder, or a
+   looked up in the `roots`/`kinds` arrays setup itself built (installed wins, step 2): `me` equal to an installed
+   root → installed, else equal to `$CLONE` → clone. **`me` in neither** (an untrusted or skipped root — inside the project or a temp folder, or a
    profile setup never saw) → `--check` reports `the hefesto folder this session runs from (<me>) is not one setup
    trusts` and exits 1; it never guesses a spelling. The signature asks must then exist under `hooks_of "$me" <kind>`,
    one rule each (replacing `:241-243`). (b) the defect pass is folded into the existing three-file loop
    (`:275-284`, `$F`, `$TOP/.claude/settings.json`, the profile's `settings.json`) — one more `jq` per file: each
    `permissions.ask` rule that names a hefesto helper is normalised to its tail (`ledger.sh approve:*`,
    `ledger.sh unblock * --merge-sha*`) and any tail not among the signature tails is added to `miss` with its file
-   (message: API Contracts). Exit 1, as every other `--check` miss.
+   (message: API Contracts). Exit 1, as every other `--check` miss. A leftover `claim`/`run` ask is a defect like
+   any other mechanics ask.
+   (c) **Launcher-only `claim`/`run` (FR-010).** `session-launch.sh` already unsets `CLAUDE_CODE_SESSION_ID` before
+   its ledger calls (`hooks/session-launch.sh:56`); it now also passes `HEFESTO_LAUNCHER=1` on each of its six
+   `$LEDGER claim|run` calls. `caller_gate` (`hooks/ledger.sh:258`) gains, first, before its lane checks:
+   `is_launcher_sub "$SUB"` and not (`HEFESTO_LAUNCHER=1` with `CLAUDE_CODE_SESSION_ID` empty) → die naming
+   `session-launch.sh` (and `ledger.sh release` for a person freeing a claim), nothing written. A Claude session
+   cannot forge it: its Bash commands carry `CLAUDE_CODE_SESSION_ID`, and in a set-up project `lane-guard.sh:104-109`
+   denies a leading assignment, `env` wrapper or chain on an excluded helper; outside setup `ledger.sh` is not
+   sandbox-excluded and its write fails (`hooks/ledger.sh:237`). A person in a terminal is refused too (the answer
+   says launcher-only); `release` stays their tool.
 5. **Tests** (part 11 — `tests/smoke.sh:6711` already sources part 10 — `tests/smoke-signatures.sh`):
    - **SC-001** fixture reduction (Sketch 5), exact `permissions.ask` result; mutants: re-add the `//` spelling for
      the clone / the `bash ` spelling → red.
    - **SC-002** `--check` defect: inject `Bash(<h>/ledger.sh claim:*)` in `$F`, and separately in the profile's
      `settings.json` → exit 1, output contains `no ask rule outside the signature set (` + the rule + the file;
      mutant: the defect pass removed → red.
-   - **FR-005 kind lookup**: a fake profile whose `installed_plugins.json` names an installed root outside any
-     writable path (under the test's fake `$HOME`, which the l3 harness already uses for `9.9.9`); setup writes; then
-     `CLAUDE_PLUGIN_ROOT=<that root>/ --check` passes and looks for `<root>//hooks` (mutant: `hooks_of` always
-     single-slash → that `--check` red); `CLAUDE_PLUGIN_ROOT=/elsewhere --check` exits 1 naming the untrusted folder.
+   - **FR-005 kind lookup**: a fake profile whose `installed_plugins.json` lists `$REPO` itself as the user-scope
+     `installPath` (trusted — not under `mktemp -d`, so `unsafe_root` keeps it, `tests/smoke.sh:5447,5489`); this is
+     the production case of `--check` running from the installed copy (`CLONE` = that path). Setup writes; then
+     `CLAUDE_PLUGIN_ROOT=$REPO/ --check` passes and the written asks are under `$REPO//hooks`. Mutants: `hooks_of`
+     always single-slash → red; the clone added before the installed roots (clone kind wins) → red. And
+     `CLAUDE_PLUGIN_ROOT=/elsewhere --check` exits 1 naming the untrusted folder.
+   - **FR-010 / SC-007 launcher-only**: in a project set up without `--lanes`, `ledger.sh claim <id>` with a fake
+     `CLAUDE_CODE_SESSION_ID` → non-zero, message names `session-launch.sh`, entry unchanged; `HEFESTO_LAUNCHER=1`
+     with the session id still set → refused; `run` likewise; `--prepare` (the existing `tests/smoke.sh:6225` case)
+     still claims. Mutants: the check removed from `caller_gate` → red; the marker dropped from
+     `session-launch.sh:580` → the `--prepare` case red.
    - **SC-004** classification completeness. The subcommand source is the union of (i) the `usage` text
      (`hooks/ledger.sh:27-65`, first word of each listed form, `|`-separated alternatives split), (ii) the pre-case
      `[ "$SUB" = … ]` dispatches (`:384` `branches`, `:388` `board`), and (iii) the top-level `case "$SUB"` arms
-     (`:396`–`:925`), with `op` expanded to `op new|close|drop`, `park` to `park --all`, and `-h|--help` and `*`
-     excluded. Each must appear exactly once across `LEDGER_ALLOW`, `LEDGER_ALLOW_EXACT`, `LEDGER_SIGN_WHOLE`, with
-     `unblock`/`record` additionally carrying their `LEDGER_SIGN_FLAG` entries; and every list entry must exist in the
+     (`:396`–`:925`; the read-only `case` at `:393` skipped, `board` read from the `if` at `:388`), with `op` expanded to `op new|close|drop`, `park` to `park --all`, and `-h|--help` and `*`
+     excluded. Each must appear exactly once across `LEDGER_ALLOW`, `LEDGER_ALLOW_EXACT`, `LEDGER_SIGN_WHOLE`,
+     `LEDGER_LAUNCHER`, with `unblock`/`record`/`release` additionally carrying their `LEDGER_SIGN_FLAG` entries; and every list entry must exist in the
      source. Mutants: a new case arm added to a copy of `ledger.sh`; a new pre-case `[ "$SUB" = x ]` line; a list
      entry removed → each red.
    - **FR-007 ↔ FR-001**: source `hooks/lane-lib.sh`, loop over every `LEDGER_SIGN_WHOLE`/`LEDGER_SIGN_FLAG` form and
@@ -103,7 +125,7 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
      `--rfc` from `is_person_sub` in a copy → red.
    - **SC-003** grammar table: a small matcher implementing the documented grammar (deny→ask→allow, `*` = any text,
      `:*` = trailing) over command lines — signature forms with the flag in a later position ask; plain
-     `record|unblock`, `claim`, `advance`, `handoff`, `block`, `release` allow. Mutant: drop the `record * --body-file*`
+     `record|unblock|release`, `advance`, `handoff`, `block`, `verdict` allow; `claim`/`run` match no rule. Mutant: drop the `record * --body-file*`
      ask → red. Because this matcher is the plan's own reading of D7, the **live tier** runs the same table against
      the real matcher (rules written by setup for a temp hooks folder whose `ledger.sh` is a stub that only prints its
      arguments, so a mechanic line changes nothing; `claude -p --settings <that file> --permission-mode default`, asserting on the tool
@@ -116,7 +138,7 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
      launcher's own `$LEDGER claim` at `hooks/session-launch.sh:580` and `record` at `:595`). This item cites it and
      adds only the setup half: the session-launch exclusion is written in the canonical spelling for every root
      (part of SC-001's exact check), so `--prepare` keeps running outside the sandbox.
-6. **Docs.** `docs/install.md` §2 and the setup header.
+6. **Docs.** `docs/install.md` §2, `docs/hooks.md:39`, `SETUP.md:136-141` and the setup header.
 
 ## Code Sketches (Mental Alignment)
 
@@ -128,13 +150,15 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
 # HEF-27: a dialog only where a person signs. Everything else in ledger.sh's dispatch is allowed, one by one —
 # never ledger.sh as a whole, so a new subcommand is classified before it runs without asking (FR-006).
 LEDGER_SIGN_WHOLE=(approve answer revise drop fold supersede reopen "op close" "op drop")
-LEDGER_SIGN_FLAG=("unblock --reviewed-by-human" "unblock --merge-sha" "record --body-file" "record --body-from-board" "record --rfc")
+LEDGER_SIGN_FLAG=("unblock --reviewed-by-human" "unblock --merge-sha" "record --body-file" "record --body-from-board" "record --rfc"
+  "release --reviewed-by-human")   # it records a person's name → a signature (spec Clarifications 2026-11-09)
+LEDGER_LAUNCHER=(claim run)        # no rule at all: ledger.sh refuses them unless session-launch.sh calls (FR-010)
 LEDGER_ALLOW=(board list next show metrics register publish escalate questions request actions action "op new" direct
-  directives directive note lanes deployed claim record advance handoff block release unblock verdict run init where branches spec-roots)
+  directives directive note lanes deployed record advance handoff block release unblock verdict init where branches spec-roots)
 LEDGER_ALLOW_EXACT=("park --all" dir)
 ```
 
-**Why this shape:** D1/D3; the test diffs these against the `case "$SUB"` arms of `hooks/ledger.sh`.
+**Why this shape:** D1/D3; the test diffs these against the subcommand source of step 5 (SC-004).
 
 ### Sketch 2: one spelling per root
 **File:** `hooks/hefesto-setup.sh` (modify `:105-121`)
@@ -145,7 +169,8 @@ roots=(); kinds=()
 add_root() { local p="${1%/}" k="$2"; [ -n "$p" ] || return 0
   if unsafe_root "$p"; then skipped+=("$p"); return 0; fi
   case " ${roots[*]-} " in *" $p "*) ;; *) roots+=("$p"); kinds+=("$k") ;; esac; }
-add_root "$CLONE" clone   # … add_root "$p" installed for each installPath
+# … add_root "$p" installed for each installPath FIRST, then:
+add_root "$CLONE" clone   # deduped: run from the installed copy, CLONE is that path and stays `installed`
 hooks_of() { [ "$2" = installed ] && printf '%s//hooks' "$1" || printf '%s/hooks' "$1"; }  # tests/smoke.sh:860-862
 for i in "${!roots[@]}"; do h="$(hooks_of "${roots[$i]}" "${kinds[$i]}")"
 ```
@@ -157,7 +182,8 @@ for i in "${!roots[@]}"; do h="$(hooks_of "${roots[$i]}" "${kinds[$i]}")"
 
 ```bash
   for s in "${LEDGER_SIGN_WHOLE[@]}"; do ask+=("Bash($h/ledger.sh $s:*)"); done
-  for s in "${LEDGER_SIGN_FLAG[@]}"; do ask+=("Bash($h/ledger.sh ${s% *} * ${s#* }*)"); done   # the flag anywhere after the id (D7)
+  # the flag anywhere after the id (D7); `record * --rfc*` also matches the launcher-only --rfc-snapshot: an over-ask
+  for s in "${LEDGER_SIGN_FLAG[@]}"; do ask+=("Bash($h/ledger.sh ${s% *} * ${s#* }*)"); done
   for s in "${LEDGER_ALLOW[@]}"; do allow+=("Bash($h/ledger.sh $s:*)"); done
   for s in "${LEDGER_ALLOW_EXACT[@]}"; do allow+=("Bash($h/ledger.sh $s)"); done
 ```
@@ -213,6 +239,8 @@ plus the person's `Bash(rm -rf:*)`, nothing else.
 | The installed copy's spelling is single-slash on some Claude Code version | its helper calls are not sandbox-excluded → ledger writes fail loudly | `--check` at session start reports the missing set for this root; the live tier asserts the spelling; fallback: `hooks_of` prints both for installed roots |
 | A person relied on a mechanics ask as a brake | they lose that dialog | the CHANGELOG names it; `ledger.sh` still refuses person decisions from lanes |
 | `hefesto-setup.sh` grows past 500 code lines | commit blocked | today 388 non-blank lines; the change is about +35 net |
+| A person who ran `ledger.sh claim` by hand loses it | refused with a message | the message names `session-launch.sh` and `release`; the CHANGELOG names it (the person's decision) |
+| A test calls `claim`/`run` without the marker | red suite after FR-010 | the `tests/smoke.sh` sites set it; the full suite runs in the task that adds the check |
 | `--check` now reads user settings with someone's own hefesto-looking ask rules | session start shows a miss | the message names the file; it is the defect the item asks to surface |
 
 ## Quick Start
