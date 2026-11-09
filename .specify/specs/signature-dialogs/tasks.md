@@ -8,17 +8,17 @@ Every test written here cites its FR/SC id in the assertion message or a comment
 and then restored (constitution Principle 3).
 
 ## Phase 1: Setup
-- [ ] T001 [FR-006] Create `tests/smoke-signatures.sh` as part 11 (the part-10 header and helper conventions), sourced from
+- [x] T001 [FR-006] Create `tests/smoke-signatures.sh` as part 11 (the part-10 header and helper conventions), sourced from
   `tests/smoke.sh` beside the part-10 source at `:6711`; it holds only the shared fixture helpers for now: a project dir,
   a fake profile home and fake installed roots placed **beside the repo** (the `l3_su_mut` pattern, `tests/smoke.sh:5425-5429`),
   never under `$TMPDIR`, each fake root carrying a `hooks/session-launch.sh` file so `--check`'s `badx` (`hooks/hefesto-setup.sh:227`)
   does not report a missing launcher (R6) `tests/smoke-signatures.sh`, `tests/smoke.sh`
 
 ## Phase 2: Foundational
-- [ ] T002 [FR-001] [FR-002] [FR-006] Add the classification lists of Sketch 1 (`LEDGER_SIGN_WHOLE`, `LEDGER_SIGN_FLAG` with
+- [x] T002 [FR-001] [FR-002] [FR-006] Add the classification lists of Sketch 1 (`LEDGER_SIGN_WHOLE`, `LEDGER_SIGN_FLAG` with
   `release --reviewed-by-human`, `LEDGER_LAUNCHER` = claim run, `LEDGER_ALLOW`, `LEDGER_ALLOW_EXACT`) near `:120`, with the
   HEF-27 comment; nothing reads them yet `hooks/hefesto-setup.sh`
-- [ ] T003 [FR-004] [FR-005] Roots with kinds (Sketch 2): `add_root <path> <kind>`, installed roots added before the clone so a
+- [x] T003 [FR-004] [FR-005] Roots with kinds (Sketch 2): `add_root <path> <kind>`, installed roots added before the clone so a
   root that is both keeps `installed`; `hooks_of <root> <kind>` (`<root>//hooks` installed, `<root>/hooks` clone, comment
   citing `tests/smoke.sh:860-862`); `gauge_root` (`$CLONE` when in `roots`, else `${roots[0]}`) used at `:232` and `:385`.
   The rule loop iterates `"${!roots[@]}"` with `h="$(hooks_of …)"`, keeping the `$h` name the github-board mutant seds.
@@ -26,33 +26,33 @@ and then restored (constitution Principle 3).
 
 ## Phase 3: User Stories (by priority)
 ### P1 — Must Have
-- [ ] T004 [US3] [FR-004] SC-001 test, red first: generate the 9.3-shape fixture (Sketch 5) — 17 ledger asks × {`/hooks`,
+- [x] T004 [US3] [FR-004] SC-001 test, red first: generate the 9.3-shape fixture (Sketch 5) — 17 ledger asks × {`/hooks`,
   `bash /hooks`} for `$REPO/hooks`, `$REPO//hooks`, two fake installed versions (one stale), **plus the 9.3 allow set in its four
   spellings** (R6), plus the person's `Bash(rm -rf:*)` ask and `Bash(ls)` allow; run `hefesto-setup.sh --lanes`; assert
   `permissions.ask` equals exactly the 17 signature forms × the live roots' canonical spellings + `pr-watch.sh reply|comment` +
   `Bash(rm -rf:*)`; allow holds one copy per rule per root; the person's rules byte-identical; a second run prints `unchanged:`;
   `--remove` leaves no hefesto rule in any spelling; a non-object file is refused unchanged `tests/smoke-signatures.sh`
-- [ ] T005 [US1] [US2] [FR-001] [FR-002] [FR-004] Writer (Sketch 3): ask from `LEDGER_SIGN_WHOLE` (`:*`) and `LEDGER_SIGN_FLAG`
+- [x] T005 [US1] [US2] [FR-001] [FR-002] [FR-004] Writer (Sketch 3): ask from `LEDGER_SIGN_WHOLE` (`:*`) and `LEDGER_SIGN_FLAG`
   (`<sub> * <flag>*`, with the `--rfc-snapshot` over-ask comment), allow from `LEDGER_ALLOW` (`:*`) and `LEDGER_ALLOW_EXACT`
   (exact), no rule for `LEDGER_LAUNCHER`; drop the `bash $h` spelling and the second slash spelling for both rules and sandbox
   exclusions. Update the assertions that pin the old shape: `tests/smoke.sh:5436-5438` (one spelling, the new allow set) and
   `tests/smoke-lifecycle.sh:388` (one spelling). T004 goes green; mutants re-add the `//` spelling for the clone, then the
   `bash ` spelling → T004 red `hooks/hefesto-setup.sh`, `tests/smoke.sh`, `tests/smoke-lifecycle.sh`
-- [ ] T006 [FR-006] SC-004 completeness test: extract subcommands from the `usage` text (`hooks/ledger.sh:27-65`), the pre-case
+- [x] T006 [FR-006] SC-004 completeness test: extract subcommands from the `usage` text (`hooks/ledger.sh:27-65`), the pre-case
   `[ "$SUB" = … ]` dispatches (`branches`, `board`) and the top-level arms of the block **anchored on `^case "\$SUB" in` …
   `^esac`** (R6) — exactly two-space-indented `word)`/`word|` lines, the read-only `case` at `:393` skipped; `op` → `op new|close|drop`,
   `park` → `park --all`, `-h|--help` and `*` excluded; assert `tasks-repo`/`plan` are not extracted. Diff both ways against the
   T002 lists (each once; `unblock`/`record`/`release` also carry their FLAG entries; every entry exists). Mutants on a copy of
   `ledger.sh`: a new arm; a new pre-case dispatch; a list entry removed → each red `tests/smoke-signatures.sh`
-- [ ] T007 [FR-007] SC-006: source `hooks/lane-lib.sh`, loop every `LEDGER_SIGN_WHOLE`/`LEDGER_SIGN_FLAG` form through
+- [x] T007 [FR-007] SC-006: source `hooks/lane-lib.sh`, loop every `LEDGER_SIGN_WHOLE`/`LEDGER_SIGN_FLAG` form through
   `is_person_sub` → 0 for each; mutant: `--rfc` dropped from `is_person_sub` in a copy → red. `lane-lib.sh` itself is not
   edited `tests/smoke-signatures.sh`
-- [ ] T008 [FR-001] [FR-003] SC-003 grammar table: a small matcher of the documented grammar (deny → ask → allow, `*` any text,
+- [x] T008 [FR-001] [FR-003] SC-003 grammar table: a small matcher of the documented grammar (deny → ask → allow, `*` any text,
   `:*` trailing) applied to the rules setup wrote; signature forms with the flag in a later position (`unblock HEF-1 --by "A"
   --reviewed-by-human`, `record HEF-1 --worktree w --body-file f`, `release HEF-1 --by "A" --reviewed-by-human`, …) → ask;
   plain `record|unblock|release`, `advance`, `handoff`, `block`, `verdict` → allow; `claim`/`run` → no rule. Mutant: drop the
   `record * --body-file*` ask → red `tests/smoke-signatures.sh`
-- [ ] T009 [US4] [FR-005] `--check` root (step 4a): `me` = `${CLAUDE_PLUGIN_ROOT:-$CLONE}` without its trailing `/`, its kind
+- [x] T009 [US4] [FR-005] `--check` root (step 4a): `me` = `${CLAUDE_PLUGIN_ROOT:-$CLONE}` without its trailing `/`, its kind
   looked up in setup's own `roots`/`kinds`; `me` in neither → `the hefesto folder this session runs from (<me>) is not one setup
   trusts`, exit 1; the signature asks, the allow check (`:241`) and both exclusion checks (`:244-245`) read
   `hooks_of "$me" <kind>` instead of `--arg h "$me/hooks"` (`:240`). Tests (FR-005 kind lookup): a fake profile listing `$REPO`
@@ -60,14 +60,14 @@ and then restored (constitution Principle 3).
   `.statusLine.command` starts with `$REPO/hooks/`; `CLAUDE_PLUGIN_ROOT=/elsewhere --check` exits 1 naming it; a signature ask
   deleted → exit 1 naming it. Mutants: `hooks_of` always single-slash; the clone added first; `gauge_root` = `${roots[0]}`
   with a second installed root first → each red `hooks/hefesto-setup.sh`, `tests/smoke-signatures.sh`
-- [ ] T010 [US4] [FR-005] `--check` defect pass (Sketch 4) inside the three-file loop (`:275-284`): each `permissions.ask` rule
+- [x] T010 [US4] [FR-005] `--check` defect pass (Sketch 4) inside the three-file loop (`:275-284`): each `permissions.ask` rule
   naming a hefesto helper is classified by subcommand + signature flag (API Contracts), never by exact tail — a mechanics
   subcommand adds `no ask rule outside the signature set (<rule> in <file> — every lane pass would stop on it)`; a signature in
   a non-canonical form is not called a mechanic. SC-002 tests: `Bash(<h>/ledger.sh claim:*)` injected in `$F`, then separately
   in the profile's `settings.json` → exit 1, output has the message prefix, the rule and the file; `Bash(<h>/ledger.sh approve)`
   (no `:*`) → no defect message; signature set alone → `setup: ok`. Mutant: the defect pass removed → red
   `hooks/hefesto-setup.sh`, `tests/smoke-signatures.sh`
-- [ ] T011 [FR-010] Mark every test-side launcher stand-in before the gate exists (suite stays green): helpers `lg()` `:1908`,
+- [x] T011 [FR-010] Mark every test-side launcher stand-in before the gate exists (suite stays green): helpers `lg()` `:1908`,
   `lg2()` `:2326`, `lsl()` `:3227`, `ebl()` `:4188`, `l3l()` `:5416`, `l3_claim11()` `:5830` (composing with its
   `${1:+env "$1"}`), `lc()` `tests/smoke-lifecycle.sh:89` — each marks **only** its `claim`/`run` with
   `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1`; direct calls `tests/smoke.sh:2009,2077-2084,2571,2583,5853,6270`.
@@ -75,7 +75,7 @@ and then restored (constitution Principle 3).
   with the sid unset so only their own guard refuses; `:6140`/`:6232` keep their lane sid. The `lsl handoff` calls
   (`:3236,3238,3240,3242`) run with the sid unset. `bash tests/smoke.sh` green `tests/smoke.sh`, `tests/smoke-lifecycle.sh`,
   `tests/smoke-lifecycle-ops.sh`
-- [ ] T012 [US1] [FR-010] [FR-008] SC-007 tests, red first: in a project set up without `--lanes`, `ledger.sh claim <id>` with a
+- [x] T012 [US1] [FR-010] [FR-008] SC-007 tests, red first: in a project set up without `--lanes`, `ledger.sh claim <id>` with a
   fake sid → non-zero, names `session-launch.sh`, entry unchanged; `HEFESTO_LAUNCHER=1` with the sid still set → refused; `run`
   likewise; terminal case (no sid, no marker) → non-zero, names `session-launch.sh` and `release`, entry byte-identical
   (rewrite `tests/smoke-lifecycle-ops.sh:295` to this, keeping the FR-044 interactive-owner check on a marked claim); forgery
@@ -83,7 +83,7 @@ and then restored (constitution Principle 3).
   `handoff`: a sid with a lanes session record + `handoff <id> --pr <url>` on an unowned item at `implement` → non-zero, names
   `--finish`, entry byte-identical (no `owner: hand`); FR-008: cite `tests/smoke.sh:6222-6225` (`--prepare` still claims)
   `tests/smoke-signatures.sh`, `tests/smoke-lifecycle-ops.sh`
-- [ ] T013 [US1] [FR-010] [FR-007] [FR-008] Implement (step 4c): `in_lanes_session` lifted from `caller_gate:259-261`
+- [x] T013 [US1] [FR-010] [FR-007] [FR-008] Implement (step 4c): `in_lanes_session` lifted from `caller_gate:259-261`
   (`caller_gate` behaviour unchanged); `launcher_gate` called right after `caller_gate` at `hooks/ledger.sh:390`, before
   `ledger_dir` — `is_launcher_sub "$SUB"` and not (`HEFESTO_LAUNCHER=1` with the sid empty) → die naming `session-launch.sh` and
   `ledger.sh release`; the `handoff` arm calls `in_lanes_session` **as its first statement**, before `entry "$ID"` (R6) → die
@@ -94,32 +94,37 @@ and then restored (constitution Principle 3).
   green. Mutants: `launcher_gate` call removed; marker dropped at `session-launch.sh:580` (the `--prepare` case red) and at
   `ledger.sh:787` (`tests/smoke.sh:3242-3244` red); the `handoff` lanes refusal removed → each red `hooks/ledger.sh`,
   `hooks/session-launch.sh`
-- [ ] T014 [FR-001] [FR-003] [FR-004] Live tier, a task of this item with its output pasted into the task log: the T008 table
+- [~] T014 [FR-001] [FR-003] [FR-004] Live tier, a task of this item with its output pasted into the task log: the T008 table
   against the real matcher — rules written by setup for a stub root beside the repo (accepted by `unsafe_root`) whose
   `ledger.sh` only prints its arguments; `claude -p --settings <file> --permission-mode default`, asserting on the tool result
   (a signature denied for want of a dialog, a mechanic runs, `claim`/`run` denied); the spelling probe with `--plugin-dir <clone>`
   and `--plugin-dir <clone>/`, recording the hooks path each substitutes. Wired into the `tests/smoke.sh` live tier. A red
   grammar result → move `unblock` and `record` into `LEDGER_SIGN_WHOLE` and report that the flag-qualified dialogs are not
   expressible; a single-slash installed spelling → `hooks_of` prints both for installed roots `tests/smoke.sh`
+  - **Status 2026-11-09 (implement run): wired, NOT yet run live.** The check is in `tests/smoke-signatures.sh`, gated on
+    `SMOKE_LIVE=1` (the same table, a stub root beside the repo, then the spelling probe). Its plumbing was exercised with
+    a fake `claude` (it goes red on a matcher that denies mechanics). The live run itself could not execute in the
+    headless build session: its sandbox denies `api.anthropic.com` ("user denied"). Run it from a terminal:
+    `SMOKE_LIVE=1 bash tests/smoke.sh` and paste the `live:` and `spelling probe:` lines here.
 
 ### P2 — Should Have
-- [ ] T015 [P] [US5] [FR-009] `docs/install.md` §2 (`:117-133`): the signature set, one spelling per root (the form the T014
+- [x] T015 [P] [US5] [FR-009] `docs/install.md` §2 (`:117-133`): the signature set, one spelling per root (the form the T014
   probe recorded), launcher-only `claim`/`run`, `--check`'s defect report; `:133` "never `ledger.sh` as a whole" kept
   `docs/install.md` owns: docs/install.md
-- [ ] T016 [P] [US5] [FR-009] `docs/hooks.md:32` (the `ledger.sh` row: `claim`/`run` are the launcher's) and `:39` (the
+- [x] T016 [P] [US5] [FR-009] `docs/hooks.md:32` (the `ledger.sh` row: `claim`/`run` are the launcher's) and `:39` (the
   `hefesto-setup.sh` row: one spelling, the signature set) `docs/hooks.md` owns: docs/hooks.md
-- [ ] T017 [P] [US5] [FR-009] `SETUP.md:136-141`: the two-spellings paragraph → one spelling per root kind `SETUP.md`
+- [x] T017 [P] [US5] [FR-009] `SETUP.md:136-141`: the two-spellings paragraph → one spelling per root kind `SETUP.md`
   owns: SETUP.md
-- [ ] T018 [P] [US5] [FR-009] `README.md:294-295` and `docs/case-study-sdlc.md:60,115`: by-hand `ledger.sh claim`/`run` →
+- [x] T018 [P] [US5] [FR-009] `README.md:294-295` and `docs/case-study-sdlc.md:60,115`: by-hand `ledger.sh claim`/`run` →
   `session-launch.sh --prepare` / `handoff` `README.md` owns: README.md, docs/case-study-sdlc.md
-- [ ] T019 [US5] [FR-009] The `hefesto-setup.sh` header: the signature set, one spelling, launcher-only `claim`/`run`, the
+- [x] T019 [US5] [FR-009] The `hefesto-setup.sh` header: the signature set, one spelling, launcher-only `claim`/`run`, the
   `--check` defect `hooks/hefesto-setup.sh`
 
 ## Phase 4: Polish
-- [ ] T020 [FR-004] [FR-010] Full verification on this tree: `bash tests/smoke.sh` (all parts), `shellcheck` on the changed hooks,
+- [x] T020 [FR-004] [FR-010] Full verification on this tree: `bash tests/smoke.sh` (all parts), `shellcheck` on the changed hooks,
   `hooks/hefesto-setup.sh` under 500 code lines, and every mutant of T004–T013 re-run red then restored; output pasted
   `tests/smoke.sh`
-- [ ] T021 [FR-009] [FR-010] The CHANGELOG's unreleased entry names the behaviour changes the plan's risk rows promise: mechanics
+- [x] T021 [FR-009] [FR-010] The CHANGELOG's unreleased entry names the behaviour changes the plan's risk rows promise: mechanics
   asks gone, one spelling per root, launcher-only `claim`/`run` (a person frees a claim with `release`), the marker is a brake
   against sessions and not a secret, and no brake exists without setup and sandbox — as today `CHANGELOG.md`
 

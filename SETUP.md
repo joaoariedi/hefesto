@@ -136,16 +136,17 @@ sessions load, the profile's plugin cache, not the clone: replace `<installPath>
 (`<profile>/plugins/cache/hefesto/hefesto/<version>`), written literally: the permission matcher
 expands neither `$HOME` nor `~`. The path changes with every release, so the rule must be
 rewritten after each upgrade. The doubled slash is not a typo: `${CLAUDE_PLUGIN_ROOT}` ends in a
-slash, so the commands send `…/<version>//hooks/…`, and the matcher compares literally. The
-single-slash entry is a hedge for a future release. In a project set up in Step 5,
-`hooks/hefesto-setup.sh` writes these rules itself (for every installed copy) — skip this there.
+slash, so the commands send `…/<version>//hooks/…`, and the matcher compares literally. One
+spelling per root: `<installPath>//hooks/…` for an installed copy (the clone, loaded with
+`--plugin-dir`, is `<clone>/hooks/…`). In a project set up in Step 5, `hooks/hefesto-setup.sh`
+writes these rules itself, one spelling per root (for the clone and every installed copy) — skip
+this there.
 
 ```jsonc
 {
   "permissions": {
     "allow": [
-      "Bash(<installPath>//hooks/speckit-helper.sh:*)",
-      "Bash(<installPath>/hooks/speckit-helper.sh:*)"
+      "Bash(<installPath>//hooks/speckit-helper.sh:*)"
     ]
   }
 }

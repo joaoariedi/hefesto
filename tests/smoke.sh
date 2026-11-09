@@ -37,6 +37,13 @@ FAIL=0
 ok()   { printf '  \033[32mok\033[0m   %s\n' "$1"; PASS=$((PASS + 1)); }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL + 1)); }
 head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+# HEF-27 FR-010: ledger.sh runs claim and run only for the launcher — HEFESTO_LAUNCHER=1 with no session id, as
+# session-launch.sh calls it. A test standing in for the launcher marks exactly those two subcommands; every other
+# ledger call keeps the caller's environment (the suite itself runs from a Claude session, which sets the id).
+launcher() { env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 "$@"; }
+as_launcher() { # $1 the ledger subcommand, then the command → marked when it is claim or run
+  local sub="$1"; shift; case "$sub" in claim|run) launcher "$@" ;; *) "$@" ;; esac
+}
 # Portable in-place edit. GNU sed takes a bare -i; macOS (BSD) sed reads the next argument as the backup
 # suffix, so `sed -i 's/…/' f` there edits nothing and fails. Both accept a suffix glued to -i: edit with
 # one, then drop the backup. The file is the last argument.
@@ -889,7 +896,9 @@ fi
 
 # hefesto 9 keeps the ledger and the approval store under $HOME/.cache/hefesto (XDG deliberately not honoured),
 # so every test from here on runs in a throwaway HOME: the suite never touches the person's ledger, and it runs
-# from a sandboxed shell. The live tier above keeps the real HOME (it needs the person's claude login).
+# from a sandboxed shell. The live tier above keeps the real HOME (it needs the person's claude login); a later live
+# check (part 11, HEF-27) reads it from SMOKE_REAL_HOME.
+SMOKE_REAL_HOME="$HOME"
 SMOKE_HOME="$(mktemp -d)"; export HOME="$SMOKE_HOME"
 # A fixture repository's ledger folder, computed here independently of board-lib's ledger_key (the sha256 of the
 # physical git common dir, 32 hex) — so every path assertion below also cross-checks the key.
@@ -1905,7 +1914,7 @@ lg_t="$(cd "$(mktemp -d)" && pwd -P)"; lg_fail=0   # pwd -P: on macOS /var is a 
 ( cd "$lg_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init \
   && git worktree add -q "$lg_t/wt" -b wt && git -C "$lg_t/wt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m wt \
   && printf 'body line\n<!-- hidden -->\n' > body.txt ) >/dev/null 2>&1
-lg() { (cd "$lg_t" && bash "$LG" "$@"); }
+lg() { (cd "$lg_t" && as_launcher "${1:-}" bash "$LG" "$@"); }
 # FR-001 FR-008 — `dir` resolves to <common dir>/hefesto/ledger from the main checkout AND from a worktree
 lg_dir="$(lg dir 2>/dev/null)"; lg_dir_wt="$(cd "$lg_t/wt" && bash "$LG" dir 2>/dev/null)"
 [ "$lg_dir" = "$(sld "$lg_t")" ] && [ "$lg_dir_wt" = "$lg_dir" ] || { bad "ledger dir must be <common>/hefesto/ledger from main and worktree (got '$lg_dir' / '$lg_dir_wt')"; lg_fail=1; }
@@ -2006,7 +2015,7 @@ cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (unconditional lock) 
 lg block HEF-10 --kind human:intake >/dev/null 2>&1 || { lg unblock HEF-10 >/dev/null 2>&1; lg block HEF-10 --kind human:intake >/dev/null 2>&1; }
 cp "$LG" "$lg_md2/ledger.sh"; sed_i 's/\[ "\$(jq -r .\.blocked_on\.kind \/\/ empty. <<<"\$E")" != human:intake \] \\/true \\/' "$lg_md2/ledger.sh"
 cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (claim guard) did not apply"; lg_fail=1; }
-(cd "$lg_t" && bash "$lg_md2/ledger.sh" claim HEF-10 --session s --role verify) >/dev/null 2>&1 || { bad "mutation survived: the claim guard removed, an intake entry still unclaimable"; lg_fail=1; }
+(cd "$lg_t" && launcher bash "$lg_md2/ledger.sh" claim HEF-10 --session s --role verify) >/dev/null 2>&1 || { bad "mutation survived: the claim guard removed, an intake entry still unclaimable"; lg_fail=1; }
 lg2_mk HEF-10 '.owner = null'
 lg block HEF-10 --kind human:intake >/dev/null 2>&1
 for n in 'a"b' "$(printf 'a\nb')" 'Ana ' '-x' '$(id)'; do
@@ -2074,14 +2083,14 @@ if lg show '../ledger/HEF-A4' >/dev/null 2>&1 || lg init 'HEF 1' --kind tasks-re
 lm_t="$(mktemp -d)"; lm_fail=0
 # HEF-M1 reaches merged, which now needs merge evidence: b1 is cut at main's tip, so it IS in main.
 ( cd "$lm_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && git branch -f b1 main && for i in M1 P1 F1 S1 Q1; do bash "$LG" init HEF-$i --kind tasks-repo --ref t >/dev/null; done \
-  && bash "$LG" claim HEF-M1 --session impl-M1 --role implement && bash "$LG" run HEF-M1 --role implement --exit 0 --usd 1.5 && bash "$LG" record HEF-M1 --pr https://x/pull/1 --branch b1 && bash "$LG" advance HEF-M1 verify \
-  && bash "$LG" claim HEF-M1 --session verify-M1 --role verify && bash "$LG" run HEF-M1 --role verify --exit 0 --usd 0.5 && bash "$LG" verdict HEF-M1 --gate review --verdict PASS --by verify-M1 && bash "$LG" advance HEF-M1 pr && bash "$LG" advance HEF-M1 merged \
-  && bash "$LG" claim HEF-P1 --session impl-P1 --role implement && bash "$LG" run HEF-P1 --role implement --exit 0 --usd 1 && bash "$LG" record HEF-P1 --pr https://x/pull/2 --branch b2 && bash "$LG" advance HEF-P1 verify \
-  && bash "$LG" claim HEF-P1 --session verify-P1 --role verify && bash "$LG" run HEF-P1 --role verify --exit 0 --usd 0.25 && bash "$LG" verdict HEF-P1 --gate review --verdict PASS --by verify-P1 && bash "$LG" advance HEF-P1 pr && bash "$LG" block HEF-P1 --kind human:merge \
-  && bash "$LG" claim HEF-F1 --session impl-F1 --role implement && bash "$LG" run HEF-F1 --role implement --exit 0 --usd 1 && bash "$LG" advance HEF-F1 verify \
-  && bash "$LG" claim HEF-F1 --session verify-F1 --role verify && bash "$LG" run HEF-F1 --role verify --exit 0 --usd 0.3 && bash "$LG" verdict HEF-F1 --gate review --verdict FAIL --by verify-F1 && bash "$LG" block HEF-F1 --kind verdict \
-  && bash "$LG" claim HEF-S1 --session impl-S1 --role implement && bash "$LG" run HEF-S1 --role implement --exit 1 --usd 0.2 && bash "$LG" claim HEF-S1 --session impl-S1 --role implement && bash "$LG" run HEF-S1 --role implement --exit 1 --usd 0.2 ) >/dev/null 2>&1
-( cd "$lm_t" && bash "$LG" claim HEF-S1 --session impl-S1 --role implement ) >/dev/null 2>&1   # the third claim stalls (non-zero by design)
+  && launcher bash "$LG" claim HEF-M1 --session impl-M1 --role implement && launcher bash "$LG" run HEF-M1 --role implement --exit 0 --usd 1.5 && bash "$LG" record HEF-M1 --pr https://x/pull/1 --branch b1 && bash "$LG" advance HEF-M1 verify \
+  && launcher bash "$LG" claim HEF-M1 --session verify-M1 --role verify && launcher bash "$LG" run HEF-M1 --role verify --exit 0 --usd 0.5 && bash "$LG" verdict HEF-M1 --gate review --verdict PASS --by verify-M1 && bash "$LG" advance HEF-M1 pr && bash "$LG" advance HEF-M1 merged \
+  && launcher bash "$LG" claim HEF-P1 --session impl-P1 --role implement && launcher bash "$LG" run HEF-P1 --role implement --exit 0 --usd 1 && bash "$LG" record HEF-P1 --pr https://x/pull/2 --branch b2 && bash "$LG" advance HEF-P1 verify \
+  && launcher bash "$LG" claim HEF-P1 --session verify-P1 --role verify && launcher bash "$LG" run HEF-P1 --role verify --exit 0 --usd 0.25 && bash "$LG" verdict HEF-P1 --gate review --verdict PASS --by verify-P1 && bash "$LG" advance HEF-P1 pr && bash "$LG" block HEF-P1 --kind human:merge \
+  && launcher bash "$LG" claim HEF-F1 --session impl-F1 --role implement && launcher bash "$LG" run HEF-F1 --role implement --exit 0 --usd 1 && bash "$LG" advance HEF-F1 verify \
+  && launcher bash "$LG" claim HEF-F1 --session verify-F1 --role verify && launcher bash "$LG" run HEF-F1 --role verify --exit 0 --usd 0.3 && bash "$LG" verdict HEF-F1 --gate review --verdict FAIL --by verify-F1 && bash "$LG" block HEF-F1 --kind verdict \
+  && launcher bash "$LG" claim HEF-S1 --session impl-S1 --role implement && launcher bash "$LG" run HEF-S1 --role implement --exit 1 --usd 0.2 && launcher bash "$LG" claim HEF-S1 --session impl-S1 --role implement && launcher bash "$LG" run HEF-S1 --role implement --exit 1 --usd 0.2 ) >/dev/null 2>&1
+( cd "$lm_t" && launcher bash "$LG" claim HEF-S1 --session impl-S1 --role implement ) >/dev/null 2>&1   # the third claim stalls (non-zero by design)
 # Timestamps are the test's to set (review 2026-09-28): implement→verify 2h/4h/6h → median 4; M1's
 # verify→updated 3h → median 3; two `ci` blocks with different `since` → oldest is the earlier one.
 # Mutations: median → .[0] → 2 → red; oldest `min` → `max` → red.
@@ -2323,7 +2332,7 @@ sr implement HEF-7 --dry-run >/dev/null 2>&1 || { bad "after record --body-file 
 # HEF-4, HEF-7 queued; HEF-5 implement; HEF-6 budget. New entries HEF-8..HEF-11 carry the new cases.
 st_fail=0; st_hooks="Bash($REPO/hooks/*)"
 sr2() { (cd "$sr_t" && PATH="$sr_bin:$PATH" CLAUDE_CONFIG_DIR="$sr_cfg" bash "${SL_BIN:-$SL}" "$@"); }
-lg2() { (cd "$sr_t" && bash "${LG_BIN:-$LG}" "$@"); }
+lg2() { (cd "$sr_t" && as_launcher "${1:-}" bash "${LG_BIN:-$LG}" "$@"); }
 st_init() { printf '\n## HEF-%s — item %s\nbody %s\n' "$1" "$1" "$1" >> "$sr_t/tasks/TODO.md"; lg2 init "HEF-$1" --kind tasks-repo --ref t >/dev/null 2>&1; }
 st_init 8; st_init 9   # HEF-10 and HEF-11 are registered when their cases need them, so the plan stage sees one candidate at a time
 # FR-001 next --stage: plan and build both start at the lowest queued id; deploy finds the pr entry even while blocked on human:merge
@@ -3224,7 +3233,9 @@ ls_t="$(mktemp -d)"; ls_bin="$(mktemp -d)"; ls_fail=0
   && printf '# DOING\n' > tasks/DOING.md && printf '# DONE\n\n## 2026-09-01 — **HEF-3** — old\nx\n' > tasks/DONE.md && printf '# BACKLOG\n' > tasks/BACKLOG.md \
   && printf '{"source":"tasks-repo","root":"tasks","name":"demo","orchestrate":{"publish":true,"escalate_after_hours":4}}\n' > .claude/project-status.json \
   && git add -A && git -c user.email=t@t -c user.name=t commit -q -m i && git checkout -q -b feature/x ) >/dev/null 2>&1
-lsl() { (cd "$ls_t" && HEFESTO_GH_BIN="$ls_bin/gh" PATH="$ls_bin:$PATH" bash "${LSL_BIN:-$LG}" "$@"); }
+# (handoff runs as a person's terminal call: no session id — HEF-27, a lane session's handoff is refused)
+lsl() { (cd "$ls_t" && case "${1:-}" in handoff) unset CLAUDE_CODE_SESSION_ID ;; esac
+  HEFESTO_GH_BIN="$ls_bin/gh" PATH="$ls_bin:$PATH" as_launcher "${1:-}" bash "${LSL_BIN:-$LG}" "$@"); }
 lsj() { jq -e "$2" "$(sld "$ls_t")/$1.json" >/dev/null 2>&1; }
 lsset() { local f="$(sld "$ls_t")/$1.json"; jq "$2" "$f" > "$f.t" && mv "$f.t" "$f"; }   # fixture-only: back-date a block
 for i in 1 7 10; do (cd "$ls_t" && bash "$SB" --item-raw "HEF-$i" > "$ls_bin/h$i" && bash "$LG" init "HEF-$i" --kind tasks-repo --ref "tasks/TODO.md#HEF-$i" --body-file "$ls_bin/h$i" >/dev/null 2>&1); done
@@ -3242,6 +3253,12 @@ lsset HEF-1 '.blocked_on = null'
 ls_out="$(lsl handoff HEF-1 --pr https://github.com/o/r/pull/9 2>&1)"; ls_rc=$?
 { [ "$ls_rc" -eq 0 ] && lsj HEF-1 '.phase=="pr" and .blocked_on.kind=="human:merge" and .pr.number==9 and .branch=="feature/x" and .owner==null and (.runs[-1] | .role=="implement" and .session_name=="hand" and .exit==0 and .usd==0) and (.worktree|length>0)'; } \
   || { bad "handoff must record the run (session hand), the PR, the branch, the worktree, phase pr and human:merge (rc=$ls_rc): $(jq -c '{p:.phase,b:.blocked_on,pr:.pr,br:.branch,r:.runs[-1]}' "$(sld "$ls_t")/HEF-1.json")"; ls_fail=1; }
+# HEF-27 FR-010 mutant: handoff's inner run carries the launcher marker — dropped, the happy path above is refused
+ls_hm="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$ls_hm/$(basename "$f")"; done; rm -f "$ls_hm/ledger.sh"
+sed 's/env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 bash "\$0" run /bash "$0" run /' "$LG" > "$ls_hm/ledger.sh"
+cmp -s "$LG" "$ls_hm/ledger.sh" && { bad "handoff marker mutation did not apply"; ls_fail=1; }
+lsl init HM-9 --kind tasks-repo --ref t >/dev/null 2>&1
+LSL_BIN="$ls_hm/ledger.sh" lsl handoff HM-9 --pr https://github.com/o/r/pull/11 >/dev/null 2>&1 && { bad "mutation survived (FR-010): handoff's inner run unmarked, yet the handoff passed"; ls_fail=1; }; rm -rf -- "${ls_hm:?}"
 lsset HEF-1 '.phase = "merged" | .blocked_on = null'; ls_b="$(ls_snap)"
 lsl handoff HEF-1 --pr https://github.com/o/r/pull/9 >/dev/null 2>&1 && { bad "handoff must refuse an entry past pr"; ls_fail=1; }; [ "$(ls_snap)" = "$ls_b" ] || { bad "a refused handoff wrote the entry"; ls_fail=1; }
 # a failure after the owner write releases the entry instead of stranding it under "hand" (code review 2026-10-02)
@@ -4185,7 +4202,7 @@ EB_KCFG="{\"source\":\"tasks-repo\",\"root\":\"tasks\",\"orchestrate\":{\"tiers\
   && printf '{"board":"../kanban"}\n' > "$eb_ui/.claude/project-status.json" \
   && ebg "$eb_ops" branch dev && ebg "$eb_ops" push -q origin dev \
   && ebg "$eb_ops" worktree add -q "$eb_wt" -b OPS-1 && printf '1\n' > "$eb_wt/f1" && ebg "$eb_wt" add f1 && ebg "$eb_wt" commit -q -m one && ebg "$eb_wt" push -q -u origin OPS-1 ) >/dev/null 2>&1
-ebl() { local d="$1"; shift; (cd "$d" && bash "${EB_LG:-$LG}" "$@"); }
+ebl() { local d="$1"; shift; (cd "$d" && as_launcher "${1:-}" bash "${EB_LG:-$LG}" "$@"); }
 ebs() { local d="$1"; shift; (cd "$d" && bash "${EB_SB:-$SB}" "$@"); }
 ebx() { local d="$1"; shift; (cd "$d" && CLAUDE_CONFIG_DIR="$eb_cfg" bash "${EB_SL:-$SL}" "$@" 2>&1); }
 ebj() { jq -e "$2" "$(sld "$eb_k")/$1.json" >/dev/null 2>&1; }
@@ -5413,7 +5430,7 @@ cp "$l3_t/.claude/project-status.json" "$l3_t/ps.bak"
 # a profile whose plugin copy sits in a temp folder (skipped), and a project-scope install (ignored)
 mkdir -p "$l3_home/.claude/plugins"
 printf '{"plugins":{"hefesto@hefesto":[{"scope":"user","installPath":"%s/.claude/plugins/cache/hefesto/hefesto/9.9.9"},{"scope":"project","installPath":"/opt/proj/hefesto"}]}}\n' "$l3_home" > "$l3_home/.claude/plugins/installed_plugins.json"
-l3l() { (cd "$l3_t" && bash "${L3_LG:-$LG}" "$@"); }
+l3l() { (cd "$l3_t" && as_launcher "${1:-}" bash "${L3_LG:-$LG}" "$@"); }
 l3s() { (cd "$l3_t" && PATH="$l3_bin:$PATH" CLAUDE_CONFIG_DIR="$l3_cfg" bash "${L3_SL:-$SL}" "$@"); }
 l3u() { (cd "$l3_t" && HOME="$l3_home" CLAUDE_CONFIG_DIR= bash "${L3_SU:-$SU}" "$@"); }
 l3j() { jq -e "$2" "$(sld "$l3_t")/$1.json" >/dev/null 2>&1; }
@@ -5433,9 +5450,10 @@ printf '{"env":{"FOO":"1"},"permissions":{"allow":["Bash(ls)","Bash(%s/scripts/m
 cp "$L3F" "$l3_t/own.json"
 l3_o="$(l3u --lanes 2>&1)"
 { jq -e --arg h "$REPO/hooks" --arg t "$l3_t" '
-    (.permissions.allow | index(["Bash(\($h)/ledger.sh board:*)"])) and (.permissions.ask | index(["Bash(\($h)/ledger.sh unblock:*)"])) and (.permissions.ask | index(["Bash(bash \($h)/ledger.sh unblock:*)"]))
+    (.permissions.allow | index(["Bash(\($h)/ledger.sh board:*)"])) and (.permissions.ask | index(["Bash(\($h)/ledger.sh unblock * --reviewed-by-human*)"])) and (.permissions.ask | map(select(startswith("Bash(bash "))) | length == 0)
     and (.permissions.ask | index(["Bash(\($h)/ledger.sh answer:*)"])) and (.permissions.ask | index(["Bash(\($h)/ledger.sh revise:*)"]))
-    and (.permissions.allow | map(select(test("ledger.sh (unblock|record|claim|advance|handoff|block|answer|revise)"))) | length == 0)
+    and (.permissions.allow | index(["Bash(\($h)/ledger.sh record:*)"])) and (.permissions.allow | index(["Bash(\($h)/ledger.sh advance:*)"]))
+    and (.permissions.allow | map(select(test("ledger.sh (claim|run|answer|revise|approve)[ :)]"))) | length == 0)
     and (.sandbox.excludedCommands | index(["\($h)/session-launch.sh *"])) and (.sandbox.excludedCommands | index(["\($h)/ledger.sh *"])) and (.sandbox.excludedCommands | index(["gh *"]))
     and (.sandbox | has("autoAllowBashIfSandboxed") | not) and .sandbox.enabled == true and .sandbox.failIfUnavailable == true
     and (.permissions.allow | index(["Bash(gh pr view:*)"])) and (.permissions.allow | map(select(test("gh (pr merge|pr review|api)"))) | length == 0)
@@ -5443,7 +5461,7 @@ l3_o="$(l3u --lanes 2>&1)"
     and .env.HEFESTO_LANES == "1" and (.env.HEFESTO_LANE_MAP | fromjson | .["repo-builder2"] == "build" and .["repo-orchestrator"] == "orchestrator")
     and .env.HEFESTO_TRUSTED_TOP == $t and .env.FOO == "1" and .crossSessionInbound == "accept" and .statusLine.command == "/my/sl"
     and (.permissions.allow | index(["Bash(ls)"])) and (.sandbox.excludedCommands | index(["docker *"]))' --arg home "$l3_home" "$L3F" >/dev/null; } \
-  || { bad "setup --lanes must write the allowlist, the ask rules (both spellings, answer and revise), the launcher and ledger.sh exclusions, gh outside the sandbox with only its read forms allowed, Edit denied on hefesto's state, the sandbox on, auto-allow left at its default, the lane map, the trusted top and inbound accept, keeping the person's own entries: $(jq -c . "$L3F" | head -c 600)"; l3_fail=1; }
+  || { bad "setup --lanes must write the allowlist (the mechanics record/advance allowed, never claim/run or a signature — HEF-27 FR-002), the ask rules (one spelling, the flag-qualified unblock, answer and revise — FR-001, FR-004), the launcher and ledger.sh exclusions, gh outside the sandbox with only its read forms allowed, Edit denied on hefesto's state, the sandbox on, auto-allow left at its default, the lane map, the trusted top and inbound accept, keeping the person's own entries: $(jq -c . "$L3F" | head -c 600)"; l3_fail=1; }
 { ! grep -qF '/gone/hooks/' "$L3F" && ! grep -qF '1.0.0/hooks' "$L3F" && ! grep -qF '9.9.9' "$L3F" && grep -qF "$REPO/scripts/mine.sh" "$L3F" && grep -qF 'skipped' <<<"$l3_o"; } \
   || { bad "setup must drop a stale exclusion and an old version's rules, skip a temp-folder root, and keep the person's other rules: $l3_o"; l3_fail=1; }
 l3_h="$(cksum < "$L3F")"; l3_o="$(l3u --lanes 2>&1)"; { grep -qF unchanged <<<"$l3_o" && [ "$(cksum < "$L3F")" = "$l3_h" ]; } || { bad "a second setup run must change nothing: $l3_o"; l3_fail=1; }
@@ -5624,6 +5642,9 @@ lg_want builder "$REPO/hooks/session-launch.sh implement LT-2 --prepare --lane r
 for lg_c in 'if :; then gh pr merge 3 --merge; fi' 'g\h pr merge 3 --merge' '! gh pr merge 3 --merge' '"gh" pr merge 3 --merge' '\gh pr merge 3 --merge' 'for x in 1; do gh pr merge 3; done' "env -u CLAUDE_CODE_SESSION_ID $LGL approve A"; do
   lg_want builder "$lg_c" deny
 done
+# HEF-27 FR-010: a session forging the launcher marker (dropping its id, setting HEFESTO_LAUNCHER) is denied by the hook
+lg_want orchestrator "env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 $LGL claim LT-2 --session s --role implement" deny
+lg_want builder "HEFESTO_LAUNCHER=1 $LGL run LT-2 --role implement --exit 0 --usd 0" deny
 lg_want builder "git log --oneline -3" none
 # 9.0.1 (live check 6): in auto mode an unmatched gh pr merge was the classifier's call and ran — in a --lanes project
 # a gh that writes is denied unless granted; reads and gh pr create are left to the rules
@@ -5676,7 +5697,7 @@ l3_mut lane-guard.sh 's/is_person_sub "${WA\[@\]:1}" \&\& \[ "$ROLE" != orchestr
 l3_mut lane-guard.sh 's/^  for sub in ledger approvals sessions; do$/  for sub in nothing; do/'
 [ "$(gdf "$HOME/.cache/hefesto/ledger/x/LT-2.json")" = deny ] && { bad "mutation survived: the protected-path test removed, yet the ledger write was denied"; lg_fail=1; }; l3_restore lane-guard.sh
 LG_GD=""
-l3_mut ledger.sh 's/^  valid_sid "$sid" || return 0; f=$(session_file "$sid")/  return 0; f=$(session_file "$sid")/'
+l3_mut ledger.sh 's/^  in_lanes_session || return 0; f=\$(session_file/  return 0; f=$(session_file/'   # (HEF-27 lifted the preamble into in_lanes_session)
 lg_o="$(cd "$l3_t" && CLAUDE_CODE_SESSION_ID=sid-repo-builder-0001 bash "$l3_md/ledger.sh" answer LT-2 --reviewed-by-human --by Ana </dev/null 2>&1)"; grep -qF 'only in the orchestrator lane' <<<"$lg_o" && { bad "mutation survived: the second gate removed, yet it still refused"; lg_fail=1; }; l3_restore ledger.sh
 l3_mut run-tests-after-edit.sh 's/project_code_stands_down "$CWD"; then echo/false; then echo/'
 lg_o="$(jq -nc --arg d "$l3_t" '{tool_name: "Edit", tool_input: {file_path: ($d + "/a.js")}, cwd: $d}' | bash "$l3_md/run-tests-after-edit.sh" 2>&1 >/dev/null)"
@@ -5827,7 +5848,7 @@ l3l register LT-1 --ref TODO.md#LT-1 >/dev/null 2>&1
 l3l init LT-9 --kind tasks-repo --ref t >/dev/null 2>&1; l3l init LT-11 --kind tasks-repo --ref t >/dev/null 2>&1
 L3LD="$(sld "$l3_t")"
 l3_own() { l3set LT-9 ".owner = {session_name: \"plan-LT-9\", role: \"plan\", pid: 1, started: \"$1\"}"; }
-l3_claim11() { l3set LT-11 '.owner = null'; (cd "$l3_t" && ${1:+env "$1"} bash "${L3_LG:-$LG}" claim LT-11 --session s --role plan --pid $$) 2>&1; }
+l3_claim11() { l3set LT-11 '.owner = null'; (cd "$l3_t" && launcher ${1:+"$1"} bash "${L3_LG:-$LG}" claim LT-11 --session s --role plan --pid $$) 2>&1; }
 l3_own 2026-01-01T00:00:00Z; rm -f "$L3LD/LT-9.lease"; l3l list --active >/dev/null 2>&1; l3l next --stage plan >/dev/null 2>&1
 l3j LT-9 '.owner != null' || { bad "list and next must stay read-only: only a claim releases a claim"; l3_fail=1; }
 l3_o="$(l3_claim11)"; { l3j LT-9 '.owner == null and .runs[-1].kind == "reaped"' && grep -qF 'released LT-9' <<<"$l3_o"; } \
@@ -5850,7 +5871,7 @@ l3l claim LT-9 --session s --role plan --pid $$ >/dev/null 2>&1
 l3j LT-9 ".owner.pid == $$" || { bad "claim --pid must record the launcher's pid"; l3_fail=1; }
 l3l run LT-9 --role plan --exit 0 --usd 0 --pid 1 >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "run --pid of another launcher must not release this claim"; l3_fail=1; }
 l3l run LT-9 --role plan --exit 0 --usd 0 >/dev/null 2>&1; l3j LT-9 ".owner.pid == $$" || { bad "run without --pid (a worker, a stray call) must not release a launcher's claim"; l3_fail=1; }
-(cd "$l3_t" && HEFESTO_WORKER=1 bash "$LG" run LT-9 --role plan --exit 0 --usd 0 --pid $$) >/dev/null 2>&1 && { bad "run must be refused inside a launched worker, even with the right pid"; l3_fail=1; }
+(cd "$l3_t" && HEFESTO_WORKER=1 launcher bash "$LG" run LT-9 --role plan --exit 0 --usd 0 --pid $$) >/dev/null 2>&1 && { bad "run must be refused inside a launched worker, even with the right pid"; l3_fail=1; }
 l3j LT-9 ".owner.pid == $$" || { bad "a worker's run must leave the claim"; l3_fail=1; }
 l3_mut ledger.sh 's/ or ((.owner.pid | tostring) == $p) then/ or true then/'
 L3_LG="$l3_md/ledger.sh"; l3l run LT-9 --role plan --exit 0 --usd 0 --pid 1 >/dev/null 2>&1; l3j LT-9 '.owner == null' || { bad "mutation survived: run releases any claim, yet the other launcher's claim stayed"; l3_fail=1; }; l3_restore ledger.sh; L3_LG=""
@@ -6219,6 +6240,10 @@ im planner plan LT-4 --prepare --lane repo-planner --lane repo-planner >/dev/nul
 im planner plan LT-4 --prepare >/dev/null 2>&1 && { bad "--prepare without --lane must be refused"; im_fail=1; }
 im planner plan LT-4 --prepare --lane repo-builder >/dev/null 2>&1 && { bad "--prepare as a lane of another role must be refused"; im_fail=1; }
 im builder plan LT-4 --prepare --lane repo-planner >/dev/null 2>&1 && { bad "--prepare from another lane's session must be refused"; im_fail=1; }
+# HEF-27 FR-008/FR-010 mutant: --prepare's claim carries the launcher marker — dropped, the ledger refuses the claim
+l3_mut session-launch.sh 's/^  HEFESTO_LAUNCHER=1 "\$LEDGER" claim "\$ID" --session "\$LANE"/  "$LEDGER" claim "$ID" --session "$LANE"/'
+IM_SL="$l3_md/session-launch.sh" im planner plan LT-4 --prepare --lane repo-planner >/dev/null 2>&1; l3j LT-4 '.owner == null' \
+  || { bad "mutation survived (FR-010): the --prepare claim unmarked, yet the lane's claim was written"; im_fail=1; }; l3_restore session-launch.sh
 im_o="$(im planner plan LT-4 --prepare --lane repo-planner 2>&1)"; im_wt="$l3_t/.claude/worktrees/LT-4"
 { grep -qx "worktree: $im_wt" <<<"$im_o" && [ -d "$im_wt" ] && grep -qF 'You are the repo-planner lane' "$(sld "$l3_t")/LT-4.prompt.md" \
   && l3j LT-4 '.owner.session_name == "repo-planner" and .owner.mode == "interactive" and (.owner | has("pid") | not) and .phase == "intake" and .branch == "worktree-LT-4"'; } \
@@ -6267,7 +6292,7 @@ l3_mut session-launch.sh 's/^  BAD="$(schema_errors "$SCHEMA" "$SO")"; \[ -z "$B
 im planner plan LT-4 --finish --lane repo-planner --outcome-file "$l3_t/o-bad.json" >/dev/null 2>&1; l3j LT-4 '.owner == null' || { bad "mutation survived: the schema check removed, yet the bad outcome was refused"; im_fail=1; }; l3_restore session-launch.sh; IM_SL=""
 l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", mode: "interactive", started: "2020-01-01T00:00:00Z"}'
 l3_mut ledger-lanes.sh 's/\[ "$(jq -r .\.owner != null and \.owner\.mode != "interactive". "$f" 2>\/dev\/null)" = true \]/[ "$(jq -r ".owner != null" "$f" 2>\/dev\/null)" = true ]/'
-(cd "$l3_t" && bash "$l3_md/ledger.sh" claim LT-1 --session x --role verify) >/dev/null 2>&1; (cd "$l3_t" && bash "$LGL" run LT-1 --role verify --exit 0 --usd 0) >/dev/null 2>&1
+(cd "$l3_t" && launcher bash "$l3_md/ledger.sh" claim LT-1 --session x --role verify) >/dev/null 2>&1; (cd "$l3_t" && launcher bash "$LGL" run LT-1 --role verify --exit 0 --usd 0) >/dev/null 2>&1
 l3j LT-4 '.owner == null' || { bad "mutation survived: the reaper's interactive exemption removed, yet the old interactive claim survived"; im_fail=1; }; l3_restore ledger-lanes.sh
 # B4: a verify that reports no review verdict fails — an in-lane verify (and a run's) cannot skip the reviewer
 im_vf() { l3set LT-4 '.phase = "verify" | .blocked_on = null | .owner = {session_name: "repo-builder", role: "verify", mode: "interactive", started: "2026-01-01T00:00:00Z"}'
@@ -6709,6 +6734,7 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-github-board.sh"     # part 8: a GitHub Project as a lane board (github-project-board FR-001..FR-012)
 . "$REPO/tests/smoke-lane-cache.sh"        # part 9: the lanes' build cache, only inside the sandbox (lane-build-cache, #162)
 . "$REPO/tests/smoke-spec-roots.sh"        # part 10: a .specify/ per app folder in one repository (monorepo-spec-roots, #172)
+. "$REPO/tests/smoke-signatures.sh"        # part 11: a dialog only where a person signs, one spelling per root (HEF-27)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.

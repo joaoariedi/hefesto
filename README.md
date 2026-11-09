@@ -291,8 +291,9 @@ holds everything the line points at.
 
 **Aligning a release across the panes** is a sequence the ledger makes visible, not a meeting:
 
-1. `project` dispatches or a person in `feature` claims an item (`hooks/ledger.sh claim HEF-7
-   --session <repo>-feature --role implement`) — the orchestrator then leaves it alone.
+1. `project` dispatches or the `feature` lane takes an item (`hooks/session-launch.sh implement HEF-7
+   --prepare --lane <repo>-feature`, which claims it — `ledger.sh claim` is the launcher's alone) —
+   the orchestrator then leaves it alone.
 2. The PR lands the item in `pr`, blocked on `human:merge`. That block is the release queue.
 3. `chore` merges (a person, with a merge commit), then `git pull --ff-only`,
    `hooks/ledger.sh unblock HEF-7`, `hooks/ledger.sh advance HEF-7 merged`, and removes the worktree.

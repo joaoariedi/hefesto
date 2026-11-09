@@ -52,6 +52,34 @@ it is what caught the hand-bumped era:
   matrix header states the mode (`mode: scoped` | `mode: legacy (bare ids count)`).
 - **`spec-cite-probe.sh` names the right spec**: a qualified citation is attributed to the spec it names only.
 
+### Changed
+
+- **A permission dialog only where a person signs** (HEF-27; `docs/install.md` §2). `hefesto-setup.sh` writes in
+  `ask` exactly the `ledger.sh` forms that record a person's decision — `approve`, `answer`, `revise`, `drop`,
+  `fold`, `supersede`, `reopen`, `op close`, `op drop`, and `unblock`/`record`/`release` with their signature flag
+  (`--reviewed-by-human`, `--merge-sha`, `--body-file`, `--body-from-board`, `--rfc`) anywhere after the id — plus
+  `pr-watch.sh reply|comment`. The **mechanics asks are gone**: `record`, `advance`, `handoff`, `block`, plain
+  `unblock` and `release`, `verdict` and every other subcommand get their own `allow` rule (never `ledger.sh` as a
+  whole). Measured on a four-lane board: 408 `ask` rules and about 100 dialogs from RFC to a staging deploy. A
+  person who relied on a mechanics ask as a brake loses that dialog; `ledger.sh` still refuses a person's decision
+  from any lane but the orchestrator.
+- **One spelling per root.** Each rule and sandbox exclusion is written once per plugin root, in the spelling the
+  matcher sees — `<installPath>//hooks/…` for a profile's installed copy, `<clone>/hooks/…` for the clone — and
+  never as `bash <path>`. The first run after the upgrade takes out every other spelling and version an earlier
+  setup wrote; the person's own rules stay byte-identical.
+- **`claim` and `run` are launcher-only, in every project.** No permission rule is written for them; `ledger.sh`
+  refuses them, nothing written, unless `session-launch.sh` (or `handoff`'s own re-entry) calls them. A person
+  frees a claim with `ledger.sh release <id> --reviewed-by-human --by <name>`; a hand-run item goes through
+  `handoff`, which now refuses a lanes session up front (a lane finishes with `session-launch.sh --finish`). The
+  launcher's marker (`HEFESTO_LAUNCHER=1` with no session id) is a brake against sessions, not a secret: a Claude
+  session always carries its id and, in a set-up project, `lane-guard.sh` denies the wrapper that would drop it;
+  a person in a terminal could type it. In a project with neither setup nor sandbox there is no brake — as today.
+- **`--check` names a mechanics ask as the defect**: any `ask` rule on a hefesto helper outside the signature set,
+  in `settings.local.json`, the project's `settings.json` or the profile's `settings.json`, exits 1 with
+  `no ask rule outside the signature set (<rule> in <file> — every lane pass would stop on it)`. It also looks
+  for the signature set under the canonical spelling of the root this session runs from, and refuses a root
+  setup does not trust instead of guessing a spelling.
+
 ### Unchanged
 
 - **Unmarked specs are legacy and behave as before** — bare ids count — so shipped specs and adopters'
