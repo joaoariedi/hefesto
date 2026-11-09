@@ -231,7 +231,7 @@ to bring back the lead's reply **together with the whole message**, then stop. P
 - the integration branch and the promotion order, if not `main`;
 - repository settings only the lead can change: merge commits only (squash and rebase off), protecting the integration branch;
 - the test command, if you could not find it;
-- the spend limits: `usd_cap` (per worker session) and `daily_usd_cap` (per day);
+- the spend limits (optional; none by default): `usd_cap` (per worker session) and `daily_usd_cap` (per day);
 - a project rule that the sessions would break, and whether to make an exception for board items;
 - the mode, if the engineer did not know (single lane or four lanes);
 - whether a person approves every background plan (`plan_review: "human"`, recommended — the cheapest place
@@ -265,8 +265,6 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
      "source": "tasks-repo",
      "root": "tasks",
      "orchestrate": {
-       "usd_cap": 20,
-       "daily_usd_cap": 100,
        "tiers": { "implement": "opus", "verify": "fable" },
        "plan_first": true,
        "plan_review": "human",

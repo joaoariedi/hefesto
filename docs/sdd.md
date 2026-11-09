@@ -55,6 +55,29 @@ id the spec never declared. Tests cite their requirement with a marker, a `descr
 comment; the match is lexical on purpose (zero dependencies, any language, impossible to satisfy by
 accident).
 
+**Qualified citations.** Every spec has an `FR-001`, so a bare id covers every spec that declares it. A
+test cites a requirement as `<spec>/FR-NNN`, where `<spec>` is the spec's directory name under
+`.specify/specs/` — that token covers the named spec only. A spec whose `spec.md` carries the line
+`<!-- req-coverage: scoped -->` is *scoped*: only its qualified citations count, and an `UNCOVERED`
+row that bare citations would have covered ends with `bare: <file:line> … — cite as <spec>/FR-NNN`.
+The `/hefesto:hef.spec` template writes the marker, so every new spec is scoped. A spec without it is
+*legacy* — the matrix header says `mode: legacy (bare ids count)` — and keeps the old behaviour: a bare
+`FR-NNN` counts, and so does its own qualified form; another spec's qualified citation never does.
+Specs written by `/hefesto:hef.baseline` and `/hefesto:hef.init` stay legacy until marked: a brownfield
+suite already cites bare ids.
+
+A citation of an id this spec does not declare is `ELSEWHERE` (reported, not failing) when another spec
+declares it — bare, or qualified `<other>/FR-NNN` with that spec present and declaring the id. It is
+`UNKNOWN` (failing) when no spec declares the bare id, or the qualified citation names a spec that does
+not exist or does not declare the id — including the spec under check.
+
+To move a legacy spec to scoped: add the marker line to its `spec.md`, qualify its tests' citations
+(`FR-NNN` → `<spec>/FR-NNN`; the `bare:` hints list where), and re-run `req-coverage <spec>` until it
+is green.
+
+Every `FR-<digits>` token anywhere in a `spec.md` is read as a declaration, so an example id in a
+spec's prose needs a non-digit placeholder (`FR-NNN`); otherwise it becomes a requirement no test cites.
+
 Specifications live in `.specify/specs/<branch>/` of the spec root — the nearest folder, from where you work, that holds `.specify/`, never above the repository top — and are committed to version control. A constitution in `.specify/memory/constitution.md` defines project-level governance principles that every plan is validated against. In a repository with several apps (`spec_roots` in `.claude/project-status.json`, [install §7, item 15](install.md)), each app folder has its own `.specify/` and inherits the top constitution: `speckit-helper.sh constitution` run in an app prints the repository's constitution first, then the app's.
 
 ### 🏗️ Brownfield Path (existing code)
@@ -101,8 +124,8 @@ The `@v9.3.0` pins only the workflow file. The helper it runs is cloned from the
 which defaults to `main` — pass the same tag there, or the check follows hefesto's main branch.
 
 It runs `speckit-helper.sh req-coverage --all`: each spec whose `tasks.md` has no open task is
-checked (every `FR-NNN` cited by at least one test, no test citing an undeclared id); specs
-still in progress are listed and skipped. Locally, `req-coverage <spec-name>` checks one shipped
+checked in its own mode (every `FR-NNN` cited by at least one test — qualified as `<spec>/FR-NNN` for
+a scoped spec — and no test citing an undeclared id); specs still in progress are listed and skipped. Locally, `req-coverage <spec-name>` checks one shipped
 spec from any branch. No install step: bash, jq, and git.
 
 `req-coverage` checks the specs of the spec root it runs from, and the reusable workflow runs it from

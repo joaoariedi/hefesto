@@ -48,7 +48,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # req-coverage --all re
 # shellcheck source=hooks/spec-root-lib.sh
 . "$(dirname "$SELF")/spec-root-lib.sh"
 case "${1:-}" in
-  spec|plan|check-spec|check-plan|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
+  spec|plan|check-spec|check-plan|check-tasks-inputs|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
   constitution|list-specs|list-specs-dir|check-plan-review|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
   detect-stack|detect-test-framework|mutation-*)   # a glob ends the list: the docs' subcommand count reads simple arms only
     SPEC_ROOT="$(spec_root_find "$PWD")" && cd "$SPEC_ROOT" || { echo "speckit-helper: cannot enter the spec root of $PWD" >&2; exit 1; } ;;
@@ -210,6 +210,91 @@ run_auditor() { # $1 tool label, $2 valid exits ("0 1"), $3 jq count expr, $4 jq
   if [ "$n" = unknown ] || [ "$n" -gt 0 ]; then AUDIT_FOUND=1; fi
 }
 
+# --- req-coverage internals (scoped-fr-citations) ---
+# "Declares" has ONE definition: every FR-<digits> token in a spec.md, the spec's own and a foreign lookup alike.
+rc_declared_ids() { grep -oE '\bFR-[0-9]+\b' "$1" | sort -u; }
+
+# Test files: code extensions only, inside a test location or with a test-ish name. Excludes
+# .specify/ (spec.md would otherwise self-cite every id) and vendored trees.
+rc_test_files() {
+  find . -type f \
+    \( -name '*.py' -o -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' -o -name '*.go' \
+       -o -name '*.rs' -o -name '*.java' -o -name '*.kt' -o -name '*.rb' -o -name '*.sh' -o -name '*.bats' \) \
+    \( -path '*/tests/*' -o -path '*/test/*' -o -path '*/__tests__/*' -o -path '*/spec/*' \
+       -o -name '*test*' -o -name '*spec*' \) \
+    -not -path '*/.specify/*' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' \
+    -not -path '*/target/*' -not -path '*/dist/*' -not -path '*/build/*' -not -path '*/.venv/*' \
+    -not -path '*/graphify-out/*' 2>/dev/null | sort
+}
+
+# stdin: test file list → stdout: the citation table, one row per token: file:line<TAB>qualifier<TAB>FR-NNN
+# (qualifier empty for a bare id). One grep pass with the shared grammar (spec-root-lib.sh), replacing a
+# per-id `grep -w` that matched inside `<spec>/FR-NNN`. An id list (`FR-001/FR-002`) is two bare rows.
+rc_citations() {
+  xargs grep -nHowE -- "$HEF_FR_CITE_RE" 2>/dev/null |
+    awk -F: '{ loc = $1 ":" $2; tok = $3; for (i = 4; i <= NF; i++) tok = tok ":" $i
+               n = split(tok, p, "/"); q = (n == 2) ? p[1] : ""; id = p[n]
+               if (q ~ /^FR-[0-9]+$/) { print loc "\t\t" q; q = "" }
+               print loc "\t" q "\t" id }'
+}
+
+# A spec carrying the marker line is scoped (only `<its-name>/FR-NNN` covers it); unmarked is legacy.
+rc_mode() { if grep -qxF '<!-- req-coverage: scoped -->' "$1"; then echo scoped; else echo legacy; fi; }
+
+# $1 ids, $2 label, $3 mode, $4 table → one row per declared id; sets rc_total and rc_uncovered.
+# Covering rows: qualifier == label (both modes), or bare (legacy only). A scoped UNCOVERED row names
+# up to 3 bare citations it ignored, so the fix (qualify them) is on the row.
+rc_own_rows() {
+  local id hits bare
+  rc_total=0; rc_uncovered=0
+  while read -r id; do
+    [ -z "$id" ] && continue
+    rc_total=$((rc_total + 1))
+    hits="$(awk -F'\t' -v id="$id" -v me="$2" -v m="$3" '$3 == id && ($2 == me || ($2 == "" && m == "legacy")) {print $1}' <<<"$4" | head -5 | tr '\n' ' ')"
+    if [ -n "$hits" ]; then printf '%-8s COVERED    %s\n' "$id" "$hits"; continue; fi
+    rc_uncovered=$((rc_uncovered + 1))
+    bare=""
+    [ "$3" = scoped ] && bare="$(awk -F'\t' -v id="$id" '$3 == id && $2 == "" {print $1}' <<<"$4" | head -3 | tr '\n' ' ')"
+    if [ -n "$bare" ]; then printf '%-8s UNCOVERED  — bare: %s— cite as %s/%s\n' "$id" "$bare" "$2" "$id"
+    else printf '%-8s UNCOVERED  —\n' "$id"; fi
+  done <<<"$1"
+}
+
+# $1 table → one line per distinct citation: id<TAB>first 3 locations<TAB>qualifier (last: it may be empty,
+# and `read` collapses adjacent tab separators).
+rc_distinct() {
+  awk -F'\t' '$3 != "" { k = $2 "\t" $3; if (!(k in c)) { o[++n] = k; c[k] = 0 }
+                         if (c[k] < 3) { w[k] = w[k] $1 " "; c[k]++ } }
+              END { for (i = 1; i <= n; i++) { split(o[i], p, "\t"); print p[2] "\t" w[o[i]] "\t" p[1] } }' <<<"$1" | sort
+}
+
+# $1 ids, $2 label, $3 table → a row per citation not counted by rc_own_rows; sets rc_unknown, rc_elsewhere.
+# A test suite is shared across feature branches while FR ids are per spec, so a bare id this spec does
+# not declare may be another spec's (measured 2026-09-25: the suite cited the first spec's FR-016..FR-019).
+# That is ELSEWHERE — reported, not failing. A qualified citation is ELSEWHERE only when the spec it names
+# exists and declares the id; otherwise, like a bare id no spec declares, it is UNKNOWN: a typo, or a claim
+# about a requirement that does not exist. Never silently skipped.
+rc_foreign_rows() {
+  local others id where q tok why
+  rc_unknown=0; rc_elsewhere=0
+  others="$(cat .specify/specs/*/spec.md 2>/dev/null | grep -oE '\bFR-[0-9]+\b' | sort -u)"
+  while IFS="$(printf '\t')" read -r id where q; do
+    [ -z "$id" ] && continue
+    if grep -qxF -- "$id" <<<"$1" && { [ -z "$q" ] || [ "$q" = "$2" ]; }; then continue; fi
+    tok="$id"; [ -n "$q" ] && tok="$q/$id"
+    why=""
+    if [ -z "$q" ]; then
+      grep -qxF -- "$id" <<<"$others" || why="not declared by any spec"
+    elif [ ! -f ".specify/specs/$q/spec.md" ]; then   # the grammar admits no `/` in $q: no traversal
+      why="no spec '$q'"
+    elif ! rc_declared_ids ".specify/specs/$q/spec.md" | grep -qxF -- "$id"; then   # also the own spec: its declared ids were skipped above
+      why="not declared by spec '$q'"
+    fi
+    if [ -z "$why" ]; then printf '%-8s ELSEWHERE  %s(declared by another spec)\n' "$tok" "$where"; rc_elsewhere=$((rc_elsewhere + 1))
+    else printf '%-8s UNKNOWN    %s(%s)\n' "$tok" "$where" "$why"; rc_unknown=$((rc_unknown + 1)); fi
+  done < <(rc_distinct "$3")
+}
+
 case "$1" in
   # --- Branch & git ---
   branch)
@@ -243,6 +328,12 @@ case "$1" in
       echo "NO_PLAN_FOR_BRANCH: $BRANCH"
       exit 1
     fi
+    ;;
+  check-tasks-inputs)
+    # /hefesto:hef.tasks: spec + plan is the full path; spec alone is hef.agent's light path (HEF-1)
+    d=".specify/specs/$BRANCH"
+    [ -f "$d/spec.md" ] || { echo "NO_SPEC_FOR_BRANCH: $BRANCH"; exit 1; }
+    if [ -f "$d/plan.md" ]; then echo "FULL_PATH: $BRANCH"; else echo "LIGHT_PATH: $BRANCH"; fi
     ;;
   check-artifacts)
     for f in tasks.md plan.md spec.md; do
@@ -460,57 +551,19 @@ case "$1" in
     else
       [ -f "$spec" ] || missing_artifact spec.md
     fi
-    ids="$(grep -oE '\bFR-[0-9]+\b' "$spec" | sort -u)"
+    ids="$(rc_declared_ids "$spec")"
     [ -n "$ids" ] || die "req-coverage: $spec declares no FR-NNN ids — nothing to trace. Add functional requirements to the spec first."
-    # Test files: code extensions only, inside a test location or with a test-ish name. Excludes
-    # .specify/ (spec.md would otherwise self-cite every id) and vendored trees.
-    files="$(find . -type f \
-      \( -name '*.py' -o -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' -o -name '*.go' \
-         -o -name '*.rs' -o -name '*.java' -o -name '*.kt' -o -name '*.rb' -o -name '*.sh' -o -name '*.bats' \) \
-      \( -path '*/tests/*' -o -path '*/test/*' -o -path '*/__tests__/*' -o -path '*/spec/*' \
-         -o -name '*test*' -o -name '*spec*' \) \
-      -not -path '*/.specify/*' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' \
-      -not -path '*/target/*' -not -path '*/dist/*' -not -path '*/build/*' -not -path '*/.venv/*' \
-      -not -path '*/graphify-out/*' 2>/dev/null | sort)"
+    files="$(rc_test_files)"
+    # Each spec's mode is read here, so every --all re-entry checks its spec in its own mode (FR-009).
+    mode="$(rc_mode "$spec")"
     echo "REQUIREMENT COVERAGE — $label"
     echo "spec: $spec · test files scanned: $(printf '%s\n' "$files" | grep -c . || true)"
-    uncovered=0; total=0
-    while read -r id; do
-      [ -z "$id" ] && continue
-      total=$((total + 1))
-      hits=""
-      [ -n "$files" ] && hits="$(printf '%s\n' "$files" | xargs grep -nHwF -- "$id" 2>/dev/null | cut -d: -f1,2 | head -5 | tr '\n' ' ')"
-      if [ -n "$hits" ]; then
-        printf '%-8s COVERED    %s\n' "$id" "$hits"
-      else
-        printf '%-8s UNCOVERED  —\n' "$id"
-        uncovered=$((uncovered + 1))
-      fi
-    done <<<"$ids"
-    unknown=0; elsewhere=0
-    # A test suite is shared across feature branches while FR ids are per spec, so an id this
-    # spec does not declare may be another spec's (measured 2026-09-25 on the second feature
-    # branch this repo ran: the suite cited the first spec's FR-016..FR-019). That is ELSEWHERE —
-    # reported, not failing. UNKNOWN is an id no spec directory declares: a typo, or a claim
-    # about a requirement that does not exist.
-    others="$(cat .specify/specs/*/spec.md 2>/dev/null | grep -oE '\bFR-[0-9]+\b' | sort -u)"
-    if [ -n "$files" ]; then
-      cited="$(printf '%s\n' "$files" | xargs grep -ohwE 'FR-[0-9]+' 2>/dev/null | sort -u)"
-      while read -r c; do
-        [ -z "$c" ] && continue
-        grep -qxF "$c" <<<"$ids" && continue
-        where="$(printf '%s\n' "$files" | xargs grep -nHwF -- "$c" 2>/dev/null | cut -d: -f1,2 | head -3 | tr '\n' ' ')"
-        if grep -qxF "$c" <<<"$others"; then
-          printf '%-8s ELSEWHERE  %s(declared by another spec)\n' "$c" "$where"
-          elsewhere=$((elsewhere + 1))
-        else
-          printf '%-8s UNKNOWN    %s(not declared by any spec)\n' "$c" "$where"
-          unknown=$((unknown + 1))
-        fi
-      done <<<"$cited"
-    fi
-    echo "summary: $((total - uncovered))/$total requirements covered, $unknown unknown id(s) cited, $elsewhere declared by other specs"
-    [ "$uncovered" -eq 0 ] && [ "$unknown" -eq 0 ]
+    if [ "$mode" = scoped ]; then echo "mode: scoped"; else echo "mode: legacy (bare ids count)"; fi
+    table=""; [ -n "$files" ] && table="$(printf '%s\n' "$files" | rc_citations)"
+    rc_own_rows "$ids" "$label" "$mode" "$table"
+    rc_foreign_rows "$ids" "$label" "$table"
+    echo "summary: $((rc_total - rc_uncovered))/$rc_total requirements covered, $rc_unknown unknown id(s) cited, $rc_elsewhere declared by other specs"
+    [ "$rc_uncovered" -eq 0 ] && [ "$rc_unknown" -eq 0 ]
     ;;
 
   # --- Mutation-score ratchet ---
@@ -764,7 +817,8 @@ case "$1" in
     echo "Unknown command: $1"
     echo "Usage: speckit-helper.sh <command>"
     echo "Commands: branch, check-git-root, spec, plan, check-spec, check-plan,"
-    echo "  check-artifacts, all-artifacts, clarifications, checklists, checklists-dir,"
+    echo "  check-tasks-inputs, check-artifacts, all-artifacts, clarifications,"
+    echo "  checklists, checklists-dir,"
     echo "  checklists-content, constitution, list-specs, list-specs-dir, check-specify-dir,"
     echo "  detect-stack, detect-test-framework, list-config-files, list-rules, readme-head,"
     echo "  check-plan-review, detect-existing-code, trivial-change-check,"

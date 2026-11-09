@@ -139,8 +139,8 @@ gives the build a writable cache of its own inside the sandbox. A build run with
 - **Compact** when a lane's status line says `/compact`, with that lane's own prompt
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` only for unrelated work.
   `context.compact_at` in `.claude/project-status.json` sets when it says so (default 40%; per lane, or 0 for never).
-- **Spend and network.** Each background run may spend up to `orchestrate.usd_cap` ($20 by default), and a board up
-  to `daily_usd_cap` ($100) a day; work done in an interactive lane is not capped. A background run reaches no
+- **Spend and network.** Background runs have no spend limit unless you set one: `orchestrate.usd_cap` caps each run,
+  and `daily_usd_cap` a board's total for the day; work done in an interactive lane is not capped. A background run reaches no
   network host unless it is listed: for dependency work add `"allowed_domains": ["registry.npmjs.org"]` under
   `orchestrate` (public hostnames only).
 - **A GitHub Project as the board.** The lanes can take their items from a GitHub Project: each of the repo's issues

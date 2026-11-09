@@ -132,7 +132,7 @@ Running the smoke suite, the commit and branch conventions, and how a change is 
 | 🕵️ [Agents & Parallelism](docs/agents.md) | The seven agents; when to use a subagent vs. a team vs. a workflow. |
 | ⚙️ [Hooks & Quality Gates](docs/hooks.md) | Every hook, the Iron Laws, and the security posture. |
 | 🧬 [Spec-Driven Development](docs/sdd.md) | The lifecycle in depth, `.specify/` artifacts, task management. |
-| 🏗️ [Architecture](docs/architecture.md) | Package structure, `speckit-helper.sh` (46 subcommands) and the other helpers, the five-layer stack. |
+| 🏗️ [Architecture](docs/architecture.md) | Package structure, `speckit-helper.sh` (47 subcommands) and the other helpers, the five-layer stack. |
 | 🧠 [Skills](docs/skills.md) · [Rules](docs/rules.md) · [MCP](docs/mcp.md) | Component reference. |
 | ⚡ [Performance & Reasoning](docs/performance.md) | Ultrathink, model selection, context management. |
 | 📖 [Research Corpus](docs/research.md) | The reports the framework is built on, and acknowledgments. |
