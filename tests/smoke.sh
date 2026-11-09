@@ -1990,7 +1990,12 @@ sl_err="$(sl verify HEF-1 --dry-run 2>&1 >/dev/null)"; sl_trc=$?
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"tiers":{"implement":"claude-opus-5-5","verify":"fable"}}}\n' > "$sl_t/.claude/project-status.json"
 if sl implement HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse a concrete model id in the config"; sl_fail=1; fi
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
-sl_def="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_def" && grep -qE -- '--max-budget-usd 20' <<<"$sl_def" || { bad "session-launch must fall back to the default tiers and the \$20 cap without an orchestrate block"; sl_fail=1; }
+# HEF-19 FR-001 — caps are opt-in: no orchestrate block → the default tiers and NO --max-budget-usd (case a);
+# an explicit "usd_cap": null is the same as missing (case b). Mutations below, after the env-pair one.
+sl_def="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_def" && ! grep -qF -- '--max-budget-usd' <<<"$sl_def" || { bad "HEF-19 FR-001: without an orchestrate block the launcher must use the default tiers and carry no --max-budget-usd: $(grep -oE -- '--max-budget-usd [^ ]*' <<<"$sl_def")"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":null}}\n' > "$sl_t/.claude/project-status.json"
+sl_nul="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_nul" && ! grep -qF -- '--max-budget-usd' <<<"$sl_nul" || { bad "HEF-19 FR-001: \"usd_cap\": null must launch with no --max-budget-usd, as a missing key does"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
 # FR-020 — an unwritable config dir means a sandboxed host: refuse with the reason, even on --dry-run
 # Mutation: the writable test removed → launch proceeds → red.
 chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; sl_src=$?; chmod 755 "$sl_cfg"
@@ -2007,6 +2012,20 @@ grep -qE '^env .* HEFESTO_WORKER=1 claude -p ' <<<"$sl_mo" && { bad "mutation su
 # #169: the worker flag rides in the worker's own --settings, which outranks a project settings `env`
 grep -qF '"env":{"HEFESTO_WORKER":"1"}' <<<"$(sl implement HEF-1 --dry-run 2>&1)" \
   || { bad "#169: the launcher pins HEFESTO_WORKER=1 in the worker's --settings (it outranks a project settings env)"; sl_fail=1; }
+# HEF-19 FR-001 FR-002 mutations on the dry-run cases (a)/(b): each anchored sed must apply (cmp), and the
+# mutant must bring the flag back — else the no-flag assertions above are vacuous.
+sl_cap_mut() { # $1 sed → the mutant in $sl_md (applied-check here, not in a subshell, so a miss is reported)
+  cp "$SL" "$sl_md/session-launch.sh"; sed_i "$1" "$sl_md/session-launch.sh"
+  cmp -s "$SL" "$sl_md/session-launch.sh" && { bad "HEF-19 cap mutation did not apply: $1"; sl_fail=1; }
+}
+sl_cap_run() { (cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1); }
+sl_cap_mut 's|\.usd_cap // empty|.usd_cap // 20|'
+grep -qF -- '--max-budget-usd 20' <<<"$(sl_cap_run)" || { bad "HEF-19 FR-001 mutation survived: usd_cap defaulted to 20 again, yet case (a) shows no flag"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":null}}\n' > "$sl_t/.claude/project-status.json"
+grep -qF -- '--max-budget-usd 20' <<<"$(sl_cap_run)" || { bad "HEF-19 FR-001 mutation survived: usd_cap defaulted to 20 again, yet case (b, null) shows no flag"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
+sl_cap_mut 's|\[ -z "\$USD_CAP" \] \|\| CMD+=|CMD+=|'
+grep -qF -- '--max-budget-usd' <<<"$(sl_cap_run)" || { bad "HEF-19 FR-001 mutation survived: the flag guard dropped, yet case (a) shows no flag"; sl_fail=1; }
 rm -rf "$sl_t" "$sl_cfg" "$sl_md"
 [ "$sl_fail" -eq 0 ] && ok "session-launch --dry-run: flags per role, sanitised prompt, no claim, no transcript flags, tier rank, model-id refusal, defaults, sandboxed-host refusal (FR-009 FR-010 FR-012 FR-020)"
 
@@ -2058,7 +2077,7 @@ srj HEF-3 '.phase=="implement" and .owner==null and .attempts==2 and (.runs|leng
 if sr implement HEF-3 >/dev/null 2>&1; then bad "the third launch of HEF-3 must be refused (stall)"; sr_fail=1; fi
 srj HEF-3 '.blocked_on.kind=="stall"' || { bad "the third launch must leave HEF-3 blocked on stall"; sr_fail=1; }
 # FR-013 — daily cap: spent today 3.45 + cap 5 > 8 → refused before any claim
-# Mutation: the awk guard removed → launch proceeds → red.
+# Mutation: the both-caps rule never hits → launch proceeds → red (HEF-19 case (d), after the claim block).
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":8}}\n' > "$sr_t/.claude/project-status.json"
 sr_derr="$(sr implement HEF-4 2>&1 >/dev/null)"; sr_drc=$?
 { [ "$sr_drc" -ne 0 ] && grep -qi 'daily cap' <<<"$sr_derr" && srj HEF-4 '.owner==null and .attempts==0'; } || { bad "session-launch must refuse when the daily cap would be exceeded, before claiming (rc=$sr_drc: $sr_derr)"; sr_fail=1; }
@@ -2068,7 +2087,8 @@ printf '{"session_id":"s9","total_cost_usd":0.1}\n' > "$sr_res"
 sr_nerr="$(sr implement HEF-5 2>&1 >/dev/null)"; sr_nrc=$?
 { [ "$sr_nrc" -ne 0 ] && grep -q 'structured_output' <<<"$sr_nerr" && srj HEF-5 '.owner==null and .budget.usd_spent==0.1'; } || { bad "a result without structured_output must fail naming it and still record the run (rc=$sr_nrc: $(head -c 120 <<<"$sr_nerr"))"; sr_fail=1; }
 # FR-011 — a session that stopped at its spend cap (result subtype error_max_budget_usd) is a `budget`
-# block, not a retry. Mutation: the subtype test removed → falls through to "no structured_output", phase implement, no block → red.
+# block, not a retry. Mutation: the subtype test removed → falls through to "no structured_output", phase implement, no block → red
+# (HEF-19 case (h), after the claim block).
 printf '{"session_id":"s6","total_cost_usd":5,"subtype":"error_max_budget_usd","is_error":true}\n' > "$sr_res"
 ( cd "$sr_t" && bash "$LG" init HEF-6 --kind tasks-repo --ref t >/dev/null 2>&1 ); printf '\n## HEF-6 — six\nb\n' >> "$sr_t/tasks/TODO.md"
 if sr implement HEF-6 >/dev/null 2>&1; then bad "a budget-capped session must make the launcher exit non-zero"; sr_fail=1; fi
@@ -2358,8 +2378,47 @@ rmdir "$cl_dir/.claim.lock"
   || { bad "a claim must take and release the lock"; cl_fail=1; }
 lg2 run HEF-53 --role implement --exit 0 --usd 0 >/dev/null 2>&1
 [ "$cl_fail" -eq 0 ] && ok "ledger claim keeps one worker per repository: a second owner refused naming the first, free again once released, a held lock refused, the lock released after a claim, a verify claim exempt (it continues the same build pass); 2 mutations caught"
+
+# HEF-19 FR-002..FR-005 — each cap is opt-in and independent (spec D1). Fresh entries HEF-81..86 (never HEF-4,
+# HEF-6), every result costs 0 so the shared ledger is not inflated; each case's config derives from the
+# fixture's (usd_cap 5, daily 100) and today's spend is read from the ledger, never hardcoded.
+cp_cfg="$sr_t/.claude/project-status.json"; cp "$cp_cfg" "$cp_cfg.bak"
+cp_set() { jq --argjson d "${2:-0}" "$1" "$cp_cfg.bak" > "$cp_cfg"; }
+cp_spent() { lg2 list --today | jq '[.[].budget.usd_spent] | add // 0'; }
+cp_go() { # $1 n, $2 launcher ('' = the real one), $3 result json → stderr; the argv lands in sr_log
+  local res="${3:-}"; [ -n "$res" ] || res="$(printf '{"session_id":"c%s","total_cost_usd":0,"structured_output":{"summary":"x","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/%s"}}' "$1" "$1")"
+  printf '%s\n' "$res" > "$sr_res"
+  : > "$sr_log"; SL_BIN="${2:-}" sr2 implement "HEF-$1" 2>&1 >/dev/null
+}
+cp_ran() { grep -qF -- "--name impl-HEF-$1" "$sr_log"; }
+cp_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$cp_md/$(basename "$f")"; done; rm "$cp_md/session-launch.sh"
+cp_mut() { sed "$1" "$SL" > "$cp_md/session-launch.sh"; cmp -s "$SL" "$cp_md/session-launch.sh" && { bad "HEF-19 cap mutation did not apply: $1"; sr_fail=1; }; }
+for n in 81 82 83 84 85 86; do st_init "$n"; done
+# (e) FR-004 daily-only cap EQUAL to today's spend → refused before any claim, naming the daily cap and the spend
+cp_d="$(cp_spent)"; cp_set '.orchestrate |= (del(.usd_cap) | .daily_usd_cap = $d)' "$cp_d"
+cp_err="$(cp_go 81)"; cp_rc=$?
+{ [ "$cp_rc" -ne 0 ] && grep -qF 'daily cap' <<<"$cp_err" && grep -qF "spent today $cp_d" <<<"$cp_err" && ! cp_ran 81 && srj HEF-81 '.owner==null and .attempts==0'; } \
+  || { bad "HEF-19 FR-004: a daily-only cap equal to today's spend ($cp_d) must refuse before any claim, naming the cap and the spend (rc=$cp_rc: $cp_err)"; sr_fail=1; }
+cp_mut 's|t >= d|t > d|'; cp_go 81 "$cp_md/session-launch.sh" >/dev/null; cp_ran 81 || { bad "HEF-19 FR-004 mutation survived: >= turned into >, yet the launch at equality was still refused"; sr_fail=1; }
+# (f) FR-004 daily-only cap above today's spend → proceeds, no --max-budget-usd on the line
+cp_set '.orchestrate |= (del(.usd_cap) | .daily_usd_cap = $d + 10)' "$(cp_spent)"
+cp_go 82 >/dev/null; { cp_ran 82 && ! grep -qF -- '--max-budget-usd' "$sr_log"; } || { bad "HEF-19 FR-004: a daily-only cap above today's spend must launch, with no --max-budget-usd: $(head -c 200 "$sr_log")"; sr_fail=1; }
+# (g) FR-003 no daily cap, usd_cap 500 → proceeds (the old // 100 default would refuse: spend + 500 > 100)
+cp_set '.orchestrate |= (del(.daily_usd_cap) | .usd_cap = 500)'
+cp_go 83 >/dev/null; { cp_ran 83 && grep -qF -- '--max-budget-usd 500' "$sr_log"; } || { bad "HEF-19 FR-003: with no daily cap a usd_cap of 500 must launch with --max-budget-usd 500: $(head -c 200 "$sr_log")"; sr_fail=1; }
+cp_mut 's|daily_usd_cap // empty|daily_usd_cap // 100|'; cp_go 84 "$cp_md/session-launch.sh" >/dev/null; cp_ran 84 && { bad "HEF-19 FR-003 mutation survived: daily cap defaulted to 100 again, yet usd_cap 500 still launched"; sr_fail=1; }
+cp_mut 's|\[ -n "\$DAILY_CAP" \]|true|'; cp_go 84 "$cp_md/session-launch.sh" >/dev/null; cp_ran 84 && { bad "HEF-19 FR-003 mutation survived: the DAILY_CAP guard neutralised, yet the empty cap did not refuse"; sr_fail=1; }
+# (d) FR-002 both caps set, spend + 5 > daily → refused (the inherited guard at the FR-013 case above, mutated here)
+cp_set '.orchestrate.daily_usd_cap = $d + 1' "$(cp_spent)"
+cp_err="$(cp_go 85)"; { ! cp_ran 85 && grep -qF 'session cap 5' <<<"$cp_err"; } || { bad "HEF-19 FR-002: with both caps set, spend + usd_cap > daily_usd_cap must refuse: $cp_err"; sr_fail=1; }
+cp_mut 's|exit !(t + c > d)|exit 1|'; cp_go 85 "$cp_md/session-launch.sh" >/dev/null; cp_ran 85 || { bad "HEF-19 FR-002 mutation survived: the both-caps rule never hits, yet the launch was still refused"; sr_fail=1; }
+# (h) FR-005 the budget block (inherited, the FR-011 case above), mutated here on a 0-cost budget-capped result
+cp "$cp_cfg.bak" "$cp_cfg"
+cp_mut 's|test("budget")|test("never-a-subtype")|'; cp_go 86 "$cp_md/session-launch.sh" '{"session_id":"c86","total_cost_usd":0,"subtype":"error_max_budget_usd","is_error":true}' >/dev/null
+srj HEF-86 '(.blocked_on.kind // "") != "budget"' || { bad "HEF-19 FR-005 mutation survived: the budget subtype test removed, yet HEF-86 was still blocked on budget"; sr_fail=1; }
+mv "$cp_cfg.bak" "$cp_cfg"; rm -rf "$cp_md"
 rm -rf "$sr_t" "$sr_cfg" "$sr_bin"
-[ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output (FR-011 FR-013 SC-007)"
+[ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output; caps opt-in and independent — daily-only refusal at spend ≥ cap, no daily cap no refusal, both-caps rule, budget block — 7 HEF-19 mutations caught (FR-011 FR-013 SC-007; HEF-19 FR-002 FR-003 FR-004 FR-005)"
 
 # FR-015 — session-start-context prints one `ledger:` line per BLOCKED entry of the repo's common
 # dir, nothing when there is no ledger, and still exits 0 on `{}`.
@@ -5452,6 +5511,14 @@ l3_o="$( (cd "$l3_n" && bash "$SB" --init && bash "$SB" --init && bash "$SB" --a
 { grep -qF 'created: .claude/project-status.json tasks/TODO.md' <<<"$l3_o" && grep -qF 'nothing to create' <<<"$l3_o" && grep -qx 'SHO-1' <<<"$l3_o" && grep -qx 'SHO-2' <<<"$l3_o" \
   && grep -qxF 'rfc: docs/rfcs/SHO-1.md' "$l3_n/tasks/TODO.md" && grep -qxF '## 🐞 SHO-2 — Crash on an empty cart' "$l3_n/tasks/TODO.md" && jq -e '.orchestrate.plan_review == "human"' "$l3_n/.claude/project-status.json" >/dev/null; } \
   || { bad "status-board --init must create the board once and --add the next ids (rfc line, 🐞 glyph): $l3_o"; l3_fail=1; }
+# HEF-19 FR-006 — --init writes no spend caps (opt-in), and its other orchestrate defaults are unchanged.
+# Mutation (i): the caps re-added to the init literal → a fresh repo's config carries them → red.
+l3_noc='(.orchestrate | (has("usd_cap") or has("daily_usd_cap")) | not) and .orchestrate.plan_review == "human" and .orchestrate.plan_first == true and .orchestrate.rfc_dir == "docs/rfcs"'
+jq -e "$l3_noc" "$l3_n/.claude/project-status.json" >/dev/null || { bad "HEF-19 FR-006: --init must write no usd_cap/daily_usd_cap and keep plan_review/plan_first/rfc_dir: $(jq -c .orchestrate "$l3_n/.claude/project-status.json")"; l3_fail=1; }
+l3_mut board-setup.sh 's|orchestrate: {plan_review|orchestrate: {usd_cap: 20, daily_usd_cap: 100, plan_review|'
+l3_ni="$(mktemp -d)/cap-app"; mkdir -p "$l3_ni"; git -C "$l3_ni" init -q; (cd "$l3_ni" && bash "$l3_md/status-board.sh" --init) >/dev/null 2>&1
+jq -e "$l3_noc" "$l3_ni/.claude/project-status.json" >/dev/null 2>&1 && { bad "HEF-19 FR-006 mutation survived: caps re-added to the init literal, yet --init wrote none"; l3_fail=1; }
+l3_restore board-setup.sh; rm -rf -- "${l3_ni%/cap-app}"
 (cd "$l3_n" && bash "$SB" --add "also fix SHO-1") >/dev/null 2>&1 && { bad "--add must refuse a title that names an item id"; l3_fail=1; }
 (cd "$l3_n" && bash "$SB" --add $'two\nlines') >/dev/null 2>&1 && { bad "--add must refuse a two-line title"; l3_fail=1; }
 l3_mut status-board.sh 's/^  ! grep -qE "$ID_PATTERN" <<<"$ADD_TITLE" || die/  true || die/'
