@@ -38,25 +38,39 @@ Truth map: `research.md`. Decisions D1–D7 are in `spec.md`. The key facts:
   `<clone>/`, and the launcher's per-call marker carries a comment (step 4c). The reviewer judged both of the
   person's decisions sound against the code; the marker is a brake against sessions, not a secret — a person in a
   terminal can set it, and the CHANGELOG says no more than that.
+- **Plan review round 4 (REVISE_PLAN), applied:** (1) a seventh production caller, `handoff`'s own re-entry
+  `bash "$0" run …` (`hooks/ledger.sh:787`), carries the marker (step 4c, FR-010); (2) every test helper and direct
+  call issuing `claim`/`run` is listed (Affected Files); (3) the P3 rule for existing refusal assertions (step 5);
+  (4) FR-009 adds `README.md:294-295`, `docs/case-study-sdlc.md:60,115`, `docs/hooks.md:32`; (5) SC-004 tells
+  top-level arms by indentation; (6) the defect message never calls a signature a mechanic (Sketch 4);
+  (7) the forgery risk row is qualified (no sandbox, no setup → no brake, as today).
 
 ## Affected Files
 | File | Change Type | Description |
 |------|------------|-------------|
 | `hooks/hefesto-setup.sh` | modify | the classification lists; one spelling per root kind; signature asks with flag wildcards; enumerated ledger allows; `--check` signature + defect checks across the applying files; header text |
-| `hooks/ledger.sh` | modify | `caller_gate` (`:258`): refuse `claim`/`run` unless the launcher calls them (FR-010, step 4c) |
+| `hooks/ledger.sh` | modify | a new `launcher_gate` called after `caller_gate` at `:390`: refuse `claim`/`run` unless the launcher calls them (FR-010, step 4c); `caller_gate` itself unchanged |
 | `hooks/session-launch.sh` | modify | its six `$LEDGER claim\|run` calls (`:452,580,581,660,690,701`) carry the launcher marker |
+| `hooks/ledger.sh` `:787` | modify | `handoff`'s re-entry `bash "$0" run …` → `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 bash "$0" run …`, with a comment (the seventh caller; round 4) |
 | `tests/smoke-signatures.sh` | create | part 11: the 408 fixture reduction, `--check` defect, the classification completeness, the rule-grammar table, `--prepare` regression; each with a mutation |
 | `tests/smoke.sh` | modify | source part 11; `:5436-5438` assert one spelling and the new allow set instead of the `bash` spelling and "no mechanics allow"; live tier: the grammar table against the real matcher |
 | `tests/smoke-lifecycle.sh` | modify | `:388` one spelling instead of two |
 | `docs/install.md` | modify | §2 `:117-133`: one spelling per root, the signature set, launcher-only `claim`/`run`, `--check`'s defect report |
 | `docs/hooks.md` | modify | `:39`, the `hefesto-setup.sh` row: one spelling, the signature set |
 | `SETUP.md` | modify | `:136-141`: the "doubled slash … single-slash entry is a hedge" paragraph → one spelling per root kind |
+| `README.md` | modify | `:294-295`: a person no longer claims by hand with `ledger.sh claim` → `session-launch.sh --prepare` (FR-010) |
+| `docs/case-study-sdlc.md` | modify | `:60` ("or `ledger.sh claim`") and `:115` ("`ledger.sh run`, then `record` and `handoff --pr`") → the launcher / `handoff` |
+| `docs/hooks.md` | modify | `:32`, the `ledger.sh` row: `claim`/`run` are the launcher's only (checked, reworded where it implies a hand call) |
 
 FR-010 test sites (the suite runs from a Claude session's Bash tool, so `CLAUDE_CODE_SESSION_ID` is set): every
 `claim`/`run` a test issues as a launcher stand-in goes through `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1
-bash …` — in the helpers `lg()` (`tests/smoke.sh:1908`), `lg2()` (`:2326`) and `lc()` (`tests/smoke-lifecycle.sh:89`,
-used for claim/run at `smoke-lifecycle.sh:232,236,262,338,502,504` and `smoke-lifecycle-ops.sh:295,301,309`) only for
-the `claim`/`run` subcommands, and at the direct calls `tests/smoke.sh:2009,2571,2583,6270`. The mutants at those
+bash …`. Rule: a helper marks **only** its `claim`/`run` subcommands. Helpers: `lg()` (`tests/smoke.sh:1908`),
+`lg2()` (`:2326`), `lsl()` (`:3227`; used at `:3237,3239,3347`), `ebl()` (`:4188`; `:4279,4284,4287`), `l3l()`
+(`:5416`; `:5815-5816,5849-5852,5856-5859,5895-5907,6242`), `l3_claim11()` (`:5830` — the marker composes with the
+`${1:+env "$1"}` it already prepends, e.g. `HEFESTO_WORKER=1` from `:5840,5843`), and `lc()`
+(`tests/smoke-lifecycle.sh:89`, used for claim/run at `smoke-lifecycle.sh:232,236,262,338,502,504` and
+`smoke-lifecycle-ops.sh:295,301,309`). Direct calls: `tests/smoke.sh:2009,2077-2084` (the metrics fixture),
+`:2571,2583,5853,6270`. The mutants at those
 lines keep their meaning. `tests/smoke-lifecycle-ops.sh:295` ("a bare hand claim must succeed") is rewritten: the
 bare hand claim is now the FR-010 refusal (SC-007's terminal case), and the FR-044 assertion that follows (a claim
 with no `--pid` is interactive) runs on a marked claim.
@@ -78,6 +92,11 @@ No data model changes required. Settings JSON keys are unchanged; only the rule 
 that reaches …": `no ask rule outside the signature set (<rule> in <file> — every lane pass would stop on it)`, so the
 printed line reads `setup: missing no ask rule outside the signature set (…) for <root> — run: …`. The test greps
 `no ask rule outside the signature set (` plus the rule. Options and exit codes are unchanged.
+The defect pass classifies a rule by its subcommand and flag (the tail's first word after `ledger.sh`, plus a
+signature flag when present), not by the exact string: a mechanics subcommand gets the message above; a
+signature written in a non-canonical form (`Bash(<h>/ledger.sh approve)`, no `:*`) is not reported as a mechanic —
+it is reported, if at all, only by the existing missing-signature check under this root's spelling. So the message
+is never false for a signature (round 4, item 6).
 
 ## Implementation Approach
 1. **One classification, in setup.** Four bash arrays near the top of the rule section: `LEDGER_SIGN_WHOLE`
@@ -110,7 +129,14 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
    any other mechanics ask.
    (c) **Launcher-only `claim`/`run` (FR-010).** `session-launch.sh` already unsets `CLAUDE_CODE_SESSION_ID` before
    its ledger calls (`hooks/session-launch.sh:56`); it now also passes `HEFESTO_LAUNCHER=1` on each of its six
-   `$LEDGER claim|run` calls. `caller_gate` (`hooks/ledger.sh:258`) gains, first, before its lane checks:
+   `$LEDGER claim|run` calls. One more production caller exists: `handoff` re-enters the ledger with
+   `bash "$0" run "$ID" --role implement …` (`hooks/ledger.sh:787`) — the ledger's own record of a hand-run, not a
+   session's `run`; it becomes `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 bash "$0" run …` with a comment.
+   `handoff` already refuses an owned entry (`:767`), so this frees no lane's claim; FR-010 reads "unless
+   `session-launch.sh` — or `handoff`'s own re-entry — calls them". Regression: `tests/smoke.sh:3242-3244` (the
+   handoff happy path); mutant: marker dropped from `:787` → that test red. (The re-entries at `:788-790,822` and
+   `hooks/ledger-recipes.sh:258` are `record|advance|block`, not launcher-only — untouched.) A new `launcher_gate`, called right after `caller_gate` at `hooks/ledger.sh:390` (so a lane session still gets
+   `caller_gate`'s lane message, `:262`, and every other caller reaches this check), dies when:
    `is_launcher_sub "$SUB"` and not (`HEFESTO_LAUNCHER=1` with `CLAUDE_CODE_SESSION_ID` empty) → die naming
    `session-launch.sh` (and `ledger.sh release` for a person freeing a claim), nothing written. A Claude session
    cannot forge it: its Bash commands carry `CLAUDE_CODE_SESSION_ID`, and in a set-up project `lane-guard.sh:104-109`
@@ -141,12 +167,23 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
      output names `session-launch.sh` and `release`, entry byte-identical (the rewritten
      `smoke-lifecycle-ops.sh:295`); the hook half of the forgery defence — through `gd`,
      `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 $LGL claim …` → `deny`, beside the existing
-     `tests/smoke.sh:5624` pattern; `--prepare` (the existing `tests/smoke.sh:6222-6225` case) still claims. Mutants: the check removed from `caller_gate` → red; the marker dropped from
+     `tests/smoke.sh:5624` pattern; `--prepare` (the existing `tests/smoke.sh:6222-6225` case) still claims. Mutants: the `launcher_gate` call removed → red; the marker dropped from
      `session-launch.sh:580` → the `--prepare` case red.
+     **P3 rule for the existing refusal assertions:** every existing "must be refused" `claim`/`run` call
+     (`tests/smoke.sh:1939,2567,5853,5897,5899,5904`; `tests/smoke-lifecycle-ops.sh:309`) runs **marked** with the
+     session id unset, so only the guard under test (stall count, per-repo lock, worker guard, stage limits, op
+     rule, `--pid`+`--mode`) can refuse it — never FR-010; `:5853` (`HEFESTO_WORKER=1 bash "$LG" run …`) stays refused
+     for the worker reason with the marker added. `:6140` and `:6232` set a lane session id and stay refused by the
+     lane rules (`hooks/ledger.sh:262`, `lane-guard.sh`), and keep the lane message: the FR-010 check is a separate
+     `launcher_gate`, called right after `caller_gate` at `:390` — `caller_gate` (unchanged) dies first for a lane
+     session with its lane message; every other caller falls through its early returns to `launcher_gate`. Both
+     run before `ledger_dir` (`:391`), so nothing is written.
    - **SC-004** classification completeness. The subcommand source is the union of (i) the `usage` text
      (`hooks/ledger.sh:27-65`, first word of each listed form, `|`-separated alternatives split), (ii) the pre-case
      `[ "$SUB" = … ]` dispatches (`:384` `branches`, `:388` `board`), and (iii) the top-level `case "$SUB"` arms
-     (`:396`–`:925`; the read-only `case` at `:393` skipped, `board` read from the `if` at `:388`), with `op` expanded to `op new|close|drop`, `park` to `park --all`, and `-h|--help` and `*`
+     (`:396`–`:925`; the read-only `case` at `:393` skipped, `board` read from the `if` at `:388`; a top-level arm is
+     a `^  [a-z][a-z-]*[|)]` line — exactly two-space indent — so the nested arms inside `publish` (`:814,824`) and
+     `next` (`:896-901`) are not subcommands; an assertion pins that `tasks-repo`/`plan` are not extracted), with `op` expanded to `op new|close|drop`, `park` to `park --all`, and `-h|--help` and `*`
      excluded. Each must appear exactly once across `LEDGER_ALLOW`, `LEDGER_ALLOW_EXACT`, `LEDGER_SIGN_WHOLE`,
      `LEDGER_LAUNCHER`, with `unblock`/`record`/`release` additionally carrying their `LEDGER_SIGN_FLAG` entries; and every list entry must exist in the
      source. Mutants: a new case arm added to a copy of `ledger.sh`; a new pre-case `[ "$SUB" = x ]` line; a list
@@ -173,7 +210,8 @@ printed line reads `setup: missing no ask rule outside the signature set (…) f
      launcher's own `$LEDGER claim` at `hooks/session-launch.sh:580` and `record` at `:595`). This item cites it and
      adds only the setup half: the session-launch exclusion is written in the canonical spelling for every root
      (part of SC-001's exact check), so `--prepare` keeps running outside the sandbox.
-6. **Docs.** `docs/install.md` §2, `docs/hooks.md:39`, `SETUP.md:136-141` and the setup header.
+6. **Docs.** `docs/install.md` §2, `docs/hooks.md:32,39`, `SETUP.md:136-141`, `README.md:294-295`,
+   `docs/case-study-sdlc.md:60,115` and the setup header.
 
 ## Code Sketches (Mental Alignment)
 
@@ -275,6 +313,7 @@ plus the person's `Bash(rm -rf:*)`, nothing else.
 | A person relied on a mechanics ask as a brake | they lose that dialog | the CHANGELOG names it; `ledger.sh` still refuses person decisions from lanes |
 | `hefesto-setup.sh` grows past 500 code lines | commit blocked | today 388 non-blank lines; the change is about +35 net |
 | A person who ran `ledger.sh claim` by hand loses it | refused with a message | the message names `session-launch.sh` and `release`; the CHANGELOG names it (the person's decision) |
+| A session forges the launcher marker | `claim`/`run` outside the launcher | set-up project: `lane-guard.sh:64,104-109` denies the assignment/wrapper; no setup but sandbox on: the write fails (`hooks/ledger.sh:237`); no setup and no sandbox: no brake — the same as today (no rule exists there either); the CHANGELOG says exactly this |
 | A test calls `claim`/`run` without the marker | red suite after FR-010 | the `tests/smoke.sh` sites set it; the full suite runs in the task that adds the check |
 | `--check` now reads user settings with someone's own hefesto-looking ask rules | session start shows a miss | the message names the file; it is the defect the item asks to surface |
 

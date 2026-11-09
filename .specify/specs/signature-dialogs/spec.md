@@ -128,8 +128,8 @@ writes every rule in four spellings per root (`$r/hooks`, `$r//hooks`, each with
 | FR-006 | Every subcommand in `ledger.sh`'s dispatch is classified exactly once — allow, ask, allow with flag-qualified asks, or launcher-only (no rule) — and a test fails when one is unclassified | P1 | US1, US2 |
 | FR-007 | `is_person_sub`, `is_launcher_sub` and `lane-guard.sh` are unchanged, and `ledger.sh caller_gate`'s lane checks are unchanged (FR-010 adds one check beside them): a person's decision is still refused from a worker or stage lane | P1 | US2 |
 | FR-008 | `session-launch.sh --prepare` keeps running `claim` and `record` itself, excluded from the sandbox, so a lane pass never issues them | P1 | US1 |
-| FR-009 | `docs/install.md`, `docs/hooks.md` (the `hefesto-setup.sh` row), `SETUP.md` (the two-spellings paragraph) and the setup header describe the signature set, the one spelling, launcher-only `claim`/`run`, and the `--check` defect | P2 | US5 |
-| FR-010 | `ledger.sh` refuses `claim` and `run` unless `session-launch.sh` calls them — for every caller, with or without lanes — exiting non-zero with nothing written and a message naming the launcher; the launcher's own calls (`hooks/session-launch.sh:452,580,581,660,690,701`) still pass | P1 | US1 |
+| FR-009 | `docs/install.md`, `docs/hooks.md` (the `hefesto-setup.sh` and `ledger.sh` rows), `SETUP.md` (the two-spellings paragraph), `README.md:294-295` and `docs/case-study-sdlc.md:60,115` (by-hand `claim`/`run`) and the setup header describe the signature set, the one spelling, launcher-only `claim`/`run`, and the `--check` defect | P2 | US5 |
+| FR-010 | `ledger.sh` refuses `claim` and `run` unless `session-launch.sh` — or `ledger.sh handoff`'s own re-entry (`hooks/ledger.sh:787`) — calls them, for every caller, with or without lanes, exiting non-zero with nothing written and a message naming the launcher; the launcher's own calls (`hooks/session-launch.sh:452,580,581,660,690,701`) and `handoff` still pass | P1 | US1 |
 
 ## Success Criteria
 
