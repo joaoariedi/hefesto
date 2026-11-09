@@ -6,6 +6,7 @@
 <!-- Revision 3: plan review round 2 (REVISE_PLAN, 4 changes) applied per the person's answers — see "Review round 2" -->
 <!-- Revision 4: plan review round 3 (REVISE_PLAN, 8 changes) applied — see "Review round 3" -->
 <!-- Revision 5: plan review round 4 (REVISE_PLAN, 4 changes) applied — see "Review round 4" -->
+<!-- Revision 6: plan review round 5 (REVISE_PLAN) applied per the person's answer of 2026-11-09 — see "Review round 5" -->
 
 ## Research Notes
 See `research.md`. Key findings:
@@ -35,20 +36,19 @@ See `research.md`. Key findings:
 | `hooks/lane-lib.sh` | modify | `is_person_sub`: `forward … --past-cap` is person-only (FR-005) |
 | `hooks/ledger-lanes.sh` | modify | `questions_item:111` admits a `conflict` block that has a `question_path` (FR-005a, FR-015) |
 | `hooks/ledger-recipes.sh` | modify | `:128` merge step text: a conflict goes back to the build stage (FR-007); `merge_state_step:239`: `conflict\|behind` → `merge_stop` (already first) then `forward_cmd` instead of `merge_block_conflict` (FR-007). The BEHIND remap at `:229` is **not touched** (Surgical Changes) |
-| `hooks/ledger-actions.sh` | modify | `action stop --block conflict` (`:206,223`): after the stop is written, the forward route (FR-007) |
-| `hooks/session-launch-forward.sh` | create | sourced by `session-launch.sh`: `forward_prompt` (FORWARD_RULE, brief + answers blocks, missing-worktree block FR-005a), `implement_question_file` (FR-009, 012, 013, 013a, 014), `forwarded_since_prepare` (D13), `forward_route` (D14), `forward_transcribe_guard` (FR-010a) |
-| `hooks/session-launch.sh` | modify | ≤ 9 code lines (490 → ≤ 499; each check is a sibling function called from one line): source the sibling; deploy `conflict\|behind` → `forward_route` (FR-006, D14); `--finish` owner check admits a forwarded deploy entry via `forwarded_since_prepare` (D13); babysit schema enum `behind`; implement schema `question`; the prompt switch and transcription calls into the sibling; `--forward-consumed` on `pr` (FR-010). Stays ≤ 500 code lines |
+| `hooks/ledger-actions.sh` | modify | `action stop --block conflict` (`:206,223`): after the stop is written, the forward route (FR-007); the closing line says "back to the build stage" after a move, "the orchestrator asks the person again" only after a refusal |
+| `hooks/session-launch-forward.sh` | create | sourced by `session-launch.sh`: `forward_prompt` (FORWARD_RULE, brief + answers blocks, missing-worktree block FR-005a, the worktree test through `wt_branch` in lane mode), `forward_schema` (adds `question` to the implement schema, FR-012), `implement_question_file` (FR-009, 012, 013, 013a, 014; neutralises `<!--`), `forwarded_since_prepare` (D13), `forward_route` (D14), `forward_transcribe_guard` (FR-010a) |
+| `hooks/session-launch.sh` | modify | ≤ 9 code lines (490 → ≤ 499; each check is a sibling function called from one line): source the sibling; deploy `conflict\|behind` → `forward_route` (FR-006, D14); `--finish` owner check admits a forwarded deploy entry via `forwarded_since_prepare` (D13); babysit schema enum `behind`; implement schema `question` **only when a forward row is open** (one line calling `forward_schema`, so the no-forward dry run stays byte-identical to `tests/fixtures/launch-920.txt`); the prompt switch and transcription calls into the sibling; `--forward-consumed` on `pr` (FR-010). Stays ≤ 500 code lines |
 | `hooks/hefesto-setup.sh` | modify | `forward` in the ask loop (`:135`) and in its own rule check (`:245`) (FR-018) |
 | `commands/hef.babysit.md` | modify | step 4: `conflict`/`behind` → `ledger.sh forward`; headless note (FR-008, FR-016) |
 | `commands/hef.orchestrate.md` | modify | `conflict` row (live verdict → Merge forward `--past-cap` or Retry); deploy-pass text `:302-309`; build-lane note: an entry with an open forward runs the merge-forward steps (FR-015) |
 | `docs/quickstart.md`, `docs/quickstart.pt-BR.md`, `docs/architecture.md`, `docs/install.md` | modify | describe the route (FR-016) |
-| `docs/hooks.md` | modify | `ledger.sh` row (`:32`) gains `forward`; `pr-watch.sh` row (`:36`) lists `behind` (FR-016) |
+| `docs/hooks.md` | modify | `ledger.sh` row (`:32`) gains `forward`; `pr-watch.sh` row (`:36`) lists `behind`; a `session-launch-forward.sh` row beside `launch-item.sh` (`:46`, "sourced by `session-launch.sh`", functions only) (FR-016) |
 | `CHANGELOG.md` | modify | `[Unreleased]` entry (FR-016) |
-| `tests/smoke-forward.sh` | create | SC-001..004 (fixtures below) |
+| `tests/smoke-forward.sh` | create | SC-001..004 (fixtures below); SC-005 as a live block gated like `smoke.sh:5188` (`SMOKE_LIVE=1` and `claude` on PATH, else a `skip` line) |
 | `tests/smoke.sh` | modify | source `smoke-forward.sh` (`:6794-6803`); `st_dep` fixtures (`:2400-2405`) get a fake `gh` answering DIRTY/BEHIND so the deploy route's `forward` can read state; `st_dep conflict` now expects phase `implement`, `st_dep refused` re-baselined; BEHIND verdict case near `:3068` |
 | `tests/smoke-merge.sh` | modify | `:176-195`: BEHIND / `stop --block conflict` now → phase `implement` (its FakeGhPr `mg_pr` already answers `pr view`; checks JSON added where `forward` reads it) |
 | `tests/smoke-lifecycle.sh` | modify | `:384-397`: assert the two `forward` ask rules and the `--check` entry (FR-018) |
-| `evals/merge-forward-mechanical/`, `evals/merge-forward-two-sided/`, `evals/merge-forward-red-suite/` | create | SC-005 (`case.yaml` + `scaffold.sh`, layout per `evals/README.md`) |
 
 ## Data Model
 Ledger entry JSON gains one array; nothing else changes shape.
@@ -74,14 +74,14 @@ CLI (the plugin's API):
 - `ledger.sh questions <id>` also serves a `conflict` block that has a `question_path` (`questions_item`). Refusals (FR-003) exit 1 with what was seen; the entry is unchanged.
 - `ledger.sh record <id> --forward-consumed` — launcher flag, marks every `.forwards[]` row consumed.
 - `pr-watch.sh state` verdict enum adds `behind`.
-- implement structured output adds optional `question: string ≤ 8000`; babysit (deploy) verdict enum adds `behind`.
+- implement structured output adds optional `question: string ≤ 8000` **on a merge-forward run only** (an open forward row at launch); every other implement launch keeps the 9.2.0 schema byte for byte; babysit (deploy) verdict enum adds `behind`.
 
 ## Implementation Approach
 1. **Signal** (`pr-watch.sh`): `BEHIND` gets its own verdict, so every reader agrees. `ledger-recipes.sh:229`'s
    local remap stays as is (it only fires on `mergeable`, which BEHIND no longer reaches — harmless, untouched).
 2. **Move** (`ledger-lifecycle.sh` `forward_cmd`): argument checks → worker refusal → entry guards (phase, URL,
    terminal, D12 block kind, no approved/taken merge action) → live `pr-watch.sh state` read in the entry's repo
-   (as `merge_state_step` does, `ledger-recipes.sh:218`); live verdict ∈ {conflict, behind}, else refuse → worktree
+   (as `merge_state_step` does, `ledger-recipes.sh:218`); live verdict ∈ {conflict, behind}, else refuse → `headRefName` and `baseRefName` non-empty and valid (`git check-ref-format --branch`), else refuse — they go into the brief and into a `git push` → worktree
    check (`<repo top>/.claude/worktrees/<id>` is a directory whose `git rev-parse --abbrev-ref HEAD` is the state's
    `headRefName` — the path the launch uses, `session-launch.sh:258`, not `.worktree`, which `handoff` may record
    elsewhere, `ledger.sh:788`; else the FR-005a `conflict` block) → cap (unless `--past-cap`) → brief file (PR
@@ -115,14 +115,19 @@ CLI (the plugin's API):
    (FR-005a; a `claude -w` would otherwise make a fresh branch; `ledger.sh block` has no `--reason`, so the reason
    travels as `question_path`, `ledger.sh:552`). In `forward_cmd` the no-worktree `conflict` block is written the
    same way (question file + `question_path`) in the one `jq` rewrite. The
-   rule: `git fetch origin <base>`; `git merge --no-commit --no-ff origin/<base>`; resolve only the closed classes
+   rule: `git fetch origin <base> <head branch>`; the worktree's HEAD must be the brief's `head_sha` — behind it →
+  `git merge --ff-only <head_sha>`, diverged from it → no merge, question naming both SHAs (`human:clarify`);
+  `git merge --no-commit --no-ff origin/<base>`; resolve only the closed classes
    (FR-009); two-sided → `git merge --abort` + question (FR-013); run the project's test command (through
-   `lane-build.sh` when the lane-cache rule is printed); red → `git merge --abort` + question with the failure
-   (FR-013a); green → commit, `git push origin HEAD:<head branch>` (never `--force`), outcome `pr` with the same URL.
+   `lane-build.sh` when the lane-cache rule is printed); red — or a test command that cannot be found or run, which counts as red — →
+   `git merge --abort` + question with the failure (FR-013a); green → commit, `git push origin HEAD:<head branch>` (never `--force`), outcome `pr` with the same URL.
 5. **Transcription**: on a merge-forward run (an open forward row at launch), `forward_transcribe_guard` keeps the
    entry's route (`record_worktree` gets the entry's `.route`, not the worker's, `session-launch.sh:371`) and
    turns an outcome `pr` whose `pr_url` is empty or ≠ the row's into `failed` before anything is recorded (FR-010a, D15).
-   `implement_question_file` writes `question` (or the summary) to `$LDIR/$ID.question-<ts>.md`
+   On a merge-forward run only, `forward_schema` adds `question` to the implement schema (the no-forward launch line
+   is the 9.2.0 one, byte for byte). `implement_question_file` writes `question` (or the summary) to `$LDIR/$ID.question-<ts>.md`,
+   rewriting every `<!--` as `<!-\-` (so `lanes_strip`, `ledger-lanes.sh:107`, which deletes from an unclosed `<!--`
+   to the end, cannot drop the base side of a Markdown/HTML hunk),
    for `blocked human:clarify` and the launcher passes `--question`; `--forward-consumed --person-text-consumed`
    only on outcome `pr` (the brief must survive a question so the run after the answer resumes it).
 6. **Docs/forms** last; CHANGELOG entry.
@@ -171,15 +176,36 @@ reuse, sandbox settings and transcription of `implement`, and `next --stage buil
   checks the worktree (else the FR-005a block and phase `pr`).
 - **`tests/smoke-merge.sh:176-195`**: `mg_pr … BEHIND` already serves `pr view`; add the checks file `forward` reads,
   `headRefName` in the view, and the same worktree-on-head-branch setup.
-- **Evals (SC-005)**: each `scaffold.sh` builds a local bare repo as `origin` (`git init --bare`), a clone on the
-  PR branch with a fixed history, a recorded fake `gh` returning a stable `pr view` URL
-  (`https://github.com/example/repo/pull/7`, the `evals/babysitter-never-merges/scaffold.sh:35` pattern), and a
-  ledger entry with one open forward row. The judge asserts tool calls: `git merge` invoked, no `git rebase`, no
-  `push --force`/`-f`; mechanical case: the bare origin's branch head advanced and contains both CHANGELOG
-  entries; two-sided case: origin's branch head unchanged and the structured output is `human:clarify` with both
-  hunks in `question`; red-suite case (`merge-forward-red-suite`): the merge is textually clean but a test asserts
-  a value the base changed — `git merge --abort` called, origin's head unchanged, `human:clarify` whose
-  `question` carries the failing test output (FR-013a).
+- **Hash-mismatch fixture**: edit `<id>.forward-1.md` after `forward` → the implement launch dies naming the brief
+  file and saying `forward` generated it, the fake claude never called, no claim. Mutation: skip the hash check.
+- **In-lane `--past-cap` fixture** (the `smoke-lifecycle.sh` lane-guard pattern): `forward … --past-cap --by p` from a
+  non-orchestrator lane → denied by `is_person_sub`; from the orchestrator lane → admitted. Mutation: drop the
+  `forward)` case from `is_person_sub`.
+- **Headless-owner fixture**: `.owner.pid` set → `forward` refuses, entry byte-identical; an interactive claim (no
+  pid) → moves. Mutation: drop the pid guard.
+- **Ref-name fixture**: FakeGh `headRefName` `"-x"` or `"a..b"` → refused, nothing written. Mutation: drop the
+  `check-ref-format` test.
+- **Launch-pin fixture**: the existing `tests/smoke-spec-roots.sh:55-58` comparison with `launch-920.txt` stays green
+  (no forward row → no `question`); a `--dry-run` with an open forward row carries `"question"` in its
+  `--json-schema`. Mutation: add `question` unconditionally → the pin comparison goes red.
+- **Question-comment fixture**: a fake worker `question` with an unclosed `<!--` before the base hunk →
+  `ledger.sh questions` prints the base hunk. Mutation: drop the `<!--` rewrite.
+- **Live tier (SC-005)** — in `tests/smoke-forward.sh`, run only with `SMOKE_LIVE=1` and `claude` on PATH (the
+  `smoke.sh:5188` gate; otherwise one `skip` line). Not `claude plugin eval`: its sandbox denies the `git` binary
+  (`evals/README.md:27-31`), so a mechanical case could not pass and the "origin unchanged" cases would pass
+  vacuously. Each case builds a scratch repo with a local bare `origin` (`git init --bare`, placed where the worker
+  sandbox's write allowlist reaches — the task measures it), a worktree at `<top>/.claude/worktrees/<id>` on the PR
+  branch with a fixed history, a FakeGh for `pr view`/`pr checks` (`https://github.com/example/repo/pull/7`), an entry
+  moved by the real `ledger.sh forward`, and then the **real launch**: `session-launch.sh implement <id>`, so the
+  real `FORWARD_RULE`, schema and transcription are under test. Assertions read the run's kept `stream-json` (the
+  `tool_use` Bash commands) and git's refs, never summary text: every case — `git merge` was called (the positive
+  control: a sandbox that denies git makes each case red, not vacuous), no `git rebase`, no `push --force`/`-f`;
+  **mechanical** (one-sided CHANGELOG-list conflict): origin's branch head advanced, its CHANGELOG holds both
+  entries, the entry is in `verify` with the row consumed; **two-sided** (the same function line edited on both
+  sides): origin's head unchanged, `git merge --abort` called, the entry blocked `human:clarify` and `ledger.sh
+  questions` prints both hunks; **red suite** (textually clean merge, a test asserting a value the base changed):
+  `git merge --abort` called, origin's head unchanged, `human:clarify` whose question carries the failing output
+  (FR-013a). Opt-in and token-spending, like the rest of the live tier.
 
 ## Code Sketches (Mental Alignment)
 
@@ -241,7 +267,8 @@ now reports `behind` itself (FR-001); the remap line stays.
               fw=""; [ -z "$blk" ] || { fw=$( (forward_cmd "$(jq -r .entry <<<"$a")" --verdict conflict) 2>&1 ) \
                 && fw=" — $fw" || fw=" — forward refused: $fw"; }
               merge_stop_event "$a" "$AID stopped at step $n: $(head -c 300 "$f" | tr '\n' ' ')$fw"
-              echo "$AID stopped at step $n$fw — the orchestrator asks the person again" ;;
+              case "$fw" in " — forward refused"*|"") nx="the orchestrator asks the person again" ;; *) nx="back to the build stage" ;; esac
+              echo "$AID stopped at step $n$fw — $nx" ;;
 ```
 (`--verdict conflict` is what the lane reported; `forward` accepts a live `behind` too, D3.) The subshell keeps
 `forward_cmd`'s `die` from killing the verb (D14).
@@ -266,8 +293,13 @@ forward_prompt() { # → the merge-forward prompt on stdout, or nothing when no 
 implement_question_file() { # $1 kind → a question file path for human:clarify, else nothing
   [ "$1" = human:clarify ] || return 0
   local f; f="$("$LEDGER" dir)/$ID.question-$(date +%s).md"
-  jq -r 'if (.question // "") != "" then .question else .summary end' <<<"$SO" > "$f" && echo "$f"
+  jq -r 'if (.question // "") != "" then .question else .summary end' <<<"$SO" | sed 's/<!--/<!-\\-/g' > "$f" && echo "$f"
 }
+forward_schema() { # $1 the implement schema → it, with question (≤ 8000) added; called only when FWP is set
+  jq -c '.properties.question = {"type":["string","null"],"maxLength":8000}' <<<"$1"
+}
+# session-launch.sh, after the implement SCHEMA line (:490):
+    [ -z "$FWP" ] || SCHEMA="$(forward_schema "$SCHEMA")"   # no forward → the 9.2.0 schema, byte for byte
 # session-launch.sh
       pr) "$LEDGER" record "$ID" --forward-consumed --person-text-consumed >/dev/null || exit 1; "$LEDGER" advance "$ID" verify … ;;
       blocked) K=…; QF="$(implement_question_file "$K")"; "$LEDGER" block "$ID" --kind "$K" ${QF:+--question "$QF"} … ;;
@@ -280,12 +312,12 @@ to the rule check at `:245`. **File:** `hooks/lane-lib.sh` (`:55`) —
 `forward) shift; for a in "$@"; do [ "$a" = --past-cap ] && return 0; done ;;`.
 
 ## Constitution Compliance
-- [x] **1 — payload never under `.claude/`**: all changes are in `hooks/`, `commands/`, `docs/`, `tests/`, `evals/`.
+- [x] **1 — payload never under `.claude/`**: all changes are in `hooks/`, `commands/`, `docs/`, `tests/`.
 - [x] **2 — every command namespaced**: no new command; `ledger.sh forward` is a helper verb.
 - [x] **3 — every guard mutation-tested, tool-call-level assertions**: FR-017 lists every guard (verdict, phase,
   live verdict, D12 kinds, merge action, worker, cap, `--past-cap` person gate, hash, routing, consumption,
-  `--question`), each mutated in `tests/smoke-forward.sh`; the evals assert on tool calls and on the bare origin's
-  refs (what git did), not on summary text.
+  `--question`), each mutated in `tests/smoke-forward.sh`; the live tier (SC-005) asserts on the stream's tool calls and the bare origin's
+  refs (what git did), not on summary text, with `git merge` called as its positive control.
 - [x] **4 — zero-install**: bash + jq + git + the existing fake `gh`/`claude` fixture patterns.
 - [x] **5 — helpers fail loudly**: `forward` exits non-zero with what it saw; the cap path is a written block shown
   in the form; a failed state read dies before any write; a brief hash mismatch kills the launch.
@@ -294,7 +326,7 @@ to the rule check at `:245`. **File:** `hooks/lane-lib.sh` (`:55`) —
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | Forward → verify → babysit → conflict again (base keeps moving) | loop, spend | cap 3 per PR URL → `conflict` block for a person (FR-005); stall cap within implement; bound ≤ 9 implement runs per PR (spec D6) |
-| Worker "resolves" a semantic conflict by picking a side | wrong code merged | closed class list; two-sided → abort + question (FR-013); red tests → abort + question (FR-013a); verifier re-runs every gate on the new head; evals SC-005 |
+| Worker "resolves" a semantic conflict by picking a side | wrong code merged | closed class list; two-sided → abort + question (FR-013); red tests → abort + question (FR-013a); verifier re-runs every gate on the new head; the live tier SC-005 |
 | A lane pulls a CLEAN PR off `human:merge` | a person's gate cleared without cause | live-verdict check (FR-003), ask rule (FR-018), mutation-tested |
 | `BEHIND` verdict change breaks a reader expecting `mergeable` | babysitter misroutes | every reader updated (`hef.babysit.md`, deploy schema `:569` + transcription, `ledger-recipes.sh`); smoke covers each |
 | `session-launch.sh` crossing 500 code lines (at 490) | commit blocked by `quality-before-commit.sh:226` | logic in `session-launch-forward.sh`; ≤ 9 lines in the launcher; the task measures with the gate's own counter before commit and moves a call into the sibling if over |
@@ -302,7 +334,10 @@ to the rule check at `:245`. **File:** `hooks/lane-lib.sh` (`:55`) —
 | Live verdict `pending` while GitHub recomputes, inside a routing verb | the verb dies half-done | D14: a refusal is a note, never an abort; `UNKNOWN`/`CLEAN` fixtures |
 | Worker reports another route or PR URL | verify gate skipped / a second PR adopted | FR-010a: route kept, a stray URL → `failed` |
 | Forward while a lane merge is approved/taken | merge on a moved head | FR-003 refusal; `merge_stop` precedes the forward in the merge path |
-| Lane babysit forwards, then `deploy --finish` forwards again | `--finish` exits 1, prepare/prompt files left | D13: skip when already forwarded; `--finish` admits the forwarded entry; lane fixture + two mutations |
+| Lane babysit forwards, then `deploy --finish` forwards again | `--finish` exits 1, prepare/prompt files left | D13: `--finish` admits the forwarded entry through `forwarded_since_prepare` and does not transcribe; lane fixture + two mutations |
+| The implement schema gains `question` on every launch | the 9.2.0 launch pin (`launch-920.txt`) breaks | `question` only on a merge-forward run (`forward_schema`); launch-pin fixture |
+| The worker's sandbox denies `git` or the push to the bare origin in the live tier | SC-005 passes vacuously or cannot pass | every live case requires a `git merge` tool call; the mechanical case requires origin to advance; the task measures where the bare origin must sit |
+| A question hunk holds an unclosed `<!--` | `ledger.sh questions` drops the base side | `implement_question_file` rewrites `<!--`; question-comment fixture |
 | Entry without a worktree reaches a merge-forward | `claude -w` merges forward a fresh branch | FR-005a: `forward` blocks `conflict` instead; `forward_prompt` re-checks before the claim |
 | DIRTY↔BEHIND flip between two state reads | a needless refusal leaves the entry in `pr` | either live verdict accepted, the live one recorded (D3) |
 | The interactive build lane (not a launched worker) must see the brief | lane runs the full pipeline instead | `hef.orchestrate.md` build stage: an entry with an open forward runs the merge-forward steps (`ledger.sh show` lists `.forwards`) |
@@ -311,7 +346,7 @@ to the rule check at `:245`. **File:** `hooks/lane-lib.sh` (`:55`) —
 1. Write `tests/smoke-forward.sh` with the fixtures above and the `forward` verb cases; watch it fail.
 2. Implement `pr-watch.sh` `behind`, then `forward_cmd` + dispatch + `--forward-consumed` + `is_person_sub`.
 3. Route the three callers; add `session-launch-forward.sh` and the launcher hooks; update existing smoke fixtures.
-4. Setup ask rules, docs, CHANGELOG, evals; run `bash tests/smoke.sh`.
+4. Setup ask rules, docs, CHANGELOG; the live tier block; run `bash tests/smoke.sh` (and `SMOKE_LIVE=1` from a plain shell).
 
 ## Review round 1 (2026-11-09, REVISE_PLAN) — how each change was applied
 1. Launcher size: logic moved to `hooks/session-launch-forward.sh`; risk row rewritten (490 code lines, blocking gate).
@@ -372,7 +407,19 @@ The reviewer's original text:
    entry held by a live headless run (`.owner.pid` set) — the lane's own interactive claim (no pid) is allowed, as
    the lane babysit forwards while holding it; a mutation in FR-017's list.
 
-## Review round 5 (2026-11-09, REVISE_PLAN) — OPEN: the 5-round cap is reached, awaiting the person (human:plan-review)
+## Review round 5 (2026-11-09, REVISE_PLAN) — applied (the person's answer, 2026-11-09: apply with the recommended fixes, one more fresh round)
+1. SC-005 moved from `claude plugin eval` to the live tier of `tests/smoke.sh` (`tests/smoke-forward.sh`, `SMOKE_LIVE=1`),
+   launched through `session-launch.sh implement`; assertions on the stream's tool calls and origin's refs, with a
+   `git merge` call as the positive control. The `evals/merge-forward-*` cases are dropped from Affected Files.
+2. `question` is added to the implement schema only on a merge-forward run (`forward_schema`), so
+   `tests/fixtures/launch-920.txt` stays byte-identical; launch-pin fixture.
+3. `implement_question_file` rewrites `<!--`; question-comment fixture.
+4. Applied: fast-forward to `head_sha` first, diverged → question (FR-009); a test command that cannot run is red
+   (FR-013a); `wt_branch` in `forward_prompt` under lane mode; `session-launch-forward.sh` row in `docs/hooks.md`;
+   `headRefName`/`baseRefName` validated before the brief (FR-003); the stale risk row fixed; `action stop`'s closing
+   line after a move; fixtures named for the hash mismatch, the in-lane `--past-cap` gate, the headless-owner refusal.
+
+The reviewer's original text:
 The fresh-context reviewer found rounds 1–4 applied, D13/D14/D3 sound against the code, and asked for:
 1. **SC-005 (blocking):** `evals/README.md:27-31` records that the eval sandbox denies `git` to the model, so the
    mechanical case cannot pass and the two "origin unchanged" cases pass vacuously (constitution 3). Recommended:
@@ -390,3 +437,15 @@ The fresh-context reviewer found rounds 1–4 applied, D13/D14/D3 sound against 
    `session-launch-forward.sh` in `docs/hooks.md:46`; validate `headRefName`/`baseRefName` before the brief; fix the
    stale "skip when already forwarded" risk row and the `action stop` closing line after a successful forward;
    name fixtures for the hash mismatch, the in-lane `--past-cap` gate and the headless-owner refusal.
+
+## Review round 6 (2026-11-09, APPROVE) — the person's one extra round after the cap
+A fresh-context reviewer found round 5 applied soundly against the code and no blocking defect. Non-blocking notes
+carried into the tasks: `forward_transcribe_guard` runs before the route/`--pr` record (`session-launch.sh:371-372`);
+`--forward-consumed` leaves an entry with no `.forwards` unchanged; the live tier's skip-vs-bad for a sandboxed or
+bubblewrap-less shell, the person's authenticated config, a fixed `XDG_CACHE_HOME`; measure the bare origin's
+placement against the worker's write allowlist (`:301`); cap the worker's `question` so `questions_item`'s 8000-byte
+cut keeps the tail; a worktree HEAD ahead of `head_sha` (an unpushed retry) proceeds; the red-suite live case passes
+on `git merge --abort` + origin unchanged, the text check secondary; the `st_dep` chain returns the entry to `pr`
+between calls; `questions_item` admits `conflict` only with a `question_path`.
+
+## Reviewed 2026-11-09 — APPROVE (round 6, fresh-context code-reviewer)
