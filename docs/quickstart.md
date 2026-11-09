@@ -153,8 +153,11 @@ gives the build a writable cache of its own inside the sandbox. A build run with
 - **RFCs** live in `docs/rfcs/<ID>.md`, one per item, linked by an `rfc:` line. If an RFC changes after its
   plan was approved, the builder stops and the orchestrator asks you to bring the plan in line.
 - **The status line** keeps your own (profile, model, folder…) and adds `ctx 45% · 90k/200k` (context used,
-  tokens in context over the window); below it, one row per background run (`▶ implement FAB-1 · 4m`) and per
-  decision waiting on you (`⏸ FAB-3 · plan approval`).
+  tokens in context over the window). Rows for the background runs (`▶ implement FAB-1 · 4m`) and the decisions
+  waiting on you (`⏸ FAB-3 · plan approval`) are off by default; `"context": {"gauge_rows": true}` in
+  `.claude/project-status.json` shows them below it. Track that file in git for the rows to show inside a worktree
+  (`git add -f` when your global excludes ignore `.claude/`).
+  The orchestrator's pass brief lists runs and decisions either way.
 - **Compact** when a lane's status line says `/compact`, with that lane's own prompt
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` only for unrelated work.
   `context.compact_at` in `.claude/project-status.json` sets when it says so (default 40%; per lane, or 0 for never).
@@ -178,8 +181,8 @@ gives the build a writable cache of its own inside the sandbox. A build run with
   run a backfill, restart a container) is a form in the orchestrator. Ask the orchestrator for it in your words. It
   writes the steps, the exact heads, the stop checks and the commands, and shows them. You answer **Approve**, then
   confirm the dialog. The lane does exactly that, with no dialog in its own pane, and reports done or where it
-  stopped. A head that moved, or anything the scope didn't cover, comes back to you as a new form. The status line
-  shows each one waiting on you (`⏸ DET-7-A2 · action: merge PR #726`).
+  stopped. A head that moved, or anything the scope didn't cover, comes back to you as a new form. With
+  `context.gauge_rows: true` the status line shows each one waiting on you (`⏸ DET-7-A2 · action: merge PR #726`).
 - **Deploy recipes.** Write a deploy once, per environment, under `orchestrate.deploy.recipes` in
   `.claude/project-status.json`: ordered steps, each a title and its commands, with `{version}`, `{sha}` and `{env}`
   filled in when you ask. A step with `"expect": "{version}"` stops the run when the version it reads back differs.

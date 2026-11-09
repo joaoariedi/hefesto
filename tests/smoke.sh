@@ -5521,6 +5521,15 @@ printf '{"sandbox":{"filesystem":{"allowWrite":["%s/hooks"]}}}\n' "$REPO" > "$l3
 l3_su_mut 's/^    case "$t" in "$p"\*) return 0 ;; esac .*$/    :/'
 l3u --print >/dev/null 2>&1 || { bad "mutation survived: the grant-inside-the-root rule removed, yet the clone was still untrusted"; l3_fail=1; }; l3_su_restore
 rm -f "$l3_home/.claude/settings.json"; rm -f "$L3F"; l3u >/dev/null 2>&1
+# gauge-rows-opt-in/FR-004: setup writes nothing for context.gauge_rows (HEF-23) — project-status.json is left
+# byte-identical, and no settings file it writes names the key, with no flag or with --lanes
+cp "$L3F" "$l3_t/gr-set.bak"; cp "$l3_t/.claude/project-status.json" "$l3_t/gr-ps.bak"
+for l3_x in "" --lanes; do
+  l3u $l3_x >/dev/null 2>&1
+  cmp -s "$l3_t/.claude/project-status.json" "$l3_t/gr-ps.bak" || { bad "setup ${l3_x:-(no flag)} must leave project-status.json untouched"; l3_fail=1; }
+  ! grep -rqF gauge_rows "$l3_t/.claude/" --include='settings*.json' || { bad "setup ${l3_x:-(no flag)} must write no gauge_rows: $(grep -rlF gauge_rows "$l3_t/.claude/")"; l3_fail=1; }
+done
+cp "$l3_t/gr-set.bak" "$L3F"; rm -f "$l3_t/gr-set.bak" "$l3_t/gr-ps.bak"
 
 # FR-006/007/023 lanes by name: the gauge and the session start read the name; the orchestrator warns in auto
 l3_g() { printf '{"context_window":{"used_percentage":45},"workspace":{"current_dir":"%s"},"session_name":"%s"}' "$l3_t" "$1" | bash "${L3_G:-$REPO/hooks/context-gauge.sh}" 2>/dev/null; }
@@ -5541,6 +5550,8 @@ rm -f "$l3_cfg/settings.json"
 # feature 2026-10-23: the background runs by name — every claim (stage, item, age) and the decisions waiting on
 # a person — from the main folder and from inside a worktree
 l3_rn="$(mktemp -d)"; git -C "$l3_rn" init -q -b main; mkdir -p "$(sld "$l3_rn")"
+# gauge-rows-opt-in/FR-003: the rows are opt-in (HEF-23) — this fixture opts in, tracked so the worktree has it too
+mkdir -p "$l3_rn/.claude"; printf '{"context":{"gauge_rows":true}}\n' > "$l3_rn/.claude/project-status.json"
 printf '{"id":"RN-1","owner":{"role":"implement","started":"%s"},"blocked_on":null}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(sld "$l3_rn")/RN-1.json"
 printf '{"id":"RN-2","owner":null,"blocked_on":{"kind":"human:plan-approval"}}\n' > "$(sld "$l3_rn")/RN-2.json"
 printf '{"id":"RN-3","owner":null,"blocked_on":{"kind":"ci"}}\n' > "$(sld "$l3_rn")/RN-3.json"
@@ -5548,18 +5559,52 @@ l3_rin() { printf '{"context_window":{"used_percentage":12},"workspace":{"curren
 l3_want="$(printf 'ctx 12%%\n▶ implement RN-1 · 0m\n⏸ RN-2 · plan approval')"
 [ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" = "$l3_want" ] \
   || { bad "gauge: each running claim and each decision for a person must be its own row below the first: '$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")'"; l3_fail=1; }
-git -C "$l3_rn" -c user.email=t@t -c user.name=t commit -q --allow-empty -m i; git -C "$l3_rn" worktree add -q "$l3_rn/wt" -b wt >/dev/null 2>&1
+git -C "$l3_rn" add .claude/project-status.json; git -C "$l3_rn" -c user.email=t@t -c user.name=t commit -q --allow-empty -m i;git -C "$l3_rn" worktree add -q "$l3_rn/wt" -b wt >/dev/null 2>&1
 [ "$(l3_rin "$l3_rn/wt" | bash "$REPO/hooks/context-gauge.sh")" = "$l3_want" ] || { bad "gauge: from inside a worktree the same rows must show"; l3_fail=1; }
 for n in 4 5 6 7 8 9; do printf '{"id":"RN-%s","owner":null,"blocked_on":{"kind":"human:merge"}}\n' "$n" > "$(sld "$l3_rn")/RN-$n.json"; done
 l3_o="$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")"
 { [ "$(wc -l <<<"$l3_o" | tr -d ' ')" = 8 ] && [ "$(tail -1 <<<"$l3_o")" = '… +2 more' ]; } || { bad "gauge: at most six rows below the first, then '… +N more': $l3_o"; l3_fail=1; }
 rm -f "$(sld "$l3_rn")/"*.json; [ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" = 'ctx 12%' ] || { bad "gauge: with nothing running and nothing waiting, one row only"; l3_fail=1; }
-sed 's/^\[ -n "$pdir" \] \&\& runs_rows "$pdir"$/:/' "$REPO/hooks/context-gauge.sh" > "$l3_bin/g2.sh"; cmp -s "$REPO/hooks/context-gauge.sh" "$l3_bin/g2.sh" && { bad "gauge rows mutation did not apply"; l3_fail=1; }
+sed 's/^\[ -n "$pdir" \] \&\& rows_on "$pdir" \&\& runs_rows "$pdir"$/:/' "$REPO/hooks/context-gauge.sh" > "$l3_bin/g2.sh"; cmp -s "$REPO/hooks/context-gauge.sh" "$l3_bin/g2.sh" && { bad "gauge rows mutation did not apply"; l3_fail=1; }
 printf '{"id":"RN-1","owner":{"role":"plan","started":"2026-01-01T00:00:00Z"}}\n' > "$(sld "$l3_rn")/RN-1.json"
 [[ "$(l3_rin "$l3_rn" | bash "$l3_bin/g2.sh")" == *"▶ plan RN-1"* ]] && { bad "mutation survived: the run rows removed, yet the claim was named"; l3_fail=1; }
 [[ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" =~ ▶\ plan\ RN-1\ ·\ [0-9]+h[0-9]{2}m ]] || { bad "gauge: a long run's age must read in hours and minutes (1h05m)"; l3_fail=1; }
+# gauge-rows-opt-in/FR-001 gauge-rows-opt-in/FR-002: the rows are opt-in (HEF-23) — the same ledger (RN-1's claim
+# still there) gives the context line only, rc 0, nothing on stderr, without the key and with any non-true value
+rm -f "$l3_rn/.claude/project-status.json"
+l3_o="$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh" 2>&1)"; l3_rc=$?
+{ [ "$l3_rc" -eq 0 ] && [ "$l3_o" = 'ctx 12%' ]; } || { bad "gauge: without context.gauge_rows, one line only, rc 0, no stderr (rc=$l3_rc): '$l3_o'"; l3_fail=1; }
+mkdir -p "$l3_cfg"; printf '{"statusLine":{"type":"command","command":"printf MINE"}}\n' > "$l3_cfg/settings.json"
+l3_o="$(l3_rin "$l3_rn" | CLAUDE_CONFIG_DIR="$l3_cfg" bash "$REPO/hooks/context-gauge.sh" --with-user 2>&1)"; rm -f "$l3_cfg/settings.json"
+{ [ "$(wc -l <<<"$l3_o" | tr -d ' ')" = 1 ] && [[ "$l3_o" == MINE*"ctx 12%" ]]; } || { bad "gauge --with-user: without context.gauge_rows, still one line: '$l3_o'"; l3_fail=1; }
+for v in '{"context":{"gauge_rows":"true"}}' '{"context":{"gauge_rows":1}}' '{"context":{"gauge_rows":null}}' \
+         '{"context":{"gauge_rows":false}}' '{"context":"x"}' '{nope'; do
+  printf '%s\n' "$v" > "$l3_rn/.claude/project-status.json"
+  l3_o="$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh" 2>&1)"; l3_rc=$?
+  { [ "$l3_rc" -eq 0 ] && [ "$l3_o" = 'ctx 12%' ]; } || { bad "gauge: $v → rows off, rc 0, no stderr (rc=$l3_rc): '$l3_o'"; l3_fail=1; }
+done
+# mutations (constitution 3): the guard always on → the no-key check goes red; `== true` loosened → the
+# "true" / 1 / false values go red
+l3_mut context-gauge.sh 's/rows_on "$pdir" && //'
+rm -f "$l3_rn/.claude/project-status.json"
+[ "$(l3_rin "$l3_rn" | bash "$l3_md/context-gauge.sh" 2>&1)" = 'ctx 12%' ] && { bad "mutation survived: the gauge_rows guard removed, yet no key still gave one line"; l3_fail=1; }; l3_restore context-gauge.sh
+l3_mut context-gauge.sh 's/== true/!= null/'
+for v in '{"context":{"gauge_rows":"true"}}' '{"context":{"gauge_rows":1}}' '{"context":{"gauge_rows":false}}'; do
+  printf '%s\n' "$v" > "$l3_rn/.claude/project-status.json"
+  [ "$(l3_rin "$l3_rn" | bash "$l3_md/context-gauge.sh" 2>&1)" = 'ctx 12%' ] && { bad "mutation survived: == true loosened to != null, yet $v still gave one line"; l3_fail=1; }
+done; l3_restore context-gauge.sh
 rm -rf -- "${l3_rn:?}"
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
+# gauge-rows-opt-in/FR-005: every place that describes the rows says they are opt-in via context.gauge_rows, no doc
+# keeps the unconditional sentence, and the CHANGELOG's [Unreleased] records the new default
+for f in hooks/context-gauge.sh hooks/hefesto-setup.sh docs/hooks.md docs/quickstart.md docs/quickstart.pt-BR.md docs/install.md SETUP.md; do
+  grep -qF gauge_rows "$REPO/$f" || { bad "$f must name context.gauge_rows (the run rows are opt-in)"; l3_fail=1; }
+done
+awk '/^## \[Unreleased\]/ { u = 1; next } /^## \[/ { u = 0 } u' "$REPO/CHANGELOG.md" | grep -qF gauge_rows || { bad "CHANGELOG.md [Unreleased] must record that the run rows are off by default (gauge_rows)"; l3_fail=1; }
+for f in docs/quickstart.md docs/hooks.md; do
+  ! grep -qF 'one row per background run' "$REPO/$f" || { bad "$f must not keep the unconditional 'one row per background run' sentence"; l3_fail=1; }
+done
+! grep -qF 'abaixo, uma linha por execução em segundo plano' "$REPO/docs/quickstart.pt-BR.md" || { bad "docs/quickstart.pt-BR.md must not keep the unconditional rows sentence"; l3_fail=1; }
 l3u --lanes >/dev/null 2>&1
 l3_ss() { printf '{"cwd":"%s","session_title":"%s","permission_mode":"%s","session_id":"sid-%s-0001"}' "$l3_t" "$1" "$2" "$1" | bash "${L3_SS:-$REPO/hooks/session-start-context.sh}" 2>&1; }
 l3_o="$(l3_ss repo-builder default)"; grep -qF 'hefesto lane: build (repo-builder, ' <<<"$l3_o" && grep -qF '/hefesto:hef.orchestrate --stage build' <<<"$l3_o" && ! grep -qF 'hefesto setup:' <<<"$l3_o" \
@@ -6192,9 +6237,13 @@ jq '.status = "taken" | del(.heads_ok_at)' "$(sld "$l3_t")/actions/LT-2-A1.json"
 la_close LT-2-A1 LT-2-A5
 la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/sc.json" >/dev/null 2>&1; la_last="$(ls "$(sld "$l3_t")"/actions/ | sed -n 's/^\(LT-2-A[0-9]*\)\.json$/\1/p' | sort -t A -k2 -n | tail -1)"
 la_gauge() { jq -nc --arg d "$l3_t" '{context_window: {used_percentage: 10}, workspace: {current_dir: $d, project_dir: $d}}' | bash "${1:-$REPO/hooks/context-gauge.sh}"; }
+# gauge-rows-opt-in/FR-003: the rows are opt-in (HEF-23) — on for these two checks, the fixture restored after
+cp "$l3_t/.claude/project-status.json" "$l3_t/gr.bak"
+jq '.context.gauge_rows = true' "$l3_t/gr.bak" > "$l3_t/x.json" && cp "$l3_t/x.json" "$l3_t/.claude/project-status.json"
 grep -qF "⏸ $la_last · action: merge PR #7" <<<"$(la_gauge)" || { bad "the status line must show the pending action $la_last: $(la_gauge)"; la_fail=1; }
 l3_mut context-gauge.sh '/select(.status == "pending")/d'
 grep -qF "⏸ $la_last · action" <<<"$(la_gauge "$l3_md/context-gauge.sh")" && { bad "mutation survived: the pending-action row removed, yet it was shown"; la_fail=1; }; l3_restore context-gauge.sh
+cp "$l3_t/gr.bak" "$l3_t/.claude/project-status.json"; rm -f "$l3_t/gr.bak"
 rm -rf -- "${la_gh:?}"; rm -f "$l3_t"/sc.json "$l3_t"/sc2.json "$l3_t"/bad.json "$l3_t"/ev.md "$l3_t"/why.md "$l3_t"/d.md "$l3_t"/n.md "$l3_t"/a4.bak "$l3_t"/x.json
 [ "$la_fail" -eq 0 ] && ok "lane actions: scopes validated (heads, wrappers, hefesto helpers, *); request leaves the entry's block alone; approve checks hash prefix, lane, title, irreversible, the orchestrator, not a worker, and writes the store; take by the named lane only, once, with the hash unchanged; heads fail closed and gate the grant; grants for that lane and pattern only, ended by done; supersede and stop use the approval up; op entries never staged; directives from the orchestrator, closed by their lane, tampered text withheld; notes by the holder; release by a person; a pending action on the status line; wildcards stop at shell operators; directives closed by their lane in the hook too; 6 mutations caught"
 

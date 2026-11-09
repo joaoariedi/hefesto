@@ -422,7 +422,8 @@ For the short path — install, one lane or four, a new or a running project —
 
    Lanes open with `claude --name <a name in the map>`; the name is the lane, and a session whose name is not in the
    map is no lane. In the orchestrator, `/hefesto:hef.orchestrate` asks every decision as a form and rings the stage lanes;
-   `/hefesto:hef.ship` starts new work. `context.compact_at` sets each lane's compaction nudge.
+   `/hefesto:hef.ship` starts new work. `context.compact_at` sets each lane's compaction nudge; `context.gauge_rows: true` adds the
+   run and decision rows under the status line (off by default).
    **What a background worker can reach.** Its sandbox writes only its worktree and a cache of its own
    (`~/.cache/hefesto/worker-cache/<repo>`, which `XDG_CACHE_HOME`, `GOCACHE` and npm's cache point at — never
    your own `~/.cache/go-build`, which your unsandboxed builds share). Go's module cache (`~/go/pkg/mod`) stays
