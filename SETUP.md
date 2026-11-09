@@ -271,7 +271,7 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
                     "Bash(<test command>*)"]
        }
      },
-     "context": { "compact_at": { "orchestrator": 40, "plan": 50, "build": 0, "deploy": 0 } }
+     "context": { "compact_at": { "orchestrator": 40, "plan": 50, "build": 0, "deploy": 0 }, "gauge_rows": false }
    }
    ```
    Create the RFC folder (`docs/rfcs/`) with a short `README.md` saying one file per item, `<ID>.md`, and
