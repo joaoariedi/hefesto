@@ -622,8 +622,9 @@ case "$SUB" in
         # who had read the item in an interactive session still had to copy the line into a terminal
         # (field report, 2026-10-06). A terminal test proves nothing about who read the item, and anything a
         # session can run, the model that read the hostile text can run too — so the gate is the
-        # PERMISSION PROMPT: this command must never be allowlisted (docs/install.md), every clear is a
-        # dialog the person answers, and the name is recorded. A launched worker is refused outright.
+        # PERMISSION PROMPT: `unblock … --reviewed-by-human` is a signature ask rule (hefesto-setup.sh; plain
+        # `unblock` is allowlisted, the flag never is — HEF-27), lane-guard.sh denies the flag spelled so that no rule
+        # matches it, every clear is a dialog the person answers, and the name is recorded. A launched worker is refused outright.
         # That premise needs the pane in `default` permission mode: under auto, bypassPermissions or
         # dontAsk there is no dialog — session-start-context.sh warns when an intake block meets one.
         [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] \
@@ -631,7 +632,7 @@ case "$SUB" in
         # Compatibility: from a real terminal, --reviewed-by-human alone still works (as before 7.9.1), recording the login.
         [ -z "$RBY" ] && [ "$REVIEWED" = 1 ] && [ -t 0 ] && RBY="${USER:-$(id -un 2>/dev/null)}"
         [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
-          || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist it" ;;
+          || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist the --reviewed-by-human form" ;;
     esac
     if [ "$KIND" = human:merge ] && [ -n "${MERGED_VIA:-}" ]; then
       jq --arg m "$MERGED_VIA" --arg v "$MERGED_VER" '.blocked_on = null | .pr.merge_sha = $m

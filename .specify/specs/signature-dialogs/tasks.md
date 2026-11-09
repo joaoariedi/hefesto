@@ -168,9 +168,9 @@ and then restored (constitution Principle 3).
   asks gone, one spelling per root, launcher-only `claim`/`run` (a person frees a claim with `release`), the marker is a brake
   against sessions and not a secret, and no brake exists without setup and sandbox — as today `CHANGELOG.md`
 
-- [ ] T022 [FR-007] [US2] `lane-guard.sh`: parse a `ledger.sh` / `pr-watch.sh reply|comment` command with shell quoting (reuse the #164 lexer if it fits) and deny a signature flag spelled other than a plain unquoted word separated by single spaces; reason names the plain spelling `hooks/lane-guard.sh`
-- [ ] T023 [FR-007] [US2] Smoke rows in `tests/smoke-signatures.sh`: double-quoted, single-quoted, tab-separated and partially quoted (`--reviewed-by-"human"`) flags are denied by the guard; the plain spelling passes the guard; one mutation (drop the check → red) `tests/smoke-signatures.sh`
-- [ ] T024 Comment drift from the code review: `hooks/ledger.sh:625,634` and `hooks/ledger-lanes.sh:62,69` no longer say "never allowlist" / "puts it in ask" for `unblock`/`release` `hooks/ledger.sh`
+- [x] T022 [FR-007] [US2] `lane-guard.sh`: parse a `ledger.sh` / `pr-watch.sh reply|comment` command with shell quoting (reuse the #164 lexer if it fits) and deny a signature flag spelled other than a plain unquoted word separated by single spaces; reason names the plain spelling `hooks/lane-guard.sh`
+- [x] T023 [FR-007] [US2] Smoke rows in `tests/smoke-signatures.sh`: double-quoted, single-quoted, tab-separated and partially quoted (`--reviewed-by-"human"`) flags are denied by the guard; the plain spelling passes the guard; one mutation (drop the check → red) `tests/smoke-signatures.sh`
+- [x] T024 Comment drift from the code review: `hooks/ledger.sh:625,634` and `hooks/ledger-lanes.sh:62,69` no longer say "never allowlist" / "puts it in ask" for `unblock`/`release` `hooks/ledger.sh`
 
 ---
 **Legend**: `[P]` = parallelizable | `[US#]` = user scenario | `[FR-NNN]` = functional requirement | (R6) = a plan-review

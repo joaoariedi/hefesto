@@ -394,6 +394,35 @@ sg_lg_mut 's/^    in_lanes_session \&\& die "ledger handoff/    false \&\& die "
 sg_handoff_refused && { bad "mutation survived (FR-010): the handoff lanes refusal removed, yet the lane's handoff was refused"; sg_fail=1; }
 SG_LG=""
 
+# --- FR-007 (amended 2026-11-09): a signature flag spelled other than plain is denied by the lane guard -----------------
+# The ask rules match the literal text ` --merge-sha`; a quoted, escaped or tab-separated flag matches none of them and
+# the `unblock:*` / `record:*` / `release:*` / `pr-watch.sh:*` allow rules let it through with no dialog. The guard
+# (tests/smoke.sh's gd: hook JSON in, decision out) denies it in every lane, the orchestrator included.
+# signature-dialogs/FR-007
+sg_gd_want() { [ "$(gd "$1" "$2")" = "$3" ] || { bad "FR-007 lane-guard ($1): '$2' must be $3, got $(gd "$1" "$2")"; sg_fail=1; }; }
+SG_PW="$REPO/hooks/pr-watch.sh"
+sg_gd_want orchestrator "$LGL unblock LT-2 \"--merge-sha\" abc123" deny
+sg_gd_want orchestrator "$LGL unblock LT-2 '--reviewed-by-human' --by Ana" deny
+sg_gd_want orchestrator "$LGL unblock LT-2"$'\t'"--merge-sha abc123" deny
+sg_gd_want orchestrator "$LGL unblock LT-2 --reviewed-by-\"human\" --by Ana" deny
+sg_gd_want orchestrator "$LGL record LT-2 \\--rfc" deny
+sg_gd_want orchestrator "$LGL release LT-2 --reviewed-by-'human' --by Ana" deny
+sg_gd_want orchestrator "$SG_PW \"reply\" 7 --body-file b.md" deny
+sg_gd_want orchestrator "$LGL unblock LT-2 --merge-sha abc123" none
+sg_gd_want orchestrator "$LGL unblock LT-2 --reviewed-by-human --by \"Ana Lima\"" none
+sg_gd_want orchestrator "$LGL record LT-2 --rfc" none
+sg_gd_want orchestrator "$LGL show LT-2 \"the --rfc flag pins it\"" none
+sg_gd_want orchestrator "$SG_PW reply 7 --body-file b.md" none
+sg_gd_want orchestrator "$SG_PW status 7" none
+sg_gd_want orchestrator "git commit -m \"--rfc\"" none
+sg_gd_want builder "$LGL show LT-2" none
+# shellcheck disable=SC2154,SC2034  # l3_md and LG_GD belong to tests/smoke.sh's lane-guard part (gd reads LG_GD)
+{
+  l3_mut lane-guard.sh 's/^sign_spelling_check$/:/'; LG_GD="$l3_md/lane-guard.sh"
+  [ "$(gd orchestrator "$LGL unblock LT-2 \"--merge-sha\" abc123")" = deny ] && { bad "mutation survived (FR-007): the signature-spelling check removed, yet the quoted --merge-sha was denied"; sg_fail=1; }
+  l3_restore lane-guard.sh; LG_GD=""
+}
+
 # --- FR-009 / US5: the docs say one spelling, the signature set, launcher-only claim/run, the --check defect -----------
 # signature-dialogs/FR-009
 sg_docs() { # $1 the repo root to read → the doc statements missing

@@ -112,6 +112,35 @@ if [ -n "$EXCL_HIT" ]; then
   fi
 fi
 
+# FR-007 (HEF-27, amended 2026-11-09 on the code review's blocker): a signature's ask rule matches the literal text
+# ` --merge-sha`, so `"--merge-sha"`, `--merge-\sha`, `--reviewed-by-"human"` or a tab before the flag match no ask
+# rule — and `unblock:*` / `record:*` / `release:*` / `pr-watch.sh:*` are allow rules, so the person would never see
+# the dialog. In every set-up project and every lane, the orchestrator included: a signature the shell reads (quotes,
+# escapes, line continuations removed) must also be written plain, after a space, or the call is denied.
+SIGN_FLAGS=(--reviewed-by-human --merge-sha --body-file --body-from-board --rfc)
+shell_read() { # $1 text → its words roughly as the shell reads them: continuations joined, quotes and escapes gone, one space between
+  local s="${1//$'\\\n'/}"
+  s="${s//\$\'/\'}"; s="${s//\$\"/\"}"
+  printf '%s' "$s" | tr -d "\"'\\\\" | tr -s ' \t' '  '
+}
+sign_spelling_check() {
+  local text="$CMD" read_ f verb
+  heredoc_ok 2>/dev/null && text="${CMD%%$'\n'*}"     # the orchestrator's heredoc body is the person's text, not flags
+  read_="$(shell_read "$text")"
+  if [[ "$read_" =~ (^|[[:space:]/])pr-watch\.sh[[:space:]]+(reply|comment)([[:space:]]|$) ]]; then
+    verb="${BASH_REMATCH[2]}"   # kept now: the failed match below empties BASH_REMATCH, and set -u would end the hook
+    [[ "$text" =~ pr-watch\.sh\ (reply|comment)([[:space:]]|$) ]] \
+      || deny "pr-watch.sh $verb writes to GitHub and asks the person: spell it plain — pr-watch.sh $verb …, unquoted, one space — so its permission dialog matches"
+  fi
+  [[ "$read_" =~ (^|[[:space:]/])(ledger|pr-watch)\.sh([[:space:]]|$) ]] || return 0
+  for f in "${SIGN_FLAGS[@]}"; do
+    [[ "$read_" =~ (^|[[:space:]])${f}([[:space:]=]|$) ]] || continue
+    [[ "$text" =~ \ ${f}([[:space:]=]|$) ]] \
+      || deny "$f is a person's signature and asks for a dialog: spell it plain — ' $f', unquoted and unescaped, after a single space — so the ask rule matches; this command quotes, escapes or tab-separates it"
+  done
+}
+sign_spelling_check
+
 # --- with --lanes: who may record what, then the grants ---------------------------------------------------------
 [ "$LANES" = true ] || exit 0
 if [ -n "$EXCL_HIT" ]; then case "$EXCL_HIT" in */ledger.sh|*/session-launch.sh)
