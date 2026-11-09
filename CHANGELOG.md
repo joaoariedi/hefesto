@@ -35,6 +35,22 @@ it is what caught the hand-bumped era:
 4. Commit, then tag it: `git tag -a vX.Y.Z && git push origin vX.Y.Z`, and cut a GitHub
    Release from the entry above. Untagged releases make the next scaffold reach too far back.
 
+## [Unreleased]
+
+**The planner works through plan-review rounds on its own (HEF-21).** It used to stop at the second
+`REVISE_PLAN` and ask you, even when every finding was a plan edit. Now it makes the reviewer's changes and
+reviews again until `APPROVE`, up to `orchestrate.plan_review_rounds` rounds (default 5, 1–20; anything else
+is refused before a planner starts). It stops for you only on a product or design question: a
+`NEEDS_DISCUSSION` verdict, a suggested change the reviewer tags `[DECISION]`, or a finding the planner cannot
+settle from the code. It also stops at the cap.
+
+- `speckit-helper.sh plan-review-round` records each round in `<spec dir>/plan-review.md`, an append-only
+  log beside `plan.md`, and prints the next action. `/hefesto:hef.review` plan mode records every round
+  through it, a person's own run included, and follows its `next:` line. Your answer or revision notes open
+  a new segment, and the count restarts there.
+- A `human:plan-review` question now carries the round index, the last round's open findings and the log's
+  path, within the 8,000 bytes `ledger.sh questions` shows.
+
 ## [9.3.0] - 2026-11-06
 
 **One repository can hold several apps, each with its own `.specify/`; every command is written the way Claude Code
