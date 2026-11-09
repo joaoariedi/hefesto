@@ -137,6 +137,9 @@ prr_consume_findings() { # sets PRR_FX
   [ -n "$ff" ] || return 0
   [ -f "$ff" ] && [ ! -L "$ff" ] || prr_die "--findings-file $ff must be a regular file, not a symlink"
   [ "$(cd "$(dirname "$ff")" 2>/dev/null && pwd -P)" = "$PRR_SDR" ] || prr_die "--findings-file $ff must be inside $PRR_SD"
+  # Only the transient file /hefesto:hef.review writes: the helper deletes it, and plan-review.md or plan.md named here
+  # would be consumed and lost (code review of HEF-21: a one-argument slip deleted the log and reopened a blocked segment).
+  [ "$(basename -- "$ff")" = .review-findings.md ] || prr_die "--findings-file $ff must be named .review-findings.md — the helper deletes it after reading"
   PRR_FX="$(cat -- "$ff")"; rm -f -- "$ff"
   ! grep -qE '^(## (Round|Segment) |decision: )' <<<"$PRR_FX" \
     || prr_die "--findings-file $ff holds a '## Round'/'## Segment'/'decision:' line — findings cannot forge a log line"

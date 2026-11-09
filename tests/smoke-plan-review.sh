@@ -182,11 +182,17 @@ pr_case_i() {
   pr_h "$t" --spec-dir "$t/.specify/specs/pr" --cap 5 --verdict APPROVE >/dev/null && { bad "FR-001 (i) a symlinked log must be refused"; x_fail=1; }
   [ "$(cat "$t/outside.md")" = x ] || { bad "FR-001 (i) a symlinked log is never followed"; x_fail=1; }
   rm -rf "$t"
+  # code review of HEF-21: the findings file is only ever .review-findings.md — never the log or the plan it would delete
+  local f; for f in plan-review.md plan.md; do t="$(pr_repo)"; pr_seq "$t" 5 REVISE_PLAN >/dev/null; cp "$t/.specify/specs/pr/$f" "$t/before"
+    pr_h "$t" --spec-dir .specify/specs/pr --cap 5 --verdict REVISE_PLAN --findings-file ".specify/specs/pr/$f" >/dev/null && { bad "FR-001 (i) --findings-file naming $f must be refused"; x_fail=1; }
+    cmp -s "$t/before" "$t/.specify/specs/pr/$f" || { bad "FR-001 (i) --findings-file naming $f must leave it in place, byte-identical"; x_fail=1; }
+    rm -rf "$t"; done
 }
 x_fail=0; pr_case_i
 [ "$x_fail" = 0 ] && ok "every refusal (forged lines ×3, malformed or missing header, blocked, cap mismatch, past cap, worker, paths) leaves the log byte-identical and consumes the findings (FR-001)"
 pr_mut "FR-001 the forgery check dropped" plan-review-lib.sh "s/'^(## (Round|Segment) |decision: )'/'^NEVER-MATCHES'/" pr_case_i
 pr_mut "FR-001 the forgery check narrowed to the two headers" plan-review-lib.sh "s/'^(## (Round|Segment) |decision: )'/'^## (Round|Segment) '/" pr_case_i
+pr_mut "FR-001 the findings-file name pin dropped" plan-review-lib.sh '/= .review-findings.md \] || prr_die/d' pr_case_i
 pr_mut "FR-001 the delete-on-refusal dropped" plan-review-lib.sh 's/; rm -f -- "\$ff"$//' pr_case_i
 
 # --- the launcher: cap validation (d), prompts (e), a retry keeps the segment's cap (g), the fake planner (a)–(c) ------
