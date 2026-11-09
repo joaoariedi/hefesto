@@ -44,6 +44,14 @@ Truth map: `research.md`. Decisions D1–D7 are in `spec.md`. The key facts:
   (4) FR-009 adds `README.md:294-295`, `docs/case-study-sdlc.md:60,115`, `docs/hooks.md:32`; (5) SC-004 tells
   top-level arms by indentation; (6) the defect message never calls a signature a mechanic (Sketch 4);
   (7) the forgery risk row is qualified (no sandbox, no setup → no brake, as today).
+- **Plan review round 5 (REVISE_PLAN — the 5-round cap), applied:** (1) `handoff` stays a hand command: the
+  `:787` marked re-entry would otherwise let a lane finish `handoff` (today it dies at `caller_gate:262` on the
+  inner `run`), so the `handoff` arm refuses a lanes session up front (step 4c), with a test and mutant (step 5).
+  Notes carried under the verdict, applied as precisions: Sketch 4's jq follows the API-Contracts prose (classify by
+  subcommand + flag, not exact tail); `--arg h` at `hooks/hefesto-setup.sh:240` becomes `hooks_of "$me" <kind>` for
+  the allow (`:241`) and exclusion (`:244-245`) checks too; the live-tier stub root and Sketch 5's fake installed
+  roots sit where `unsafe_root` accepts them (beside the repo, the `l3_su_mut` pattern — `tests/smoke.sh:5425-5429`),
+  never under `$TMPDIR`.
 
 ## Affected Files
 | File | Change Type | Description |
@@ -51,6 +59,7 @@ Truth map: `research.md`. Decisions D1–D7 are in `spec.md`. The key facts:
 | `hooks/hefesto-setup.sh` | modify | the classification lists; one spelling per root kind; signature asks with flag wildcards; enumerated ledger allows; `--check` signature + defect checks across the applying files; header text |
 | `hooks/ledger.sh` | modify | a new `launcher_gate` called after `caller_gate` at `:390`: refuse `claim`/`run` unless the launcher calls them (FR-010, step 4c); `caller_gate` itself unchanged |
 | `hooks/session-launch.sh` | modify | its six `$LEDGER claim\|run` calls (`:452,580,581,660,690,701`) carry the launcher marker |
+| `hooks/ledger.sh` `handoff` arm | modify | refuses a lanes session before the owner write (`:784`), via `in_lanes_session` (lifted from `caller_gate:259-261`, behaviour unchanged) — round 5 |
 | `hooks/ledger.sh` `:787` | modify | `handoff`'s re-entry `bash "$0" run …` → `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 bash "$0" run …`, with a comment (the seventh caller; round 4) |
 | `tests/smoke-signatures.sh` | create | part 11: the 408 fixture reduction, `--check` defect, the classification completeness, the rule-grammar table, `--prepare` regression; each with a mutation |
 | `tests/smoke.sh` | modify | source part 11; `:5436-5438` assert one spelling and the new allow set instead of the `bash` spelling and "no mechanics allow"; live tier: the grammar table against the real matcher |
@@ -121,7 +130,8 @@ is never false for a signature (round 4, item 6).
    root → installed, else equal to `$CLONE` → clone. **`me` in neither** (an untrusted or skipped root — inside the project or a temp folder, or a
    profile setup never saw) → `--check` reports `the hefesto folder this session runs from (<me>) is not one setup
    trusts` and exits 1; it never guesses a spelling. The signature asks must then exist under `hooks_of "$me" <kind>`,
-   one rule each (replacing `:241-243`). (b) the defect pass is folded into the existing three-file loop
+   one rule each (replacing `:241-243`); the allow check (`:241`) and both exclusion checks (`:244-245`) read the
+   same `hooks_of "$me" <kind>` instead of `--arg h "$me/hooks"` (`:240`). (b) the defect pass is folded into the existing three-file loop
    (`:275-284`, `$F`, `$TOP/.claude/settings.json`, the profile's `settings.json`) — one more `jq` per file: each
    `permissions.ask` rule that names a hefesto helper is normalised to its tail (`ledger.sh approve:*`,
    `ledger.sh unblock * --merge-sha*`) and any tail not among the signature tails is added to `miss` with its file
@@ -134,7 +144,14 @@ is never false for a signature (round 4, item 6).
    session's `run`; it becomes `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 bash "$0" run …` with a comment.
    `handoff` already refuses an owned entry (`:767`), so this frees no lane's claim; FR-010 reads "unless
    `session-launch.sh` — or `handoff`'s own re-entry — calls them". Regression: `tests/smoke.sh:3242-3244` (the
-   handoff happy path); mutant: marker dropped from `:787` → that test red. (The re-entries at `:788-790,822` and
+   handoff happy path); mutant: marker dropped from `:787` → that test red. **The marked re-entry is safe only
+   because the arm first refuses a lanes session** (round 5): today a lane's `handoff` dies at `caller_gate:262` on
+   the inner `run` (the session id is inherited); with the marker it would pass, letting any interactive lane take an
+   unowned item to `pr` with no dialog. So the `handoff` arm, before its owner write (`:784`), calls a small
+   `in_lanes_session` helper — `caller_gate`'s own preamble (`valid_sid` → `session_file` exists → `.lanes == true`,
+   `:259-261`) lifted into a function that `caller_gate` keeps its exact behaviour around — and dies
+   `ledger handoff <id>: a hand command — a lane finishes with session-launch.sh --finish`, nothing written.
+   The `:787` comment says the session id is dropped *because* the arm already refused lane sessions. (The re-entries at `:788-790,822` and
    `hooks/ledger-recipes.sh:258` are `record|advance|block`, not launcher-only — untouched.) A new `launcher_gate`, called right after `caller_gate` at `hooks/ledger.sh:390` (so a lane session still gets
    `caller_gate`'s lane message, `:262`, and every other caller reaches this check), dies when:
    `is_launcher_sub "$SUB"` and not (`HEFESTO_LAUNCHER=1` with `CLAUDE_CODE_SESSION_ID` empty) → die naming
@@ -167,7 +184,11 @@ is never false for a signature (round 4, item 6).
      output names `session-launch.sh` and `release`, entry byte-identical (the rewritten
      `smoke-lifecycle-ops.sh:295`); the hook half of the forgery defence — through `gd`,
      `env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 $LGL claim …` → `deny`, beside the existing
-     `tests/smoke.sh:5624` pattern; `--prepare` (the existing `tests/smoke.sh:6222-6225` case) still claims. Mutants: the `launcher_gate` call removed → red; the marker dropped from
+     `tests/smoke.sh:5624` pattern; `--prepare` (the existing `tests/smoke.sh:6222-6225` case) still claims. **Lane `handoff`** (round 5): `CLAUDE_CODE_SESSION_ID=<a sid with a lanes session record>` +
+     `ledger.sh handoff <id> --pr <url>` on an unowned, unblocked item at `implement` → non-zero, output names
+     `--finish`, entry byte-identical (no `owner: hand` left); mutant: the arm's lanes refusal removed → red. The
+     `lsl handoff` calls at `tests/smoke.sh:3236,3238,3240,3242` run with the sid unset (terminal shape), per the
+     P3 rule. Mutants: the `launcher_gate` call removed → red; the marker dropped from
      `session-launch.sh:580` → the `--prepare` case red.
      **P3 rule for the existing refusal assertions:** every existing "must be refused" `claim`/`run` call
      (`tests/smoke.sh:1939,2567,5853,5897,5899,5904`; `tests/smoke-lifecycle-ops.sh:309`) runs **marked** with the
@@ -276,6 +297,9 @@ sign_tails="$(sign_tails_json)"   # before the loop: ["ledger.sh approve:*", "le
   # (the loop's own `done` follows the existing checks)
 ```
 
+**Precision (round 5):** the exact-tail `index([$x])` above is illustrative; the implementation classifies by
+subcommand + signature flag as API Contracts states, so a non-canonical signature ask is never called a mechanic.
+
 **Why this shape:** reports by helper basename, any prefix, so a rule under a moved clone or a removed profile is
 still found (D6: reported, never edited outside `$F`).
 
@@ -289,6 +313,10 @@ sg_old() { # $1 hooks dir → the 9.3 rule set for it: 17 asks × 2 spellings + 
 for h in "$REPO/hooks" "$REPO//hooks" "$sg_home/.claude/plugins/cache/hefesto/hefesto/9.3.0/hooks" "…//hooks" "…/9.2.0/hooks"; do sg_old "$h"; done \
   | jq -R . | jq -s '{permissions: {ask: (. + ["Bash(rm -rf:*)"]), allow: ["Bash(ls)"]}}' > "$sg_p/.claude/settings.local.json"
 ```
+
+**Placement (round 5):** `$sg_home` and every fake installed root sit where `unsafe_root` accepts them (beside the
+repo, the `l3_su_mut` pattern, `tests/smoke.sh:5425-5429`), never under `$TMPDIR` — otherwise setup skips them and
+the "two live roots" expectation is red for the wrong reason.
 
 **Why this shape:** the shape is the 9.3 writer's, so the fixture is generated (same spellings, same counts: 17 × 2
 × 5 hooks dirs = 170 ledger asks, plus the allows) rather than a 900-line file kept in sync by hand. The test

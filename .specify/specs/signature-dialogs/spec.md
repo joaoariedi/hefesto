@@ -42,7 +42,9 @@ writes every rule in four spellings per root (`$r/hooks`, `$r//hooks`, each with
   decision from a worker or a stage lane, and `claim`/`run` from any lane (`is_launcher_sub`). Its list is
   broader than the dialog set (`request`, `direct`, every `unblock`, `op new` are orchestrator-only but not
   signatures); this item does not narrow it. The one addition is FR-010's launcher check in `ledger.sh`, which
-  applies to every caller, lanes or not.
+  applies to every caller, lanes or not, and the `handoff` arm's refusal of a lanes session, which keeps today's
+  outcome (a lane's `handoff` fails) once `handoff`'s own inner `run` carries the launcher marker (plan review
+  round 5).
 - **D3 — allow is enumerated, never `ledger.sh` as a whole.** Each non-signature, non-launcher subcommand of
   `ledger.sh`'s dispatch gets its own allow rule, so a subcommand added later is neither allowed nor asked until it is
   classified — and a test keeps the classification complete (FR-006). `docs/install.md:133` ("never
@@ -129,7 +131,7 @@ writes every rule in four spellings per root (`$r/hooks`, `$r//hooks`, each with
 | FR-007 | `is_person_sub`, `is_launcher_sub` and `lane-guard.sh` are unchanged, and `ledger.sh caller_gate`'s lane checks are unchanged (FR-010 adds one check beside them): a person's decision is still refused from a worker or stage lane | P1 | US2 |
 | FR-008 | `session-launch.sh --prepare` keeps running `claim` and `record` itself, excluded from the sandbox, so a lane pass never issues them | P1 | US1 |
 | FR-009 | `docs/install.md`, `docs/hooks.md` (the `hefesto-setup.sh` and `ledger.sh` rows), `SETUP.md` (the two-spellings paragraph), `README.md:294-295` and `docs/case-study-sdlc.md:60,115` (by-hand `claim`/`run`) and the setup header describe the signature set, the one spelling, launcher-only `claim`/`run`, and the `--check` defect | P2 | US5 |
-| FR-010 | `ledger.sh` refuses `claim` and `run` unless `session-launch.sh` — or `ledger.sh handoff`'s own re-entry (`hooks/ledger.sh:787`) — calls them, for every caller, with or without lanes, exiting non-zero with nothing written and a message naming the launcher; the launcher's own calls (`hooks/session-launch.sh:452,580,581,660,690,701`) and `handoff` still pass | P1 | US1 |
+| FR-010 | `ledger.sh` refuses `claim` and `run` unless `session-launch.sh` — or `ledger.sh handoff`'s own re-entry (`hooks/ledger.sh:787`) — calls them, for every caller, with or without lanes, exiting non-zero with nothing written and a message naming the launcher; the launcher's own calls (`hooks/session-launch.sh:452,580,581,660,690,701`) and `handoff` still pass; `handoff` refuses a lanes session up front, so its marked re-entry never runs for a lane | P1 | US1 |
 
 ## Success Criteria
 
