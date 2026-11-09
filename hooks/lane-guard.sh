@@ -125,6 +125,9 @@ shell_read() { # $1 text → its words roughly as the shell reads them: continua
 }
 sign_spelling_check() {
   local text="$CMD" read_ f verb
+  # only a call OF the helper — a command that merely names it (`grep -- '--rfc' hooks/ledger.sh`, a commit message)
+  # is no signature (stage-1 review); a helper in any other spelling matches no allow rule, so nothing is lost
+  case "$EXCL_HIT" in */ledger.sh|*/pr-watch.sh) ;; *) return 0 ;; esac
   heredoc_ok 2>/dev/null && text="${CMD%%$'\n'*}"     # the orchestrator's heredoc body is the person's text, not flags
   read_="$(shell_read "$text")"
   if [[ "$read_" =~ (^|[[:space:]/])pr-watch\.sh[[:space:]]+(reply|comment)([[:space:]]|$) ]]; then

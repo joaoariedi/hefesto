@@ -415,6 +415,10 @@ sg_gd_want orchestrator "$LGL show LT-2 \"the --rfc flag pins it\"" none
 sg_gd_want orchestrator "$SG_PW reply 7 --body-file b.md" none
 sg_gd_want orchestrator "$SG_PW status 7" none
 sg_gd_want orchestrator "git commit -m \"--rfc\"" none
+# a command that only NAMES a helper is not that helper's command (stage-1 review of T022): no deny
+sg_gd_want builder "grep -n -- '--rfc' hooks/ledger.sh" none
+sg_gd_want builder "git commit -m \"fix: ledger.sh unblock takes '--merge-sha'\"" none
+sg_gd_want builder "echo \"see pr-watch.sh 'reply'\"" none
 sg_gd_want builder "$LGL show LT-2" none
 # shellcheck disable=SC2154,SC2034  # l3_md and LG_GD belong to tests/smoke.sh's lane-guard part (gd reads LG_GD)
 {
