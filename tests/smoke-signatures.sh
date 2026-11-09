@@ -420,11 +420,20 @@ sg_gd_want builder "grep -n -- '--rfc' hooks/ledger.sh" none
 sg_gd_want builder "git commit -m \"fix: ledger.sh unblock takes '--merge-sha'\"" none
 sg_gd_want builder "echo \"see pr-watch.sh 'reply'\"" none
 sg_gd_want builder "$LGL show LT-2" none
-# shellcheck disable=SC2154,SC2034  # l3_md and LG_GD belong to tests/smoke.sh's lane-guard part (gd reads LG_GD)
+# a tab after the verb: the ask rule `reply:*` wants a space, `pr-watch.sh:*` would allow it (code review B1)
+sg_gd_want orchestrator "$SG_PW reply"$'\t'"7 --body-file b.md" deny
+# The mutant sits in part 11's own mirror (sg_md): tests/smoke.sh removes l3_md before this part runs, and a mutant
+# path that does not exist makes gd say "none" — a mutation "caught" without running (code review B2). So the mutant
+# must first prove it runs: a deny from a rule it keeps (the person-only rule, a builder's answer).
+# shellcheck disable=SC2034  # LG_GD is read by tests/smoke.sh's gd
 {
-  l3_mut lane-guard.sh 's/^sign_spelling_check$/:/'; LG_GD="$l3_md/lane-guard.sh"
+  rm -f "$sg_md/lane-guard.sh"; sed 's/^sign_spelling_check$/:/' "$REPO/hooks/lane-guard.sh" > "$sg_md/lane-guard.sh"
+  cmp -s "$REPO/hooks/lane-guard.sh" "$sg_md/lane-guard.sh" && { bad "FR-007 mutation did not apply"; sg_fail=1; }
+  LG_GD="$sg_md/lane-guard.sh"
+  [ "$(gd builder "$LGL answer LT-2 --reviewed-by-human --by Ana")" = deny ] || { bad "FR-007 mutant does not run (the person-only rule it keeps did not deny) — the mutation check would be vacuous"; sg_fail=1; }
   [ "$(gd orchestrator "$LGL unblock LT-2 \"--merge-sha\" abc123")" = deny ] && { bad "mutation survived (FR-007): the signature-spelling check removed, yet the quoted --merge-sha was denied"; sg_fail=1; }
-  l3_restore lane-guard.sh; LG_GD=""
+  [ "$(gd orchestrator "$SG_PW reply"$'\t'"7 --body-file b.md")" = deny ] && { bad "mutation survived (FR-007): the signature-spelling check removed, yet the tab after pr-watch.sh reply was denied"; sg_fail=1; }
+  rm -f "$sg_md/lane-guard.sh"; ln -s "$REPO/hooks/lane-guard.sh" "$sg_md/lane-guard.sh"; LG_GD=""
 }
 
 # --- FR-009 / US5: the docs say one spelling, the signature set, launcher-only claim/run, the --check defect -----------

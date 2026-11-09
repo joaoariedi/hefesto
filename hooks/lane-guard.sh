@@ -132,7 +132,8 @@ sign_spelling_check() {
   read_="$(shell_read "$text")"
   if [[ "$read_" =~ (^|[[:space:]/])pr-watch\.sh[[:space:]]+(reply|comment)([[:space:]]|$) ]]; then
     verb="${BASH_REMATCH[2]}"   # kept now: the failed match below empties BASH_REMATCH, and set -u would end the hook
-    [[ "$text" =~ pr-watch\.sh\ (reply|comment)([[:space:]]|$) ]] \
+    # a SPACE after the verb, never a tab: the ask rule `reply:*` is the prefix then a space or nothing (code review B1)
+    [[ "$text" =~ pr-watch\.sh\ (reply|comment)(\ |$) ]] \
       || deny "pr-watch.sh $verb writes to GitHub and asks the person: spell it plain — pr-watch.sh $verb …, unquoted, one space — so its permission dialog matches"
   fi
   [[ "$read_" =~ (^|[[:space:]/])(ledger|pr-watch)\.sh([[:space:]]|$) ]] || return 0
