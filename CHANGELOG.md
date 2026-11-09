@@ -64,6 +64,14 @@ it is what caught the hand-bumped era:
 - A `human:plan-review` question now carries the round index, the last round's open findings and the log's
   path, within the 8,000 bytes `ledger.sh questions` shows.
 
+### Changed
+
+- **The status-line run rows are off by default** (HEF-23; `docs/quickstart.md`, `docs/hooks.md`). The gauge
+  printed, under the context line, a row per ledger claim, per decision waiting on a person and per lane action;
+  it now prints the context line only, and does not read the ledger at all. `"context": {"gauge_rows": true}` in
+  `.claude/project-status.json` turns the rows back on, unchanged; any other value, or no file, is off.
+  `hefesto-setup.sh` writes nothing for the key. The orchestrator's pass brief still lists runs and decisions.
+
 ### Unchanged
 
 - **Unmarked specs are legacy and behave as before** — bare ids count — so shipped specs and adopters'

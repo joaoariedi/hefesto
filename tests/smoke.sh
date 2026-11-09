@@ -3588,6 +3588,8 @@ ikl record HEF-22 --item-kind "" >/dev/null 2>&1 && { bad "record --item-kind ''
 ikj HEF-22 '.item_kind == "vulnerability"' || { bad "a refused record --item-kind must leave the recorded kind alone"; ik_fail=1; }
 # FR-004 the implement prompt: the feature prompt has neither sentence; the incident prompt minus its sentence equals it
 ik_feat="$(iks implement HEF-24 --dry-run 2>&1)"; ik_inc="$(iks implement HEF-21 --dry-run 2>&1)"
+# mask the checkout path first: the HEF-21→HEF-24 rewrite below must not touch a checkout living in .../HEF-21/
+ik_feat="${ik_feat//"$REPO"/@REPO@}"; ik_inc="${ik_inc//"$REPO"/@REPO@}"
 { ! grep -qF 'INCIDENT fix' <<<"$ik_feat" && ! grep -qF 'VULNERABILITY fix' <<<"$ik_feat" && grep -qF 'regression test that cites HEF-21' <<<"$ik_inc"; } || { bad "the implement prompt must carry the kind sentence for an incident and none for a feature"; ik_fail=1; }
 ik_strip="$(sed 's/This is an INCIDENT fix: first write a regression test that cites HEF-21 and fails on the current code, then make the fix; that test must pass. //' <<<"$ik_inc" | sed 's/HEF-21/HEF-24/g; s/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f]*//g')"
 ik_featn="$(sed 's/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f]*//g' <<<"$ik_feat")"
@@ -5521,6 +5523,15 @@ printf '{"sandbox":{"filesystem":{"allowWrite":["%s/hooks"]}}}\n' "$REPO" > "$l3
 l3_su_mut 's/^    case "$t" in "$p"\*) return 0 ;; esac .*$/    :/'
 l3u --print >/dev/null 2>&1 || { bad "mutation survived: the grant-inside-the-root rule removed, yet the clone was still untrusted"; l3_fail=1; }; l3_su_restore
 rm -f "$l3_home/.claude/settings.json"; rm -f "$L3F"; l3u >/dev/null 2>&1
+# gauge-rows-opt-in/FR-004: setup writes nothing for context.gauge_rows (HEF-23) — project-status.json is left
+# byte-identical, and no settings file it writes names the key, with no flag or with --lanes
+cp "$L3F" "$l3_t/gr-set.bak"; cp "$l3_t/.claude/project-status.json" "$l3_t/gr-ps.bak"
+for l3_x in "" --lanes; do
+  l3u $l3_x >/dev/null 2>&1
+  cmp -s "$l3_t/.claude/project-status.json" "$l3_t/gr-ps.bak" || { bad "setup ${l3_x:-(no flag)} must leave project-status.json untouched"; l3_fail=1; }
+  ! grep -rqF gauge_rows "$l3_t/.claude/" --include='settings*.json' || { bad "setup ${l3_x:-(no flag)} must write no gauge_rows: $(grep -rlF gauge_rows "$l3_t/.claude/")"; l3_fail=1; }
+done
+cp "$l3_t/gr-set.bak" "$L3F"; rm -f "$l3_t/gr-set.bak" "$l3_t/gr-ps.bak"
 
 # FR-006/007/023 lanes by name: the gauge and the session start read the name; the orchestrator warns in auto
 l3_g() { printf '{"context_window":{"used_percentage":45},"workspace":{"current_dir":"%s"},"session_name":"%s"}' "$l3_t" "$1" | bash "${L3_G:-$REPO/hooks/context-gauge.sh}" 2>/dev/null; }
@@ -5541,6 +5552,8 @@ rm -f "$l3_cfg/settings.json"
 # feature 2026-10-23: the background runs by name — every claim (stage, item, age) and the decisions waiting on
 # a person — from the main folder and from inside a worktree
 l3_rn="$(mktemp -d)"; git -C "$l3_rn" init -q -b main; mkdir -p "$(sld "$l3_rn")"
+# gauge-rows-opt-in/FR-003: the rows are opt-in (HEF-23) — this fixture opts in, tracked so the worktree has it too
+mkdir -p "$l3_rn/.claude"; printf '{"context":{"gauge_rows":true}}\n' > "$l3_rn/.claude/project-status.json"
 printf '{"id":"RN-1","owner":{"role":"implement","started":"%s"},"blocked_on":null}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(sld "$l3_rn")/RN-1.json"
 printf '{"id":"RN-2","owner":null,"blocked_on":{"kind":"human:plan-approval"}}\n' > "$(sld "$l3_rn")/RN-2.json"
 printf '{"id":"RN-3","owner":null,"blocked_on":{"kind":"ci"}}\n' > "$(sld "$l3_rn")/RN-3.json"
@@ -5548,18 +5561,52 @@ l3_rin() { printf '{"context_window":{"used_percentage":12},"workspace":{"curren
 l3_want="$(printf 'ctx 12%%\n▶ implement RN-1 · 0m\n⏸ RN-2 · plan approval')"
 [ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" = "$l3_want" ] \
   || { bad "gauge: each running claim and each decision for a person must be its own row below the first: '$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")'"; l3_fail=1; }
-git -C "$l3_rn" -c user.email=t@t -c user.name=t commit -q --allow-empty -m i; git -C "$l3_rn" worktree add -q "$l3_rn/wt" -b wt >/dev/null 2>&1
+git -C "$l3_rn" add .claude/project-status.json; git -C "$l3_rn" -c user.email=t@t -c user.name=t commit -q --allow-empty -m i;git -C "$l3_rn" worktree add -q "$l3_rn/wt" -b wt >/dev/null 2>&1
 [ "$(l3_rin "$l3_rn/wt" | bash "$REPO/hooks/context-gauge.sh")" = "$l3_want" ] || { bad "gauge: from inside a worktree the same rows must show"; l3_fail=1; }
 for n in 4 5 6 7 8 9; do printf '{"id":"RN-%s","owner":null,"blocked_on":{"kind":"human:merge"}}\n' "$n" > "$(sld "$l3_rn")/RN-$n.json"; done
 l3_o="$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")"
 { [ "$(wc -l <<<"$l3_o" | tr -d ' ')" = 8 ] && [ "$(tail -1 <<<"$l3_o")" = '… +2 more' ]; } || { bad "gauge: at most six rows below the first, then '… +N more': $l3_o"; l3_fail=1; }
 rm -f "$(sld "$l3_rn")/"*.json; [ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" = 'ctx 12%' ] || { bad "gauge: with nothing running and nothing waiting, one row only"; l3_fail=1; }
-sed 's/^\[ -n "$pdir" \] \&\& runs_rows "$pdir"$/:/' "$REPO/hooks/context-gauge.sh" > "$l3_bin/g2.sh"; cmp -s "$REPO/hooks/context-gauge.sh" "$l3_bin/g2.sh" && { bad "gauge rows mutation did not apply"; l3_fail=1; }
+sed 's/^\[ -n "$pdir" \] \&\& rows_on "$pdir" \&\& runs_rows "$pdir"$/:/' "$REPO/hooks/context-gauge.sh" > "$l3_bin/g2.sh"; cmp -s "$REPO/hooks/context-gauge.sh" "$l3_bin/g2.sh" && { bad "gauge rows mutation did not apply"; l3_fail=1; }
 printf '{"id":"RN-1","owner":{"role":"plan","started":"2026-01-01T00:00:00Z"}}\n' > "$(sld "$l3_rn")/RN-1.json"
 [[ "$(l3_rin "$l3_rn" | bash "$l3_bin/g2.sh")" == *"▶ plan RN-1"* ]] && { bad "mutation survived: the run rows removed, yet the claim was named"; l3_fail=1; }
 [[ "$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh")" =~ ▶\ plan\ RN-1\ ·\ [0-9]+h[0-9]{2}m ]] || { bad "gauge: a long run's age must read in hours and minutes (1h05m)"; l3_fail=1; }
+# gauge-rows-opt-in/FR-001 gauge-rows-opt-in/FR-002: the rows are opt-in (HEF-23) — the same ledger (RN-1's claim
+# still there) gives the context line only, rc 0, nothing on stderr, without the key and with any non-true value
+rm -f "$l3_rn/.claude/project-status.json"
+l3_o="$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh" 2>&1)"; l3_rc=$?
+{ [ "$l3_rc" -eq 0 ] && [ "$l3_o" = 'ctx 12%' ]; } || { bad "gauge: without context.gauge_rows, one line only, rc 0, no stderr (rc=$l3_rc): '$l3_o'"; l3_fail=1; }
+mkdir -p "$l3_cfg"; printf '{"statusLine":{"type":"command","command":"printf MINE"}}\n' > "$l3_cfg/settings.json"
+l3_o="$(l3_rin "$l3_rn" | CLAUDE_CONFIG_DIR="$l3_cfg" bash "$REPO/hooks/context-gauge.sh" --with-user 2>&1)"; rm -f "$l3_cfg/settings.json"
+{ [ "$(wc -l <<<"$l3_o" | tr -d ' ')" = 1 ] && [[ "$l3_o" == MINE*"ctx 12%" ]]; } || { bad "gauge --with-user: without context.gauge_rows, still one line: '$l3_o'"; l3_fail=1; }
+for v in '{"context":{"gauge_rows":"true"}}' '{"context":{"gauge_rows":1}}' '{"context":{"gauge_rows":null}}' \
+         '{"context":{"gauge_rows":false}}' '{"context":"x"}' '{nope'; do
+  printf '%s\n' "$v" > "$l3_rn/.claude/project-status.json"
+  l3_o="$(l3_rin "$l3_rn" | bash "$REPO/hooks/context-gauge.sh" 2>&1)"; l3_rc=$?
+  { [ "$l3_rc" -eq 0 ] && [ "$l3_o" = 'ctx 12%' ]; } || { bad "gauge: $v → rows off, rc 0, no stderr (rc=$l3_rc): '$l3_o'"; l3_fail=1; }
+done
+# mutations (constitution 3): the guard always on → the no-key check goes red; `== true` loosened → the
+# "true" / 1 / false values go red
+l3_mut context-gauge.sh 's/rows_on "$pdir" && //'
+rm -f "$l3_rn/.claude/project-status.json"
+[ "$(l3_rin "$l3_rn" | bash "$l3_md/context-gauge.sh" 2>&1)" = 'ctx 12%' ] && { bad "mutation survived: the gauge_rows guard removed, yet no key still gave one line"; l3_fail=1; }; l3_restore context-gauge.sh
+l3_mut context-gauge.sh 's/== true/!= null/'
+for v in '{"context":{"gauge_rows":"true"}}' '{"context":{"gauge_rows":1}}' '{"context":{"gauge_rows":false}}'; do
+  printf '%s\n' "$v" > "$l3_rn/.claude/project-status.json"
+  [ "$(l3_rin "$l3_rn" | bash "$l3_md/context-gauge.sh" 2>&1)" = 'ctx 12%' ] && { bad "mutation survived: == true loosened to != null, yet $v still gave one line"; l3_fail=1; }
+done; l3_restore context-gauge.sh
 rm -rf -- "${l3_rn:?}"
 cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
+# gauge-rows-opt-in/FR-005: every place that describes the rows says they are opt-in via context.gauge_rows, no doc
+# keeps the unconditional sentence, and the CHANGELOG's [Unreleased] records the new default
+for f in hooks/context-gauge.sh hooks/hefesto-setup.sh docs/hooks.md docs/quickstart.md docs/quickstart.pt-BR.md docs/install.md SETUP.md; do
+  grep -qF gauge_rows "$REPO/$f" || { bad "$f must name context.gauge_rows (the run rows are opt-in)"; l3_fail=1; }
+done
+awk '/^## \[Unreleased\]/ { u = 1; next } /^## \[/ { u = 0 } u' "$REPO/CHANGELOG.md" | grep -qF gauge_rows || { bad "CHANGELOG.md [Unreleased] must record that the run rows are off by default (gauge_rows)"; l3_fail=1; }
+for f in docs/quickstart.md docs/hooks.md; do
+  ! grep -qF 'one row per background run' "$REPO/$f" || { bad "$f must not keep the unconditional 'one row per background run' sentence"; l3_fail=1; }
+done
+! grep -qF 'abaixo, uma linha por execução em segundo plano' "$REPO/docs/quickstart.pt-BR.md" || { bad "docs/quickstart.pt-BR.md must not keep the unconditional rows sentence"; l3_fail=1; }
 l3u --lanes >/dev/null 2>&1
 l3_ss() { printf '{"cwd":"%s","session_title":"%s","permission_mode":"%s","session_id":"sid-%s-0001"}' "$l3_t" "$1" "$2" "$1" | bash "${L3_SS:-$REPO/hooks/session-start-context.sh}" 2>&1; }
 l3_o="$(l3_ss repo-builder default)"; grep -qF 'hefesto lane: build (repo-builder, ' <<<"$l3_o" && grep -qF '/hefesto:hef.orchestrate --stage build' <<<"$l3_o" && ! grep -qF 'hefesto setup:' <<<"$l3_o" \
@@ -6192,9 +6239,13 @@ jq '.status = "taken" | del(.heads_ok_at)' "$(sld "$l3_t")/actions/LT-2-A1.json"
 la_close LT-2-A1 LT-2-A5
 la orchestrator request LT-2 --to repo-deployer --scope-file "$l3_t/sc.json" >/dev/null 2>&1; la_last="$(ls "$(sld "$l3_t")"/actions/ | sed -n 's/^\(LT-2-A[0-9]*\)\.json$/\1/p' | sort -t A -k2 -n | tail -1)"
 la_gauge() { jq -nc --arg d "$l3_t" '{context_window: {used_percentage: 10}, workspace: {current_dir: $d, project_dir: $d}}' | bash "${1:-$REPO/hooks/context-gauge.sh}"; }
+# gauge-rows-opt-in/FR-003: the rows are opt-in (HEF-23) — on for these two checks, the fixture restored after
+cp "$l3_t/.claude/project-status.json" "$l3_t/gr.bak"
+jq '.context.gauge_rows = true' "$l3_t/gr.bak" > "$l3_t/x.json" && cp "$l3_t/x.json" "$l3_t/.claude/project-status.json"
 grep -qF "⏸ $la_last · action: merge PR #7" <<<"$(la_gauge)" || { bad "the status line must show the pending action $la_last: $(la_gauge)"; la_fail=1; }
 l3_mut context-gauge.sh '/select(.status == "pending")/d'
 grep -qF "⏸ $la_last · action" <<<"$(la_gauge "$l3_md/context-gauge.sh")" && { bad "mutation survived: the pending-action row removed, yet it was shown"; la_fail=1; }; l3_restore context-gauge.sh
+cp "$l3_t/gr.bak" "$l3_t/.claude/project-status.json"; rm -f "$l3_t/gr.bak"
 rm -rf -- "${la_gh:?}"; rm -f "$l3_t"/sc.json "$l3_t"/sc2.json "$l3_t"/bad.json "$l3_t"/ev.md "$l3_t"/why.md "$l3_t"/d.md "$l3_t"/n.md "$l3_t"/a4.bak "$l3_t"/x.json
 [ "$la_fail" -eq 0 ] && ok "lane actions: scopes validated (heads, wrappers, hefesto helpers, *); request leaves the entry's block alone; approve checks hash prefix, lane, title, irreversible, the orchestrator, not a worker, and writes the store; take by the named lane only, once, with the hash unchanged; heads fail closed and gate the grant; grants for that lane and pattern only, ended by done; supersede and stop use the approval up; op entries never staged; directives from the orchestrator, closed by their lane, tampered text withheld; notes by the holder; release by a person; a pending action on the status line; wildcards stop at shell operators; directives closed by their lane in the hook too; 6 mutations caught"
 
@@ -6290,19 +6341,62 @@ l3_oc="$REPO/commands/hef.orchestrate.md"; l3_sh="$REPO/commands/hef.ship.md"
   && grep -qF 'ledger.sh answer <id> --reviewed-by-human --by "<name>" --file <f>' "$l3_oc" && grep -qF 'recorded-begin' "$l3_oc" && ! grep -qF '/loop 15m' "$l3_oc" \
   && grep -qF 'status-board.sh --detect' "$l3_oc" && grep -qF 'at least two options' "$l3_oc"; } \
   || { bad "/hefesto:hef.orchestrate must carry the doorbell-is-data rule, the one-lane match, the idle stop, the answer command by --file and its printed-back text (#160), and no /loop"; l3_fail=1; }
+# FR-015 the per-OS tool commands live on the per-OS pages; each quick start links all three of them
+qs_links() { # <quickstart file> → 0 when it links all three per-OS pages; prints the first missing one
+  local p; for p in install-linux install-macos install-windows; do grep -qF "($p.md)" "$1" || { echo "must link $p.md"; return 1; }; done
+}
 for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
-  for sec in 5 6; do   # 9.3 guide: 1 tools, 2 install/upgrade, 3 the choice, 4 the project, 5 single lane, 6 four lanes
+  for sec in 5 6; do   # 9.3 guide: 1 before you start, 2 install/upgrade, 3 the choice, 4 the project, 5 single lane, 6 four lanes
     n="$(awk -v s="^## $sec[.]" '$0 ~ s {f=1; next} /^## / {f=0} f && /^[0-9]+\. /' "$qs" | wc -l | tr -d ' ')"
     { [ "$n" -ge 3 ] && [ "$n" -le 5 ]; } || { bad "$(basename "$qs") track $sec must have 3–5 steps (has $n)"; l3_fail=1; }
   done
   { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hefesto:hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
     || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hefesto:hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
-  # the quick-step guide (9.3): the tools per OS, install = upgrade, then setup again, a project you have or a new one
-  { grep -qF 'bubblewrap' "$qs" && grep -qF 'brew install' "$qs" && grep -qF 'install.sh' "$qs" && grep -qF '/hefesto:hef.init' "$qs" \
+  # the quick-step guide (9.3): install = upgrade, then setup again, a project you have or a new one; the tools per OS
+  # moved to the per-OS pages (HEF-18), which the front-door guard below checks
+  { grep -qF 'install.sh' "$qs" && grep -qF '/hefesto:hef.init' "$qs" \
     && grep -qF 'gh repo create' "$qs" && grep -qF 'hefesto-setup.sh --lanes' "$qs" && [ "$(grep -c '^## [1-6]\. ' "$qs")" = 6 ]; } \
-    || { bad "$(basename "$qs") must keep the guide's six steps: tools per OS (bubblewrap, brew), install/upgrade, an existing or a new project (/hefesto:hef.init, gh repo create), single lane, four lanes"; l3_fail=1; }
+    || { bad "$(basename "$qs") must keep the guide's six steps: before you start, install/upgrade (install.sh), an existing or a new project (/hefesto:hef.init, gh repo create), single lane, four lanes"; l3_fail=1; }
+  qs_msg="$(qs_links "$qs")" || { bad "$(basename "$qs") $qs_msg"; l3_fail=1; }   # FR-015
 done
 [ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), stale leases released by claim only, allowed_domains (no IP, no localhost), --detect, a stopped launcher stops its worker, claims released by lease age only; 30 mutations caught"
+
+# FR-016 / FR-015 / SC-003 the front door (HEF-18): a short README that links the contributing guide and the
+# three per-OS pages, which carry the tool commands. A function of a root, so the same check runs on the tree
+# and on mutated copies (constitution 3) — each mutation must turn it red.
+fd_fail=0
+fd_check() { # <root> → 0 when the front door holds; prints the first reason it does not
+  local r="$1" n l
+  n="$(wc -l < "$r/README.md" | tr -d ' ')"; [ "${n:-999}" -lt 150 ] || { echo "README.md is ${n:-?} lines (must be under 150)"; return 1; }
+  for l in docs/contributing.md docs/install-linux.md docs/install-macos.md docs/install-windows.md; do
+    grep -qF "($l)" "$r/README.md" || { echo "README.md does not link $l"; return 1; }
+  done
+  grep -qF 'bubblewrap' "$r/docs/install-linux.md" 2>/dev/null || { echo "docs/install-linux.md must name bubblewrap"; return 1; }
+  grep -qF 'brew install' "$r/docs/install-macos.md" 2>/dev/null || { echo "docs/install-macos.md must name brew install"; return 1; }
+  { grep -qF 'WSL' "$r/docs/install-windows.md" && grep -qF '(install-linux.md)' "$r/docs/install-windows.md"; } 2>/dev/null \
+    || { echo "docs/install-windows.md must require WSL and hand over to install-linux.md"; return 1; }
+}
+fd_msg="$(fd_check "$REPO")" || { bad "front door: $fd_msg"; fd_fail=1; }
+fd_t="$(mktemp -d)"
+fd_copy() { rm -rf "$fd_t/r"; mkdir -p "$fd_t/r/docs"; cp "$REPO/README.md" "$fd_t/r/"; cp "$REPO"/docs/install-*.md "$REPO/docs/contributing.md" "$fd_t/r/docs/" 2>/dev/null; }
+fd_mut() { # <label> <file under the copy> <sed expression> → the copy's file mutated; red when the mutation did not apply
+  sed -i.bak "$3" "$fd_t/r/$2" 2>/dev/null; cmp -s "$fd_t/r/$2" "$fd_t/r/$2.bak" && { bad "front-door mutation did not apply: $1"; fd_fail=1; }
+  rm -f "$fd_t/r/$2.bak"
+}
+fd_dies() { fd_check "$fd_t/r" >/dev/null && { bad "mutation survived: $1"; fd_fail=1; }; }
+# the pad is a counted loop, not `yes | head` — a SIGPIPE'd producer is the pattern constitution 3 names
+fd_copy; fd_i=0; while [ "$fd_i" -lt 150 ]; do echo x; fd_i=$((fd_i + 1)); done >> "$fd_t/r/README.md"; fd_dies "a 150-line pad"
+fd_copy; fd_mut "contributing link" README.md 's|(docs/contributing.md)||g'; fd_dies "the contributing link dropped"
+fd_copy; fd_mut "Linux link" README.md 's|(docs/install-linux.md)||g'; fd_dies "the README's Linux link dropped"
+fd_copy; fd_mut "WSL" docs/install-windows.md 's/WSL/W-S-L/g'; fd_dies "WSL removed from the Windows page"
+fd_copy; fd_mut "Windows hand-over" docs/install-windows.md 's|(install-linux.md)||g'; fd_dies "the Windows page's hand-over to Linux dropped"
+fd_copy; fd_mut "bubblewrap" docs/install-linux.md 's/bubblewrap/bwrap-pkg/g'; fd_dies "bubblewrap removed from the Linux page"
+fd_copy; fd_mut "brew install" docs/install-macos.md 's/brew install/brew add/g'; fd_dies "brew install removed from the macOS page"
+cp "$REPO/docs/quickstart.md" "$fd_t/qs.md"; sed -i.bak 's|(install-windows.md)||g' "$fd_t/qs.md"
+cmp -s "$fd_t/qs.md" "$fd_t/qs.md.bak" && { bad "front-door mutation did not apply: quick start's Windows link"; fd_fail=1; }
+qs_links "$fd_t/qs.md" >/dev/null && { bad "mutation survived: the quick start's Windows link dropped"; fd_fail=1; }
+rm -rf -- "${fd_t:?}"
+[ "$fd_fail" -eq 0 ] && ok "front door: README under 150 lines, links docs/contributing.md and the three per-OS pages; bubblewrap on the Linux page, brew install on the macOS page, WSL and the Linux hand-over on the Windows page; 8 mutations caught"
 
 # --- Tier 1: macOS portability (field report 2026-10-15: /hefesto:hef.status and /hefesto:hef.babysit broke on a Mac) -----
 head_ "macOS portability"

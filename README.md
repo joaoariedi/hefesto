@@ -29,17 +29,12 @@ path that fits the change, from a one-line fix to a full specification pipeline.
 
 The parts that matter are the ones you cannot talk your way past:
 
-- ✅ **A `TaskCompleted` hook blocks a task from being marked done while the tests fail.** Not a
-  reminder — a hook that exits non-zero and refuses.
+- ✅ **A `TaskCompleted` hook blocks a task from being marked done while the tests fail.**
 - 🔐 **A pre-commit hook runs secrets detection and linting**, and blocks the commit if they fail.
-- 🚧 **A plan-phase hook blocks edits outside `.specify/`** while a plan is being written, so the
-  agent cannot start coding "just to check something."
-- 🧷 **An implement-phase hook lets tests grow but never shrink** — no assertion removed, no test
-  overwritten, no snapshot regenerated to get to green.
-- 🔗 **`/hefesto:hef.verify` maps every requirement to the tests that cite it**, mechanically, and fails
-  on the one that none does.
+- 🧷 **An implement-phase hook lets tests grow but never shrink** — no assertion removed, no snapshot regenerated.
+- 🔗 **`/hefesto:hef.verify` maps every requirement to the tests that cite it**, and fails on the one that none does.
 
-Everything else — the agents, the skills, the research corpus — is support for that spine.
+Every hook, and how to opt out deliberately: [`docs/hooks.md`](docs/hooks.md).
 
 ---
 
@@ -51,328 +46,78 @@ Everything else — the agents, the skills, the research corpus — is support f
 bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh)
 ```
 
-The wizard looks at your machine, shows what it found and the steps it recommends, and asks about
-each one — **Enter accepts the recommendation**. It clones the latest release, installs the plugin
-in each profile, copies the rules and `CLAUDE.md` (yours is kept as `CLAUDE.md.mine`), and checks
-the result. It never deletes files (with your yes, it uninstalls the old `ai-development-framework`
-plugin), never uses `sudo`, and backs up what it changes to `~/hefesto-old/`.
-`--dry-run` shows the plan and changes nothing; `--lang pt` speaks Portuguese; `--version <tag|main>`
-installs that release; `HEFESTO_CLONE_DIR` moves the clone; `--help` lists the rest.
+The tools it needs, the other ways to run it and the check are on your OS's page:
+**[Linux](docs/install-linux.md) · [macOS](docs/install-macos.md) · [Windows (WSL)](docs/install-windows.md)**.
+The reference — manual install, profiles, the sandbox, updating, and the two things the plugin cannot ship
+(`rules/` and `CLAUDE.md`) — is [`docs/install.md`](docs/install.md).
 
-**Then follow the [quick start](docs/quickstart.md)** ([em português](docs/quickstart.pt-BR.md)): check the
-install, set up a project, open the four sessions and start them — six short steps.
+---
 
-To run a specific release's copy of the script instead of `main`'s, pin the tag — the release you
-want, 7.10.0 or later (earlier tags do not carry `install.sh`):
+## 🧰 Set up a project
+
+In a terminal, in the project's main folder (a git repository with a GitHub remote):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/v<X.Y.Z>/install.sh)
+bash ~/.claude-framework/hooks/hefesto-setup.sh            # add --lanes for four or more lanes
 ```
 
-Or clone first and read the script before you run it:
+Then open `claude` there and run `/hefesto:hef.init` (the `.specify/` folder) and `/hefesto:hef.constitution`. The
+[quick start](docs/quickstart.md) §4 has the details, for a project you have or a new one
+([em português](docs/quickstart.pt-BR.md)).
 
-```bash
-git clone https://github.com/joaoariedi/hefesto.git ~/.claude-framework
-bash ~/.claude-framework/install.sh
-```
-
-**Or let Claude guide you.** `SETUP.md` is a runbook written for Claude Code to follow. Claude
-checks the machine, then walks you step by step through installing or upgrading (you run the
-wizard when it says so), fixing a broken install, setting up a project's board, and opening the
-four sessions.
-
-```bash
-cd ~/some-project && claude
-```
+**Or let Claude guide you.** `SETUP.md` is a runbook written for Claude Code to follow: it checks the machine, then
+walks you through installing or upgrading, fixing a broken install, setting up a project's board, and opening the
+sessions. In the project, start `claude` and say:
 
 > Run `curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/SETUP.md` and follow it.
 
-Or do it yourself — it is three commands:
+---
+
+## 🚀 First use
+
+In the orchestrator session (`claude --name <repo>-orchestrator`), hand it an idea:
 
 ```bash
-git clone https://github.com/joaoariedi/hefesto.git ~/.claude-framework
-claude plugin marketplace add ~/.claude-framework
-claude plugin install hefesto@hefesto
+/hefesto:hef.ship "export orders as CSV"    # brainstorm → RFC → plan → your approval → build → PR
 ```
 
-Then **restart Claude Code** and run `/hefesto:hef.context` in any git repository. It should print a
-project summary. If it asks permission for `speckit-helper.sh`, the permission rule is missing or
-names an old path (a denied prompt stops the command) — that is the single most common failure, and
-[`docs/install.md`](docs/install.md) explains exactly why.
-
-⚠️ **One thing the plugin cannot ship:** `rules/` and `CLAUDE.md` are not plugin components, so
-installing does *not* give you the framework's global rules. Copy them yourself, and re-copy after
-an upgrade — see [`docs/install.md`](docs/install.md).
-
-**Updating** is a pull plus a per-profile refresh, then a restart. This is the message to send the
-engineers on your team when a release is out — replace `X.Y.Z` and paste it:
+Every decision comes to you as a form there; you merge the pull request on GitHub. Or run the pipeline by hand:
 
 ```bash
-# Hefesto X.Y.Z is out. Upgrade (about a minute):
-git -C ~/.claude-framework pull --ff-only
-claude plugin marketplace update hefesto                 # re-read the manifest
-claude plugin update hefesto@hefesto                     # once per profile you run:
-#   CLAUDE_CONFIG_DIR=~/.claude-<profile> claude plugin update hefesto@hefesto
-cp ~/.claude-framework/.claude/rules/*.md ~/.claude/rules/            # rules are not plugin components
-diff ~/.claude-framework/.claude/CLAUDE.md ~/.claude/CLAUDE.md        # merge by hand if you customised it
-# In each set-up project's main folder (add --lanes if it runs four lanes):
-bash ~/.claude-framework/hooks/hefesto-setup.sh
-# Restart Claude Code, then run /hefesto:hef.doctor — it must report RUNNING_MATCHES_CLONE at X.Y.Z.
+/hefesto:hef.spec <feature>      # → scenarios, requirements, success criteria
+/hefesto:hef.plan                # → the plan (edits outside .specify/ are blocked meanwhile)
+/hefesto:hef.review              # ← HUMAN GATE: plan mode, a fresh context reviews it
+/hefesto:hef.tasks               # → phased task list
+/hefesto:hef.implement           # TDD, one task at a time (tests may grow, not shrink)
+/hefesto:hef.verify              # FR → tests, mechanically
+/hefesto:hef.pr                  # the pull request; you merge
 ```
 
-Each profile runs its own cached copy of the plugin, so the pull alone changes nothing a session
-sees, and `plugin update` keys off the manifest version — releases always bump it. `CHANGELOG.md`
-says what each release changed.
+A trivial change takes `/hefesto:hef.fix`; existing code without specs, `/hefesto:hef.baseline`. Every path and
+command: [`docs/sdd.md`](docs/sdd.md) and [`docs/commands.md`](docs/commands.md).
 
 ---
 
-## 🗂️ Structure
+## 🧵 Two approaches
 
-| Directory | What lives there |
-|---|---|
-| 🛠️ `commands/` | The 27 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
-| 🕵️ `agents/` | Seven specialist subagents — testing, quality, review, security, PR coordination, two one-shot readers (another repo; this one, for the arena). |
-| ⚙️ `hooks/` | Sixteen hooks, plus the helpers the commands call: `speckit-helper.sh` (48 subcommands) for live git data, requirement traceability, the mutation ratchet and dependency diffs; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `hefesto-setup.sh` to set a project up for it; `lane-build.sh` for a lane's builds; `run-follow.sh` to narrate a background run; `context-gauge.sh` for the status line; `pr-watch.sh` for `/hefesto:hef.babysit`; `arena-run.sh` for foreign-provider readers; `release.sh` and `changelog-check.sh`; `doctor-tmp.sh` for `/hefesto:hef.doctor`. |
-| 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
-| 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
-| 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |
-| 📏 `.claude/rules/` | The rules loaded into every session. **Not shipped by the plugin** — copy them yourself. |
-| 🧪 `tests/` | `smoke.sh` — the plugin's own behavioral test suite: a structural + regression tier in CI, plus opt-in live and end-to-end tiers (`SMOKE_LIVE=1`). Every guard is mutation-tested. |
-| 📚 `docs/` | Everything below. |
+|  | **Single lane** | **Four or more lanes** |
+|---|---|---|
+| For | experiments, small projects, one feature at a time | a steady stream of RFCs and fixes |
+| Sessions you keep open | one: the orchestrator | the orchestrator + a planner, a builder, a deployer — more builders with `orchestrate.max_builders` |
+| Setup | `hefesto-setup.sh` | `hefesto-setup.sh --lanes` |
+| Run it | [quick start §5](docs/quickstart.md#5-single-lane) | [quick start §6](docs/quickstart.md#6-four-lanes) |
 
----
-
-## 🚀 Using it
-
-The pipeline is not all-or-nothing. Pick the path that matches the change.
-
-### 🌱 1. A new project, from scratch
-
-Full spec-driven development. Every gate, in order.
-
-```bash
-/hefesto:hef.init                        # bootstrap .specify/ — once per project
-/hefesto:hef.constitution                # optional: project governance principles
-
-/hefesto:hef.brainstorm  <idea>          # Socratic exploration — refine before committing
-/hefesto:hef.spec     <feature>       # → spec: scenarios, requirements, success criteria
-/hefesto:hef.clarify                     # ← HUMAN GATE: answers ambiguities in the spec
-/hefesto:hef.plan                        # → implementation plan (writes blocked outside .specify/)
-/hefesto:hef.review                          # ← HUMAN GATE: plan mode — sign off on the plan
-/hefesto:hef.tasks                       # → phased, dependency-ordered task list
-/hefesto:hef.checklist                   # ← HUMAN GATE: requirement quality
-/hefesto:hef.analyze                     # optional: cross-artifact consistency
-
-/hefesto:hef.implement                   # TDD execution, red-green, one task at a time (tests may grow, not shrink)
-/hefesto:hef.verify                      # FR → tests, mechanically; then spec-compliance review of the diff
-/hefesto:hef.quality                         # lint, types, secrets, SOLID — before you commit
-/hefesto:hef.review                          # code mode — two-stage review (code-reviewer)
-/hefesto:hef.pr                              # the pull request, with the evidence attached (review-coordinator)
-```
-
-For a **large** task list, swap the implementation step for the workflow, which runs independent
-tasks in parallel and has every task adversarially verified by agents that did not write it:
-
-```
-hefesto:workflow          # (full name required)
-```
-
-It **caps how many run at once** so a big task list does not self-inflict API rate limits
-(`args.maxConcurrency`, default 4; `args.sequential` to force one at a time). It handles **monorepos**:
-each task is routed to the repo that owns its files, with a separate test command and quality gate per
-repo, so a spec in one directory can drive code in several. And it refuses to fake success — a run that
-cannot mechanically verify a task **halts and says why** rather than reporting green.
-
-It must be called by that full name; a bare `workflow` does not resolve. Run it only
-**after** the human gates — a workflow cannot pause to ask you a question. Full argument reference:
-[`docs/sdd.md`](docs/sdd.md).
-
-### ✨ 2. A feature, in a project already set up
-
-`.specify/` already exists. Skip the bootstrap and the constitution.
-
-```bash
-/hefesto:hef.context                         # orient: stack, tools, structure, recent activity
-/hefesto:hef.spec  <feature>
-/hefesto:hef.clarify                     # ← HUMAN GATE
-/hefesto:hef.plan
-/hefesto:hef.review                          # ← HUMAN GATE (plan mode)
-/hefesto:hef.tasks
-/hefesto:hef.implement
-/hefesto:hef.verify                      # ← the traceability gate
-/hefesto:hef.quality
-/hefesto:hef.review                          # code mode
-/hefesto:hef.pr                              # → the PR, opened by review-coordinator; you merge
-```
-
-### 🔧 3. A trivial fix
-
-A typo, a config tweak, a one-line bug. The pipeline would cost more than the change.
-
-```bash
-/hefesto:hef.fix  <description>          # bypasses spec/plan/tasks entirely
-/hefesto:hef.quality
-```
-
-The hooks still apply. You cannot commit secrets or skip the tests just because you took the
-short path.
-
-### 🏚️ 4. Brownfield — existing code, no specs
-
-Reverse-engineer the spec from what is already there, then proceed normally.
-
-```bash
-/hefesto:hef.context                         # what is this codebase?
-/hefesto:hef.init
-/hefesto:hef.baseline  <module>          # → spec inferred from existing code
-```
-
-Read the generated spec before trusting it — it is inferred, not authoritative. Once you have
-one, treat the module as scenario 2.
-
-### 🧵 5. Several sessions, one board
-
-The way the harness is meant to be run once a project is live: **one long-lived pane per
-responsibility, short-lived workers for the code**, and one shared truth nobody has to repeat to
-anybody. The evidence for that shape — and against a mesh of sessions that talk to each other — is
-[`reports/17-multi-agent-session-orchestration.md`](reports/17-multi-agent-session-orchestration.md).
-
-| Pane (start it with `claude --name <repo>-<role>`) | Responsibility | Runs | Owns |
-|---|---|---|---|
-| 📋 `<repo>-project` | the board and the documents: intake, specs, tasks, status | `/hefesto:hef.status`, `/hefesto:hef.brainstorm` → `/hefesto:hef.spec` → `/hefesto:hef.clarify` → `/hefesto:hef.plan` → `/hefesto:hef.review` → `/hefesto:hef.tasks`, `/hefesto:hef.adr`, and `/hefesto:hef.orchestrate` to dispatch workers | `tasks/`, `.specify/`, `docs/`, the ledger |
-| ✨ `<repo>-feature` | one feature at a time, by hand, in its own worktree | `/hefesto:hef.implement` or `hefesto:workflow`, `/hefesto:hef.verify`, `/hefesto:hef.quality`, `/hefesto:hef.review`, `/hefesto:hef.pr` | one branch |
-| 🔧 `<repo>-chore` | general tasks, fixes, merges, releases | `/hefesto:hef.fix`, `/hefesto:hef.doctor`, `/hefesto:hef.release`; the merges themselves | `main` |
-| 🤖 workers (headless, launched by `/hefesto:hef.orchestrate`) | one board item each, then they exit | the size-routed pipeline, then a separate read-only verifier | one worktree under `.claude/worktrees/<id>` |
-
-That is the layout **by object** — the documents, one feature, `main` — a convention for panes you run by
-hand, **not the lanes layout**: no hefesto code knows these names, and `hefesto-setup.sh --lanes` maps only
-the four stage lanes below. The same spine also runs
-**by stage**, the layout of Galbiati's deck (`reports/18-…`, addendum A2): one pane per stage,
-each launching headless sessions for its stage's work and holding that stage's human gates.
-A repository that integrates on a branch other than `main` (say `dev → stg → main`) declares it
-under `branches` in `.claude/project-status.json` — PR base, verifier diff base, merge check,
-protected heads and the promotion chain all follow ([install §7, step 12](docs/install.md)).
-Each long-lived pane has a `/compact` prompt shaped to what it owns — orchestrator, planner, builder,
-deployer — in [Performance → Compact prompts per pane](docs/performance.md#-compact-prompts-per-pane).
-Set a project up once with `hooks/hefesto-setup.sh` (`--lanes` for four), then open each lane with plain
-`claude --name <repo>-<lane>` — any wrapper that passes claude's arguments on works. `/hefesto:hef.ship "<idea>"` in
-the orchestrator takes work to a PR; every decision is a form there, and the orchestrator rings the stage
-lanes (or, in a single lane, runs the stages itself) — the [quick start](docs/quickstart.md) has both flows.
-A board kept in its own repository can feed several code repos — a `board` pointer in each, a
-`repos` map in the board, one central ledger, and per repo one planner, `orchestrate.max_builders` builders
-(default 1) and one deployer at a time ([install §7, step 13](docs/install.md)).
-
-| Pane | Owns (ledger phases) | Human gates | Launches / runs |
-|---|---|---|---|
-| 🎛 `<repo>-orchestrator` | the board's state, `queued` → claim | every `human:*` gate — intake, clarify, plan review, plan approval, merge | `/hefesto:hef.ship` (new work), `/hefesto:hef.orchestrate` (asks each decision as a form and runs its command, then rings each stage lane — or runs the stage itself when no lane is open), `/hefesto:hef.status` ([quick start](docs/quickstart.md)) |
-| 📐 `<repo>-plan` | `intake` → `spec` → `plan` → `plan-review` → `tasks` | — (its questions go to the orchestrator) | `/hefesto:hef.orchestrate --stage plan` (a fresh planner: spec from the item's RFC → plan → fresh-context review → tasks, writes only under `.specify/`; with `plan_review: "human"` it then waits on `human:plan-approval`), or by hand `/hefesto:hef.brainstorm` → `/hefesto:hef.spec` → `/hefesto:hef.clarify` → `/hefesto:hef.plan` → `/hefesto:hef.review` → `/hefesto:hef.tasks` |
-| 🔨 `<repo>-build` | `implement` → `verify` → `quality` → `security` → `pr` | `verdict`, `stall`, `budget`, `conflict` | `/hefesto:hef.orchestrate --stage build` (the implement worker — continuing from the planner's tasks when there are any — then the separate verifier) |
-| 🚀 `<repo>-deploy` | `pr` → `merged` → `released` | `ci`, tag/deploy | `/hefesto:hef.orchestrate --stage deploy` (one headless `/hefesto:hef.babysit --once` pass on the next PR), or by hand `/hefesto:hef.babysit` (`/loop 25m /hefesto:hef.babysit <n> --once` while a review is pending); `/hefesto:hef.release`; the merge itself, by a person |
-
-Choose by object when one person runs the repository and a feature should stay in one pane end to
-end; by stage when more than one person attends, when the panes sit on different hosts (CI and the
-PR on the workstation, the production release on the laptop), or when each stage should own its own
-clarifications. Either way a pane never does a stage's work in its own context: it launches a fresh
-session per item, or does the human step by hand, then runs its own `/compact` prompt before the
-next item ([Performance → Compact prompts per pane](docs/performance.md#-compact-prompts-per-pane)).
-The ledger does not know which layout is in use.
-
-**The shared truth is three things, none of them a conversation:** the board (`tasks/` or the
-GitHub Project), the ledger (`~/.cache/hefesto/ledger/<key>/<id>.json` — one folder per board, outside
-every sandbox, never committed; `hooks/ledger.sh dir` prints it), and the pull requests. Every pane opened in the checkout is told at start which entries
-are blocked, on what, and whose they are (`ledger: HEF-7 blocked_on human:merge … → orchestrator pane`), so
-nothing has to be announced; `orchestrate.panes` in `.claude/project-status.json` renames the panes.
-
-**A message is a pointer, never a payload.** Panes can message each other (Claude Code's
-cross-session messaging; `claude agents --json` lists them by the name you gave). Keep it to one
-line — an id, a phase, a path: `ledger HEF-7 pr https://…/pull/7 — merge?` — never a diff, a review
-or a transcript. Each inbound message costs the receiver a full-context turn, and the ledger already
-holds everything the line points at.
-
-**Aligning a release across the panes** is a sequence the ledger makes visible, not a meeting:
-
-1. `project` dispatches or a person in `feature` claims an item (`hooks/ledger.sh claim HEF-7
-   --session <repo>-feature --role implement`) — the orchestrator then leaves it alone.
-2. The PR lands the item in `pr`, blocked on `human:merge`. That block is the release queue.
-3. `chore` merges (a person, with a merge commit), then `git pull --ff-only`,
-   `hooks/ledger.sh unblock HEF-7`, `hooks/ledger.sh advance HEF-7 merged`, and removes the worktree.
-4. When `hooks/ledger.sh list --phase merged` is the release, `chore` runs `/hefesto:hef.release X.Y.Z`,
-   tags, and sends `project` one line: `release X.Y.Z tagged — HEF-7 HEF-8`.
-5. `project` moves the items to `DONE.md`; `/hefesto:hef.status` shows the quarter delivered.
-
-**Switching it on** (once per repository; the long form is [`docs/install.md`](docs/install.md) §7):
-
-1. Put the board in `tasks/` — one heading per item, `## HEF-1 — title`, then the body a worker
-   receives as data — and declare it in `.claude/project-status.json`:
-   `{"source":"tasks-repo","root":"tasks","orchestrate":{"tiers":{"implement":"opus","verify":"fable"}}}`
-   (tiers, never model ids; the reviewer tier must rank at or above the author's; spend caps `usd_cap` and
-   `daily_usd_cap` are optional, none by default).
-2. Protect `main`: require a pull request before merging, administrators included. Merge with merge
-   commits — the `human:merge` gate is cleared by branch ancestry, which a squash never satisfies.
-3. Set the project up once, in a terminal: `bash ~/.claude-framework/hooks/hefesto-setup.sh` — it lists
-   the launcher (it spawns `claude -p`), `ledger.sh`, `pr-watch.sh`, `status-board.sh` and `gh` in
-   `sandbox.excludedCommands`, so they run outside the sandbox while every pane keeps its own; the workers
-   get their sandbox from the settings the launcher passes them. `--check` says what is missing, `--print`
-   shows the result, `--remove` takes it out; run it again after every hefesto update.
-4. `claude --name <repo>-orchestrator`, then `/hefesto:hef.orchestrate --stage build --dry-run` prints the exact
-   launch line for the next item and claims nothing.
-5. `/hefesto:hef.orchestrate` — the orchestrator pass: it runs each stage here (no stage lane open), asks every
-   decision as a form, and stops when the item waits on CI or your merge.
-6. Merge on GitHub with a merge commit, then `/hefesto:hef.orchestrate` once: the deploy pass records the merge and
-   removes the worktree.
-
-A hand-run item in `feature` reaches the same release queue in one call from its branch:
-`hooks/ledger.sh handoff <id> --pr <url>` (it records the run, the PR, the branch and the worktree,
-advances to `pr` and blocks on `human:merge`; it refuses an owned or blocked entry). With
-`orchestrate.publish` on, every orchestrator pass writes the item's state on the board heading
-(`⏸ 🔀 🔨 📐 ⛔ ✅`); with `orchestrate.escalate_after_hours` set, a `human:*` block older than that is
-sent once, as a one-line pointer, to the pane that owns it. A 🐞 or 🛡 before an item's id makes it an
-incident or vulnerability fix, with one extra verifier gate it cannot skip. Two rules keep the panes honest: every person-only command runs in the
-orchestrator behind its permission dialog (`hefesto-setup.sh` keeps them in `ask`; a sandboxed command
-runs without a dialog, and `--strict` makes every unlisted command ask too), see [`docs/install.md`](docs/install.md) §7; and no pane ever merges, approves or pushes `main` for a
-worker — branch protection on `main` is the backstop, not the prompt.
-
-### 🧰 Also available, any time
-
-| | |
-|---|---|
-| 🔒 `/hefesto:hef.scan` | Secrets, SQLi, XSS in the staged and unstaged changes. `--deps` adds every direct dependency the branch adds, re-versions or removes, plus the findings of whichever auditors are installed (an unreadable count is `unknown`, never clean). |
-| 🤝 `/hefesto:hef.agent <task>` | Sizes the task, picks the path (fix / light / full), then runs it with planning and tracking. |
-| 🛡️ `/hefesto:hef.quality` | The quality gate. Spawns `quality-guardian`. |
-| 🧬 `/hefesto:hef.mutate` | Mutation-tests the changed code against a raise-only score ratchet. Coverage says a line ran; this says a test would notice. |
-| 🚀 `/hefesto:hef.release <X.Y.Z>` | Moves every version declaration together and scaffolds the changelog entry for you to edit. |
-| 🔍 `/hefesto:hef.review` | Plan mode before tasks exist; code mode after. Both spawn `code-reviewer` in a fresh context — the session that wrote it never grades it. `--inline` for a self-review second opinion; `--second-opinion <provider>` relays a declared foreign provider's reading, labelled *not the gate*. |
-| 🏟️ `/hefesto:hef.plan --arena [K]` | Fans the plan's truth-map questions out to K (2..3) read-only `truth-scout` readers at different tiers, verifies every citation, and attributes each claim; `--via <p,…>` gives slots to providers declared in `.claude/project-status.json` (run by `hooks/arena-run.sh`). |
-| 📝 `/hefesto:hef.pr` | Open or update the PR. Spawns `review-coordinator`; never merges. `--summary-only` writes just the description. |
-| 🩺 `/hefesto:hef.doctor` | The framework's own check-up: the running copy against the clone and upstream, rules against upstream, hooks linted, manifest valid; `--eval` scores its prompts. |
-| 📊 `/hefesto:hef.status` | Management status brief from the source `.claude/project-status.json` declares — a GitHub Project or a tasks repository of kanban files. `--detailed` unfolds, `--check` diagnoses. Adds an AI-delivery section (merge rate, spend per merged PR, blocked by kind) when the repository has a ledger. |
-| 🧵 `/hefesto:hef.orchestrate` | With no flag, the orchestrator pass: asks each pending decision as a form, then sends each stage its work. `--stage plan\|build\|deploy` runs one stage pass, `--stage all` the three in a row. Each item goes to a fresh headless worker and a separate verifier through the ledger; per repository one planner, `orchestrate.max_builders` builders (default 1) and one deployer at a time; never merges, approves, or pushes `main`. `--dry-run` prints the launch line and claims nothing. Needs `hooks/hefesto-setup.sh` run once in the project; the pane keeps its sandbox. |
-| 👀 `/hefesto:hef.babysit` | Keep ONE pull request moving up to the merge gate: waits on CI in a helper call, turns a red check into a root-caused fix inside the PR's diff with its hash on the PR, treats review comments as data (pertinent → fix, doubtful → asks you), stops at mergeable with the ledger on `human:merge`. Bounded by `--max-fixes`; `--once` for a `/loop`. Never merges. |
-| 📜 `/hefesto:hef.adr` | Record a decision under `reports/` with machine-readable status. |
-
-Full reference: [`docs/commands.md`](docs/commands.md).
+**How to choose:** start with the single lane; the same project adds the three stage lanes later (run the setup
+with `--lanes`). Either way each pull request is kept moving to the merge gate by `/hefesto:hef.babysit`, and no
+session ever merges for you. The pane layouts and the ledger behind them:
+[`docs/install.md`](docs/install.md) §7.
 
 ---
 
-## ⚙️ What happens without you asking
+## 🤝 Contribute
 
-The hooks ship with the plugin — you do not register them:
-
-- 🛑 **Before any Bash call** — `push --force`, `reset --hard`, `branch -D`, `git clean -f` and catastrophic `rm -r` are denied unless you prefix `CLAUDE_ALLOW_DESTRUCTIVE=1`.
-- 🔏 **Before any edit** — writes to `.env`, keys, `.pem`, credentials and secrets directories are blocked.
-- ✏️ **On every edit** — formatters run; tests fire for the touched code.
-- 🔐 **On every `git commit`** — secrets detection and linting must pass, the subject must be a conventional commit, no changed file may newly go over 500 lines of code, and (where `lizard` is installed) none may gain over-limit functions — or the commit is blocked. A staged manifest that adds a dependency gets one advisory line (never a block).
-- 🔀 **After edits, once a minute** — you are told if the branch's committed state would conflict with its base, or has drifted far behind it.
-- 🔗 **After a test edit, outside an implement phase** — if that test cites a requirement, you are told which spec declares it, so the spec follows the test instead of rotting.
-- ✅ **On task completion** — the task cannot be marked done while the test suite fails.
-- 🚧 **During `/hefesto:hef.plan`** — edits outside `.specify/` are blocked.
-- 🧷 **During `/hefesto:hef.implement`** — tests may grow, never shrink; snapshot regeneration is always blocked.
-- 🧭 **On session start / before compaction** — context is injected, a checkpoint is written.
-- 👁️ **On a settings change mid-session** — it is announced.
-- 🧱 **Before any file edit or Bash call** — `lane-guard.sh` denies edits to hefesto's own state under `~/.cache/hefesto` (through a symlink too), in every project; in a set-up project it holds each command that runs outside the sandbox to one plain word list, records a person's decision only from the orchestrator lane, and lets a lane run an approved action's commands without a dialog. In a `--lanes` project, or a launched worker's session, the formatter, the after-edit tests, the task-completion gate and the commit gate's linters stand down: a hook runs outside the sandbox, so running the project's own programs there would be a way out of it.
-- 🔔 **When Claude needs you** — a desktop notification; **when a turn ends after code edits** — a quality check runs.
-
-[`docs/hooks.md`](docs/hooks.md) explains each, and how to opt out deliberately when you must.
+Running the smoke suite, the commit and branch conventions, and how a change is reviewed and merged:
+[`docs/contributing.md`](docs/contributing.md).
 
 ---
 
@@ -380,32 +125,19 @@ The hooks ship with the plugin — you do not register them:
 
 | | |
 |---|---|
-| 📦 [Installing & Configuring](docs/install.md) | Install, the permission rule, verification, updating, what the plugin cannot ship. |
+| 🐧 [Linux](docs/install-linux.md) · 🍎 [macOS](docs/install-macos.md) · 🪟 [Windows (WSL)](docs/install-windows.md) | Install on your OS: the tools, the command, the check. |
+| 🧭 [Quick start](docs/quickstart.md) · [em português](docs/quickstart.pt-BR.md) | After the install: prepare a project, single lane or four lanes, day to day. |
+| 📦 [Installing & Configuring](docs/install.md) | The reference: manual install, profiles, the sandbox, updating, the orchestrator. |
 | 🛠️ [Commands](docs/commands.md) | All 27, with arguments. |
 | 🕵️ [Agents & Parallelism](docs/agents.md) | The seven agents; when to use a subagent vs. a team vs. a workflow. |
 | ⚙️ [Hooks & Quality Gates](docs/hooks.md) | Every hook, the Iron Laws, and the security posture. |
 | 🧬 [Spec-Driven Development](docs/sdd.md) | The lifecycle in depth, `.specify/` artifacts, task management. |
-| 🏗️ [Architecture](docs/architecture.md) | Package structure, request flow, the five-layer stack, deployment topology. |
+| 🏗️ [Architecture](docs/architecture.md) | Package structure, `speckit-helper.sh` (48 subcommands) and the other helpers, the five-layer stack. |
 | 🧠 [Skills](docs/skills.md) · [Rules](docs/rules.md) · [MCP](docs/mcp.md) | Component reference. |
 | ⚡ [Performance & Reasoning](docs/performance.md) | Ultrathink, model selection, context management. |
 | 📖 [Research Corpus](docs/research.md) | The reports the framework is built on, and acknowledgments. |
-| 🏭 [Case Study: a Production SDLC](docs/case-study-sdlc.md) | One adopter's whole lifecycle on Hefesto, from RFC to prod: lanes, gates, the PO chat-bot loop, how to replicate it, and the gaps it found. |
-
----
-
-## 🧩 Requirements
-
-`git`, `jq` (every hook reads its event with it), and the `claude` CLI.
-
-**Linux and macOS.** The hooks are written for macOS's stock `/bin/bash` 3.2 and BSD tools, so a Mac
-needs no Homebrew bash or coreutils (only `brew install jq` if `jq` is missing); where macOS has no
-`timeout`, the bundled `hooks/run-bounded.sh` stands in. A `smoke-macos` CI job runs the whole suite
-on macOS.
-
-Optional, auto-detected, silent when absent: `gitleaks` (the secrets gate), `lizard` (the
-function complexity gate — the commit says when it was skipped), `shellcheck`, `rtk` (CLI output compression), `graphify` (knowledge graph),
-`GITHUB_TOKEN` (the bundled GitHub MCP server), and on Linux `bubblewrap` + `socat` for the OS sandbox that
-[`docs/install.md`](docs/install.md) recommends as the boundary the hooks cannot be.
+| 🏭 [Case Study: a Production SDLC](docs/case-study-sdlc.md) | One adopter's whole lifecycle on Hefesto, from RFC to prod. |
+| 🤝 [Contributing](docs/contributing.md) | How to change hefesto itself. |
 
 ## 📄 License
 
