@@ -311,8 +311,8 @@ For the short path — install, one lane or four, a new or a running project —
 
 1. **Declare the board** in `.claude/project-status.json` (the same file `/hefesto:hef.status` reads;
    `source: tasks-repo` or `github-project` (step 14) is dispatchable) and add the `orchestrate` block:
-   `{"usd_cap": 20, "daily_usd_cap": 100, "tiers": {"implement": "opus", "verify": "fable"}}` — tiers,
-   never model ids; the reviewer tier must rank at or above the author's.
+   `{"tiers": {"implement": "opus", "verify": "fable"}}` — tiers, never model ids; the reviewer tier must
+   rank at or above the author's. Spend caps (`usd_cap`, `daily_usd_cap`) are optional; none by default.
 2. **Protect `main`**: require a pull request before merging (0 approvals is enough on a solo repo,
    include administrators). No launched session can then push `main`, whatever its prompt says.
    Merge with **merge commits**, not squash or rebase: the `human:merge` gate is cleared by
@@ -739,9 +739,11 @@ For the short path — install, one lane or four, a new or a running project —
     - **The board's epics** (`epics.specs`) list each app's features as `<app>/<feature>`. On an external board
       they stay the board's own, as before.
 
-Spend: `--max-budget-usd` caps each session; the launcher also refuses when today's total across
-the ledger plus the next cap would exceed `daily_usd_cap`. Cost per merged PR comes from the
-`runs[]` on each entry.
+Spend: open by default — neither cap is set unless you add it, and each is opt-in on its own.
+`orchestrate.usd_cap` becomes `--max-budget-usd` on each session (no key → no flag). With
+`daily_usd_cap` set, the launcher refuses when today's total across the ledger plus the next session's
+cap would exceed it; with `daily_usd_cap` but no `usd_cap`, it refuses once today's total has reached
+the daily cap. Cost per merged PR comes from the `runs[]` on each entry.
 
 **Two hosts, if you run the by-stage layout** (README §5): the `deploy` pane splits along the
 trust boundary in `docs/architecture.md` — CI, the PR and the babysitter on the always-on

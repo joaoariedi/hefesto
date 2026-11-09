@@ -132,7 +132,7 @@ says what each release changed.
 |---|---|
 | 🛠️ `commands/` | The 27 slash commands, all `hef.*` — namespaced, so no built-in can shadow them. |
 | 🕵️ `agents/` | Seven specialist subagents — testing, quality, review, security, PR coordination, two one-shot readers (another repo; this one, for the arena). |
-| ⚙️ `hooks/` | Sixteen hooks, plus the helpers the commands call: `speckit-helper.sh` (47 subcommands) for live git data, requirement traceability, the mutation ratchet and dependency diffs; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `hefesto-setup.sh` to set a project up for it; `lane-build.sh` for a lane's builds; `run-follow.sh` to narrate a background run; `context-gauge.sh` for the status line; `pr-watch.sh` for `/hefesto:hef.babysit`; `arena-run.sh` for foreign-provider readers; `release.sh` and `changelog-check.sh`; `doctor-tmp.sh` for `/hefesto:hef.doctor`. |
+| ⚙️ `hooks/` | Sixteen hooks, plus the helpers the commands call: `speckit-helper.sh` (48 subcommands) for live git data, requirement traceability, the mutation ratchet and dependency diffs; `status-board.sh` for the board; `ledger.sh` and `session-launch.sh` for the multi-session pipeline; `hefesto-setup.sh` to set a project up for it; `lane-build.sh` for a lane's builds; `run-follow.sh` to narrate a background run; `context-gauge.sh` for the status line; `pr-watch.sh` for `/hefesto:hef.babysit`; `arena-run.sh` for foreign-provider readers; `release.sh` and `changelog-check.sh`; `doctor-tmp.sh` for `/hefesto:hef.doctor`. |
 | 🧪 `evals/` | `claude plugin eval` cases — each prompt scored with and without the plugin. Opt-in; spends tokens. |
 | 🧠 `skills/` | Systematic debugging, effort estimation, performance audit, plus reference skills promoted from rules (quality tooling, pipeline & MCP security, agent collaboration). |
 | 🔁 `workflows/` | `workflow.js` — executes a task list as a deterministic Workflow. |
@@ -304,8 +304,9 @@ holds everything the line points at.
 
 1. Put the board in `tasks/` — one heading per item, `## HEF-1 — title`, then the body a worker
    receives as data — and declare it in `.claude/project-status.json`:
-   `{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":20,"daily_usd_cap":100,"tiers":{"implement":"opus","verify":"fable"}}}`
-   (tiers, never model ids; the reviewer tier must rank at or above the author's).
+   `{"source":"tasks-repo","root":"tasks","orchestrate":{"tiers":{"implement":"opus","verify":"fable"}}}`
+   (tiers, never model ids; the reviewer tier must rank at or above the author's; spend caps `usd_cap` and
+   `daily_usd_cap` are optional, none by default).
 2. Protect `main`: require a pull request before merging, administrators included. Merge with merge
    commits — the `human:merge` gate is cleared by branch ancestry, which a squash never satisfies.
 3. Set the project up once, in a terminal: `bash ~/.claude-framework/hooks/hefesto-setup.sh` — it lists

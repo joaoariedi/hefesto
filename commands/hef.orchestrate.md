@@ -94,7 +94,8 @@ as a backlog), `github` (the repo's remote). Ask the person in one form which to
   scope `read:project`; `--add` and publish need `project`. `--check` warns when the scope is missing.
   `github` without `projects` → its `note` says why gh could not list them; say so, and offer the fix or a tasks
   board.
-Add `"orchestrate":{"usd_cap":20,"daily_usd_cap":100,"plan_review":"human","plan_first":true}` and, when the
+Add `"orchestrate":{"plan_review":"human","plan_first":true}` (spend caps are opt-in, none by default: add
+`usd_cap` and/or `daily_usd_cap` only when the person asks for a limit) and, when the
 repository integrates on a branch other than its default (`git symbolic-ref refs/remotes/origin/HEAD`), a
 `"branches"` block naming it. For a tasks board, then run `${CLAUDE_PLUGIN_ROOT}/hooks/status-board.sh --init`:
 it creates only the board files that are missing, never overwriting one — also when the config exists but its
@@ -264,7 +265,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
    - Lane actions running or done since the last pass: `▶ repo-deployer DET-10-A2 · action`, `✓ DET-10-A1 · done (merge 5f3c0a9)`
    - Blocked otherwise: `ci`, `conflict`, `stall`, `budget`, `verdict`, with the item and its one-line reason
    - Done since the last pass: plans approved, PRs opened, merges recorded
-   - Spend today: from `ledger.sh list --today`, against `daily_usd_cap`
+   - Spend today: from `ledger.sh list --today`, against `daily_usd_cap` when it is set (no cap set → the spend alone)
    - Anything a doorbell or item text asked for besides a pass (reported, not done)
 
    **The last line is always exactly one of these three:**

@@ -72,20 +72,30 @@ prr_parse_args() { # sets PRR_VERDICT PRR_DEC PRR_FF PRR_PI PRR_SD PRR_CAP_FLAG;
   PRR_VERDICT=""; PRR_DEC=0; PRR_FF=""; PRR_PI=""; PRR_SD=""; PRR_CAP_FLAG=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --decision) PRR_DEC=1; shift; continue ;;
-      --verdict|--findings-file|--person-input|--spec-dir|--cap) [ $# -ge 2 ] || prr_usage "$1 needs a value" ;;
+      --decision) PRR_DEC=1; shift ;;
+      --verdict|--findings-file|--person-input|--spec-dir|--cap) [ $# -ge 2 ] || prr_usage "$1 needs a value"; prr_set_flag "$1" "$2"; shift 2 ;;
       *) prr_usage "unknown argument '$1'" ;;
     esac
-    case "$1" in
-      --verdict) PRR_VERDICT="$2" ;; --findings-file) PRR_FF="$2" ;; --person-input) PRR_PI="$2" ;;
-      --spec-dir) PRR_SD="$2" ;; --cap) PRR_CAP_FLAG="$2" ;;
-    esac
-    shift 2
   done
+  prr_validate_args
+}
+prr_set_flag() { # flag value
+  case "$1" in
+    --verdict) PRR_VERDICT="$2" ;; --findings-file) PRR_FF="$2" ;; --person-input) PRR_PI="$2" ;;
+    --spec-dir) PRR_SD="$2" ;; --cap) PRR_CAP_FLAG="$2" ;;
+  esac
+}
+prr_check_enum() { # flag value allowed… — an empty value is "not given"
+  local f="$1" v="$2" a; shift 2
+  [ -z "$v" ] && return 0
+  for a; do [ "$v" = "$a" ] && return 0; done
+  prr_usage "$f '$v' is not one of $*"
+}
+prr_validate_args() {
   [ -n "$PRR_VERDICT" ] && [ -n "$PRR_PI" ] && prr_usage "--verdict and --person-input are exclusive"
-  [ -z "$PRR_VERDICT" ] && [ -z "$PRR_PI" ] && prr_usage "one of --verdict or --person-input is required"
-  [ -z "$PRR_VERDICT" ] || case "$PRR_VERDICT" in APPROVE|REVISE_PLAN|NEEDS_DISCUSSION) ;; *) prr_usage "--verdict '$PRR_VERDICT' is not one of APPROVE, REVISE_PLAN, NEEDS_DISCUSSION" ;; esac
-  [ -z "$PRR_PI" ] || case "$PRR_PI" in revision|answer|review) ;; *) prr_usage "--person-input '$PRR_PI' is not one of revision, answer, review" ;; esac
+  [ -n "$PRR_VERDICT$PRR_PI" ] || prr_usage "one of --verdict or --person-input is required"
+  prr_check_enum --verdict "$PRR_VERDICT" APPROVE REVISE_PLAN NEEDS_DISCUSSION
+  prr_check_enum --person-input "$PRR_PI" revision answer review
   [ -z "$PRR_PI" ] || { [ -z "$PRR_FF" ] && [ "$PRR_DEC" = 0 ]; } || prr_usage "--findings-file and --decision go with --verdict, not --person-input"
   [ -z "$PRR_CAP_FLAG" ] || prr_cap_valid "$PRR_CAP_FLAG" || prr_die "plan_review_rounds must be an integer from 1 to 20 — got '$PRR_CAP_FLAG'"
 }
@@ -132,18 +142,27 @@ prr_consume_findings() { # sets PRR_FX
     || prr_die "--findings-file $ff holds a '## Round'/'## Segment'/'decision:' line — findings cannot forge a log line"
 }
 
-prr_record_round() { # the verdict path: every refusal before the first byte is written; then append; then print
-  local log="$PRR_LOGF" cap="$PRR_CAP" bound n act dec="$PRR_DEC"
+prr_round_refusals() { # the checks a round meets before its segment is settled
+  local log="$PRR_LOGF"
   prr_worker && [ -z "$PRR_CAP_FLAG" ] && prr_die "inside a launched worker the cap is the launcher's — pass --cap; a person review runs from a person's session"
   prr_segment_blocked "$log" && prr_die "round $(prr_rounds_in_segment "$log") blocked on a decision — a person's input (revision, answer or review) reopens recording"
   [ -z "$(prr_last_segment "$log")" ] || [ -n "$(prr_segment_cap "$log")" ] \
     || prr_die "$log: the last '## Segment' line does not parse as '## Segment — <kind> — <date> — cap N' — the log was edited by hand"
-  if [ -z "$(prr_segment_cap "$log")" ]; then
-    [ "$(prr_rounds_in_segment "$log")" = 0 ] || prr_die "$log has rounds but no '## Segment … — cap N' header — the log was edited by hand"
-    prr_open_segment "$log" "first review" "$cap"
-  elif [ "$(prr_segment_kind "$log")" = "person review" ] && [ -n "$PRR_CAP_FLAG" ]; then
-    prr_open_segment "$log" "lane review" "$cap"
-  fi
+  [ -n "$(prr_segment_cap "$log")" ] || [ "$(prr_rounds_in_segment "$log")" = 0 ] \
+    || prr_die "$log has rounds but no '## Segment … — cap N' header — the log was edited by hand"
+}
+prr_settle_segment() { # the first segment of a new log; a lane's --cap over a person review opens a lane review
+  if [ -z "$(prr_segment_cap "$PRR_LOGF")" ]; then prr_open_segment "$PRR_LOGF" "first review" "$PRR_CAP"
+  elif [ "$(prr_segment_kind "$PRR_LOGF")" = "person review" ] && [ -n "$PRR_CAP_FLAG" ]; then prr_open_segment "$PRR_LOGF" "lane review" "$PRR_CAP"; fi
+}
+prr_append_round() { # n decision 0|1
+  { printf '\n## Round %s — %s — %s\ndecision: %s\n' "$1" "$(date +%F)" "$PRR_VERDICT" "$([ "$2" = 1 ] && echo yes || echo no)"
+    [ -z "$PRR_FX" ] || printf '%s\n' "$PRR_FX"; } >> "$PRR_LOGF"
+}
+prr_record_round() { # the verdict path: every refusal before the first byte is written; then append; then print
+  local log="$PRR_LOGF" cap="$PRR_CAP" bound n act dec="$PRR_DEC"
+  prr_round_refusals
+  prr_settle_segment
   bound=1; [ "$(prr_segment_kind "$log")" = "person review" ] && bound=0
   [ "$bound" = 0 ] || [ "$(prr_segment_cap "$log")" = "$cap" ] \
     || prr_die "the open segment's cap is $(prr_segment_cap "$log"), not $cap — a person's input opens a new segment"
@@ -151,8 +170,7 @@ prr_record_round() { # the verdict path: every refusal before the first byte is 
   [ "$bound" = 0 ] || [ "$n" -le "$cap" ] || prr_die "round $n would pass the cap $cap — the item waits on a person (human:plan-review)"
   grep -qF '[DECISION]' <<<"$PRR_FX" && dec=1
   act="$(prr_next_action "$PRR_VERDICT" "$dec" "$n" "$cap" "$bound")"
-  { printf '\n## Round %s — %s — %s\ndecision: %s\n' "$n" "$(date +%F)" "$PRR_VERDICT" "$([ "$dec" = 1 ] && echo yes || echo no)"
-    [ -z "$PRR_FX" ] || printf '%s\n' "$PRR_FX"; } >> "$log"
+  prr_append_round "$n" "$dec"
   echo "$act"
 }
 
@@ -186,4 +204,20 @@ prr_question_tail() { # worktree spec-dir budget-bytes
   printf '\n## Review rounds\n%s\n' "$idx"
   printf '\n## Open findings (last round)\n'; awk '/^## Segment /{f=""; next} /^## Round /{f=""} {f=f $0 "\n"} END{printf "%s", f}' "$log" | head -c "$left"
   printf '\n%s\n' "$path"
+}
+
+# session-launch.sh's two call sites, kept here so the launcher stays under the 500-line code limit.
+# prr_launch_cap <configured cap> <log or ""> <unconsumed person inputs> → the cap the planner's prompt carries (FR-004).
+# A retry keeps the open segment's cap, so a config change never stalls it; with a person's input pending the segment
+# is new, unless the planner already opened it and failed (it holds 0 rounds). A `person review` segment's cap does not
+# bind: the configured value goes, and the helper opens a `lane review` segment with it.
+prr_launch_cap() {
+  local sc=""
+  [ -z "$2" ] || [ "$(prr_segment_kind "$2")" = "person review" ] || sc="$(prr_segment_cap "$2")"
+  if [ -n "$sc" ] && { [ "$3" = 0 ] || [ "$(prr_rounds_in_segment "$2")" = 0 ]; }; then echo "$sc"; else echo "$1"; fi
+}
+# prr_append_question_tail <question file> <worktree> <spec dir or ""> — FR-009 inside 8,000 bytes: 7,600 minus the summary
+prr_append_question_tail() {
+  [ -n "$3" ] || return 0
+  prr_question_tail "$2" "$3" "$(( 7600 - $(wc -c < "$1") ))" >> "$1"
 }

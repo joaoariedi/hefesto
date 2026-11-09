@@ -19,7 +19,7 @@
 #   --model      a TIER (haiku|sonnet|opus|fable), never a model id; the reviewer tier must rank at or
 #                above the author's — a weaker reviewer over a stronger author regressed −8.6 pp
 #   --max-budget-usd  the CLI's only hard spend cap (there is no --max-turns on the CLI); plus a daily
-#                total across the ledger, refused before launch
+#                total across the ledger, refused before launch. Both are opt-in (HEF-19): no cap set → no flag, no daily check
 #   --allowedTools    one comma-joined argument: a variadic list right before the prompt would swallow it.
 #                The plugin's own hooks dir (Bash(<here>/*)) is appended AFTER the config-or-default list:
 #                every hef.* pre-flight is one of those helpers, the path is machine-specific so it cannot
@@ -191,7 +191,8 @@ RT=$(rank "$TIER") || exit 1; RA=$(rank "$AUTHOR_TIER") || exit 1
 if [ "$ROLE" = verify ] && [ "$RT" -lt "$RA" ]; then
   die "session-launch verify $ID: reviewer tier '$TIER' ranks below the author tier '$AUTHOR_TIER' — a weaker reviewer over a stronger author regresses the code (reports/17 §1d); set orchestrate.tiers.verify ≥ implement"
 fi
-USD_CAP="$(cfg '.orchestrate.usd_cap // 20')"; DAILY_CAP="$(cfg '.orchestrate.daily_usd_cap // 100')"   # defaults: a full plan or a large build fits one run (user decision 2026-10-22)
+# Opt-in (HEF-19, owner 2026-11-07): no key, null or false → no limit; a set value is today's rule.
+USD_CAP="$(cfg '.orchestrate.usd_cap // empty')"; DAILY_CAP="$(cfg '.orchestrate.daily_usd_cap // empty')"
 # The plugin's own helpers, appended after whatever the config says (stage-roles FR-003). No default list
 # names gh pr merge / gh pr review / gh api: the babysitter's gh calls all live inside pr-watch.sh.
 HOOKS_RULE="Bash($HERE/*)"
@@ -216,7 +217,13 @@ CFGDIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 E="$("$LEDGER" show "$ID")" || exit 1
 TODAY_SPENT="$("$LEDGER" list --today | jq '[.[].budget.usd_spent] | add // 0')"
 CAP_MSG="session-launch $ROLE $ID: daily cap $DAILY_CAP USD would be exceeded (spent today $TODAY_SPENT + session cap $USD_CAP) — raise orchestrate.daily_usd_cap or wait for tomorrow"
-CAP_HIT=0; awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' && CAP_HIT=1
+# HEF-19 (spec D1): no daily cap → no check (an empty cap would read as 0 and refuse every launch); a
+# daily-only cap counts the next session as 0 and refuses at spent ≥ cap — a board at its limit starts nothing.
+CAP_HIT=0
+if [ -n "$DAILY_CAP" ] && [ -n "$USD_CAP" ]; then awk -v t="$TODAY_SPENT" -v c="$USD_CAP" -v d="$DAILY_CAP" 'BEGIN { exit !(t + c > d) }' && CAP_HIT=1
+elif [ -n "$DAILY_CAP" ]; then CAP_MSG="session-launch $ROLE $ID: daily cap $DAILY_CAP USD reached (spent today $TODAY_SPENT; no session cap set) — raise orchestrate.daily_usd_cap or wait for tomorrow"
+  awk -v t="$TODAY_SPENT" -v d="$DAILY_CAP" 'BEGIN { exit !(t >= d) }' && CAP_HIT=1
+fi
 # deploy checks the cap after its merge record (below), which launches nothing and costs nothing
 [ "$CAP_HIT" = 0 ] || [ "$ROLE" = deploy ] || [ "$MODE" != run ] || die "$CAP_MSG"   # in-lane work spends no USD (FR-019)
 PHASE="$(jq -r .phase <<<"$E")"; SPEC_DIR="$(spec_dir_abs "$E" "$TOP")"   # relative to the worktree since #172
@@ -386,10 +393,7 @@ case "$ROLE" in
                # lanes-v3 FR-012: the planner's summary is the question the orchestrator shows the person
                QF="$("$LEDGER" dir)/$ID.question-$(date +%s).md"; jq -r '.summary // ""' <<<"$SO" > "$QF" || QF=""
                # HEF-21 FR-009: the review rounds and the open findings, inside the 8,000 bytes `ledger.sh questions` shows
-               if [ -n "$QF" ] && [ "$K" = human:plan-review ]; then
-                 SDA="$(spec_dir_abs "$("$LEDGER" show "$ID")" "$TOP")"
-                 [ -z "$SDA" ] || prr_question_tail "$WT" "$SDA" "$(( 7600 - $(wc -c < "$QF") ))" >> "$QF"
-               fi
+               [ -z "$QF" ] || [ "$K" != human:plan-review ] || prr_append_question_tail "$QF" "$WT" "$(spec_dir_abs "$("$LEDGER" show "$ID")" "$TOP")"
                "$LEDGER" block "$ID" --kind "$K" ${QF:+--question "$QF"} >/dev/null || exit 1 ;;
       *)       "$LEDGER" show "$ID"; die "session-launch plan $ID: the planner reported outcome 'failed' (exit $RC) — phase stays intake; ledger.sh next --stage plan will pick it up again and the planner resumes from what was recorded" ;;
     esac ;;
@@ -504,9 +508,7 @@ EOF
     # A retry keeps the open segment's cap, so a config change never stalls it; with a person's input pending the
     # segment is new, unless the planner already opened it and failed (it holds 0 rounds). A `person review`
     # segment's cap does not bind: the configured value goes, and the helper opens a `lane review` segment with it.
-    PRR_LOG="${SPEC_DIR:+$SPEC_DIR/plan-review.md}"; PRR_SC=""
-    if [ -n "$PRR_LOG" ] && [ "$(prr_segment_kind "$PRR_LOG")" != "person review" ]; then PRR_SC="$(prr_segment_cap "$PRR_LOG")"; fi
-    if [ -n "$PRR_SC" ] && { [ "$(jq '[(.answers // [])[], (.revisions // [])[] | select(.consumed != true)] | length' <<<"$E")" = 0 ] || [ "$(prr_rounds_in_segment "$PRR_LOG")" = 0 ]; }; then PRR_CAP="$PRR_SC"; fi
+    PRR_CAP="$(prr_launch_cap "$PRR_CAP" "${SPEC_DIR:+$SPEC_DIR/plan-review.md}" "$(jq '[(.answers // [])[], (.revisions // [])[] | select(.consumed != true)] | length' <<<"$E")")"
     PRR_SD="${SPEC_DIR:-<spec dir>}"   # only the fresh prompt (no spec dir yet) keeps the placeholder
     PRR_RULE="run /hefesto:hef.review plan --cap $PRR_CAP --spec-dir $PRR_SD after every plan change; it records the round and ends with a line \"next: <action>\" — follow that line: revise → make the numbered changes to plan.md and run the same command again; approve → /hefesto:hef.tasks; block … → outcome \"blocked\", blocked_on \"human:plan-review\", your summary naming the decision needed or the cap. If the round helper refuses instead: a refusal naming a blocked round → outcome \"blocked\", blocked_on \"human:plan-review\", your summary quoting it; any other refusal → outcome \"failed\", your summary quoting it"
     PRR_SEG="Before anything else, run $HERE/speckit-helper.sh plan-review-round --person-input <kind> --spec-dir $PRR_SD --cap $PRR_CAP; it prints \"segment\" (the review rounds restart after a person's input)."
@@ -635,8 +637,9 @@ PROMPT="$PROMPT
 
 This is a headless run: it ends when your turn ends. Spawn every agent in the foreground (the Agent / Task tool with run_in_background: false) and use its result in the same turn; never end a turn to wait for a background agent or task — you would be made to report before the remaining steps run."
 case "$ROLE" in implement) NAME="impl-$ID" ;; verify) NAME="verify-$ID" ;; plan) NAME="plan-$ID" ;; deploy) NAME="deploy-$ID" ;; esac
-CMD=(env "${WORKER_ENV[@]}" HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS" --max-budget-usd "$USD_CAP"
-     --output-format stream-json --verbose --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)
+CMD=(env "${WORKER_ENV[@]}" HEFESTO_WORKER=1 claude -p "$PROMPT" --name "$NAME" --model "$TIER" --settings "$SETTINGS")
+[ -z "$USD_CAP" ] || CMD+=(--max-budget-usd "$USD_CAP")   # opt-in (HEF-19): no cap set → no flag; set → its old slot (launch-920 fixture)
+CMD+=(--output-format stream-json --verbose --json-schema "$SCHEMA" --allowedTools "$ALLOWED" --permission-prompts none)
 case "$ROLE" in
   implement|plan)
     # a retry reuses the worktree; a new one is made by `claude -w` in its cwd — so the entry's repo, explicitly

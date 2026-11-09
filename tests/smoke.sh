@@ -532,6 +532,44 @@ fi
 
 rm -rf "$hc_tmp"
 
+# FR-001 FR-005 (HEF-1): /hefesto:hef.tasks pre-flight must accept spec.md without plan.md — the
+# hef.agent Light route skips the plan. Exact strings AND exit codes, so a predicate that answers the
+# wrong path (or refuses the light one) cannot pass.
+tl="$(mktemp -d)"
+( cd "$tl" && git init -q . && git checkout -q -b feature/lite && mkdir -p .specify/specs/lite ) >/dev/null 2>&1
+tl_q() { (cd "$tl" && "$HELPER" check-tasks-inputs 2>/dev/null); }
+tl_fail=0
+o="$(tl_q)"; rc=$?
+{ [ "$rc" -ne 0 ] && [ "$o" = "NO_SPEC_FOR_BRANCH: lite" ]; } || { bad "check-tasks-inputs with no spec.md must print 'NO_SPEC_FOR_BRANCH: lite' and exit 1; got '$o' at exit $rc (FR-001)"; tl_fail=1; }
+: > "$tl/.specify/specs/lite/spec.md"
+o="$(tl_q)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$o" = "LIGHT_PATH: lite" ]; } || { bad "check-tasks-inputs with spec.md only must print 'LIGHT_PATH: lite' at exit 0; got '$o' at exit $rc (FR-001)"; tl_fail=1; }
+# FR-004: check-plan keeps its answer — the light path is a new predicate, not a loosened old one
+o="$(cd "$tl" && "$HELPER" check-plan 2>/dev/null)"; rc=$?
+{ [ "$rc" -ne 0 ] && [ "$o" = "NO_PLAN_FOR_BRANCH: lite" ]; } || { bad "check-plan with no plan.md must still print 'NO_PLAN_FOR_BRANCH: lite' and exit 1; got '$o' at exit $rc (FR-004)"; tl_fail=1; }
+: > "$tl/.specify/specs/lite/plan.md"
+o="$(tl_q)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$o" = "FULL_PATH: lite" ]; } || { bad "check-tasks-inputs with spec.md + plan.md must print 'FULL_PATH: lite' at exit 0; got '$o' at exit $rc (FR-001)"; tl_fail=1; }
+[ "$tl_fail" -eq 0 ] && ok "check-tasks-inputs answers light / full / no-spec by string and exit code (FR-001, FR-005)"
+rm -rf "$tl"
+
+# FR-002 FR-003 SC-003 (HEF-1): the command uses the predicate, names the light-path header, no longer
+# requires both files, and keeps the `plan` fetch OUT of Pre-Flight (run top to bottom, its loud failure
+# would read as a stop on the light path).
+tc="$REPO/commands/hef.tasks.md"
+tc_pre="$(sed -n '/^## Pre-Flight/,/^## Instructions/p' "$tc")"
+tc_fail=0
+grep -qF 'speckit-helper.sh check-tasks-inputs' <<<"$tc_pre" || { bad "commands/hef.tasks.md Pre-Flight must run check-tasks-inputs (FR-002)"; tc_fail=1; }
+grep -qE 'speckit-helper\.sh (plan|check-plan)`' <<<"$tc_pre" && { bad "commands/hef.tasks.md Pre-Flight must not run 'plan' or 'check-plan' — the plan loads only on FULL_PATH (FR-002)"; tc_fail=1; }
+grep -qF '<!-- Light path: generated from spec.md alone — no plan.md -->' "$tc" || { bad "commands/hef.tasks.md must name the light-path header line (FR-003)"; tc_fail=1; }
+grep -qF 'Both `plan.md` and `spec.md` must exist' "$tc" && { bad "commands/hef.tasks.md still says both plan.md and spec.md are required (SC-003)"; tc_fail=1; }
+# FR-006: the new predicate is named where the helper's subcommands are listed (the counts: SC-006 below)
+grep -qF '`check-tasks-inputs`' "$REPO/docs/hooks.md" || { bad "docs/hooks.md must list check-tasks-inputs (FR-006)"; tc_fail=1; }
+# Captured first: the helper exits 1 on an unknown command, and under pipefail a pipe would read that as no match
+tc_usage="$("$HELPER" no-such-subcommand 2>&1)"
+grep -qF 'check-tasks-inputs' <<<"$tc_usage" || { bad "speckit-helper.sh usage text must name check-tasks-inputs (FR-006)"; tc_fail=1; }
+[ "$tc_fail" -eq 0 ] && ok "hef.tasks pre-flight accepts the light path: predicate, header line, no plan fetch in Pre-Flight (FR-002, FR-003, SC-003)"
+
 head_ "Workflow resilience"
 
 # These guard shape invariants that tests/workflow.test.js CANNOT reach. A behaviour test proves the
@@ -1072,6 +1110,13 @@ rm -rf "$re_t"
 # the FRs they cover — the block headers carry `(FR-NNN)` for that reason. Strictness follows
 # tasks.md: an FR whose tasks are all still `[ ]` is PENDING (reported, not failing); an FR with a
 # `[x]` task must be cited, and an UNKNOWN id always fails. Skipped on main, where no spec exists.
+# scoped-fr-citations/FR-014: an UNKNOWN row may be qualified (`ghost/FR-NNN  UNKNOWN`), so the pattern
+# takes any token ending in an id. Checked on every branch against a synthetic row; mutation-checked:
+# the pattern reverted to `^FR-[0-9]+ +UNKNOWN` → red.
+own_unknown_re='^[^ ]*FR-[0-9]+ +UNKNOWN'
+grep -qE "$own_unknown_re" <<<"$(printf '%s\n' ghost/"FR-001    UNKNOWN    ./tests/x.sh:1")" \
+  && ok "the dogfood UNKNOWN pattern catches a qualified UNKNOWN row" \
+  || bad "the dogfood UNKNOWN pattern misses a qualified UNKNOWN row"
 own_branch="$(git -C "$REPO" branch --show-current 2>/dev/null | sed 's|^feature/||')"
 own_spec="$REPO/.specify/specs/$own_branch"
 if [ -f "$own_spec/spec.md" ]; then
@@ -1086,7 +1131,7 @@ if [ -f "$own_spec/spec.md" ]; then
   done <<<"$done_frs"
   # UNKNOWN here means no spec directory declares the id — req-coverage reports an id declared by
   # a sibling spec as ELSEWHERE (the suite is shared across feature branches; ids are per spec).
-  if grep -qE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out"; then bad "the suite cites an FR no spec declares: $(grep -oE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out" | tr '\n' ' ')"; own_bad=1; fi
+  if grep -qE "$own_unknown_re" <<<"$own_out"; then bad "the suite cites an FR no spec declares: $(grep -oE "$own_unknown_re" <<<"$own_out" | tr '\n' ' ')"; own_bad=1; fi
   pending="$(grep -cE '^FR-[0-9]+ +UNCOVERED' <<<"$own_out" || true)"
   [ "$own_bad" -eq 0 ] && ok "every completed requirement on this branch is cited by a check ($pending pending, not yet implemented)"
 fi
@@ -1463,6 +1508,159 @@ rm -rf "$ra_t"
 grep -qF 'req-coverage --all' "$REPO/.github/workflows/req-coverage.yml" 2>/dev/null && grep -qF 'workflow_call' "$REPO/.github/workflows/req-coverage.yml" \
   && ok "a reusable CI workflow runs req-coverage --all for adopters" || bad ".github/workflows/req-coverage.yml missing or not a workflow_call running --all"
 
+# --- req-coverage: spec-qualified citations <spec>/FR-NNN (spec scoped-fr-citations) --------------
+# FR ids repeat across specs, so a bare id covers every spec that declares it. A qualified token
+# counts for the named spec only; a spec carrying `<!-- req-coverage: scoped -->` counts nothing else.
+#
+# NEVER write a literal qualified token for a fixture spec into this file: tests/smoke.sh is itself a
+# file req-coverage scans, so such a token is a citation of a spec that does not exist → UNKNOWN on
+# this repository. `printf '%s/FR-…' "$a"` leaves the token `s/FR-…` in the source, and an unquoted
+# `$a/FR-…` leaves `a/FR-…`. Only `"$a"/FR-…` (closing quote right before the `/`) is safe. The
+# stray-qualifier check below fails the suite on every branch if one slips in.
+sq_mk() { # $1 root, $2 spec name, $3 scoped|legacy, $4.. ids — a spec with every task done (shipped)
+  local r="$1" n="$2" m="$3"; shift 3
+  mkdir -p "$r/.specify/specs/$n" "$r/tests"
+  { [ "$m" = scoped ] && echo '<!-- req-coverage: scoped -->'; for i in "$@"; do echo "- $i requirement"; done; } > "$r/.specify/specs/$n/spec.md"
+  printf -- '- [x] T001 done\n' > "$r/.specify/specs/$n/tasks.md"
+}
+sq_sec() { # $1 spec name — that spec's section of an --all run held in $sq_out
+  awk -v h="REQUIREMENT COVERAGE — $1" '$0 == h {on = 1; next} /^REQUIREMENT COVERAGE — |^req-coverage --all:|^== /{on = 0} on' <<<"$sq_out"
+}
+sq_run() { sq_out="$(cd "$sq_t" && "$HELPER" req-coverage "$@" 2>&1)"; sq_rc=$?; }
+a=alpha; b=beta; o=older; m=mine; g=ghost
+
+# scoped-fr-citations/FR-001 scoped-fr-citations/FR-002 scoped-fr-citations/FR-009 scoped-fr-citations/FR-005
+# The --all collision (SC-001): scoped alpha and beta plus legacy older all declare the same id.
+# Mutation-checked: qualifier ignored in own rows (any qualified row counts) → beta COVERED → red;
+# mode fixed to scoped for every re-entry → older UNCOVERED → red.
+sq_t="$(mktemp -d)"; sq_fail=0
+git -C "$sq_t" init -q -b main . >/dev/null 2>&1
+sq_mk "$sq_t" "$a" scoped FR-001; sq_mk "$sq_t" "$b" scoped FR-001; sq_mk "$sq_t" "$o" legacy FR-001
+printf '# %s\n# FR-001\n' "$a"/FR-001 > "$sq_t/tests/test_c.sh"
+sq_run --all
+{ [ "$sq_rc" -ne 0 ] && sq_sec "$a" | grep -qE '^FR-001 +COVERED +\./tests/test_c\.sh:1 *$' \
+  && sq_sec "$b" | grep -qE '^FR-001 +UNCOVERED' && sq_sec "$o" | grep -qE '^FR-001 +COVERED' \
+  && grep -qF '3 shipped spec(s) checked, 1 failing' <<<"$sq_out"; } \
+  || { bad "--all collision: alpha COVERED by its qualified citation, beta UNCOVERED, older COVERED by the bare one, run red (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+printf '# %s\n' "$b"/FR-001 >> "$sq_t/tests/test_c.sh"
+sq_run --all
+{ [ "$sq_rc" -eq 0 ] && sq_sec "$b" | grep -qE '^FR-001 +COVERED +\./tests/test_c\.sh:3 *$'; } \
+  || { bad "--all collision: a citation qualified for beta too must turn the run green (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+rm -rf "$sq_t"
+[ "$sq_fail" -eq 0 ] && ok "a qualified citation covers only the spec it names; --all checks each spec in its own mode"
+
+# scoped-fr-citations/FR-003 scoped-fr-citations/FR-004 scoped-fr-citations/FR-006
+# A scoped spec ignores bare citations and says where they are (at most 3) and how to cite.
+# Mutation-checked: head -3 → head -5 on the hint → red; bare rows counted in scoped mode → red;
+# the mode header line dropped → red.
+sq_t="$(mktemp -d)"; sq_fail=0
+sq_mk "$sq_t" "$a" scoped FR-002 FR-003
+printf '# FR-002\n# FR-002\n# FR-002\n# FR-002\n' > "$sq_t/tests/test_b.sh"
+sq_run "$a"
+{ [ "$sq_rc" -ne 0 ] && grep -qxF 'mode: scoped' <<<"$sq_out" \
+  && grep -qxF "FR-002   UNCOVERED  — bare: ./tests/test_b.sh:1 ./tests/test_b.sh:2 ./tests/test_b.sh:3 — cite as $a"/FR-002 <<<"$sq_out" \
+  && grep -qxF 'FR-003   UNCOVERED  —' <<<"$sq_out"; } \
+  || { bad "scoped spec: a bare-only citation must stay UNCOVERED with the 3-location bare hint, no hint without bare hits, header 'mode: scoped' (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+printf '# %s\n# %s\n' "$a"/FR-002 "$a"/FR-003 >> "$sq_t/tests/test_b.sh"
+sq_run "$a"
+{ [ "$sq_rc" -eq 0 ] && grep -qE '^FR-002 +COVERED +\./tests/test_b\.sh:5 *$' <<<"$sq_out" && ! grep -qF 'bare:' <<<"$sq_out"; } \
+  || { bad "scoped spec: a qualified citation covers it, listing only the qualified hit (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+rm -rf "$sq_t"
+[ "$sq_fail" -eq 0 ] && ok "a scoped spec counts only its qualified citations and names the bare ones it ignored"
+
+# scoped-fr-citations/FR-005 scoped-fr-citations/FR-006
+# A legacy (unmarked) spec keeps today's behaviour: bare and own-qualified cover; another spec's do not.
+# Mutation-checked: a foreign qualifier counted as own → the alpha-only case goes COVERED → red.
+sq_t="$(mktemp -d)"; sq_fail=0
+sq_mk "$sq_t" "$o" legacy FR-001; sq_mk "$sq_t" "$a" scoped FR-001
+printf '# FR-001\n' > "$sq_t/tests/test_l.sh"
+sq_run "$o"
+{ [ "$sq_rc" -eq 0 ] && grep -qxF 'mode: legacy (bare ids count)' <<<"$sq_out" && grep -qE '^FR-001 +COVERED' <<<"$sq_out" && ! grep -qF 'bare:' <<<"$sq_out"; } \
+  || { bad "legacy spec: a bare citation must cover it, header 'mode: legacy (bare ids count)', no bare hint (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+printf '# %s\n' "$o"/FR-001 > "$sq_t/tests/test_l.sh"
+sq_run "$o"
+{ [ "$sq_rc" -eq 0 ] && grep -qE '^FR-001 +COVERED' <<<"$sq_out"; } \
+  || { bad "legacy spec: its own qualified citation must cover it (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+printf '# %s\n' "$a"/FR-001 > "$sq_t/tests/test_l.sh"
+sq_run "$o"
+{ [ "$sq_rc" -ne 0 ] && grep -qE '^FR-001 +UNCOVERED' <<<"$sq_out" && grep -qE "^$a"/FR-001" +ELSEWHERE" <<<"$sq_out"; } \
+  || { bad "legacy spec: a citation qualified for another spec must not cover it (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+rm -rf "$sq_t"
+[ "$sq_fail" -eq 0 ] && ok "a legacy spec counts bare and own-qualified citations, never another spec's"
+
+# scoped-fr-citations/FR-007 scoped-fr-citations/FR-008
+# Foreign qualified citations: declared by the named spec → ELSEWHERE (non-failing); a missing spec,
+# another spec's undeclared id, or the spec's own undeclared id → UNKNOWN (fails).
+# Mutation-checked, one per UNKNOWN branch (status → ELSEWHERE, or the row skipped) → that case red.
+sq_t="$(mktemp -d)"; sq_fail=0
+sq_mk "$sq_t" "$m" scoped FR-001; sq_mk "$sq_t" "$o" legacy FR-007
+sq_case() { printf '# %s\n# %s\n' "$m"/FR-001 "$1" > "$sq_t/tests/test_u.sh"; sq_run "$m"; }
+sq_case "$o"/FR-007
+{ [ "$sq_rc" -eq 0 ] && grep -qE "^$o"/FR-007" +ELSEWHERE +\./tests/test_u\.sh:2" <<<"$sq_out" && ! grep -qF UNKNOWN <<<"$sq_out"; } \
+  || { bad "a qualified citation of an id the named spec declares must be ELSEWHERE at exit 0 (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+for sq_c in "$g"/FR-001 "$o"/FR-008 "$m"/FR-009; do
+  sq_case "$sq_c"
+  { [ "$sq_rc" -ne 0 ] && grep -qE "^$sq_c +UNKNOWN" <<<"$sq_out"; } \
+    || { bad "a qualified citation '$sq_c' (missing spec or undeclared id) must be UNKNOWN and fail (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+done
+sq_case FR-007
+{ [ "$sq_rc" -eq 0 ] && grep -qE '^FR-007 +ELSEWHERE' <<<"$sq_out"; } \
+  || { bad "a bare id another spec declares must stay ELSEWHERE (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+rm -rf "$sq_t"
+[ "$sq_fail" -eq 0 ] && ok "qualified citations of other specs are ELSEWHERE when declared, UNKNOWN (failing) when not"
+
+# scoped-fr-citations/FR-001 — an id list is two bare citations, never a qualifier.
+# Mutation-checked: the id-list rule dropped in rc_citations → the list reads as qualifier FR-001 → UNKNOWN → red.
+sq_t="$(mktemp -d)"
+sq_mk "$sq_t" "$o" legacy FR-001 FR-002
+printf '# FR-001/FR-002\n' > "$sq_t/tests/test_i.sh"
+sq_run "$o"
+{ [ "$sq_rc" -eq 0 ] && grep -qE '^FR-001 +COVERED' <<<"$sq_out" && grep -qE '^FR-002 +COVERED' <<<"$sq_out" && ! grep -qF UNKNOWN <<<"$sq_out"; } \
+  && ok "an id list FR-a/FR-b reads as two bare citations, not a qualifier" \
+  || bad "an id list must be two bare citations with no UNKNOWN row (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"
+rm -rf "$sq_t"
+
+# scoped-fr-citations/FR-014 scoped-fr-citations/FR-010
+# Branch-independent stray-qualifier check: no file req-coverage scans in THIS repository may cite a
+# qualified token that resolves to UNKNOWN (no such spec directory, or an id it does not declare).
+# Run through req-coverage itself so the scanned set has one definition. The planted fixture is the
+# check's own control: it must go red there, or the check proves nothing.
+# Mutation-checked: a printf-format qualified line (`%s` then `/FR-` and digits) planted in a scanned
+# file of this repo → red (it was: this very comment held one on the first run, and the check caught it).
+# `; true`: under pipefail the helper's own non-zero verdict would otherwise mask grep's match
+sq_stray() { (cd "$1" && "$HELPER" req-coverage "$2" 2>/dev/null; true) | grep -E '^[A-Za-z0-9][A-Za-z0-9._-]*/FR-[0-9]+ +UNKNOWN'; }
+sq_t="$(mktemp -d)"
+sq_mk "$sq_t" "$o" legacy FR-001
+printf '# FR-001\nprintf "# %%s%s"\n' /FR-001 > "$sq_t/tests/test_s.sh"   # the file gets the trap token; this source does not
+if [ ! -f "$REPO/.specify/specs/scoped-fr-citations/spec.md" ]; then
+  bad "stray-qualifier check: .specify/specs/scoped-fr-citations/spec.md is missing — the check has nothing to run against"
+elif ! sq_stray "$sq_t" "$o" >/dev/null; then
+  bad "stray-qualifier check: a planted printf-format token did not go red in the control fixture"
+elif sq_s="$(sq_stray "$REPO" scoped-fr-citations)"; then
+  bad "a scanned file cites a qualified token no spec resolves (write \"\$a\"/FR-… in fixtures): $(tr '\n' '|' <<<"$sq_s")"
+else
+  ok "no scanned file in this repository cites a qualifier with no spec directory"
+fi
+rm -rf "$sq_t"
+
+# scoped-fr-citations/FR-012 — new specs are scoped by default and the commands teach the qualified form.
+# Mutation-checked: the marker dropped from the hef.spec template → red.
+sq_fail=0
+grep -qE '^ *<!-- req-coverage: scoped -->$' "$REPO/commands/hef.spec.md" 2>/dev/null \
+  || { bad "commands/hef.spec.md: the spec template does not write <!-- req-coverage: scoped -->"; sq_fail=1; }
+for sq_c in hef.tasks hef.implement hef.verify hef.mutate; do
+  grep -qF '<spec>/FR-NNN' "$REPO/commands/$sq_c.md" 2>/dev/null || { bad "commands/$sq_c.md does not show the citation form <spec>/FR-NNN"; sq_fail=1; }
+done
+[ "$sq_fail" -eq 0 ] && ok "the spec template writes the scoped marker and four commands show <spec>/FR-NNN"
+# scoped-fr-citations/FR-011 — docs/sdd.md documents the form, the marker, legacy mode and the move.
+# Mutation-checked: the legacy→scoped paragraph removed from docs/sdd.md → red.
+sq_fail=0
+for sq_c in '<spec>/FR-NNN' '<!-- req-coverage: scoped -->' 'mode: legacy (bare ids count)' 'ELSEWHERE' 'UNKNOWN' 'legacy spec to scoped' 'non-digit placeholder'; do
+  grep -qF -- "$sq_c" "$REPO/docs/sdd.md" 2>/dev/null || { bad "docs/sdd.md does not document '$sq_c' (qualified citations)"; sq_fail=1; }
+done
+[ "$sq_fail" -eq 0 ] && ok "docs/sdd.md documents qualified citations, the scoped marker, legacy mode and the move to scoped"
+unset a b o m g
+
 # --- spec-cite-probe: the reverse direction, at the edit -----------------------------------
 # A test citing FR-NNN edited OUTSIDE an implement phase → name the spec (stderr, exit 0).
 # Silent: during implement (marker set), for non-test files, for tests citing nothing, and for
@@ -1494,6 +1692,23 @@ rm -f "$sc_t/.specify/.implement-in-progress"
 printf '{}' | bash "$SCP" >/dev/null 2>&1 || { bad "spec-cite-probe crashes on empty input"; sc_fail=1; }
 rm -rf "$sc_t" "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
 [ "$sc_fail" -eq 0 ] && ok "spec-cite-probe names the citing spec outside implement and stays silent otherwise"
+# scoped-fr-citations/FR-013 — a qualified citation names its spec only; a bare one names every declarer.
+# Fixture tokens follow the `"$x"/FR-…` rule above. Mutation-checked: the probe ignores the
+# qualifier (matches the id alone) → spec 'beta' named for the qualified citation → red.
+sc_t="$(mktemp -d)"; sc_fail=0; sc_a=alpha; sc_b=beta
+git -C "$sc_t" init -q . >/dev/null 2>&1
+sq_mk "$sc_t" "$sc_a" scoped FR-001; sq_mk "$sc_t" "$sc_b" scoped FR-001
+printf '# %s\n' "$sc_a"/FR-001 > "$sc_t/tests/test_q.py"
+printf '# FR-001\n' > "$sc_t/tests/test_r.py"
+rm -f "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
+sc_out="$(sc_ev tests/test_q.py | bash "$SCP" 2>&1 >/dev/null)"
+{ grep -qF "spec '$sc_a'" <<<"$sc_out" && ! grep -qF "spec '$sc_b'" <<<"$sc_out"; } \
+  || { bad "spec-cite-probe must name only spec '$sc_a' for a citation qualified for it: $sc_out"; sc_fail=1; }
+sc_out="$(sc_ev tests/test_r.py | bash "$SCP" 2>&1 >/dev/null)"
+{ grep -qF "spec '$sc_a'" <<<"$sc_out" && grep -qF "spec '$sc_b'" <<<"$sc_out"; } \
+  || { bad "spec-cite-probe must keep naming every spec declaring a bare id: $sc_out"; sc_fail=1; }
+rm -rf "$sc_t" "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
+[ "$sc_fail" -eq 0 ] && ok "spec-cite-probe attributes a qualified citation to the named spec only"
 jq -e '.hooks.PostToolUse[] | select(.matcher=="Edit|Write") | .hooks[] | select(.command|test("spec-cite-probe"))' "$REPO/hooks/hooks.json" >/dev/null 2>&1 \
   && ok "spec-cite-probe is registered on PostToolUse Edit|Write" || bad "spec-cite-probe.sh is not registered in hooks.json"
 
@@ -1990,7 +2205,12 @@ sl_err="$(sl verify HEF-1 --dry-run 2>&1 >/dev/null)"; sl_trc=$?
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"tiers":{"implement":"claude-opus-5-5","verify":"fable"}}}\n' > "$sl_t/.claude/project-status.json"
 if sl implement HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse a concrete model id in the config"; sl_fail=1; fi
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
-sl_def="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_def" && grep -qE -- '--max-budget-usd 20' <<<"$sl_def" || { bad "session-launch must fall back to the default tiers and the \$20 cap without an orchestrate block"; sl_fail=1; }
+# HEF-19 FR-001 — caps are opt-in: no orchestrate block → the default tiers and NO --max-budget-usd (case a);
+# an explicit "usd_cap": null is the same as missing (case b). Mutations below, after the env-pair one.
+sl_def="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_def" && ! grep -qF -- '--max-budget-usd' <<<"$sl_def" || { bad "HEF-19 FR-001: without an orchestrate block the launcher must use the default tiers and carry no --max-budget-usd: $(grep -oE -- '--max-budget-usd [^ ]*' <<<"$sl_def")"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":null}}\n' > "$sl_t/.claude/project-status.json"
+sl_nul="$(sl implement HEF-1 --dry-run 2>&1)"; grep -qE -- '--model opus' <<<"$sl_nul" && ! grep -qF -- '--max-budget-usd' <<<"$sl_nul" || { bad "HEF-19 FR-001: \"usd_cap\": null must launch with no --max-budget-usd, as a missing key does"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
 # FR-020 — an unwritable config dir means a sandboxed host: refuse with the reason, even on --dry-run
 # Mutation: the writable test removed → launch proceeds → red.
 chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; sl_src=$?; chmod 755 "$sl_cfg"
@@ -2007,6 +2227,20 @@ grep -qE '^env .* HEFESTO_WORKER=1 claude -p ' <<<"$sl_mo" && { bad "mutation su
 # #169: the worker flag rides in the worker's own --settings, which outranks a project settings `env`
 grep -qF '"env":{"HEFESTO_WORKER":"1"}' <<<"$(sl implement HEF-1 --dry-run 2>&1)" \
   || { bad "#169: the launcher pins HEFESTO_WORKER=1 in the worker's --settings (it outranks a project settings env)"; sl_fail=1; }
+# HEF-19 FR-001 FR-002 mutations on the dry-run cases (a)/(b): each anchored sed must apply (cmp), and the
+# mutant must bring the flag back — else the no-flag assertions above are vacuous.
+sl_cap_mut() { # $1 sed → the mutant in $sl_md (applied-check here, not in a subshell, so a miss is reported)
+  cp "$SL" "$sl_md/session-launch.sh"; sed_i "$1" "$sl_md/session-launch.sh"
+  cmp -s "$SL" "$sl_md/session-launch.sh" && { bad "HEF-19 cap mutation did not apply: $1"; sl_fail=1; }
+}
+sl_cap_run() { (cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1); }
+sl_cap_mut 's|\.usd_cap // empty|.usd_cap // 20|'
+grep -qF -- '--max-budget-usd 20' <<<"$(sl_cap_run)" || { bad "HEF-19 FR-001 mutation survived: usd_cap defaulted to 20 again, yet case (a) shows no flag"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":null}}\n' > "$sl_t/.claude/project-status.json"
+grep -qF -- '--max-budget-usd 20' <<<"$(sl_cap_run)" || { bad "HEF-19 FR-001 mutation survived: usd_cap defaulted to 20 again, yet case (b, null) shows no flag"; sl_fail=1; }
+printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
+sl_cap_mut 's|\[ -z "\$USD_CAP" \] \|\| CMD+=|CMD+=|'
+grep -qF -- '--max-budget-usd' <<<"$(sl_cap_run)" || { bad "HEF-19 FR-001 mutation survived: the flag guard dropped, yet case (a) shows no flag"; sl_fail=1; }
 rm -rf "$sl_t" "$sl_cfg" "$sl_md"
 [ "$sl_fail" -eq 0 ] && ok "session-launch --dry-run: flags per role, sanitised prompt, no claim, no transcript flags, tier rank, model-id refusal, defaults, sandboxed-host refusal (FR-009 FR-010 FR-012 FR-020)"
 
@@ -2058,7 +2292,7 @@ srj HEF-3 '.phase=="implement" and .owner==null and .attempts==2 and (.runs|leng
 if sr implement HEF-3 >/dev/null 2>&1; then bad "the third launch of HEF-3 must be refused (stall)"; sr_fail=1; fi
 srj HEF-3 '.blocked_on.kind=="stall"' || { bad "the third launch must leave HEF-3 blocked on stall"; sr_fail=1; }
 # FR-013 — daily cap: spent today 3.45 + cap 5 > 8 → refused before any claim
-# Mutation: the awk guard removed → launch proceeds → red.
+# Mutation: the both-caps rule never hits → launch proceeds → red (HEF-19 case (d), after the claim block).
 printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":8}}\n' > "$sr_t/.claude/project-status.json"
 sr_derr="$(sr implement HEF-4 2>&1 >/dev/null)"; sr_drc=$?
 { [ "$sr_drc" -ne 0 ] && grep -qi 'daily cap' <<<"$sr_derr" && srj HEF-4 '.owner==null and .attempts==0'; } || { bad "session-launch must refuse when the daily cap would be exceeded, before claiming (rc=$sr_drc: $sr_derr)"; sr_fail=1; }
@@ -2068,7 +2302,8 @@ printf '{"session_id":"s9","total_cost_usd":0.1}\n' > "$sr_res"
 sr_nerr="$(sr implement HEF-5 2>&1 >/dev/null)"; sr_nrc=$?
 { [ "$sr_nrc" -ne 0 ] && grep -q 'structured_output' <<<"$sr_nerr" && srj HEF-5 '.owner==null and .budget.usd_spent==0.1'; } || { bad "a result without structured_output must fail naming it and still record the run (rc=$sr_nrc: $(head -c 120 <<<"$sr_nerr"))"; sr_fail=1; }
 # FR-011 — a session that stopped at its spend cap (result subtype error_max_budget_usd) is a `budget`
-# block, not a retry. Mutation: the subtype test removed → falls through to "no structured_output", phase implement, no block → red.
+# block, not a retry. Mutation: the subtype test removed → falls through to "no structured_output", phase implement, no block → red
+# (HEF-19 case (h), after the claim block).
 printf '{"session_id":"s6","total_cost_usd":5,"subtype":"error_max_budget_usd","is_error":true}\n' > "$sr_res"
 ( cd "$sr_t" && bash "$LG" init HEF-6 --kind tasks-repo --ref t >/dev/null 2>&1 ); printf '\n## HEF-6 — six\nb\n' >> "$sr_t/tasks/TODO.md"
 if sr implement HEF-6 >/dev/null 2>&1; then bad "a budget-capped session must make the launcher exit non-zero"; sr_fail=1; fi
@@ -2358,8 +2593,47 @@ rmdir "$cl_dir/.claim.lock"
   || { bad "a claim must take and release the lock"; cl_fail=1; }
 lg2 run HEF-53 --role implement --exit 0 --usd 0 >/dev/null 2>&1
 [ "$cl_fail" -eq 0 ] && ok "ledger claim keeps one worker per repository: a second owner refused naming the first, free again once released, a held lock refused, the lock released after a claim, a verify claim exempt (it continues the same build pass); 2 mutations caught"
+
+# HEF-19 FR-002..FR-005 — each cap is opt-in and independent (spec D1). Fresh entries HEF-81..86 (never HEF-4,
+# HEF-6), every result costs 0 so the shared ledger is not inflated; each case's config derives from the
+# fixture's (usd_cap 5, daily 100) and today's spend is read from the ledger, never hardcoded.
+cp_cfg="$sr_t/.claude/project-status.json"; cp "$cp_cfg" "$cp_cfg.bak"
+cp_set() { jq --argjson d "${2:-0}" "$1" "$cp_cfg.bak" > "$cp_cfg"; }
+cp_spent() { lg2 list --today | jq '[.[].budget.usd_spent] | add // 0'; }
+cp_go() { # $1 n, $2 launcher ('' = the real one), $3 result json → stderr; the argv lands in sr_log
+  local res="${3:-}"; [ -n "$res" ] || res="$(printf '{"session_id":"c%s","total_cost_usd":0,"structured_output":{"summary":"x","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/%s"}}' "$1" "$1")"
+  printf '%s\n' "$res" > "$sr_res"
+  : > "$sr_log"; SL_BIN="${2:-}" sr2 implement "HEF-$1" 2>&1 >/dev/null
+}
+cp_ran() { grep -qF -- "--name impl-HEF-$1" "$sr_log"; }
+cp_md="$(mktemp -d)"; for f in "$REPO"/hooks/*.sh; do ln -s "$f" "$cp_md/$(basename "$f")"; done; rm "$cp_md/session-launch.sh"
+cp_mut() { sed "$1" "$SL" > "$cp_md/session-launch.sh"; cmp -s "$SL" "$cp_md/session-launch.sh" && { bad "HEF-19 cap mutation did not apply: $1"; sr_fail=1; }; }
+for n in 81 82 83 84 85 86; do st_init "$n"; done
+# (e) FR-004 daily-only cap EQUAL to today's spend → refused before any claim, naming the daily cap and the spend
+cp_d="$(cp_spent)"; cp_set '.orchestrate |= (del(.usd_cap) | .daily_usd_cap = $d)' "$cp_d"
+cp_err="$(cp_go 81)"; cp_rc=$?
+{ [ "$cp_rc" -ne 0 ] && grep -qF 'daily cap' <<<"$cp_err" && grep -qF "spent today $cp_d" <<<"$cp_err" && ! cp_ran 81 && srj HEF-81 '.owner==null and .attempts==0'; } \
+  || { bad "HEF-19 FR-004: a daily-only cap equal to today's spend ($cp_d) must refuse before any claim, naming the cap and the spend (rc=$cp_rc: $cp_err)"; sr_fail=1; }
+cp_mut 's|t >= d|t > d|'; cp_go 81 "$cp_md/session-launch.sh" >/dev/null; cp_ran 81 || { bad "HEF-19 FR-004 mutation survived: >= turned into >, yet the launch at equality was still refused"; sr_fail=1; }
+# (f) FR-004 daily-only cap above today's spend → proceeds, no --max-budget-usd on the line
+cp_set '.orchestrate |= (del(.usd_cap) | .daily_usd_cap = $d + 10)' "$(cp_spent)"
+cp_go 82 >/dev/null; { cp_ran 82 && ! grep -qF -- '--max-budget-usd' "$sr_log"; } || { bad "HEF-19 FR-004: a daily-only cap above today's spend must launch, with no --max-budget-usd: $(head -c 200 "$sr_log")"; sr_fail=1; }
+# (g) FR-003 no daily cap, usd_cap 500 → proceeds (the old // 100 default would refuse: spend + 500 > 100)
+cp_set '.orchestrate |= (del(.daily_usd_cap) | .usd_cap = 500)'
+cp_go 83 >/dev/null; { cp_ran 83 && grep -qF -- '--max-budget-usd 500' "$sr_log"; } || { bad "HEF-19 FR-003: with no daily cap a usd_cap of 500 must launch with --max-budget-usd 500: $(head -c 200 "$sr_log")"; sr_fail=1; }
+cp_mut 's|daily_usd_cap // empty|daily_usd_cap // 100|'; cp_go 84 "$cp_md/session-launch.sh" >/dev/null; cp_ran 84 && { bad "HEF-19 FR-003 mutation survived: daily cap defaulted to 100 again, yet usd_cap 500 still launched"; sr_fail=1; }
+cp_mut 's|\[ -n "\$DAILY_CAP" \]|true|'; cp_go 84 "$cp_md/session-launch.sh" >/dev/null; cp_ran 84 && { bad "HEF-19 FR-003 mutation survived: the DAILY_CAP guard neutralised, yet the empty cap did not refuse"; sr_fail=1; }
+# (d) FR-002 both caps set, spend + 5 > daily → refused (the inherited guard at the FR-013 case above, mutated here)
+cp_set '.orchestrate.daily_usd_cap = $d + 1' "$(cp_spent)"
+cp_err="$(cp_go 85)"; { ! cp_ran 85 && grep -qF 'session cap 5' <<<"$cp_err"; } || { bad "HEF-19 FR-002: with both caps set, spend + usd_cap > daily_usd_cap must refuse: $cp_err"; sr_fail=1; }
+cp_mut 's|exit !(t + c > d)|exit 1|'; cp_go 85 "$cp_md/session-launch.sh" >/dev/null; cp_ran 85 || { bad "HEF-19 FR-002 mutation survived: the both-caps rule never hits, yet the launch was still refused"; sr_fail=1; }
+# (h) FR-005 the budget block (inherited, the FR-011 case above), mutated here on a 0-cost budget-capped result
+cp "$cp_cfg.bak" "$cp_cfg"
+cp_mut 's|test("budget")|test("never-a-subtype")|'; cp_go 86 "$cp_md/session-launch.sh" '{"session_id":"c86","total_cost_usd":0,"subtype":"error_max_budget_usd","is_error":true}' >/dev/null
+srj HEF-86 '(.blocked_on.kind // "") != "budget"' || { bad "HEF-19 FR-005 mutation survived: the budget subtype test removed, yet HEF-86 was still blocked on budget"; sr_fail=1; }
+mv "$cp_cfg.bak" "$cp_cfg"; rm -rf "$cp_md"
 rm -rf "$sr_t" "$sr_cfg" "$sr_bin"
-[ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output (FR-011 FR-013 SC-007)"
+[ "$sr_fail" -eq 0 ] && ok "session-launch run path (fake claude): implement→verify lifecycle to human:merge, FAIL→verdict block, failed→retry→stall with worktree reuse, daily cap, missing structured_output; caps opt-in and independent — daily-only refusal at spend ≥ cap, no daily cap no refusal, both-caps rule, budget block — 7 HEF-19 mutations caught (FR-011 FR-013 SC-007; HEF-19 FR-002 FR-003 FR-004 FR-005)"
 
 # FR-015 — session-start-context prints one `ledger:` line per BLOCKED entry of the repo's common
 # dir, nothing when there is no ledger, and still exits 0 on `{}`.
@@ -5452,6 +5726,14 @@ l3_o="$( (cd "$l3_n" && bash "$SB" --init && bash "$SB" --init && bash "$SB" --a
 { grep -qF 'created: .claude/project-status.json tasks/TODO.md' <<<"$l3_o" && grep -qF 'nothing to create' <<<"$l3_o" && grep -qx 'SHO-1' <<<"$l3_o" && grep -qx 'SHO-2' <<<"$l3_o" \
   && grep -qxF 'rfc: docs/rfcs/SHO-1.md' "$l3_n/tasks/TODO.md" && grep -qxF '## 🐞 SHO-2 — Crash on an empty cart' "$l3_n/tasks/TODO.md" && jq -e '.orchestrate.plan_review == "human"' "$l3_n/.claude/project-status.json" >/dev/null; } \
   || { bad "status-board --init must create the board once and --add the next ids (rfc line, 🐞 glyph): $l3_o"; l3_fail=1; }
+# HEF-19 FR-006 — --init writes no spend caps (opt-in), and its other orchestrate defaults are unchanged.
+# Mutation (i): the caps re-added to the init literal → a fresh repo's config carries them → red.
+l3_noc='(.orchestrate | (has("usd_cap") or has("daily_usd_cap")) | not) and .orchestrate.plan_review == "human" and .orchestrate.plan_first == true and .orchestrate.rfc_dir == "docs/rfcs"'
+jq -e "$l3_noc" "$l3_n/.claude/project-status.json" >/dev/null || { bad "HEF-19 FR-006: --init must write no usd_cap/daily_usd_cap and keep plan_review/plan_first/rfc_dir: $(jq -c .orchestrate "$l3_n/.claude/project-status.json")"; l3_fail=1; }
+l3_mut board-setup.sh 's|orchestrate: {plan_review|orchestrate: {usd_cap: 20, daily_usd_cap: 100, plan_review|'
+l3_ni="$(mktemp -d)/cap-app"; mkdir -p "$l3_ni"; git -C "$l3_ni" init -q; (cd "$l3_ni" && bash "$l3_md/status-board.sh" --init) >/dev/null 2>&1
+jq -e "$l3_noc" "$l3_ni/.claude/project-status.json" >/dev/null 2>&1 && { bad "HEF-19 FR-006 mutation survived: caps re-added to the init literal, yet --init wrote none"; l3_fail=1; }
+l3_restore board-setup.sh; rm -rf -- "${l3_ni%/cap-app}"
 (cd "$l3_n" && bash "$SB" --add "also fix SHO-1") >/dev/null 2>&1 && { bad "--add must refuse a title that names an item id"; l3_fail=1; }
 (cd "$l3_n" && bash "$SB" --add $'two\nlines') >/dev/null 2>&1 && { bad "--add must refuse a two-line title"; l3_fail=1; }
 l3_mut status-board.sh 's/^  ! grep -qE "$ID_PATTERN" <<<"$ADD_TITLE" || die/  true || die/'

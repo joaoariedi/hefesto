@@ -163,8 +163,8 @@ falha no cache somente-leitura.
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` só para trabalho sem relação.
   `context.compact_at` no `.claude/project-status.json` define quando ela avisa (40% por padrão; por sessão, ou 0
   para nunca).
-- **Gasto e rede.** Cada execução em segundo plano pode gastar até `orchestrate.usd_cap` (US$ 20 por padrão), e um
-  quadro até `daily_usd_cap` (US$ 100) por dia; o trabalho feito numa sessão interativa não tem limite. Uma execução
+- **Gasto e rede.** As execuções em segundo plano não têm limite de gasto a menos que você defina um: `orchestrate.usd_cap`
+  limita cada execução, e `daily_usd_cap` o total de um quadro no dia; o trabalho feito numa sessão interativa não tem limite. Uma execução
   em segundo plano não acessa nenhum endereço da rede que não esteja listado: para trabalho com dependências,
   acrescente `"allowed_domains": ["registry.npmjs.org"]` em `orchestrate` (só nomes públicos).
 - **Um GitHub Project como quadro.** As sessões podem tirar seus itens de um GitHub Project: cada issue do

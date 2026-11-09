@@ -299,7 +299,7 @@ pr_case_g() {
 }
 x_fail=0; pr_case_g
 [ "$x_fail" = 0 ] && ok "a plan retry keeps the open segment's cap after a config change; a person review segment passes the configured value (FR-004)"
-pr_mut "FR-004 the segment cap ignored on a retry" session-launch.sh 's/then PRR_SC="\$(prr_segment_cap "\$PRR_LOG")"; fi/then :; fi/' pr_case_g
+pr_mut "FR-004 the segment cap ignored on a retry" plan-review-lib.sh 's/|| sc="\$(prr_segment_cap "\$2")"/|| :/' pr_case_g
 
 head_ "the planner loop end to end: tasks with no block; a decision or the cap blocks with the log in the question (FR-009, FR-010)"
 pr_qf() { ls "$(sld "$1")/$2".question-*.md 2>/dev/null | head -1; }
@@ -319,7 +319,7 @@ pr_case_e2e() {
 }
 x_fail=0; pr_case_e2e
 [ "$x_fail" = 0 ] && ok "a fake planner driving the real helper: revise ×3 → approve reaches tasks; a decision and the cap block human:plan-review with the review log in the question (FR-010 a–c, FR-009)"
-pr_mut "FR-009 the question tail dropped from transcribe" session-launch.sh 's/\[ -z "\$SDA" \] || prr_question_tail/[ -z "$SDA" ] || true/' pr_case_e2e
+pr_mut "FR-009 the question tail dropped from transcribe" session-launch.sh 's/|| prr_append_question_tail "\$QF"/|| : "$QF"/' pr_case_e2e
 
 # --- (h) the question tail's skip paths and its byte budget (FR-009) --------------------------------------------------
 head_ "prr_question_tail: a note for a symlink or an outside spec dir, nothing without a log, inside 8,000 bytes (FR-009)"

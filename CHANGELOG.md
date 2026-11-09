@@ -37,19 +37,39 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
-**The planner works through plan-review rounds on its own (HEF-21).** It used to stop at the second
-`REVISE_PLAN` and ask you, even when every finding was a plan edit. Now it makes the reviewer's changes and
-reviews again until `APPROVE`, up to `orchestrate.plan_review_rounds` rounds (default 5, 1–20; anything else
-is refused before a planner starts). It stops for you only on a product or design question: a
-`NEEDS_DISCUSSION` verdict, a suggested change the reviewer tags `[DECISION]`, or a finding the planner cannot
-settle from the code. It also stops at the cap.
+### Added
 
+- **Spec-qualified requirement citations** (HEF-3; `docs/sdd.md`). Every spec has an `FR-001`, so a test citing a
+  bare id covered every spec that declares it — measured on this repository, each `req-coverage` run listed 10–33
+  ids "declared by other specs", and the collision kept several specs green. A test now cites `<spec>/FR-NNN`
+  (the spec's directory name), which covers that spec only. A qualified citation of another spec is `ELSEWHERE`
+  when that spec exists and declares the id, and `UNKNOWN` (failing) when it does not — a typo in a qualifier
+  fails instead of vanishing. An id list such as `FR-001/FR-002` still reads as two bare ids.
+- **Scoped specs, opt-in per spec.** A `spec.md` carrying `<!-- req-coverage: scoped -->` counts only its own
+  qualified citations; an `UNCOVERED` row then names up to three bare citations it ignored and the form to use
+  (`bare: <file:line> … — cite as <spec>/FR-NNN`). The `/hefesto:hef.spec` template writes the marker, so new
+  specs are scoped; `hef.tasks`, `hef.implement`, `hef.verify` and `hef.mutate` show the qualified form. The
+  matrix header states the mode (`mode: scoped` | `mode: legacy (bare ids count)`).
+- **`spec-cite-probe.sh` names the right spec**: a qualified citation is attributed to the spec it names only.
+- **The planner works through plan-review rounds on its own** (HEF-21; `docs/install.md` §8b). It used to stop at the second
+  `REVISE_PLAN` and ask you, even when every finding was a plan edit. Now it makes the reviewer's changes and
+  reviews again until `APPROVE`, up to `orchestrate.plan_review_rounds` rounds (default 5, 1–20; anything else
+  is refused before a planner starts). It stops for you only on a product or design question: a
+  `NEEDS_DISCUSSION` verdict, a suggested change the reviewer tags `[DECISION]`, or a finding the planner cannot
+  settle from the code. It also stops at the cap.
 - `speckit-helper.sh plan-review-round` records each round in `<spec dir>/plan-review.md`, an append-only
   log beside `plan.md`, and prints the next action. `/hefesto:hef.review` plan mode records every round
   through it, a person's own run included, and follows its `next:` line. Your answer or revision notes open
   a new segment, and the count restarts there.
 - A `human:plan-review` question now carries the round index, the last round's open findings and the log's
   path, within the 8,000 bytes `ledger.sh questions` shows.
+
+### Unchanged
+
+- **Unmarked specs are legacy and behave as before** — bare ids count — so shipped specs and adopters'
+  `req-coverage.yml` CI stay green on upgrade with no migration (here: 15 shipped, 0 failing, before and after).
+  Specs from `/hefesto:hef.baseline` and `/hefesto:hef.init` stay legacy until marked; `docs/sdd.md` describes the
+  move to scoped. `req-coverage` arguments, exit codes and the `--all` skip rule are unchanged.
 
 ## [9.3.0] - 2026-11-06
 
