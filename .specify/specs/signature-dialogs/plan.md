@@ -351,3 +351,6 @@ plus the person's `Bash(rm -rf:*)`, nothing else.
 2. Write `tests/smoke-signatures.sh` with the fixture reduction and its mutant (red first).
 3. Add the `--check` defect pass (Sketch 4) with its test and mutant.
 4. Completeness, grammar table, `--prepare` regression; live tier; docs.
+
+## Reviewed 2026-11-09
+Round 6 (the person-authorized extra round past the cap): fresh-context code-reviewer, APPROVE. Notes carried to tasks: `in_lanes_session` as the `handoff` arm's first statement; the SC-004 extractor anchored on `case "$SUB" in`…`esac`; a `hooks/session-launch.sh` file under any fake trusted root; the Sketch 5 fixture also emits the 9.3 allow duplicates.

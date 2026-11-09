@@ -156,4 +156,10 @@ writes every rule in four spellings per root (`$r/hooks`, `$r//hooks`, each with
   the SC-001/SC-004 nits) are applied as the reviewer wrote them; the plan is re-reviewed until APPROVE (the
   person's standing decision of 2026-11-07, cap 5 rounds).
 
+### Session 2026-11-09 (plan at the five-round cap, the person's answer)
+- Q: The plan reached the five-round review cap — what next? → A: **One more review round.** Run the
+  fresh-context plan review once more on the plan as it stands (round 5's blocking fix included); on APPROVE write
+  the Reviewed line and generate tasks.md; on REVISE_PLAN with no product or design question, apply the findings
+  and stop for the person with the log.
+
 D1–D6 otherwise were decided from the code; D1's `record --rfc` and `pr-watch` entries are named deviations.
