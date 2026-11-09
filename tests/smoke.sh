@@ -1110,6 +1110,13 @@ rm -rf "$re_t"
 # the FRs they cover — the block headers carry `(FR-NNN)` for that reason. Strictness follows
 # tasks.md: an FR whose tasks are all still `[ ]` is PENDING (reported, not failing); an FR with a
 # `[x]` task must be cited, and an UNKNOWN id always fails. Skipped on main, where no spec exists.
+# scoped-fr-citations/FR-014: an UNKNOWN row may be qualified (`ghost/FR-NNN  UNKNOWN`), so the pattern
+# takes any token ending in an id. Checked on every branch against a synthetic row; mutation-checked:
+# the pattern reverted to `^FR-[0-9]+ +UNKNOWN` → red.
+own_unknown_re='^[^ ]*FR-[0-9]+ +UNKNOWN'
+grep -qE "$own_unknown_re" <<<"$(printf '%s\n' ghost/"FR-001    UNKNOWN    ./tests/x.sh:1")" \
+  && ok "the dogfood UNKNOWN pattern catches a qualified UNKNOWN row" \
+  || bad "the dogfood UNKNOWN pattern misses a qualified UNKNOWN row"
 own_branch="$(git -C "$REPO" branch --show-current 2>/dev/null | sed 's|^feature/||')"
 own_spec="$REPO/.specify/specs/$own_branch"
 if [ -f "$own_spec/spec.md" ]; then
@@ -1124,7 +1131,7 @@ if [ -f "$own_spec/spec.md" ]; then
   done <<<"$done_frs"
   # UNKNOWN here means no spec directory declares the id — req-coverage reports an id declared by
   # a sibling spec as ELSEWHERE (the suite is shared across feature branches; ids are per spec).
-  if grep -qE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out"; then bad "the suite cites an FR no spec declares: $(grep -oE '^FR-[0-9]+ +UNKNOWN' <<<"$own_out" | tr '\n' ' ')"; own_bad=1; fi
+  if grep -qE "$own_unknown_re" <<<"$own_out"; then bad "the suite cites an FR no spec declares: $(grep -oE "$own_unknown_re" <<<"$own_out" | tr '\n' ' ')"; own_bad=1; fi
   pending="$(grep -cE '^FR-[0-9]+ +UNCOVERED' <<<"$own_out" || true)"
   [ "$own_bad" -eq 0 ] && ok "every completed requirement on this branch is cited by a check ($pending pending, not yet implemented)"
 fi
@@ -1501,6 +1508,159 @@ rm -rf "$ra_t"
 grep -qF 'req-coverage --all' "$REPO/.github/workflows/req-coverage.yml" 2>/dev/null && grep -qF 'workflow_call' "$REPO/.github/workflows/req-coverage.yml" \
   && ok "a reusable CI workflow runs req-coverage --all for adopters" || bad ".github/workflows/req-coverage.yml missing or not a workflow_call running --all"
 
+# --- req-coverage: spec-qualified citations <spec>/FR-NNN (spec scoped-fr-citations) --------------
+# FR ids repeat across specs, so a bare id covers every spec that declares it. A qualified token
+# counts for the named spec only; a spec carrying `<!-- req-coverage: scoped -->` counts nothing else.
+#
+# NEVER write a literal qualified token for a fixture spec into this file: tests/smoke.sh is itself a
+# file req-coverage scans, so such a token is a citation of a spec that does not exist → UNKNOWN on
+# this repository. `printf '%s/FR-…' "$a"` leaves the token `s/FR-…` in the source, and an unquoted
+# `$a/FR-…` leaves `a/FR-…`. Only `"$a"/FR-…` (closing quote right before the `/`) is safe. The
+# stray-qualifier check below fails the suite on every branch if one slips in.
+sq_mk() { # $1 root, $2 spec name, $3 scoped|legacy, $4.. ids — a spec with every task done (shipped)
+  local r="$1" n="$2" m="$3"; shift 3
+  mkdir -p "$r/.specify/specs/$n" "$r/tests"
+  { [ "$m" = scoped ] && echo '<!-- req-coverage: scoped -->'; for i in "$@"; do echo "- $i requirement"; done; } > "$r/.specify/specs/$n/spec.md"
+  printf -- '- [x] T001 done\n' > "$r/.specify/specs/$n/tasks.md"
+}
+sq_sec() { # $1 spec name — that spec's section of an --all run held in $sq_out
+  awk -v h="REQUIREMENT COVERAGE — $1" '$0 == h {on = 1; next} /^REQUIREMENT COVERAGE — |^req-coverage --all:|^== /{on = 0} on' <<<"$sq_out"
+}
+sq_run() { sq_out="$(cd "$sq_t" && "$HELPER" req-coverage "$@" 2>&1)"; sq_rc=$?; }
+a=alpha; b=beta; o=older; m=mine; g=ghost
+
+# scoped-fr-citations/FR-001 scoped-fr-citations/FR-002 scoped-fr-citations/FR-009 scoped-fr-citations/FR-005
+# The --all collision (SC-001): scoped alpha and beta plus legacy older all declare the same id.
+# Mutation-checked: qualifier ignored in own rows (any qualified row counts) → beta COVERED → red;
+# mode fixed to scoped for every re-entry → older UNCOVERED → red.
+sq_t="$(mktemp -d)"; sq_fail=0
+git -C "$sq_t" init -q -b main . >/dev/null 2>&1
+sq_mk "$sq_t" "$a" scoped FR-001; sq_mk "$sq_t" "$b" scoped FR-001; sq_mk "$sq_t" "$o" legacy FR-001
+printf '# %s\n# FR-001\n' "$a"/FR-001 > "$sq_t/tests/test_c.sh"
+sq_run --all
+{ [ "$sq_rc" -ne 0 ] && sq_sec "$a" | grep -qE '^FR-001 +COVERED +\./tests/test_c\.sh:1 *$' \
+  && sq_sec "$b" | grep -qE '^FR-001 +UNCOVERED' && sq_sec "$o" | grep -qE '^FR-001 +COVERED' \
+  && grep -qF '3 shipped spec(s) checked, 1 failing' <<<"$sq_out"; } \
+  || { bad "--all collision: alpha COVERED by its qualified citation, beta UNCOVERED, older COVERED by the bare one, run red (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+printf '# %s\n' "$b"/FR-001 >> "$sq_t/tests/test_c.sh"
+sq_run --all
+{ [ "$sq_rc" -eq 0 ] && sq_sec "$b" | grep -qE '^FR-001 +COVERED +\./tests/test_c\.sh:3 *$'; } \
+  || { bad "--all collision: a citation qualified for beta too must turn the run green (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+rm -rf "$sq_t"
+[ "$sq_fail" -eq 0 ] && ok "a qualified citation covers only the spec it names; --all checks each spec in its own mode"
+
+# scoped-fr-citations/FR-003 scoped-fr-citations/FR-004 scoped-fr-citations/FR-006
+# A scoped spec ignores bare citations and says where they are (at most 3) and how to cite.
+# Mutation-checked: head -3 → head -5 on the hint → red; bare rows counted in scoped mode → red;
+# the mode header line dropped → red.
+sq_t="$(mktemp -d)"; sq_fail=0
+sq_mk "$sq_t" "$a" scoped FR-002 FR-003
+printf '# FR-002\n# FR-002\n# FR-002\n# FR-002\n' > "$sq_t/tests/test_b.sh"
+sq_run "$a"
+{ [ "$sq_rc" -ne 0 ] && grep -qxF 'mode: scoped' <<<"$sq_out" \
+  && grep -qxF "FR-002   UNCOVERED  — bare: ./tests/test_b.sh:1 ./tests/test_b.sh:2 ./tests/test_b.sh:3 — cite as $a"/FR-002 <<<"$sq_out" \
+  && grep -qxF 'FR-003   UNCOVERED  —' <<<"$sq_out"; } \
+  || { bad "scoped spec: a bare-only citation must stay UNCOVERED with the 3-location bare hint, no hint without bare hits, header 'mode: scoped' (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+printf '# %s\n# %s\n' "$a"/FR-002 "$a"/FR-003 >> "$sq_t/tests/test_b.sh"
+sq_run "$a"
+{ [ "$sq_rc" -eq 0 ] && grep -qE '^FR-002 +COVERED +\./tests/test_b\.sh:5 *$' <<<"$sq_out" && ! grep -qF 'bare:' <<<"$sq_out"; } \
+  || { bad "scoped spec: a qualified citation covers it, listing only the qualified hit (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+rm -rf "$sq_t"
+[ "$sq_fail" -eq 0 ] && ok "a scoped spec counts only its qualified citations and names the bare ones it ignored"
+
+# scoped-fr-citations/FR-005 scoped-fr-citations/FR-006
+# A legacy (unmarked) spec keeps today's behaviour: bare and own-qualified cover; another spec's do not.
+# Mutation-checked: a foreign qualifier counted as own → the alpha-only case goes COVERED → red.
+sq_t="$(mktemp -d)"; sq_fail=0
+sq_mk "$sq_t" "$o" legacy FR-001; sq_mk "$sq_t" "$a" scoped FR-001
+printf '# FR-001\n' > "$sq_t/tests/test_l.sh"
+sq_run "$o"
+{ [ "$sq_rc" -eq 0 ] && grep -qxF 'mode: legacy (bare ids count)' <<<"$sq_out" && grep -qE '^FR-001 +COVERED' <<<"$sq_out" && ! grep -qF 'bare:' <<<"$sq_out"; } \
+  || { bad "legacy spec: a bare citation must cover it, header 'mode: legacy (bare ids count)', no bare hint (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+printf '# %s\n' "$o"/FR-001 > "$sq_t/tests/test_l.sh"
+sq_run "$o"
+{ [ "$sq_rc" -eq 0 ] && grep -qE '^FR-001 +COVERED' <<<"$sq_out"; } \
+  || { bad "legacy spec: its own qualified citation must cover it (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+printf '# %s\n' "$a"/FR-001 > "$sq_t/tests/test_l.sh"
+sq_run "$o"
+{ [ "$sq_rc" -ne 0 ] && grep -qE '^FR-001 +UNCOVERED' <<<"$sq_out" && grep -qE "^$a"/FR-001" +ELSEWHERE" <<<"$sq_out"; } \
+  || { bad "legacy spec: a citation qualified for another spec must not cover it (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+rm -rf "$sq_t"
+[ "$sq_fail" -eq 0 ] && ok "a legacy spec counts bare and own-qualified citations, never another spec's"
+
+# scoped-fr-citations/FR-007 scoped-fr-citations/FR-008
+# Foreign qualified citations: declared by the named spec → ELSEWHERE (non-failing); a missing spec,
+# another spec's undeclared id, or the spec's own undeclared id → UNKNOWN (fails).
+# Mutation-checked, one per UNKNOWN branch (status → ELSEWHERE, or the row skipped) → that case red.
+sq_t="$(mktemp -d)"; sq_fail=0
+sq_mk "$sq_t" "$m" scoped FR-001; sq_mk "$sq_t" "$o" legacy FR-007
+sq_case() { printf '# %s\n# %s\n' "$m"/FR-001 "$1" > "$sq_t/tests/test_u.sh"; sq_run "$m"; }
+sq_case "$o"/FR-007
+{ [ "$sq_rc" -eq 0 ] && grep -qE "^$o"/FR-007" +ELSEWHERE +\./tests/test_u\.sh:2" <<<"$sq_out" && ! grep -qF UNKNOWN <<<"$sq_out"; } \
+  || { bad "a qualified citation of an id the named spec declares must be ELSEWHERE at exit 0 (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+for sq_c in "$g"/FR-001 "$o"/FR-008 "$m"/FR-009; do
+  sq_case "$sq_c"
+  { [ "$sq_rc" -ne 0 ] && grep -qE "^$sq_c +UNKNOWN" <<<"$sq_out"; } \
+    || { bad "a qualified citation '$sq_c' (missing spec or undeclared id) must be UNKNOWN and fail (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+done
+sq_case FR-007
+{ [ "$sq_rc" -eq 0 ] && grep -qE '^FR-007 +ELSEWHERE' <<<"$sq_out"; } \
+  || { bad "a bare id another spec declares must stay ELSEWHERE (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"; sq_fail=1; }
+rm -rf "$sq_t"
+[ "$sq_fail" -eq 0 ] && ok "qualified citations of other specs are ELSEWHERE when declared, UNKNOWN (failing) when not"
+
+# scoped-fr-citations/FR-001 — an id list is two bare citations, never a qualifier.
+# Mutation-checked: the id-list rule dropped in rc_citations → the list reads as qualifier FR-001 → UNKNOWN → red.
+sq_t="$(mktemp -d)"
+sq_mk "$sq_t" "$o" legacy FR-001 FR-002
+printf '# FR-001/FR-002\n' > "$sq_t/tests/test_i.sh"
+sq_run "$o"
+{ [ "$sq_rc" -eq 0 ] && grep -qE '^FR-001 +COVERED' <<<"$sq_out" && grep -qE '^FR-002 +COVERED' <<<"$sq_out" && ! grep -qF UNKNOWN <<<"$sq_out"; } \
+  && ok "an id list FR-a/FR-b reads as two bare citations, not a qualifier" \
+  || bad "an id list must be two bare citations with no UNKNOWN row (rc=$sq_rc): $(tr '\n' '|' <<<"$sq_out")"
+rm -rf "$sq_t"
+
+# scoped-fr-citations/FR-014 scoped-fr-citations/FR-010
+# Branch-independent stray-qualifier check: no file req-coverage scans in THIS repository may cite a
+# qualified token that resolves to UNKNOWN (no such spec directory, or an id it does not declare).
+# Run through req-coverage itself so the scanned set has one definition. The planted fixture is the
+# check's own control: it must go red there, or the check proves nothing.
+# Mutation-checked: a printf-format qualified line (`%s` then `/FR-` and digits) planted in a scanned
+# file of this repo → red (it was: this very comment held one on the first run, and the check caught it).
+# `; true`: under pipefail the helper's own non-zero verdict would otherwise mask grep's match
+sq_stray() { (cd "$1" && "$HELPER" req-coverage "$2" 2>/dev/null; true) | grep -E '^[A-Za-z0-9][A-Za-z0-9._-]*/FR-[0-9]+ +UNKNOWN'; }
+sq_t="$(mktemp -d)"
+sq_mk "$sq_t" "$o" legacy FR-001
+printf '# FR-001\nprintf "# %%s%s"\n' /FR-001 > "$sq_t/tests/test_s.sh"   # the file gets the trap token; this source does not
+if [ ! -f "$REPO/.specify/specs/scoped-fr-citations/spec.md" ]; then
+  bad "stray-qualifier check: .specify/specs/scoped-fr-citations/spec.md is missing — the check has nothing to run against"
+elif ! sq_stray "$sq_t" "$o" >/dev/null; then
+  bad "stray-qualifier check: a planted printf-format token did not go red in the control fixture"
+elif sq_s="$(sq_stray "$REPO" scoped-fr-citations)"; then
+  bad "a scanned file cites a qualified token no spec resolves (write \"\$a\"/FR-… in fixtures): $(tr '\n' '|' <<<"$sq_s")"
+else
+  ok "no scanned file in this repository cites a qualifier with no spec directory"
+fi
+rm -rf "$sq_t"
+
+# scoped-fr-citations/FR-012 — new specs are scoped by default and the commands teach the qualified form.
+# Mutation-checked: the marker dropped from the hef.spec template → red.
+sq_fail=0
+grep -qE '^ *<!-- req-coverage: scoped -->$' "$REPO/commands/hef.spec.md" 2>/dev/null \
+  || { bad "commands/hef.spec.md: the spec template does not write <!-- req-coverage: scoped -->"; sq_fail=1; }
+for sq_c in hef.tasks hef.implement hef.verify hef.mutate; do
+  grep -qF '<spec>/FR-NNN' "$REPO/commands/$sq_c.md" 2>/dev/null || { bad "commands/$sq_c.md does not show the citation form <spec>/FR-NNN"; sq_fail=1; }
+done
+[ "$sq_fail" -eq 0 ] && ok "the spec template writes the scoped marker and four commands show <spec>/FR-NNN"
+# scoped-fr-citations/FR-011 — docs/sdd.md documents the form, the marker, legacy mode and the move.
+# Mutation-checked: the legacy→scoped paragraph removed from docs/sdd.md → red.
+sq_fail=0
+for sq_c in '<spec>/FR-NNN' '<!-- req-coverage: scoped -->' 'mode: legacy (bare ids count)' 'ELSEWHERE' 'UNKNOWN' 'legacy spec to scoped' 'non-digit placeholder'; do
+  grep -qF -- "$sq_c" "$REPO/docs/sdd.md" 2>/dev/null || { bad "docs/sdd.md does not document '$sq_c' (qualified citations)"; sq_fail=1; }
+done
+[ "$sq_fail" -eq 0 ] && ok "docs/sdd.md documents qualified citations, the scoped marker, legacy mode and the move to scoped"
+unset a b o m g
+
 # --- spec-cite-probe: the reverse direction, at the edit -----------------------------------
 # A test citing FR-NNN edited OUTSIDE an implement phase → name the spec (stderr, exit 0).
 # Silent: during implement (marker set), for non-test files, for tests citing nothing, and for
@@ -1532,6 +1692,23 @@ rm -f "$sc_t/.specify/.implement-in-progress"
 printf '{}' | bash "$SCP" >/dev/null 2>&1 || { bad "spec-cite-probe crashes on empty input"; sc_fail=1; }
 rm -rf "$sc_t" "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
 [ "$sc_fail" -eq 0 ] && ok "spec-cite-probe names the citing spec outside implement and stays silent otherwise"
+# scoped-fr-citations/FR-013 — a qualified citation names its spec only; a bare one names every declarer.
+# Fixture tokens follow the `"$x"/FR-…` rule above. Mutation-checked: the probe ignores the
+# qualifier (matches the id alone) → spec 'beta' named for the qualified citation → red.
+sc_t="$(mktemp -d)"; sc_fail=0; sc_a=alpha; sc_b=beta
+git -C "$sc_t" init -q . >/dev/null 2>&1
+sq_mk "$sc_t" "$sc_a" scoped FR-001; sq_mk "$sc_t" "$sc_b" scoped FR-001
+printf '# %s\n' "$sc_a"/FR-001 > "$sc_t/tests/test_q.py"
+printf '# FR-001\n' > "$sc_t/tests/test_r.py"
+rm -f "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
+sc_out="$(sc_ev tests/test_q.py | bash "$SCP" 2>&1 >/dev/null)"
+{ grep -qF "spec '$sc_a'" <<<"$sc_out" && ! grep -qF "spec '$sc_b'" <<<"$sc_out"; } \
+  || { bad "spec-cite-probe must name only spec '$sc_a' for a citation qualified for it: $sc_out"; sc_fail=1; }
+sc_out="$(sc_ev tests/test_r.py | bash "$SCP" 2>&1 >/dev/null)"
+{ grep -qF "spec '$sc_a'" <<<"$sc_out" && grep -qF "spec '$sc_b'" <<<"$sc_out"; } \
+  || { bad "spec-cite-probe must keep naming every spec declaring a bare id: $sc_out"; sc_fail=1; }
+rm -rf "$sc_t" "${TMPDIR:-/tmp}"/.hefesto-spec-cite-*
+[ "$sc_fail" -eq 0 ] && ok "spec-cite-probe attributes a qualified citation to the named spec only"
 jq -e '.hooks.PostToolUse[] | select(.matcher=="Edit|Write") | .hooks[] | select(.command|test("spec-cite-probe"))' "$REPO/hooks/hooks.json" >/dev/null 2>&1 \
   && ok "spec-cite-probe is registered on PostToolUse Edit|Write" || bad "spec-cite-probe.sh is not registered in hooks.json"
 
