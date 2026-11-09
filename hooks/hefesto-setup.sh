@@ -157,7 +157,8 @@ sign_asks() { # $1 hooks folder → one rule per line
 }
 ask_defects() { # $1 a settings file → each of its ask rules on a hefesto helper that is not a signature, one per line
   jq -r --argjson w "$(printf '%s\n' "${LEDGER_SIGN_WHOLE[@]}" | jq -R . | jq -sc .)" --argjson fl "$(printf '%s\n' "${LEDGER_SIGN_FLAG[@]}" | jq -R . | jq -sc .)" '
-    def signature: (sub("^Bash\\((bash )?.*/hooks/"; "") | rtrimstr(")") | capture("^(?<hp>[a-z-]+[.]sh)(?<rest>.*)$")) as $c
+    # the strip stops at the first word (the helper path): an argument that holds another /hooks/ path must not swallow it
+    def signature: (sub("^Bash\\((bash )?[^ ]*/hooks/"; "") | rtrimstr(")") | capture("^(?<hp>[a-z-]+[.]sh)(?<rest>.*)$")) as $c
       | ($c.rest | sub(":\\*$"; "") | split(" ") | map(select(. != ""))) as $a
       | if $c.hp == "pr-watch.sh" then ($a[0] == "reply" or $a[0] == "comment")
         elif $c.hp == "ledger.sh" then (if $a[0] == "op" then "op \($a[1] // "")" else ($a[0] // "") end) as $s

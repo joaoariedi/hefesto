@@ -334,6 +334,7 @@ sg_defect() { # $1 the settings file to inject into, $2 the rule → --check's o
 printf '{}\n' > "$sg_cfg2/settings.json"
 sg_defect "$SG_F2" "Bash($REPO//hooks/ledger.sh claim:*)" && sg_defect "$sg_cfg2/settings.json" "Bash($REPO//hooks/ledger.sh claim:*)" \
   && sg_defect "$SG_F2" "Bash(bash /old/clone/hooks/ledger.sh advance:*)" \
+  && sg_defect "$SG_F2" "Bash($REPO//hooks/ledger.sh record HEF-1 --worktree /w/hooks/x:*)" \
   && ok "SC-002 (FR-005): a mechanics ask (claim:*) in settings.local.json or the profile's settings.json, or under an old clone, makes --check exit 1 naming the rule and its file" \
   || { bad "SC-002 (FR-005): --check must exit 1 naming a mechanics ask rule and its file"; sg_fail=1; }
 jq --arg r "Bash($REPO//hooks/ledger.sh approve)" '.permissions.ask += [$r]' "$sg_base/kind.json" > "$SG_F2"
