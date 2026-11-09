@@ -1,8 +1,11 @@
 # Quick start
 
-Install hefesto, then pick one of two ways to work: a **single lane** or **four lanes**. Every decision —
-approving a plan, answering a question, asking for changes — is a form in one session, the orchestrator;
-nothing is copied between sessions. Linux and macOS. The long form is [`install.md`](install.md).
+This page takes you from an installed hefesto to work shipping: prepare a project, then pick one of two ways to work —
+a **single lane** or **four or more lanes**. Every decision — approving a plan, answering a question, asking for
+changes — is a form in one session, the orchestrator; nothing is copied between sessions. Linux, macOS and Windows
+(WSL) — install from your OS's page: [Linux](install-linux.md) · [macOS](install-macos.md) ·
+[Windows (WSL)](install-windows.md). The install and configuration reference is [`install.md`](install.md); to have
+Claude walk you through it instead, [`SETUP.md`](../SETUP.md).
 
 *Em português: [`quickstart.pt-BR.md`](quickstart.pt-BR.md).*
 
@@ -12,34 +15,12 @@ nothing is copied between sessions. Linux and macOS. The long form is [`install.
 
 ## 1. Before you start
 
-hefesto runs inside [Claude Code](https://code.claude.com/docs/en/setup) (the `claude` command). It also needs
-`git` and `jq`, and `gh` for pull requests and GitHub boards. The lanes run inside Claude Code's sandbox, which on
-Linux needs `bubblewrap` and `socat`; macOS has its sandbox built in.
-
-| | Install the tools |
-|---|---|
-| **macOS** | `xcode-select --install` (git), then `brew install jq gh` |
-| **Ubuntu / Debian** | `sudo apt install git jq bubblewrap socat`, and gh from [cli.github.com](https://cli.github.com) |
-| **Fedora** | `sudo dnf install git jq bubblewrap socat gh` |
-| **Arch** | `sudo pacman -S git jq bubblewrap socat github-cli` |
-
-Then sign gh in once: `gh auth login`. On macOS everything runs with the shipped `/bin/bash` 3.2 and BSD tools; no
-Homebrew bash is needed.
+Install hefesto first: [Linux](install-linux.md) · [macOS](install-macos.md) · [Windows (WSL)](install-windows.md).
+Each page lists the tools, the one install command, and the check.
 
 ## 2. Install or upgrade hefesto
 
-The same command installs hefesto and upgrades it. Close every Claude Code window, then in a normal terminal:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh)
-```
-
-It shows what it found and the steps it recommends, and asks about each one; press Enter to accept. It never runs
-`sudo`, and it copies any file it replaces to `~/hefesto-old/` first. It ends with
-`All good: every profile runs hefesto <version>.` Options: `--lang pt` (Portuguese), `--version v9.3.0` (one
-release), `--dry-run` (show the plan, change nothing), `--help`.
-
-Check it in Claude Code with `/hefesto:hef.doctor`.
+The `install.sh` command on your OS page installs hefesto and also upgrades it.
 
 **After an upgrade**, in every project you set up for hefesto, run the setup again from its main folder and restart
 its Claude Code sessions:
@@ -51,12 +32,12 @@ bash ~/.claude-framework/hooks/hefesto-setup.sh            # add --lanes in a fo
 A four-lane session's first lines say when this is due; in a single lane `/hefesto:hef.orchestrate` stops and names
 the command. What changed between releases: [Upgrade notes](#upgrade-notes) below.
 
-## 3. Single lane or four lanes?
+## 3. Single lane or four or more lanes?
 
-|  | **Single lane** | **Four lanes** |
+|  | **Single lane** | **Four or more lanes** |
 |---|---|---|
 | For | experiments, small projects, one feature at a time | a steady stream of RFCs and fixes |
-| Sessions you keep open | one: the orchestrator | the orchestrator + a planner, a builder, a deployer |
+| Sessions you keep open | one: the orchestrator | the orchestrator + a planner, a builder, a deployer — and more builders with `orchestrate.max_builders` |
 | What runs the stages | background sessions the orchestrator starts | the three stage lanes, rung by the orchestrator |
 | Setup | `hefesto-setup.sh` | `hefesto-setup.sh --lanes` |
 

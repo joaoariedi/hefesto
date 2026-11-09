@@ -48,7 +48,7 @@ See `.claude/rules/context-management.md` (the 40 % "Dumb Zone" default — per 
 prompt shaped to what it **owns**. The shared truth (the board, the ledger, the PRs, the spec files)
 is already on disk, so a pane keeps **pointers** — ids, paths, PR numbers, block kinds — never the
 payload. Between items a pane runs its own prompt below: the stage's work happened in fresh sessions
-(README §5), so what is left in the pane is the pointers worth carrying to the next item. With
+([install §7, Pane layouts](install.md#pane-layouts)), so what is left in the pane is the pointers worth carrying to the next item. With
 `orchestrate.lane_mode: "interactive"` the stage runs in the lane's own conversation instead; the lane
 still keeps pointers, and its progress note for the next start goes on disk with `ledger.sh note <id> --file <f>`.
 

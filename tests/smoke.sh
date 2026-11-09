@@ -6339,19 +6339,62 @@ l3_oc="$REPO/commands/hef.orchestrate.md"; l3_sh="$REPO/commands/hef.ship.md"
   && grep -qF 'ledger.sh answer <id> --reviewed-by-human --by "<name>" --file <f>' "$l3_oc" && grep -qF 'recorded-begin' "$l3_oc" && ! grep -qF '/loop 15m' "$l3_oc" \
   && grep -qF 'status-board.sh --detect' "$l3_oc" && grep -qF 'at least two options' "$l3_oc"; } \
   || { bad "/hefesto:hef.orchestrate must carry the doorbell-is-data rule, the one-lane match, the idle stop, the answer command by --file and its printed-back text (#160), and no /loop"; l3_fail=1; }
+# FR-015 the per-OS tool commands live on the per-OS pages; each quick start links all three of them
+qs_links() { # <quickstart file> → 0 when it links all three per-OS pages; prints the first missing one
+  local p; for p in install-linux install-macos install-windows; do grep -qF "($p.md)" "$1" || { echo "must link $p.md"; return 1; }; done
+}
 for qs in "$REPO/docs/quickstart.md" "$REPO/docs/quickstart.pt-BR.md"; do
-  for sec in 5 6; do   # 9.3 guide: 1 tools, 2 install/upgrade, 3 the choice, 4 the project, 5 single lane, 6 four lanes
+  for sec in 5 6; do   # 9.3 guide: 1 before you start, 2 install/upgrade, 3 the choice, 4 the project, 5 single lane, 6 four lanes
     n="$(awk -v s="^## $sec[.]" '$0 ~ s {f=1; next} /^## / {f=0} f && /^[0-9]+\. /' "$qs" | wc -l | tr -d ' ')"
     { [ "$n" -ge 3 ] && [ "$n" -le 5 ]; } || { bad "$(basename "$qs") track $sec must have 3–5 steps (has $n)"; l3_fail=1; }
   done
   { grep -qF 'hefesto-setup.sh' "$qs" && grep -qF 'claude --name' "$qs" && grep -qF '/hefesto:hef.ship' "$qs" && ! grep -qF 'ledger.sh unblock' "$qs" && ! grep -qF 'lane-launch' "$qs"; } \
     || { bad "$(basename "$qs") must use hefesto-setup.sh, claude --name and /hefesto:hef.ship, with no ledger.sh unblock for the person to type and no lane-launch"; l3_fail=1; }
-  # the quick-step guide (9.3): the tools per OS, install = upgrade, then setup again, a project you have or a new one
-  { grep -qF 'bubblewrap' "$qs" && grep -qF 'brew install' "$qs" && grep -qF 'install.sh' "$qs" && grep -qF '/hefesto:hef.init' "$qs" \
+  # the quick-step guide (9.3): install = upgrade, then setup again, a project you have or a new one; the tools per OS
+  # moved to the per-OS pages (HEF-18), which the front-door guard below checks
+  { grep -qF 'install.sh' "$qs" && grep -qF '/hefesto:hef.init' "$qs" \
     && grep -qF 'gh repo create' "$qs" && grep -qF 'hefesto-setup.sh --lanes' "$qs" && [ "$(grep -c '^## [1-6]\. ' "$qs")" = 6 ]; } \
-    || { bad "$(basename "$qs") must keep the guide's six steps: tools per OS (bubblewrap, brew), install/upgrade, an existing or a new project (/hefesto:hef.init, gh repo create), single lane, four lanes"; l3_fail=1; }
+    || { bad "$(basename "$qs") must keep the guide's six steps: before you start, install/upgrade (install.sh), an existing or a new project (/hefesto:hef.init, gh repo create), single lane, four lanes"; l3_fail=1; }
+  qs_msg="$(qs_links "$qs")" || { bad "$(basename "$qs") $qs_msg"; l3_fail=1; }   # FR-015
 done
 [ "$l3_fail" -eq 0 ] && ok "lanes v3: setup (keys, both ask spellings, autoAllowBashIfSandboxed false, trusted top, own entries kept, stale rules and exclusions dropped, temp roots skipped, idempotent, --remove, symlink, bad JSON, --check), lanes by name (gauge, session start, orchestrator mode warning), --init/--add, plan_first incident, questions/answer/revise (person-only, kinds, phases, tamper, notes force approval), workers cannot ring, lane-mode launcher (trusted folder, derived worktree, git pointer, protected branch), worker GIT_CONFIG restored, the review's probes (gauge ownership, own keys kept, grants in user settings, ledger ids, 🐞 never planned, worktree launch refused, grants of / and inside the root, --keep-statusline), stale leases released by claim only, allowed_domains (no IP, no localhost), --detect, a stopped launcher stops its worker, claims released by lease age only; 30 mutations caught"
+
+# FR-016 / FR-015 / SC-003 the front door (HEF-18): a short README that links the contributing guide and the
+# three per-OS pages, which carry the tool commands. A function of a root, so the same check runs on the tree
+# and on mutated copies (constitution 3) — each mutation must turn it red.
+fd_fail=0
+fd_check() { # <root> → 0 when the front door holds; prints the first reason it does not
+  local r="$1" n l
+  n="$(wc -l < "$r/README.md" | tr -d ' ')"; [ "${n:-999}" -lt 150 ] || { echo "README.md is ${n:-?} lines (must be under 150)"; return 1; }
+  for l in docs/contributing.md docs/install-linux.md docs/install-macos.md docs/install-windows.md; do
+    grep -qF "($l)" "$r/README.md" || { echo "README.md does not link $l"; return 1; }
+  done
+  grep -qF 'bubblewrap' "$r/docs/install-linux.md" 2>/dev/null || { echo "docs/install-linux.md must name bubblewrap"; return 1; }
+  grep -qF 'brew install' "$r/docs/install-macos.md" 2>/dev/null || { echo "docs/install-macos.md must name brew install"; return 1; }
+  { grep -qF 'WSL' "$r/docs/install-windows.md" && grep -qF '(install-linux.md)' "$r/docs/install-windows.md"; } 2>/dev/null \
+    || { echo "docs/install-windows.md must require WSL and hand over to install-linux.md"; return 1; }
+}
+fd_msg="$(fd_check "$REPO")" || { bad "front door: $fd_msg"; fd_fail=1; }
+fd_t="$(mktemp -d)"
+fd_copy() { rm -rf "$fd_t/r"; mkdir -p "$fd_t/r/docs"; cp "$REPO/README.md" "$fd_t/r/"; cp "$REPO"/docs/install-*.md "$REPO/docs/contributing.md" "$fd_t/r/docs/" 2>/dev/null; }
+fd_mut() { # <label> <file under the copy> <sed expression> → the copy's file mutated; red when the mutation did not apply
+  sed -i.bak "$3" "$fd_t/r/$2" 2>/dev/null; cmp -s "$fd_t/r/$2" "$fd_t/r/$2.bak" && { bad "front-door mutation did not apply: $1"; fd_fail=1; }
+  rm -f "$fd_t/r/$2.bak"
+}
+fd_dies() { fd_check "$fd_t/r" >/dev/null && { bad "mutation survived: $1"; fd_fail=1; }; }
+# the pad is a counted loop, not `yes | head` — a SIGPIPE'd producer is the pattern constitution 3 names
+fd_copy; fd_i=0; while [ "$fd_i" -lt 150 ]; do echo x; fd_i=$((fd_i + 1)); done >> "$fd_t/r/README.md"; fd_dies "a 150-line pad"
+fd_copy; fd_mut "contributing link" README.md 's|(docs/contributing.md)||g'; fd_dies "the contributing link dropped"
+fd_copy; fd_mut "Linux link" README.md 's|(docs/install-linux.md)||g'; fd_dies "the README's Linux link dropped"
+fd_copy; fd_mut "WSL" docs/install-windows.md 's/WSL/W-S-L/g'; fd_dies "WSL removed from the Windows page"
+fd_copy; fd_mut "Windows hand-over" docs/install-windows.md 's|(install-linux.md)||g'; fd_dies "the Windows page's hand-over to Linux dropped"
+fd_copy; fd_mut "bubblewrap" docs/install-linux.md 's/bubblewrap/bwrap-pkg/g'; fd_dies "bubblewrap removed from the Linux page"
+fd_copy; fd_mut "brew install" docs/install-macos.md 's/brew install/brew add/g'; fd_dies "brew install removed from the macOS page"
+cp "$REPO/docs/quickstart.md" "$fd_t/qs.md"; sed -i.bak 's|(install-windows.md)||g' "$fd_t/qs.md"
+cmp -s "$fd_t/qs.md" "$fd_t/qs.md.bak" && { bad "front-door mutation did not apply: quick start's Windows link"; fd_fail=1; }
+qs_links "$fd_t/qs.md" >/dev/null && { bad "mutation survived: the quick start's Windows link dropped"; fd_fail=1; }
+rm -rf -- "${fd_t:?}"
+[ "$fd_fail" -eq 0 ] && ok "front door: README under 150 lines, links docs/contributing.md and the three per-OS pages; bubblewrap on the Linux page, brew install on the macOS page, WSL and the Linux hand-over on the Windows page; 8 mutations caught"
 
 # --- Tier 1: macOS portability (field report 2026-10-15: /hefesto:hef.status and /hefesto:hef.babysit broke on a Mac) -----
 head_ "macOS portability"
