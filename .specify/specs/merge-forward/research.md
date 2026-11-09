@@ -33,8 +33,8 @@
 - `hooks/session-launch.sh:630-633` — a retry reuses `$TOP/.claude/worktrees/$ID`: the worker lands on the PR branch.
 - `hooks/ledger.sh:572` — inside a worker, `block` cannot replace a `human:*` block with another kind.
 - `hooks/ledger.sh:646` — `run` refuses inside a launched worker: the precedent for `forward` refusing under `HEFESTO_WORKER`.
-- `hooks/lane-lib.sh:54` — person-only verbs; `forward` is NOT one (mechanical routing).
-- `hooks/hefesto-setup.sh:135` — `block`, `advance`, `unblock` are lane ask rules; `forward` goes in the allow list (HEF-27 measured ask friction; the move is guarded by phase + cap + re-verification).
+- `hooks/lane-lib.sh:54` — person-only verbs; plain `forward` is NOT one (mechanical routing), but `forward … --past-cap` IS (spec D6, FR-005): the way past the cap is a person's.
+- `hooks/hefesto-setup.sh:135` — `block`, `advance`, `unblock` are lane ask rules; `forward` joins them as an **ask** rule (spec D3, FR-018 — consistent with `block --kind conflict`, which the interactive babysit already asks for); the headless launcher and the merge action call it from inside helpers, so no dialog there. Superseded: an earlier draft put it in the allow list.
 
 ## Existing Patterns & Conventions
 - Helpers die loudly with the value seen and the shape expected (`ledger-lifecycle.sh:139`, constitution 5).
@@ -47,4 +47,4 @@
 - `mergeStateStatus: BEHIND` is reported only under a branch-protection rule requiring up-to-date branches; without it a behind PR is `CLEAN`. So no protection-API call is needed (spec D1).
 
 ## Open Questions
-_None._ Every spec decision (D1–D10) was decidable from the code above.
+_None._ Every spec decision (D1–D15) was decidable from the code above.

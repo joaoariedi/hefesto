@@ -40,8 +40,16 @@ question carrying both hunks — never a guess.
   routing, called by the babysitter's launcher, the babysit command and the merge action. It accepts phase `pr`
   only and moves the entry to `implement`, unowned, unblocked, attempts reset, writing the brief beside the entry.
   **Git decides, not the caller** (the `deployed` precedent, `ledger-lifecycle.sh:168`): `forward` re-reads
-  `pr-watch.sh state` and refuses unless the live verdict equals `--verdict`, so no caller can pull a CLEAN PR
-  off a person's `human:merge` gate. In lanes it is an **ask rule**, like `block` (`hefesto-setup.sh:135`): the
+  `pr-watch.sh state` and refuses unless the live verdict is `conflict` or `behind` (the live one is recorded,
+  whatever `--verdict` said — a DIRTY↔BEHIND flip between two reads is not a refusal), so no caller can pull a
+  CLEAN PR off a person's `human:merge` gate. **A worktree is required:** the implement launch works in
+  `<repo top>/.claude/worktrees/<id>` (`session-launch.sh:258`), so an entry whose directory there is missing or
+  is not on the PR's head branch (`headRefName`) cannot be merged forward (the launch would otherwise make a
+  fresh branch with `claude -w`), and
+  `forward` writes a `conflict` block naming the reason instead — phase stays `pr`, exit 0, like the cap (D6) —
+  and the deploy route never loops on it. The reason is readable: `ledger.sh questions` serves a `conflict`
+  block that carries a `question_path`. `forward` also marks the entry's existing `.answers[]` consumed (an answer
+  to an earlier question never steers a merge-forward). In lanes it is an **ask rule**, like `block` (`hefesto-setup.sh:135`): the
   interactive babysit already raises a dialog for `block --kind conflict`; the headless launcher and the merge
   action call it from inside helpers (no tool call, no dialog), which is where the friction HEF-27 measured is.
 - **D4 — the brief is generated, not authored.** A fixed template filled with the PR number, URL, head SHA, base
@@ -65,6 +73,21 @@ question carrying both hunks — never a guess.
   reaches `human:merge` again only after the verifier passes the new head), and `conflict`. Every other block
   (`human:intake`, `human:plan-approval`, `human:clarify`, `human:plan-review`, `ci`, `stall`, `budget`,
   `verdict`) refuses: those are a person's or another gate's to clear (the invariant at `ledger.sh:560-571`).
+- **D13 — the deploy route is idempotent.** In a lane, `/hefesto:hef.babysit` step 4 runs `ledger.sh forward`
+  itself, and then `session-launch.sh deploy --finish` would transcribe the same verdict. `--finish` therefore
+  accepts an entry already in `implement` with an unconsumed forward record for its current `pr.url` without the
+  lane's claim (the forward released it) when that record is dated at or after the lane's `--prepare` record —
+  then neither records a run (a builder may already hold the entry; the forward event is the record) nor
+  transcribes, cleans its prepare/prompt files and prints the finished line as usual.
+- **D14 — a routing caller survives a refusal.** `forward` refuses loudly, but the three routing callers (deploy
+  transcription, `merge_state_step`, `action stop --block conflict`) run it so that a refusal (typically the live
+  verdict flipped to `pending`/`mergeable` while GitHub recomputes) cannot abort their own verb: the refusal is
+  said on stderr — and, on the merge paths, in the message the verb already writes (`merge_state_step`'s stop
+  message; `action stop`'s `merge_stop_event` text) — the entry stays where it is, and the verb finishes.
+- **D15 — the launcher, not the worker, owns a merge-forward's ledger effects.** On a merge-forward run the
+  reported `route` is ignored (the entry's route stands, so the verifier's chain is unchanged), and an outcome
+  `pr` whose `pr_url` differs from the open forward record's is transcribed as `failed` (stall cap applies; the
+  stray URL is not recorded, the brief stays open).
 - **D7 — the two-sided question travels in a new `question` field** (≤ 8000 chars) of the implement worker's
   structured output; the launcher writes it beside the entry and passes it as `block --question`. The 2000-char
   summary is too small for two hunks.
@@ -86,8 +109,11 @@ question carrying both hunks — never a guess.
   merge-forward brief recorded, and `ledger.sh next --stage build` returns it — no form is shown.
 - **Edge:** the same PR was already forwarded 3 times → the entry is blocked `conflict` instead and appears in the
   orchestrator's form.
-- **Error:** `forward` on an entry not in phase `pr`, with no PR URL, whose live verdict is not the `--verdict`
-  given, blocked on a kind D12 does not allow, or with a merge action `approved`/`taken` for it, exits non-zero
+- **Edge:** the entry has no worktree → blocked `conflict` with that reason (phase stays `pr`), shown in the form.
+- **Edge:** in a lane, the babysit already forwarded the entry → `deploy --finish` skips the transcription's
+  forward and finishes cleanly (D13).
+- **Error:** `forward` on an entry not in phase `pr`, with no PR URL, whose live verdict is neither `conflict` nor
+  `behind`, blocked on a kind D12 does not allow, or with a merge action `approved`/`taken` for it, exits non-zero
   with what it saw and changes nothing (constitution 5).
 - **Must NOT:** block the entry `conflict` on a first conflict; leave it in `pr`; call `ledger.sh directive`;
   move a CLEAN PR off `human:merge`.
@@ -150,24 +176,26 @@ question carrying both hunks — never a guess.
 | ID | Requirement | Priority | Scenario |
 |----|-------------|----------|----------|
 | FR-001 | `pr-watch.sh state` returns verdict `behind` for an open, non-draft PR with `mergeStateStatus: BEHIND` and passing or absent checks; `conflict` for `DIRTY` is unchanged; `mergeable` covers only `CLEAN` and `HAS_HOOKS`. | P1 | US1 |
-| FR-002 | `ledger.sh forward <id> --verdict conflict\|behind` accepts an entry in phase `pr` with a PR URL, and sets `phase = implement`, `owner = null`, `attempts = 0`, `blocked_on = null`, appends `.forwards[] = {n, pr_url, head_sha, base, verdict, sha256, at}` and an event `forward`; it prints one line naming the move. | P1 | US1 |
-| FR-003 | `forward` refuses (non-zero exit, message with what it saw, entry byte-identical) when: the entry is not in phase `pr`, has no PR URL, or is terminal; `--verdict` is not `conflict`/`behind`; the live `pr-watch.sh state` verdict differs from `--verdict` (or the read fails); `blocked_on` is a kind other than none, `human:merge`, `conflict` (D12); a merge action for the entry is `approved` or `taken`; or it runs inside a launched worker (`HEFESTO_WORKER`). | P1 | US1 |
+| FR-002 | `ledger.sh forward <id> --verdict conflict\|behind` accepts an entry in phase `pr` with a PR URL and an existing worktree, and sets `phase = implement`, `owner = null`, `attempts = 0`, `blocked_on = null`, marks existing `.answers[]` consumed, appends `.forwards[] = {n, pr_url, head_sha, head_branch, base, verdict, sha256, at}` (`verdict` = the live verdict) and an event `forward`; it prints one line naming the move. | P1 | US1 |
+| FR-003 | `forward` refuses (non-zero exit, message with what it saw, entry byte-identical) when: the entry is not in phase `pr`, has no PR URL, or is terminal; `--verdict` is not `conflict`/`behind`; the live `pr-watch.sh state` verdict is neither `conflict` nor `behind` (or the read fails); `blocked_on` is a kind other than none, `human:merge`, `conflict` (D12); a merge action for the entry is `approved` or `taken`; the entry is held by a live headless run (`.owner.pid` set — a lane's interactive claim has no pid and is allowed); or it runs inside a launched worker (`HEFESTO_WORKER`). | P1 | US1 |
 | FR-004 | The brief is generated by `forward` from a fixed template with the PR number, URL, head SHA, base branch and verdict, written to `<ledger dir>/<id>.forward-<n>.md` (never through a link), its sha256 stored in the `.forwards[]` record. | P1 | US1 |
+| FR-005a | When `<repo top>/.claude/worktrees/<id>` is not a directory or its branch is not the PR's `headRefName`, `forward` (after the FR-003 refusals) blocks the entry `conflict` with the reason in a question file beside the entry (`question_path`; `questions_item` in `hooks/ledger-lanes.sh` admits a `conflict` block that has one), phase stays `pr`, exit 0 — never moves it. The implement launch's merge-forward prompt (`forward_prompt`) re-checks before the claim: a worktree gone since the forward → block `human:clarify` with a question naming the missing path (the person restores it, or drops the item), nothing launched. | P1 | US1 |
 | FR-005 | When an entry already has 3 `.forwards[]` records for its current PR URL, `forward` blocks the entry `conflict` instead (phase stays `pr`) and says so; a forward on a new PR URL counts from zero. `--past-cap --by <name>` skips the count (all FR-003 refusals still apply) and records `by` in the forward record and event; it is a person-only form (`is_person_sub` in `hooks/lane-lib.sh`, so lane-guard and `ledger.sh` admit it from the orchestrator lane only). | P1 | US1, US5 |
-| FR-006 | The headless deploy run (`session-launch.sh deploy`) routes verdict `conflict` and `behind` to `ledger.sh forward`; the babysit schema's verdict enum includes `behind`. | P1 | US1 |
-| FR-007 | The lane merge's state step (`merge_state_step`) and `action stop --block conflict` route `conflict`/`behind` to the `forward` move (the action still stops), instead of `merge_block_conflict` leaving the entry in `pr`. | P1 | US1 |
+| FR-006 | The headless deploy run (`session-launch.sh deploy`) routes verdict `conflict` and `behind` to `ledger.sh forward`; the babysit schema's verdict enum includes `behind`. `deploy --finish` accepts an entry already in `implement` with an unconsumed forward record for its `pr.url` without the lane's claim when the record's `at` ≥ the prepare record's `at`, and then records no run and does not transcribe (D13). A `forward` refusal does not fail the run or `--finish`: it is said on stderr and the entry stays (D14). | P1 | US1 |
+| FR-007 | The lane merge's state step (`merge_state_step`) and `action stop --block conflict` route `conflict`/`behind` to the `forward` move (the action still stops), instead of `merge_block_conflict` leaving the entry in `pr`; a `forward` refusal does not abort the verb — `merge_state_step`'s stop message and `action stop`'s `merge_stop_event` text carry it (D14). The merge recipe's step text (`ledger-recipes.sh:128`) says a conflict goes back to the build stage. | P1 | US1 |
 | FR-008 | `/hefesto:hef.babysit` step 4 runs `ledger.sh forward <id> --verdict <v>` for `conflict` and `behind` (still never a rebase in the babysitter itself). | P1 | US1 |
 | FR-009 | The implement launch, for an entry with an unconsumed forward record, verifies the brief's sha256 (mismatch → die, nothing launched) and puts it in the prompt as delimited data with the merge-forward instruction: fetch the base, `git merge --no-commit --no-ff` it (never rebase), commit only after the tests pass (D11), resolve only the mechanical classes — (a) both sides added distinct lines at the same place (keep both, base side first), (b) the conflicting lines are a count, version or generated value the suite computes (take the base side, then regenerate/recompute so the suite agrees), (c) one side's hunk equals the merge-base text (take the other side) — run the project's test command (through `lane-build.sh` when the lane-cache rule is printed), push to the same branch without force, report outcome `pr` with the same `pr_url`. It must not re-spec, re-plan or re-task. | P1 | US2 |
 | FR-010 | On implement outcome `pr`, the launcher marks the open forward record consumed (`ledger.sh record <id> --forward-consumed`) before advancing to `verify`; on `blocked human:clarify` or `failed` the record stays open. | P1 | US2 |
+| FR-010a | On a merge-forward implement run the launcher keeps the entry's route (the reported `route` is not recorded) and transcribes an outcome `pr` whose `pr_url` is empty or differs from the open forward record's as `failed`, without recording that URL or consuming the brief (D15). | P1 | US2 |
 | FR-011 | After a forward, the verifier's full gate chain (unchanged) runs against the new head, and only a pass reaches `pr` + `human:merge`; a verdict FAIL blocks `verdict` as today. | P1 | US2 |
 | FR-012 | The implement structured-output schema gains an optional `question` string (≤ 8000 chars); on `blocked` with `human:clarify` the launcher writes the question (or, when empty, the summary) to `<ledger dir>/<id>.question-<ts>.md` and blocks with `--question`, so `ledger.sh questions <id>` returns it. | P1 | US3 |
 | FR-013 | The merge-forward instruction requires, for any conflict outside the FR-009 classes, `git merge --abort`, no push, outcome `blocked`, `blocked_on: human:clarify`, and a `question` listing per file the path, the PR-side hunk, the base-side hunk and the merge-base text. | P1 | US3 |
 | FR-013a | The merge-forward instruction requires, when the tests fail on the uncommitted merge and no mechanical class explains it, `git merge --abort`, no commit, no push, outcome `blocked` `human:clarify`, and a `question` with the failing test output (tail, ≤ 4000 chars) and the files the merge changed (D11). | P1 | US2 |
 | FR-014 | The implement launch includes the person's answers (the existing `answers` data block) for an implement-phase entry that has answered questions, alongside the unconsumed brief. | P2 | US4 |
-| FR-015 | The orchestrator's `conflict` row reads the live verdict and offers **Merge forward** → `ledger.sh forward <id> --verdict <it> --past-cap --by "<name>"` · **Later**, or, when the verdict is no longer `conflict`/`behind`, **Retry** → `ledger.sh unblock <id>` · **Later**; the deploy-pass text no longer says Retry sends a conflict back to the babysit. | P2 | US5 |
-| FR-016 | Docs (`hef.babysit.md`, `hef.orchestrate.md`, quickstart EN + pt-BR, architecture, install) and a `CHANGELOG.md` `[Unreleased]` entry describe the route; `forward` is listed in `ledger.sh` usage. `hef.babysit.md` step 4 notes that headless the launcher does the forward (a `ledger.sh` refusal inside a worker is expected, as step 5 says for blocks). | P2 | US5 |
-| FR-017 | Every new guard has a mutation check in `tests/smoke-forward.sh` (reintroduce the defect, the suite goes red): verdict `behind`; the phase guard; the live-verdict check; the D12 block-kind refusal; the merge-action refusal; the worker refusal; the cap and `--past-cap`'s person-only gate; the brief hash check; the routing of deploy and merge `conflict`/`behind`; the consumed-only-on-`pr` rule; the `--question` transcription. | P1 | all |
-| FR-018 | `hooks/hefesto-setup.sh` adds `ledger.sh forward` to the lanes' **ask** rules in both spellings (`Bash($h/ledger.sh forward:*)`, `Bash(bash $h/ledger.sh forward:*)`) and to its own rule check, asserted by the setup test. | P2 | US1, US5 |
+| FR-015 | The orchestrator's `conflict` row prints the block's reason (`ledger.sh questions <id>` when it has a `question_path`, e.g. no worktree — restore it, then Merge forward works) and reads the live verdict, and offers **Merge forward** → `ledger.sh forward <id> --verdict <it> --past-cap --by "<name>"` · **Later**, or, when the verdict is no longer `conflict`/`behind`, **Retry** → `ledger.sh unblock <id>` · **Later**; the deploy-pass text no longer says Retry sends a conflict back to the babysit. | P2 | US5 |
+| FR-016 | Docs (`hef.babysit.md`, `hef.orchestrate.md`, quickstart EN + pt-BR, architecture, install) `docs/hooks.md` (the `ledger.sh` row `:32` gains `forward`; the `pr-watch.sh` row `:36` lists the `behind` verdict) and a `CHANGELOG.md` `[Unreleased]` entry describe the route; `forward` is listed in `ledger.sh` usage. `hef.babysit.md` step 4 notes that headless the launcher does the forward (a `ledger.sh` refusal inside a worker is expected, as step 5 says for blocks). | P2 | US5 |
+| FR-017 | Every new guard has a mutation check in `tests/smoke-forward.sh` (reintroduce the defect, the suite goes red): verdict `behind`; the phase guard; the live-verdict check; the D12 block-kind refusal; the merge-action refusal; the headless-owner refusal; the worker refusal; the cap and `--past-cap`'s person-only gate; the brief hash check; the routing of deploy and merge `conflict`/`behind`; the `--finish` forwarded path (a lane `--prepare` → step-4 `forward` → `--finish` fixture, and one where a builder claimed in between and keeps its claim); the routing callers surviving a refusal (D14); the route keep and the `pr_url` check (FR-010a); `forward` consuming old answers; the missing-or-wrong-branch worktree block (in `forward` and in `forward_prompt`, including a handed-off entry whose `.worktree` is elsewhere); the consumed-only-on-`pr` rule; the `--question` transcription. | P1 | all |
+| FR-018 | `hooks/hefesto-setup.sh` adds `ledger.sh forward` to the lanes' **ask** rules in both spellings (`Bash($h/ledger.sh forward:*)`, `Bash(bash $h/ledger.sh forward:*)`) and to its own rule check (the `--check` array, `hefesto-setup.sh:245`), asserted in `tests/smoke-lifecycle.sh` beside the existing ask-rule assertions (`:384-397`). | P2 | US1, US5 |
 
 ## Success Criteria
 
@@ -177,8 +205,24 @@ question carrying both hunks — never a guess.
 | SC-002 | The same path with a fake worker reporting `blocked human:clarify` + a two-hunk `question` ends blocked `human:clarify` with `ledger.sh questions` printing both hunks and the forward record still open. | `tests/smoke-forward.sh` |
 | SC-003 | A 4th forward on the same PR URL blocks `conflict`, and `--past-cap --by p` then forwards it (outside a lane); `forward` on a `verify`-phase entry, on a `human:merge` entry whose live verdict is `mergeable`, on a `human:intake` entry, and under `HEFESTO_WORKER=1` each exits non-zero and leaves the entry byte-identical. | `tests/smoke-forward.sh` |
 | SC-004 | Each FR-017 mutation, applied in-test with `sed` to a scratch copy, makes the matching assertion fail (`bad "mutation survived: …"`). | `tests/smoke-forward.sh` |
-| SC-005 | Behaviour: given a fixture repo whose PR branch is behind with a one-sided CHANGELOG-list conflict, the worker merges, keeps both entries, pushes the same branch, outcome `pr`; given a true two-sided edit of the same function line, it aborts and returns `human:clarify` with both hunks. | `evals/merge-forward-mechanical`, `evals/merge-forward-two-sided` (`claude plugin eval`, live tier) |
+| SC-005 | Behaviour: given a fixture repo whose PR branch is behind with a one-sided CHANGELOG-list conflict, the worker merges, keeps both entries, pushes the same branch, outcome `pr`; given a true two-sided edit of the same function line, it aborts and returns `human:clarify` with both hunks; given a textually clean merge whose suite goes red, it runs `git merge --abort`, origin's head is unchanged, and it returns `human:clarify` with the failing output (FR-013a). | `evals/merge-forward-mechanical`, `evals/merge-forward-two-sided`, `evals/merge-forward-red-suite` (`claude plugin eval`, live tier) |
 | SC-006 | `tests/smoke.sh` tier 1 passes; no hook exceeds the delta gate. | `bash tests/smoke.sh` |
 
 ## Clarifications
-_None — every open point was decidable from the code; see Decisions D1–D10._
+_No open marker was raised; every point was decided from the code (D1–D15). The person's answers of 2026-11-09:_
+
+- **Q (plan review round 1–2): are the design decisions D1–D12 accepted?** → Yes, as decided from the code:
+  forward moves a `pr` entry back to `implement` with a hashed merge-forward brief; mechanical conflicts only;
+  two-sided edits or failing tests abort and ask; 3 forwards per PR, then `conflict`; `--past-cap` is person-only.
+- **Q (plan review round 2, change 1): the lane babysit's `forward` and `deploy --finish` collide.** → The
+  launcher skips an already-forwarded entry (D13, FR-006: the forwarded `--finish` does not transcribe).
+- **Q (round 2, change 2): an entry with no usable worktree.** → Refuse the move (D3, FR-005a): a `conflict`
+  block with the reason, never a merge-forward on a fresh branch.
+- **Q (round 2, change 3): exact verdict match or any of conflict/behind?** → Accept `conflict` or `behind`, the
+  live one recorded (D3, FR-003).
+- **Standing decision (2026-11-07, restated 2026-11-09):** apply review changes and re-review until APPROVE, at
+  most 5 rounds; stop for the person only on a product or design question. Round 3's and round 4's changes (D14, D15, FR-010a,
+  the worktree path + branch, readable `conflict` reasons, answers consumed by `forward`, a red-suite eval) were
+  applied under it as consequences of D3/D11/D13, not new product decisions.
+- **Q (round 2, change 4): test and doc placement.** → FR-018 asserted in `tests/smoke-lifecycle.sh`; `docs/hooks.md`
+  in FR-016; `research.md` corrected (ask rule, `--past-cap` person-only).
