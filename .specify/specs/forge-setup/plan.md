@@ -147,7 +147,7 @@ Board config: `orchestrate.allowed_domains` written only when absent (D2); the h
    Precedence: `infra_cause` wins over `blocked_on` — an outcome with `infra_cause` set and `blocked_on:
    "human:clarify"` is an infra stall (the infra stop is what ended the run; a question it also raised is asked
    again on the retry). An *existing* `human:*` block is never under a finishing worker: no launch or `--prepare`
-   happens over a human gate (`hooks/ledger.sh:649-650`, `hooks/session-launch.sh:489`), and `ledger block` refuses
+   happens over a human gate (`hooks/session-launch.sh:649-650` run, `:570-571` `--prepare`, `:489` plan), and `ledger block` refuses
    to replace `human:intake`/`human:plan-approval` for every caller (`ledger.sh:562,570`).
 5. Session-start line (P7), orchestrate doc, docs, CHANGELOG.
 6. Smoke part 11 (`tests/smoke-forge.sh`):
@@ -341,7 +341,7 @@ reason; on "retry", run `ledger.sh unblock <id>` for each".
 | A worker nominates an exfiltration host | The person widens the worker sandbox to it | P6 wording: the host is the worker's claim, to confirm against the run log; a mutant guards the wording |
 | Sandboxed `--check` cannot see the lock | False "ok" from a lane | P5: documented; the session-start hook runs it unsandboxed |
 | `git config --add` under a live (non-stale) lock | Partial setup | FR-010: named non-zero exit saying what was and was not written; re-run is idempotent |
-| A worker sets `infra_cause` to dodge a `human:*` block | A person's question silently becomes a stall | No launch or `--prepare` happens over a human gate (`hooks/ledger.sh:649-650`, `hooks/session-launch.sh:489`), so a worker never finishes over an existing `human:*` block; `ledger block` also refuses to replace `human:intake`/`human:plan-approval` for every caller (`ledger.sh:562,570`); a stall is still a person's to clear (`:590`); smoke covers both |
+| A worker sets `infra_cause` to dodge a `human:*` block | A person's question silently becomes a stall | No launch or `--prepare` happens over a human gate (`hooks/session-launch.sh:649-650` run, `:570-571` `--prepare`, `:489` plan), so a worker never finishes over an existing `human:*` block; `ledger block` also refuses to replace `human:intake`/`human:plan-approval` for every caller (`ledger.sh:562,570`); a stall is still a person's to clear (`:590`); smoke covers both |
 | macOS `stat`/`date` differences | Lock test wrong on BSD | both `stat` spellings; the static macOS guard in `tests/smoke.sh` runs on the new file |
 
 ## Quick Start
@@ -358,3 +358,10 @@ reason; on "retry", run `ledger.sh unblock <id>` for each".
    becomes the PR's manual test, and the docs state the expected outcome as unverified.
 4. Ledger `block --cause`; launcher schema, prompt sentence, `infra_stall`; session-start reason line.
 5. Orchestrate doc, docs, CHANGELOG; mutants; `bash tests/smoke.sh` and `node --test tests/`.
+
+**Implementation note (round 5 nit):** the Sketch 2/4 `… | grep -q…` tests are illustrative; the real code captures
+first and then matches (`tests/smoke.sh:568-569` convention), never `producer | grep -q` under `pipefail`.
+
+## Reviewed 2026-11-09
+Plan review round 5 (fresh-context code-reviewer): APPROVE. Rounds 2–4 REVISE_PLAN, findings in
+`plan-review-round{2,3,4}.md`; D9 answered by the owner (spec Clarifications).
