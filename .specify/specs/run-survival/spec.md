@@ -50,7 +50,8 @@ This feature makes a launch survive and keeps it from starving the host:
   stage limits (`ledger.sh:457–469`). It counts live owners with a `pid`, meaning launched runs, across the whole
   ledger: all repos and all roles, verify included. A `--mode interactive` claim is a lane, not a run, and is neither
   counted nor refused. Verify is not exempt here: the orchestrator's step 3 already relaunches a `verify`-phase entry
-  with no owner, so a refused verifier is picked up on the next pass and not stranded. Valid values are a whole
+  with no owner, so a refused verifier is not stranded: it is picked up once its last run is more than 10 minutes old
+  (the window in `hef.orchestrate.md` step 3), and the docs say so. Valid values are a whole
   number from 1 to 8, default 2, validated like `max_builders`. The refusal says
   `busy: <n> runs at once (orchestrate.max_concurrent_runs <lim>): <id> (owned by …), …`.
 - **D6 — the memory gate runs in `session-launch.sh`, in run mode only, before the claim, in the copy that
@@ -75,7 +76,10 @@ This feature makes a launch survive and keeps it from starving the host:
     `.sh`/`.bash` files: the diff against the merge base with the PR base (the existing `pr_base`), plus staged and
     unstaged changes.
   - It skips any file over 3000 lines with one line:
-    `shellcheck: skipped <f> (<n> lines > 3000) — too large to check here; the smoke suite's tier-2 guard checks it`.
+    `shellcheck: skipped <f> (<n> lines > 3000) — too large to check here; split it, or check it by hand`.
+    (Measured at the round-3 plan review: `tests/smoke.sh`, 6818 lines, runs out of memory under `ulimit -v` at 2, 4
+    and 8 GiB, so no bounded run checks it. Splitting `tests/smoke.sh` into sourced parts under 3000 lines is a
+    follow-up item.)
   - It runs each remaining file as `shellcheck -S <s>` in a subshell under `ulimit -v`. The limit is owned by
     `hooks/host-limits.sh` (`HL_SC_VMEM_KB`, 2 GiB unless the first implementation task's measurement raises it).
     Exit 1 is a finding. Any other non-zero exit is "could not check", the same split as
@@ -85,9 +89,10 @@ This feature makes a launch survive and keeps it from starving the host:
     or unchecked file is listed.
   - A sibling subcommand, `speckit-helper.sh shellcheck-files [--severity <s>] <file…>`, runs the same bounded runner
     over named files with no line skip; `commands/hef.doctor.md` uses it in place of its `hooks/*.sh` glob.
-  - The smoke suite's tier-2 guard runs one file per process through the same bounded runner, with no line skip, and
-    its list gains `tests/*.sh`, so the large files the helper skips are still checked. A "could not check" in the guard
-    fails the suite.
+  - The smoke suite's tier-2 guard runs one file per process through the same bounded runner, with the same
+    3000-line skip, and its list gains `tests/*.sh`. An oversize file prints one visible `skip` line (the shape of the
+    guard's existing "not installed" skip) naming the file and the follow-up, and the guard stays green. A "could not
+    check" on a file under the limit fails the suite.
   - `commands/hef.quality.md` and `commands/hef.verify.md` tell the session to check shell files only through this
     helper, never `shellcheck` over a tree or a glob.
   - `hooks/quality-before-commit.sh` applies the same 3000-line skip and `ulimit -v` to its staged-file loop.
@@ -105,7 +110,8 @@ This feature makes a launch survive and keeps it from starving the host:
     script writes nothing";
   - a line saying oomd should stay on, because the hefesto run cap and memory gate are what size the load.
 
-  The plan review (2026-11-09) reviewed this and kept it.
+  The plan review (2026-11-09) reviewed this and kept it, and the item's owner confirmed it (Clarifications): the
+  item's disable option is withdrawn.
 - **D11 — no setting is written by setup for the new keys.** `max_concurrent_runs` and `min_free_mb` live in
   `.claude/project-status.json` (`orchestrate`), like `max_builders`, and their defaults apply when they are absent.
 
@@ -198,9 +204,9 @@ This feature makes a launch survive and keeps it from starving the host:
 | FR-009 | `speckit-helper.sh shellcheck-changed` checks only the changed `.sh`/`.bash` files, each under `ulimit -v <HL_SC_VMEM_KB>` (default in `host-limits.sh`). Files over 3000 lines are skipped with the one-line note. Exit 0 = all checked and clean, 1 = a finding, 2 = incomplete (skipped, not checked, or not installed), each such file listed (D9) | P2 | US5 |
 | FR-010 | `quality-before-commit.sh` applies the same 3000-line skip (as an advisory) and `ulimit -v` to its staged shell files (D9) | P2 | US5 |
 | FR-011 | `commands/hef.quality.md` and `commands/hef.verify.md` route every shell-file check through `shellcheck-changed` and say never to shellcheck a tree or glob (D9) | P2 | US5 |
-| FR-014 | `speckit-helper.sh shellcheck-files` runs the bounded runner over named files (no line skip); `commands/hef.doctor.md` uses it instead of a glob; the tier-2 guard in `tests/smoke.sh` checks one file per process through the same runner and also covers `tests/*.sh`, failing on "could not check" (D9) | P2 | US5 |
+| FR-014 | `speckit-helper.sh shellcheck-files` runs the bounded runner over named files (no line skip); `commands/hef.doctor.md` uses it instead of a glob; the tier-2 guard in `tests/smoke.sh` checks one file per process through the same runner with the 3000-line skip (a visible `skip` line per oversize file), also covers `tests/*.sh`, and fails on "could not check" for a file under the limit (D9) | P2 | US5 |
 | FR-012 | `hefesto-setup.sh --check` prints a `setup: note:` with the drop-in and `daemon-reload` when oomd is active with a default (unset or 60 %) user-slice limit. It never prints `systemctl disable`, writes nothing, and leaves the exit code unchanged (D10) | P2 | US6 |
-| FR-013 | `commands/hef.orchestrate.md` step 3: exit 75 = busy, skip and retry next pass. A run survives the orchestrator and is picked up from the ledger, and `kill <owner.pid>` stops a run. Plus `docs/quickstart.md`/`.pt-BR.md` (config keys), `docs/hooks.md` (helper row), and a `CHANGELOG.md` `[Unreleased]` entry (D4, D7) | P2 | US2, US3 |
+| FR-013 | `commands/hef.orchestrate.md` step 3: exit 75 = busy, skip and retry next pass; a verifier refused with 75 is picked up by the "phase verify, no owner" rule only after its 10-minute window, and both step 3 and the quickstart say so. The stage-pass text (`hef.orchestrate.md:358`, "a launch that exits non-zero is reported with its stderr") reports exit 75 as "busy — next pass", never as a failure, and its `done` doorbell says so. A run survives the orchestrator and is picked up from the ledger, and `kill <owner.pid>` stops a run. Plus `docs/quickstart.md`/`.pt-BR.md` (config keys), `docs/hooks.md` (helper row), and a `CHANGELOG.md` `[Unreleased]` entry (D4, D7) | P2 | US2, US3 |
 
 ## Success Criteria
 
@@ -210,9 +216,10 @@ This feature makes a launch survive and keeps it from starving the host:
 | SC-002 | The caller's exit code and output equal the run's. After SIGKILL of the caller, the run still writes its transcription to the ledger | smoke (fake claude that sleeps, kill -9 the caller), cites FR-002, FR-003 |
 | SC-003 | Two live `--pid` claims, then a third `claim` → `busy:` and rc≠0; the launch → exit 75; an interactive claim passes | smoke, cites FR-004, FR-008 |
 | SC-004 | A meminfo fixture at 2048 MiB → exit 75 and the entry unchanged (`cmp`); PSI avg60 63.2 → exit 75; `min_free_mb: 0` → passes | smoke, cites FR-006, FR-007 |
-| SC-005 | A changed 3500-line file → skipped note; a 40-line file with an error → exit 1; a fake shellcheck exiting 137 → "could not check", exit 2; a fake shellcheck logs `ulimit -v` and the log shows `HL_SC_VMEM_KB`; the tier-2 guard invokes one process per file | smoke, cites FR-009, FR-010, FR-014 |
+| SC-005 | A changed 3500-line file → skipped note; a 40-line file with an error → exit 1; a fake shellcheck exiting 137 → "could not check", exit 2; a fake shellcheck logs `ulimit -v` and the log shows `HL_SC_VMEM_KB`; the tier-2 guard invokes one process per file and prints a `skip` line for an oversize file. Structural greps: `hef.quality.md` and `hef.verify.md` name `shellcheck-changed`, and `hef.doctor.md` no longer runs shellcheck over `hooks/*.sh` | smoke, cites FR-009, FR-010, FR-011, FR-014 |
 | SC-006 | A fake `systemctl` (active, kill, limit 0) → note with the drop-in, no `systemctl disable`, rc and `setup: ok` unchanged; limit `80%` → no note | smoke, cites FR-012 |
-| SC-007 | Mutations, each caught by its check: (a) drop the detach call; (b) count interactive claims, or drop the cap check; (c) invert the MemAvailable comparison; (d) remove the 3000-line skip; (e) drop the oomd note's limit test; (f) drop the `busy:` → 75 mapping; (g) remove the `ulimit -v` line; (h) move the memory gate back to the caller only (a fixture-low launch through a fake `setsid` must still exit 75) | smoke mutation lines (sed on copies) |
+| SC-007 | Mutations, each caught by its check: (a) drop the detach call; (b) count interactive claims, or drop the cap check; (c) invert the MemAvailable comparison; (d) remove the 3000-line skip; (e) drop the oomd note's limit test; (f) drop the `busy:` → 75 mapping; (g) remove the `ulimit -v` line; (h) move the memory gate back to the caller only (a fixture-low launch through a fake `setsid` must still exit 75); (i) drop the `.started` condition from the retry (a copy that ran and refused must not be launched again); (j) drop the `LANE_MODE` test on the `/proc` seam (a lane-mode launch must not show the fixture value); (k) drop the `.started` path guard (a lane-mode launch with `HEFESTO_RUN_DETACHED` outside the runs folder must leave no `.started` file); (l) drop the `LANE_MODE` test on the `HEFESTO_RUN_DETACH=0` seam (a lane-mode launch with it set and both fake detachers on PATH must still record a detacher in the argv log) | smoke mutation lines (sed on copies) |
+| SC-009 | Structural greps: `hef.orchestrate.md` names exit `75` (step 3 and the stage-pass text), the verifier's 10-minute wait, and `kill <owner.pid>`; `docs/quickstart.md` and `.pt-BR.md` name `max_concurrent_runs` and `min_free_mb` | smoke, cites FR-013 |
 | SC-008 | `shellcheck -S warning` on every changed hook is clean; no hook newly goes over 500 code lines | tier-2 guard + `quality-before-commit.sh` delta gate |
 
 ## Out of Scope
@@ -227,5 +234,19 @@ This feature makes a launch survive and keeps it from starving the host:
 - Changing the stage limits or their exit code.
 
 ## Clarifications
-_None — every decision was made from the code and the item (see Decisions). D10 departs from the item's wording on
-evidence; the plan review (2026-11-09) endorsed it and it is kept._
+Every other decision was made from the code and the item (see Decisions).
+
+### Session 2026-11-09 (the item's owner)
+- Q: D10 departs from the item, which offers `systemctl disable --now systemd-oomd`. Keep the departure? → A:
+  Confirmed. `systemd-oomd` stays enabled on the host, and `--check` never suggests disabling it (disabling it on
+  2026-11-09 froze the VM within the hour). The item's "or `systemctl disable --now systemd-oomd`" option is
+  withdrawn.
+- Q: The second plan review (REVISE_PLAN) asked for five changes. Apply them? → A: Apply all, and re-review until
+  APPROVE (standing decision 2026-11-07, at most 5 rounds); stop for the person only on a product or design question:
+  1. the detached copy restores only the `GIT_CONFIG_*` entries, never the whole `WORKER_ENV`;
+  2. the `.started` marker is written before the pre-claim checks;
+  3. the three missing mutations are added;
+  4. the exit-75 verifier wait (the 10-minute "phase verify, no owner" window) is documented;
+  5. the worker is started with `env -u HEFESTO_RUN_DETACHED`. (Round 3 kept the intent and changed the mechanism:
+     the launcher runs `unset HEFESTO_RUN_DETACHED` right after the detach branch, so the worker never inherits it
+     and the `--dry-run` line stays byte-identical to `tests/fixtures/launch-920.txt`.)

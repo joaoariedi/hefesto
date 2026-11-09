@@ -45,3 +45,34 @@
 
 Unmeasured: R1 (shellcheck under `ulimit -v 2097152`). The reviewer's probe was denied by its permission surface, so
 it stays the first implementation task.
+
+---
+
+# Plan review (third) — run-survival
+<!-- /hefesto:hef.review plan mode, fresh code-reviewer, 2026-11-09, after round-2 changes were applied per the owner's answer -->
+
+## Verdict: REVISE_PLAN
+
+Round-2 blockers resolved (GIT_RESTORE, `.started` first, mutations i–k, verifier wait). New, all applied to
+plan.md/spec.md before round 4:
+1. Measured: `tests/smoke.sh` runs out of memory under `ulimit -v` at 2/4/8 GiB, so the tier-2 guard cannot be the
+   compensating check for the 3000-line skip. The guard now skips oversize files visibly; the skip note no longer
+   claims the guard checks them; R1 closed (rc 0 at 2 GiB); R8 records the measurement and the four known findings.
+2. `env -u HEFESTO_RUN_DETACHED` in `CMD` would break the byte-exact `launch-920.txt` fixture → `unset` after the
+   detach branch instead (same guarantee); fixture test listed as the regression check.
+3. `hef.orchestrate.md:358` (stage-pass "exits non-zero") added to FR-013.
+4. Mutation (l) for the `HEFESTO_RUN_DETACH=0` seam.
+5. Structural greps for FR-011/FR-013 (SC-005, new SC-009).
+6. Known `-S warning` findings recorded for task 1.
+
+---
+
+# Plan review (fourth) — run-survival
+<!-- /hefesto:hef.review plan mode, fresh code-reviewer, 2026-11-09 -->
+
+## Verdict: APPROVE
+Non-blocking suggestions, folded into tasks.md: (1) `shellcheck-changed` with an empty `pr_base` checks staged +
+unstaged and says so, a failed `pr_base` exits 2; (2) move the `tests/smoke.sh:1364–1377` mutation to
+`hl_shellcheck_bounded`'s `*)` arm and keep the hook's "could not check <f> (exit N" text; (3) R5: prune
+`*.launcher.*` by mtime on their own; (4) SC-002: `kill <owner.pid>` → exit 143, `owner.pid` equals the fake
+claude's `$PPID`; (5) `HEFESTO_RUN_DETACH=0` also suppresses the "attached" note (macOS CI); (6) spec FR order.

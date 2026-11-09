@@ -19,20 +19,20 @@
 | File | Change Type | Description |
 |------|------------|-------------|
 | `hooks/host-limits.sh` | create | Sourced lib with `hl_detacher`, `hl_memory_gate`, `hl_shellcheck_bounded`, `hl_changed_shell_files`, `hl_oomd_note` |
-| `hooks/session-launch.sh` | modify | Source the lib. Capture `LAUNCH_CWD` before any `cd`. In run mode, before the claim (`:656–660`): detached re-exec of itself (from `LAUNCH_CWD`, through `WORKER_ENV`, by absolute path) and relay, with a `.started` marker that drives a single `setsid -w` fallback. Then the memory gate in the copy that claims. Compute `RUNDIR` before the claim. Map a `busy:` claim refusal to exit 75 |
+| `hooks/session-launch.sh` | modify | Source the lib. Capture `LAUNCH_CWD` before any `cd`. Right after the id check (`:63`), the detached copy touches its `.started` marker (path-guarded). Right after `:106`, snapshot the `GIT_CONFIG_*` restore entries into `GIT_RESTORE`. In run mode, before the claim (`:656–660`): detached re-exec of itself (from `LAUNCH_CWD`, through `GIT_RESTORE` only, by absolute path) and relay, with the `.started` marker driving a single `setsid -w` fallback. Then the memory gate in the copy that claims. Compute `RUNDIR` before the claim. Map a `busy:` claim refusal to exit 75. `unset HEFESTO_RUN_DETACHED` right after the detach branch, so the worker never inherits it while `CMD` (`:625`) stays unchanged |
 | `hooks/ledger.sh` | modify | In `claim`, after the stage limit (`:469`), the `max_concurrent_runs` cap for `--pid` claims |
 | `hooks/speckit-helper.sh` | modify | New `shellcheck-changed` and `shellcheck-files` subcommands that dispatch into the lib (exit 0 clean / 1 finding / 2 incomplete) |
 | `hooks/quality-before-commit.sh` | modify | Shell loop (`:131–141`) calls `hl_shellcheck_bounded` (3000-line skip as advisory, `ulimit -v`) |
 | `hooks/hefesto-setup.sh` | modify | `--check` (`:286` area) calls `hl_oomd_note` before `setup: ok` / missing |
-| `commands/hef.orchestrate.md` | modify | Step 3: exit 75 = busy, skip and retry. Runs survive the orchestrator and are re-read from the ledger. `kill <owner.pid>` stops a run. Dispatch rule `:229` counts the run cap |
+| `commands/hef.orchestrate.md` | modify | Step 3: exit 75 = busy, skip and retry; a verifier refused with 75 is relaunched by the "phase verify, no owner" rule only after its 10-minute window. The stage-pass sentence at `:358` ("a launch that exits non-zero is reported with its stderr"): exit 75 is reported as "busy — next pass", not a failure, and the `done` doorbell says so. Runs survive the orchestrator and are re-read from the ledger. `kill <owner.pid>` stops a run. Dispatch rule `:229` counts the run cap |
 | `commands/hef.quality.md` | modify | Shell files are checked via `speckit-helper.sh shellcheck-changed` only |
 | `commands/hef.verify.md` | modify | Same rule for its shell check |
-| `commands/hef.doctor.md` | modify | `:59` `shellcheck -S warning hooks/*.sh` becomes `speckit-helper.sh shellcheck-files --severity warning hooks/*.sh` (one bounded process per file) — FR-014 |
-| `docs/quickstart.md`, `docs/quickstart.pt-BR.md` | modify | `orchestrate.max_concurrent_runs`, `orchestrate.min_free_mb`; the run survives the orchestrator |
+| `commands/hef.doctor.md` | modify | `:59` `shellcheck -S warning hooks/*.sh` becomes `speckit-helper.sh shellcheck-files --severity warning hooks/*.sh` (one bounded process per file) — FR-014. **Beyond the item's ask** (with `shellcheck-files`): the only lines here the item does not name; kept because the doctor's glob is the same unbounded run the item's incident came from |
+| `docs/quickstart.md`, `docs/quickstart.pt-BR.md` | modify | `orchestrate.max_concurrent_runs`, `orchestrate.min_free_mb`; the run survives the orchestrator; exit 75 and the verifier's 10-minute wait |
 | `docs/hooks.md` | modify | Row for `host-limits.sh`; `shellcheck-changed` |
 | `CHANGELOG.md` | modify | `[Unreleased]` entry |
-| `tests/smoke.sh` | modify | Near the top: `export HEFESTO_RUN_DETACH=0`, plus `HEFESTO_PROC_MEMINFO`/`HEFESTO_PROC_PRESSURE` pointing at ample/zero fixtures, so the existing ~40 fake-claude launches stay hermetic on a loaded host or a small CI runner. The tier-2 guard (`:6685`) runs one file per process through `hl_shellcheck_bounded` with no line skip; its list gains `tests/*.sh`, and a "could not check" fails it (FR-014). Source the new part at `:6803` |
-| `tests/smoke-run-survival.sh` | create | Part 11: SC-001..SC-007 with mutations (a)–(h) |
+| `tests/smoke.sh` | modify | Near the top: `export HEFESTO_RUN_DETACH=0`, plus `HEFESTO_PROC_MEMINFO`/`HEFESTO_PROC_PRESSURE` pointing at ample/zero fixtures, so the existing ~40 fake-claude launches stay hermetic on a loaded host or a small CI runner. The tier-2 guard (`:6685`) runs one file per process through `hl_shellcheck_bounded` with the 3000-line skip; an oversize file (today only `tests/smoke.sh`) prints one visible `skip` line naming it and the follow-up, in the shape of `:6688`; its list gains `tests/*.sh`, and a "could not check" on a file under the limit fails it (FR-014). Source the new part at `:6803` |
+| `tests/smoke-run-survival.sh` | create | Part 11: SC-001..SC-007 and SC-009 with mutations (a)–(l), plus the structural greps for FR-011/FR-013/FR-014 |
 
 ## Data Model
 New optional keys in `.claude/project-status.json` → `orchestrate`:
@@ -54,8 +54,10 @@ No ledger schema change: the run cap reads the existing `.owner.pid`.
 - `hefesto-setup.sh --check` may print an extra `setup: note:` block. Exit code and `setup: ok` are unchanged.
 - Test seams (honoured only when `HEFESTO_TRUSTED_TOP` is unset): `HEFESTO_RUN_DETACH=0`, `HEFESTO_PROC_MEMINFO`,
   `HEFESTO_PROC_PRESSURE`. `HEFESTO_RUN_DETACHED=<launcher-log prefix>` is the internal marker for
-  the detached copy. Its `.started` touch is honoured only for a path under `RUNDIR`, and it grants no bypass: the copy
-  runs every check, the memory gate included.
+  the detached copy. Its `.started` touch is honoured only for a path of the shape
+  `${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/runs/<cksum>/<file>.launcher` with no `..` component, and it grants no
+  bypass: the copy runs every check, the memory gate included. The worker never inherits the marker (the
+  launcher unsets it after the detach branch).
 
 ## Implementation Approach
 1. **Lib first** (`host-limits.sh`). The functions are pure: inputs are arguments and paths, outputs are stdout
@@ -66,21 +68,37 @@ No ledger schema change: the run cap reads the existing `.owner.pid`.
    (`:631–644`) enters the worktree or app dir. The detach goes after the human-gate refusal (`:656–659`) and before
    the claim (`:660`):
    - (a) When not the detached copy and a detacher exists: start
-     `(cd "$LAUNCH_CWD" && exec env "${WORKER_ENV[@]}" HEFESTO_RUN_DETACHED="$LL" <detacher…> bash "$HERE/session-launch.sh" "$ROLE" "$ID")`
+     `(cd "$LAUNCH_CWD" && exec env "${GIT_RESTORE[@]}" HEFESTO_RUN_DETACHED="$LL" <detacher…> bash "$HERE/session-launch.sh" "$ROLE" "$ID")`
      with stdin `/dev/null` and stdout/stderr to the launcher log in `RUNDIR`, `wait` on it, relay both files, and
-     exit with its code. Each part of that shape fixes a defect the plan review (2026-11-09) found:
+     exit with its code. Each part of that shape fixes a defect a plan review (2026-11-09) found:
      - `cd "$LAUNCH_CWD"`: the copy re-derives `TOP` from `git rev-parse --show-toplevel` (`:151`), and in lane mode a
        worktree cwd dies at `:168–170` ("is not the main checkout");
-     - `env "${WORKER_ENV[@]}"`: `:99–106` exports the `GIT_CONFIG_*` neutralisers, and `WORKER_ENV` is what strips
-       them. Without it the copy would take them as the person's, and its worker would run with git hooks and
-       transports disabled;
+     - `env "${GIT_RESTORE[@]}"`: `:99–106` exports the `GIT_CONFIG_*` neutralisers, and the entries `WORKER_ENV`
+       holds at `:106` are what strip them. `GIT_RESTORE` is a copy of `WORKER_ENV` taken right after `:106`, before
+       `:299` appends `XDG_CACHE_HOME=$WCACHE`, `GOCACHE` and `npm_config_cache`. Without the restore the copy would
+       take the neutralisers as the person's, and its worker would run with git hooks and transports disabled. With the
+       whole `WORKER_ENV` (round-2 review) the copy's `XDG_CACHE_HOME` would be the worker cache: its `RUNDIR` would
+       move where the worker sandbox writes (`:301`), so the result file `:666–667` protects could be swapped;
+       `run-follow.sh:24` would lose the narration; the `.started` path guard would never match; and `WCACHE` would
+       nest one level deeper. With `GIT_RESTORE` the copy's `XDG_CACHE_HOME` is the caller's, so its `RUNDIR` and
+       `WCACHE` equal the caller's;
      - `"$HERE/session-launch.sh"`: an absolute path, where `$0` may be relative to a cwd already left.
-   - (b) Otherwise (the detached copy, or no detacher): the copy first touches `$HEFESTO_RUN_DETACHED.started`, then
-     runs the memory gate (exit 75 on busy), then today's code from the claim onward. A claim refusal containing
-     `: busy: ` becomes exit 75. The gate runs in the copy that claims, so it measures at the moment that matters
-     and the marker grants no bypass. The detached copy reruns every pre-claim check (config, tiers,
-     caps, worktree checks) because it is the same script. That is deliberate: no state is passed between the two
-     copies except the env marker.
+   - (b) Otherwise (the detached copy, or no detacher): the memory gate (exit 75 on busy), then today's code from the
+     claim onward. A claim refusal containing `: busy: ` becomes exit 75. The gate runs in the copy that claims, so it
+     measures at the moment that matters and the marker grants no bypass. The detached copy reruns every pre-claim
+     check (config, tiers, caps, worktree checks) because it is the same script. That is deliberate: no state is
+     passed between the two copies except the env marker.
+   - (c) The `.started` marker is written as the detached copy's **first act**, right after the id check (`:63`) and
+     before every pre-claim check (round-2 review: a marker written just before the claim let any earlier refusal in
+     the copy look like "never ran" and be launched a second time). Its path is checked against the fixed prefix
+     `${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/runs/`, which needs no ledger lookup yet, must end `.launcher`, and must
+     contain no `/../`. Anything else is ignored silently: the run proceeds and no file is written (R4).
+   - (d) The worker never inherits the marker: right after the detach branch (before `:660`) the launcher runs
+     `unset HEFESTO_RUN_DETACHED`, so the worker started at `:684` does not see it, and a worker that itself launches
+     is treated as a fresh caller. The marker path the caller needs stays in its own shell variable `LL`. `CMD`
+     (`:625`) is not touched, because `tests/smoke-spec-roots.sh:55–59` compares the `--dry-run` line byte for byte
+     with `tests/fixtures/launch-920.txt` (round-3 review). This keeps the person's answer ("the worker is started
+     without `HEFESTO_RUN_DETACHED`") and changes only how it is done.
 4. **Detacher choice** (`hl_detacher`):
    - `systemd-run` when on PATH and `systemctl --user show-environment` succeeds (the user manager answers), giving
      `systemd-run --user --scope --collect --quiet --unit hefesto-<id>-<role>-<pid> -- setsid -w`;
@@ -88,12 +106,15 @@ No ledger schema change: the run cap reads the existing `.owner.pid`.
    - else nothing, with one stderr note.
 
    A `systemd-run` failure at start (a unit-name collision, the user manager refusing) is detected by an explicit
-   marker, never guessed from the output. When the copy exits non-zero and `$LL.started` does not exist, the copy
-   never ran, so the caller retries once with `setsid -w` alone and says so. When `$LL.started` exists, the copy ran
-   and its exit code stands; a copy that ran is never launched a second time. A run is never lost to the user manager
-   being odd, and never doubled.
+   marker, never guessed from the output. Because the copy touches `$LL.started` before it checks anything (3c),
+   the marker exists exactly when the copy's script started. When the copy exits non-zero and `$LL.started` does not
+   exist, the copy never ran, so the caller retries once with `setsid -w` alone and says so. When `$LL.started`
+   exists, the copy ran and its exit code stands, whatever check refused it; a copy that ran is never launched a
+   second time. A run is never lost to the user manager being odd, and never doubled.
 5. **shellcheck.** One bounded runner in the lib, `hl_shellcheck_bounded <file> <severity> <max-lines>` (max-lines
-   0 = no skip). Both helper subcommands, the commit hook and the tier-2 guard use it, and the command text in
+   0 = no skip; only `shellcheck-files` uses 0, for files a person names). Both helper subcommands, the commit hook and
+   the tier-2 guard (3000-line skip, a visible `skip` line naming the follow-up "split tests/smoke.sh into sourced
+   parts under 3000 lines") use it, and the command text in
    `hef.quality.md`, `hef.verify.md` and `hef.doctor.md` points to the helpers. Every place that ran shellcheck over a
    glob or a list in one process now runs one bounded process per file.
 6. **oomd note.** It is read-only and uses `systemctl` only, so it is absent on macOS or when systemd is missing.
@@ -106,9 +127,17 @@ No ledger schema change: the run cap reads the existing `.owner.pid`.
 **Intent:** the run tail lives in its own scope or session; the caller only relays.
 
 ```bash
+# after the id check (:63) — the detached copy's first act (3c); a lane-set or odd path writes nothing (R4)
+RUNS_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/runs/"
+case "${HEFESTO_RUN_DETACHED:-}" in *"/../"*) ;; "$RUNS_ROOT"*.launcher) : > "$HEFESTO_RUN_DETACHED.started" ;; esac
+# after :106, before :299 appends the worker cache vars — the copy gets the person's GIT_CONFIG_* back, nothing else
+GIT_RESTORE=("${WORKER_ENV[@]}")
+# :625 CMD is unchanged (the launch-920 fixture is byte-exact); the marker is unset after the branch below (3d)
+
+# between :659 and :660
 RUNDIR="${XDG_CACHE_HOME:-$HOME/.cache}/hefesto/runs/$(printf '%s' "$("$LEDGER" dir)" | cksum | cut -d' ' -f1)"   # moved up from :669
 start_detached() { # $@ detacher prefix; output to the launcher log
-  (cd "$LAUNCH_CWD" && exec env "${WORKER_ENV[@]}" HEFESTO_RUN_DETACHED="$LL" "$@" bash "$HERE/session-launch.sh" "$ROLE" "$ID") \
+  (cd "$LAUNCH_CWD" && exec env "${GIT_RESTORE[@]}" HEFESTO_RUN_DETACHED="$LL" "$@" bash "$HERE/session-launch.sh" "$ROLE" "$ID") \
     </dev/null >"$LL.out" 2>"$LL.err" & wait "$!"
 }
 if [ -z "${HEFESTO_RUN_DETACHED:-}" ]; then
@@ -122,9 +151,8 @@ if [ -z "${HEFESTO_RUN_DETACHED:-}" ]; then
     fi
     cat "$LL.out"; cat "$LL.err" >&2; rm -f "$LL.out" "$LL.err" "$LL.started"; exit "$DRC"
   fi
-else
-  case "$HEFESTO_RUN_DETACHED" in "$RUNDIR"/*) : > "$HEFESTO_RUN_DETACHED.started" ;; esac
 fi
+unset HEFESTO_RUN_DETACHED   # the worker (:684) never inherits it (3d)
 MSG="$(hl_memory_gate "$MIN_FREE" "$MEMINFO" "$PSI")" || { echo "session-launch $ROLE $ID: $MSG — retry on the next pass" >&2; exit 75; }
 CLERR="$("$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$" 2>&1 >/dev/null)" \
   || { echo "$CLERR" >&2; case "$CLERR" in *": busy: "*) exit 75 ;; esac; exit 1; }
@@ -133,7 +161,10 @@ CLERR="$("$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$" 2>&1 
 **Why this shape:** the claim's `$$` and the lease loop (`:688`) now belong to the detached copy, so they outlive the
 caller (research: `:660`, `:688`). A SIGKILL of the caller cannot reach a process in another session and cgroup. `LAUNCH_CWD="$PWD"` is set near the
 top of the script, before `:631`. The memory gate sits after the branch, so it runs exactly once, in whichever copy
-claims.
+claims. The copy's `RUNDIR` equals the caller's because `GIT_RESTORE` leaves `XDG_CACHE_HOME` alone, so the marker
+the caller tests is the one the copy wrote. The relayed log files and marker are removed by the caller; a caller
+killed before that leaves them for the `:678` prune (R5). A copy that exits before its marker touch would have to fail
+the usage or id check at `:57–63`, which the caller already passed with the same arguments.
 
 ### Sketch 2: run cap in `ledger claim`
 **File:** `hooks/ledger.sh` (modify after `:469`)
@@ -180,10 +211,10 @@ exit 1.
 **Intent:** one place that applies the size skip and the memory limit.
 
 ```bash
-HL_SC_VMEM_KB="${HL_SC_VMEM_KB:-2097152}"   # the single owner of the limit; task 1 records its measurement here
+HL_SC_VMEM_KB="${HL_SC_VMEM_KB:-2097152}"   # the single owner of the limit; measured (round-3 review): shellcheck 0.11.0 runs under it
 hl_shellcheck_bounded() { # $1 file $2 severity $3 max lines (0 = no skip) → 0 clean | 1 finding | 2 skipped | 3 could not check
   local n max="${3:-3000}" rc=0; n=$(wc -l < "$1" | tr -d ' ')
-  [ "$max" -eq 0 ] || [ "$n" -le "$max" ] || { echo "shellcheck: skipped $1 ($n lines > $max) — too large to check here; the smoke suite's tier-2 guard checks it"; return 2; }
+  [ "$max" -eq 0 ] || [ "$n" -le "$max" ] || { echo "shellcheck: skipped $1 ($n lines > $max) — too large to check here; split it, or check it by hand"; return 2; }
   ( ulimit -v "$HL_SC_VMEM_KB" 2>/dev/null; exec shellcheck -S "$2" "$1" ) || rc=$?
   case "$rc" in 0) return 0 ;; 1) return 1 ;; *) echo "shellcheck: could not check $1 (exit $rc — out of memory?)"; return 3 ;; esac
 }
@@ -191,7 +222,7 @@ hl_shellcheck_bounded() { # $1 file $2 severity $3 max lines (0 = no skip) → 0
 
 **Why this shape:** the 0/1/other split is today's commit-hook contract (`quality-before-commit.sh:133–139`). The
 hook maps 2 and 3 to its `ADVISORY`. The helper subcommands map them to exit 2 (incomplete). The tier-2 guard (max
-lines 0) fails on 3. `ulimit` failing (macOS) is ignored: the size skip still holds.
+lines 3000) prints a visible `skip` line on 2 and fails on 3. `shellcheck-files` (max lines 0) maps 3 to exit 2. `ulimit` failing (macOS) is ignored: the size skip still holds.
 
 ### Sketch 5: oomd note in `--check`
 **File:** `hooks/host-limits.sh` (`hl_oomd_note`), called in `hooks/hefesto-setup.sh` before `:295`
@@ -226,7 +257,7 @@ sed 's/read -r -a PRE <<<"$(hl_detacher/PRE=(); : "$(hl_detacher/' "$SL" > "$rs_
 ```
 
 **Why this shape:** the existing pattern (`tests/smoke.sh:1368–1377`, `:2252`). The mutations follow spec SC-007
-(a)–(h). Checks added at the plan review:
+(a)–(l). Checks added at the plan review:
 - A launch of an existing worktree with `HEFESTO_TRUSTED_TOP` set and a fake `setsid`: the copy must not die at
   `:170`. The fake claude records `GIT_CONFIG_COUNT`, and the test asserts it is unset (or the person's original).
 - A fake `systemd-run` that exits 1 without running its command → exactly one `setsid -w` retry. A fake that runs the
@@ -234,6 +265,36 @@ sed 's/read -r -a PRE <<<"$(hl_detacher/PRE=(); : "$(hl_detacher/' "$SL" > "$rs_
 - A fake `shellcheck` that logs `$(ulimit -v)` → the log shows `HL_SC_VMEM_KB`. Mutation (g) drops the `ulimit`.
 - Mutation (f) drops the `busy:` → 75 mapping. Mutation (h) moves the memory gate into the caller-only branch, and a
   low-memory fixture through a fake `setsid` must still exit 75.
+
+Checks added at the round-2 review (2026-11-09):
+- The environment the copy and worker see: a detached launch through a fake `setsid` with a fake claude that records
+  `XDG_CACHE_HOME`, `GIT_CONFIG_COUNT` and `HEFESTO_RUN_DETACHED`. Assert:
+  - the worker's `XDG_CACHE_HOME` is the caller's `WCACHE`, not `WCACHE/hefesto/worker-cache/…` (no nesting);
+  - the run's `events.jsonl` and `.current` land in the caller's `RUNDIR` (the copy's `RUNDIR` equals the caller's);
+  - `HEFESTO_RUN_DETACHED` is unset in the worker.
+- An early refusal in the copy: a fake `systemd-run` that runs the copy, where the copy refuses at a pre-claim check
+  (an entry blocked on `human:*`), must produce no `setsid -w` retry in the argv log, because `.started` was written
+  first. Mutation (i) drops `[ ! -e "$LL.started" ]` from the retry condition, and the same case must then show a
+  second launch.
+- Lane-mode negatives. These shadow both `systemd-run` and `setsid` with fakes and set `HEFESTO_TRUSTED_TOP`:
+  - (j) the D8 seam: the config sets `min_free_mb: 2`, so the real `/proc/meminfo` of any working host passes, and
+    `HEFESTO_PROC_MEMINFO` points at a fixture with `MemAvailable: 1024 kB` (1 MiB). The launch must not exit 75 and
+    its output must not contain `1 MiB available`. Mutation (j) drops the `LANE_MODE` test so the seam is honoured in
+    lane mode, and the check goes red;
+  - (k) the R4 guard: `HEFESTO_RUN_DETACHED` set to a path under `$TMPDIR` (outside the runs folder) must leave no
+    `.started` file there. Mutation (k) drops the path guard, and the check goes red;
+  - (l) the `HEFESTO_RUN_DETACH=0` seam: a lane-mode launch with it set and both fake detachers on PATH must still
+    record a detacher in the argv log. Mutation (l) drops the `LANE_MODE` test on that seam, and the check goes red.
+
+Checks added at the round-3 review (2026-11-09):
+- `tests/smoke-spec-roots.sh`'s byte-exact comparison against `tests/fixtures/launch-920.txt` must still pass. It is
+  the regression test that `CMD` (`:625`) did not change (3d); the fixture is never recaptured for this feature.
+- Structural greps, following the `tests/smoke.sh:6701` precedent: `hef.quality.md` and `hef.verify.md` name
+  `shellcheck-changed`; `hef.doctor.md` no longer runs shellcheck over `hooks/*.sh` (SC-005); `hef.orchestrate.md`
+  names exit `75` in step 3 and in the stage-pass text, the verifier's 10-minute wait, and `kill <owner.pid>`; both
+  quickstarts name `max_concurrent_runs` and `min_free_mb` (SC-009).
+- The tier-2 guard prints a `skip` line for an oversize file and stays green; a fake shellcheck exiting 137 on a file
+  under the limit turns it red.
 
 The suite-wide fixture exports (ample meminfo, zero PSI) are overridden per case, and only in this part.
 
@@ -256,20 +317,26 @@ in the PR.
 ## Risks & Mitigations
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| R1: shellcheck (GHC runtime) cannot start under `ulimit -v 2 GiB` because it reserves a large address range at start | Every shell check becomes "could not check": the gate goes silent | First implementation task: measure `ulimit -v 2097152; shellcheck` on a 40-line file on this host and on CI. If it cannot start, raise `HL_SC_VMEM_KB` to the smallest value that starts, and record the measurement in a comment. The smoke part asserts that a clean 40-line file under the default limit returns 0 when shellcheck is installed, so a silent gate fails the suite |
+| R1: shellcheck (GHC runtime) cannot start under `ulimit -v 2 GiB` because it reserves a large address range at start | Every shell check becomes "could not check": the gate goes silent | **Closed by measurement** (round-3 review, shellcheck 0.11.0 at `/usr/bin/shellcheck`): `ulimit -v 2097152` then `shellcheck -S warning hooks/launch-item.sh` → rc 0; the four largest hooks and `install.sh` also run without running out of memory. `HL_SC_VMEM_KB` stays 2097152. Task 1 records this in the lib's comment and re-checks it on CI. The smoke part still asserts that a clean 40-line file under the default limit returns 0 when shellcheck is installed, so a silent gate fails the suite. Task 1 and the tests use `command -v -p shellcheck` (or `/usr/bin/shellcheck`): on this host `~/.local/bin/shellcheck` is a `systemd-run` wrapper that exits 1 with a D-Bus error inside a sandbox, which the runner would read as a finding |
 | R2: `systemd-run --scope` returns before the command ends, or forks so `wait` sees the wrong pid | The caller relays early or loses the exit code | `--scope` runs the command in place and waits. The smoke part asserts the caller's rc equals the fake claude's outcome. The detached copy's transcription is the source of truth either way, and the ledger is re-read on the next pass |
 | R3: the existing ~40 fake-claude launches in `tests/smoke.sh` start detaching on hosts with systemd | Slow or flaky suite; real scopes created by tests | `export HEFESTO_RUN_DETACH=0` at the top of `tests/smoke.sh`; only the new part unsets it, with fakes on PATH |
-| R4: a lane sets `HEFESTO_RUN_DETACHED` itself | It only skips the detach, so the run stays attached as today. The memory gate, the cap and every check still run, because they run in the copy that claims | The `.started` touch is honoured only for a path under `RUNDIR` |
+| R4: a lane sets `HEFESTO_RUN_DETACHED` itself | It only skips the detach, so the run stays attached as today. The memory gate, the cap and every check still run, because they run in the copy that claims | The `.started` touch is honoured only for a path under the runs folder ending `.launcher`, with no `/../` (3c); the worker never inherits the variable (3d); mutation (k) guards the check |
 | R5: the caller is killed between start and `wait`, and the launcher log is never relayed | The orchestrator never sees that run's stdout | The detached copy writes the ledger itself and the next pass reads it (item: "re-attaches from the ledger"). The log stays in `RUNDIR` and is pruned with the run's other files (`:678` pattern extended to `*.launcher.*`) |
 | R6: `session-launch.sh` grows past the delta gate | Commit advisory | All logic is in the lib; the launcher gains about 15 lines |
 | R7: departing from the item on `systemctl disable` (spec D10) | — | Closed: the plan review (2026-11-09) endorsed D10 and it is kept |
-| R8: `tests/*.sh` joins the tier-2 guard but is not warning-clean today, or `tests/smoke.sh` needs more than `HL_SC_VMEM_KB` | The guard turns red on its first run | Task 1 also runs the bounded runner on every `tests/*.sh` at `-S warning`. A few findings are fixed in the same task; otherwise the guard checks `tests/*.sh` at `-S error`, and the plan says so. If `smoke.sh` cannot be checked under the measured limit, the guard's limit for it is raised and recorded beside `HL_SC_VMEM_KB` |
+| R8: `tests/*.sh` joins the tier-2 guard but is not warning-clean today, or `tests/smoke.sh` needs more than `HL_SC_VMEM_KB` | The guard turns red on its first run | **Measured** (round-3 review): `tests/smoke.sh` (6818 lines) runs out of memory under `ulimit -v` at 2, 4 and 8 GiB (rc 251), and the host's shellcheck wrapper documents 5–8 GB RSS and eight OOM kills on it. No per-file raise: the guard skips it with a visible `skip` line (3000-line rule), and splitting `tests/smoke.sh` into parts is a follow-up item. Known `-S warning` findings on shellcheck 0.11.0, fixed in task 1 so SC-008 is planned for: `hooks/session-launch.sh:49` and `:305` (SC2034), `hooks/ledger.sh:117` (SC2120), `tests/smoke-lane-cache.sh:71` (SC1007). The other test parts are clean |
 
 ## Quick Start
-1. Measure R1 and R8: run shellcheck under `ulimit -v 2097152` on a small file and on `tests/smoke.sh`, and set the
-   default from the result.
+1. Record R1 and R8 (already measured) in the lib's comment, re-check R1 on CI, and fix the four known
+   `-S warning` findings listed in R8.
 2. Write `hooks/host-limits.sh` with the five functions, plus unit checks in `tests/smoke-run-survival.sh`.
 3. Add the run cap to `ledger.sh claim` with its smoke check and mutation.
 4. Wire the launcher (Sketch 1), add `HEFESTO_RUN_DETACH=0` to `tests/smoke.sh`, and run the full suite.
 5. Add the shellcheck helpers, the hook, the tier-2 guard and the command text (quality, verify, doctor), then the
    oomd note, then docs, CHANGELOG and mutations.
+
+## Reviewed 2026-11-09
+Fourth plan review (fresh code-reviewer): APPROVE. Its six non-blocking suggestions are folded into tasks.md:
+`pr_base` empty/failed contract for `shellcheck-changed`; move the `tests/smoke.sh:1364–1377` "shellcheck that
+cannot run" mutation to the lib; prune `*.launcher.*` on their own; SC-002 adds `kill <owner.pid>` → exit 143 and
+`owner.pid` = the copy; `HEFESTO_RUN_DETACH=0` also silences the "attached" note; FR-014 table order.
