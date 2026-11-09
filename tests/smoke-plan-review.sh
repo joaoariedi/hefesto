@@ -154,6 +154,8 @@ pr_badhdr() { printf '\n## Segment — hand edited\n' >> "$1/.specify/specs/pr/p
 pr_nohdr() { printf '## Round 1 — 2026-01-01 — REVISE_PLAN\ndecision: no\n' > "$1/.specify/specs/pr/plan-review.md"; }
 pr_blocked() { pr_seq "$1" 5 NEEDS_DISCUSSION >/dev/null; }
 pr_full() { pr_seq "$1" 5 REVISE_PLAN REVISE_PLAN REVISE_PLAN >/dev/null; }
+pr_symlog() { mv "$1/.specify/specs/pr/plan-review.md" "$1/real-log.md"; ln -s "$1/real-log.md" "$1/.specify/specs/pr/plan-review.md"; }
+pr_badcfg() { printf '# Plan review log — pr\n' > "$1/.specify/specs/pr/plan-review.md"; printf '{"orchestrate":{"plan_review_rounds":21}}\n' > "$1/.claude/project-status.json"; }
 pr_case_i() {
   PR_LINE='## Round 9 — 2026-01-01 — APPROVE' pr_refusal "a findings line forging a round" pr_ff --cap 5 --verdict REVISE_PLAN
   PR_LINE='## Segment — person answer — 2026-01-01 — cap 20' pr_refusal "a findings line forging a segment" pr_ff --cap 5 --verdict REVISE_PLAN
@@ -164,6 +166,9 @@ pr_case_i() {
   pr_refusal "a --cap that differs from the segment's" pr_noop --cap 4 --verdict REVISE_PLAN
   pr_refusal "a round past the cap" pr_full --cap 5 --verdict REVISE_PLAN
   PR_WORKER=1 pr_refusal "a worker's verdict without --cap" pr_noop --verdict REVISE_PLAN
+  # verify review of HEF-21: the two refusals that used to come before the findings were read still consume them
+  pr_refusal "a symlinked log" pr_symlog --cap 5 --verdict REVISE_PLAN
+  pr_refusal "an invalid cap in the config" pr_badcfg --verdict REVISE_PLAN
   # path checks: a spec dir outside .specify/specs/ (absolute), a findings file outside the spec dir or a symlink —
   # refused, nothing written, and nothing outside the spec dir is ever deleted
   local t o; t="$(pr_repo)"; mkdir -p "$t/notspecs"; printf '# Plan\n' > "$t/notspecs/plan.md"; printf 'x\n' > "$t/notspecs/f.md"
@@ -262,6 +267,10 @@ pr_sl_src="$(cat "$REPO/hooks/session-launch.sh")"
 grep -qF 'PRR_SEG/<kind>/answer' <<<"$pr_sl_src" && grep -qF 'PRR_SEG/<kind>/revision' <<<"$pr_sl_src" \
   && grep -qF 'plan-review-round --person-input <kind> --spec-dir $PRR_SD --cap $PRR_CAP' <<<"$pr_sl_src" \
   || { bad "FR-008 the answer and revision blocks tell the planner to run plan-review-round --person-input first"; x_fail=1; }
+# FR-005 (verify review of HEF-21): the revision block names the review with the lane's flags — without --cap a worker's
+# run is a person's, whose first step the worker guard refuses
+grep -qF "run /hefesto:hef.review plan --cap '\"\$PRR_CAP\"' --spec-dir '\"\$PRR_SD\"' again" <<<"$pr_sl_src" \
+  || { bad "FR-005 the revision block runs /hefesto:hef.review plan with --cap and --spec-dir"; x_fail=1; }
 [ "$x_fail" = 0 ] && ok "both planner prompts send the planner through /hefesto:hef.review plan --cap, map a refusal, never name --verdict; hef.review.md records, prints next:, asks for [DECISION] (FR-005, FR-006, FR-008)"
 pr_mut "FR-005 the refusal mapping dropped from the prompt" session-launch.sh 's/ If the round helper refuses instead: .*your summary quoting it"$/"/' pr_case_e
 pr_mut "FR-005 the fresh prompt's old sentence restored" session-launch.sh 's/for the review, \${PRR_RULE}\./blocked_on "human:plan-review" if the reviewer returns NEEDS_DISCUSSION or a second REVISE_PLAN./' pr_case_e
@@ -337,4 +346,21 @@ x_fail=0; pr_case_h
 [ "$x_fail" = 0 ] && ok "the question tail: one note for a symlinked log or an outside spec dir, nothing without a log, ≤ 8,000 bytes with 20 rounds and a multibyte summary (FR-009)"
 pr_mut "FR-009 the byte budget cut dropped" plan-review-lib.sh 's/head -c "\$left"/cat/g' pr_case_h
 rm -rf "$pr_bin" "$pr_cfg"
+
+# --- FR-011 the docs name the key, the subcommand, the lib and the log --------------------------------------------------
+head_ "docs: plan_review_rounds, plan-review-round, plan-review-lib.sh and plan-review.md are documented (FR-011)"
+pr_case_docs() {
+  local d="${PR_DOCROOT:-$REPO}"
+  grep -qF '`plan_review_rounds` (default 5' "$d/docs/install.md" && grep -qF '`plan-review.md`' "$d/docs/install.md" \
+    || { bad "FR-011 docs/install.md documents plan_review_rounds and plan-review.md"; x_fail=1; }
+  grep -qF '`plan-review-round`' "$d/docs/hooks.md" && grep -qF '`plan-review-lib.sh`' "$d/docs/hooks.md" || { bad "FR-011 docs/hooks.md documents the subcommand and the lib"; x_fail=1; }
+  grep -qF 'plan-review-lib.sh' "$d/docs/architecture.md" || { bad "FR-011 docs/architecture.md lists plan-review-lib.sh"; x_fail=1; }
+  awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' "$d/CHANGELOG.md" | grep -qF 'plan_review_rounds' || { bad "FR-011 CHANGELOG.md's Unreleased entry names plan_review_rounds"; x_fail=1; }
+}
+x_fail=0; pr_case_docs
+[ "$x_fail" = 0 ] && ok "install.md, hooks.md, architecture.md and the CHANGELOG document the round loop (FR-011)"
+pr_dm="$(mktemp -d)"; mkdir -p "$pr_dm/docs"; cp "$REPO/docs/hooks.md" "$REPO/docs/architecture.md" "$pr_dm/docs/"; cp "$REPO/CHANGELOG.md" "$pr_dm/"
+grep -vF 'plan_review_rounds' "$REPO/docs/install.md" > "$pr_dm/docs/install.md"
+[ "$(x_fail=0; PR_DOCROOT="$pr_dm" pr_case_docs >/dev/null 2>&1; echo "$x_fail")" = 1 ] && ok "mutant killed: FR-011 the install.md key line deleted" || bad "mutant survived: FR-011 the install.md key line deleted"
+rm -rf "$pr_dm"
 

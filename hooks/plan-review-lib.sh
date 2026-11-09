@@ -92,7 +92,7 @@ prr_parse_args() { # sets PRR_VERDICT PRR_DEC PRR_FF PRR_PI PRR_SD PRR_CAP_FLAG;
 
 # The spec dir must resolve under <spec root>/.specify/specs/ (cwd = the spec root: speckit-helper.sh cds there), so
 # the absolute path a lane sends and the relative one a person types are both accepted, and nothing else is.
-prr_check_spec_dir() { # sets PRR_SDR (the real path) and PRR_LOGF
+prr_check_spec_dir() { # sets PRR_SDR (the real path) and PRR_LOGF; refuses before the findings file is touched
   local base
   [ -n "$PRR_SD" ] || PRR_SD=".specify/specs/${BRANCH:-}"
   base="$(cd .specify/specs 2>/dev/null && pwd -P)" || prr_die "no .specify/specs/ under the spec root $PWD"
@@ -100,6 +100,8 @@ prr_check_spec_dir() { # sets PRR_SDR (the real path) and PRR_LOGF
   [ "${PRR_SDR#"$base/"}" != "$PRR_SDR" ] || prr_die "spec dir $PRR_SD resolves to $PRR_SDR, outside $base/"
   [ -f "$PRR_SDR/plan.md" ] || prr_die "spec dir $PRR_SD has no plan.md — run /hefesto:hef.plan first"
   PRR_LOGF="$PRR_SDR/$PRR_LOG_NAME"
+}
+prr_check_log() { # after the findings are consumed: every refusal from here on still deletes them (FR-001)
   [ -L "$PRR_LOGF" ] && prr_die "$PRR_LOGF is a symlink — the review log is a plain file"
   [ ! -e "$PRR_LOGF" ] || [ -r "$PRR_LOGF" ] || prr_die "$PRR_LOGF is not readable"
 }
@@ -159,10 +161,11 @@ prr_record_round() { # the verdict path: every refusal before the first byte is 
 prr_main() {
   prr_parse_args "$@"
   prr_check_spec_dir
+  prr_consume_findings
+  prr_check_log
   # A segment that opens here, at most one, is appended after every check; a cap mismatch is the round's check.
   if [ -n "$PRR_CAP_FLAG" ] && [ -n "$PRR_PI" ]; then PRR_CAP="$PRR_CAP_FLAG"; else prr_resolve_cap; fi
   if [ -n "$PRR_PI" ]; then prr_person_input "$PRR_LOGF" "$PRR_PI" "$PRR_CAP"; return; fi
-  prr_consume_findings
   prr_record_round
 }
 
