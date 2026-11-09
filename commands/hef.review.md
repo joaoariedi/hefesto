@@ -87,7 +87,8 @@ pre-flight outputs (spec, plan, constitution) in full:
 
 When the agent returns, relay the report unchanged. Then record the round — every verdict, every
 round, in `<spec dir>/plan-review.md`, which only the helper writes. Save the Suggested Changes to
-`<spec dir>/.review-findings.md`, and run with the Bash tool
+`<spec dir>/.review-findings.md` — write it even when it is empty (an `APPROVE` has no Suggested
+Changes; a missing file is refused), and run with the Bash tool
 `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh plan-review-round --verdict <V> --findings-file <spec dir>/.review-findings.md [--decision] [--cap <N>] [--spec-dir <d>]`
 (`--decision` when you cannot settle a finding from the code and the item). The helper deletes the
 findings file whether it records or refuses: the log holds them, a stray copy would be committed by
