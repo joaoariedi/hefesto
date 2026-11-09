@@ -48,11 +48,13 @@ asked six times before running a `!` command.
 - **D8 — "shown once".** An infrastructure stall gets no step-2 form; the brief's last line is
   `Your move: <fix line>, then say "retry <id>"`. Several items stalled on the same fix share one line that names them
   all. The person's "retry" runs the existing `ledger.sh unblock <id>` (an ask rule: its dialog is the consent).
-- **D9 — api.github.com.** The owner's decision lists it; setup writes it. In lanes, `sandbox.network.deniedDomains`
-  (written by setup, `hooks/hefesto-setup.sh:173`) keeps it denied to the lanes' own sandbox; the worker sandbox
-  settings are the launcher's `--settings` (`hooks/session-launch.sh:294`). Settled in plan.md P4 (deny wins; the
-  `--settings` merge is a live check); the behaviour required here is only that `git push` over HTTPS to `github.com`
-  is reachable.
+- **D9 — api.github.com (owner, 2026-11-09; see Clarifications).** Setup writes it, and the workers reach it: the
+  fence is the worker tool allowlist (the default `allowed_tools.implement` — file tools, `Bash(git *)`,
+  `Bash(gh pr create *)`, `Bash(gh pr view *)` — with unmatched commands denied), lane-guard and `ledger.sh`'s
+  refusal of a worker's unblock, not the network (plan P4 has the exact fence and its config dependence). The lanes' own `sandbox.network.deniedDomains: api.github.com`
+  (`hooks/hefesto-setup.sh:173`) stays for the lanes; the worker's sandbox is the launcher's `--settings`
+  (`hooks/session-launch.sh:294`) in a worktree with no `settings.local.json`. A live check confirms a worker reaches
+  `api.github.com` (the deny is gone for it) and `github.com`.
 
 ## User Scenarios
 
@@ -130,7 +132,7 @@ asked six times before running a `!` command.
 | FR-004 | When the key is present, setup leaves the file byte-identical and prints the forge hosts it lacks | P1 | US1 |
 | FR-005 | For an SSH remote (D5), setup adds `url."https://<host>/".pushInsteadOf <ssh prefix>` to the repository's common config when that value is absent, and prints the rewrite | P1 | US2 |
 | FR-006 | Setup prints the `gh auth setup-git` hint when the HTTPS push will have no credential helper (`git config --get-urlmatch credential.helper https://<host>/` empty) | P2 | US2 |
-| FR-007 | `--print` reports the forge changes it would make and makes none; `--remove` unsets only the push rewrite values setup recorded it added (`env.HEFESTO_SETUP_SET`), and leaves `allowed_domains` with a note | P2 | US1, US2 |
+| FR-007 | `--print` reports the forge changes it would make and makes none; `--remove` unsets only the push rewrite values setup recorded it added (`env.HEFESTO_SETUP_EXTRA.push_rewrites`; plan P8), and leaves `allowed_domains` with a note | P2 | US1, US2 |
 | FR-008 | `--check` reports `<common dir>/config.lock` (and each `repos` map repository's) when it is zero bytes and older than 60 s, with its path and the `rm` command inside its single `setup: missing …` line (the session-start hook shows only the last line), exiting 1; it never deletes it. The report is meaningful only from an unsandboxed caller (a sandbox mounts `/dev/null` over the lock) | P1 | US3 |
 | FR-009 | `--check` reports as missing: an SSH remote without its rewrite, and an absent `allowed_domains` key; a present key lacking forge hosts is a note only | P1 | US3 |
 | FR-010 | A stale lock (D7) in a repository that needs the rewrite stops setup before it writes anything ("nothing was written", the lock path and `rm` command); a `git config` write that still fails (a live lock) ends setup non-zero naming what was and was not written | P1 | US2 |
@@ -147,7 +149,7 @@ asked six times before running a `!` command.
 | ID | Criterion | Validation Method |
 |----|-----------|-------------------|
 | SC-001 | Setup on fixture repos (scp SSH, `ssh://`, `ssh://` with port, HTTPS, GitLab self-hosted, IP remote, existing `allowed_domains`) produces exactly the D3/D5 config each time, idempotently | smoke fixtures in a `tests/smoke-*.sh` file, `git config --get-all` and `jq` assertions |
-| SC-002 | `--check` exits 1 on a stale zero-byte lock and leaves it in place; exits 0 on a young or non-empty lock | smoke fixture with `touch -d` |
+| SC-002 | `--check` exits 1 on a stale zero-byte lock and leaves it in place; exits 0 on a young or non-empty lock | smoke fixture with `touch -t` (POSIX; plan review round 2, #6) |
 | SC-003 | A fake worker outcome `{"outcome":"blocked","blocked_on":null,"infra_cause":"push-refused",...}` transcribed via `session-launch.sh … --finish` leaves the entry blocked `stall` with the table reason, never `human:intake` | smoke fixture through the lane `--finish` path (no model) |
 | SC-004 | A summary containing a shell command never appears in `blocked_on.reason` | smoke assertion on `ledger.sh show` |
 | SC-005 | Each guard is mutation-tested: dropping the "unless set" test, the dedupe of the rewrite, the zero-byte/age test, the infra→stall mapping, the enum check, and the summary exclusion each turn the suite red | `sed` mutants in the smoke file, the pattern of `tests/smoke-lane-cache.sh:116-123` |
@@ -155,4 +157,14 @@ asked six times before running a `!` command.
 
 ## Clarifications
 
-_None — every open point was decided from the code (D1–D9)._
+D1–D8 were decided from the code. D9 went to the owner after plan review round 2 (#4: the worker's cwd has no
+`settings.local.json`, so the lanes' `api.github.com` deny likely does not reach a worker).
+
+### Session 2026-11-09 (owner answer, plan review round 2)
+- Q: Item 4 / D9 — should the workers reach `api.github.com`? → A: **Allow it; the allowlist is the fence.** Workers
+  reach `github.com` and `api.github.com`; a merge stays impossible through the worker tool allowlist
+  (`gh pr create` / `gh pr view` only, `hooks/session-launch.sh:200`), lane-guard (`hooks/lane-guard.sh:204-207`) and
+  `ledger.sh`'s refusal of a worker's unblock (`hooks/ledger.sh:590,614`). Setup writes the hosts; the live check
+  confirms the deny is gone for a worker.
+- Q: The other round-2 changes? → A: apply all and re-review until APPROVE (standing decision 2026-11-07, cap 5
+  rounds).

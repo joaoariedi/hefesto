@@ -3,12 +3,25 @@
 <!-- Date: 2026-11-09 -->
 
 ## Research Notes
-Truth map: `research.md`. Decisions D1–D9 are in `spec.md`. Two more taken here:
-- **P1 — one new library, `hooks/forge-lib.sh`.** `ledger.sh` and `session-launch.sh` are already past the
-  500-code-line limit (research.md); the forge logic (remote parsing, host table, hostname rule, lock test, fix
-  table) is shared by setup, the launcher and the ledger, so it lives in one sourced file. The launcher's inline
-  hostname rule (`hooks/session-launch.sh:274-282`) moves into it as `forge_public_host` so setup, launcher and ledger
-  apply one rule; the launcher's existing `allowed_domains` smoke checks guard the move.
+Truth map: `research.md`. Decisions D1–D9 are in `spec.md`. More taken here:
+- **P1 — one new library, `hooks/forge-lib.sh` (line counts corrected, review round 2, #7).** `ledger.sh` is already
+  past the 500-code-line limit (721 code lines; the commit gate only advises when an over-limit file grows) and
+  `session-launch.sh` is close to it (485 code lines — under 500; the gate blocks a file that newly crosses 500). The
+  forge logic (remote parsing, host table, hostname rule, lock test, fix table) is shared by setup, the launcher and
+  the ledger, so it lives in one sourced file. The launcher's inline hostname rule (`hooks/session-launch.sh:274-282`)
+  moves into it as `forge_public_host` so setup, launcher and ledger apply one rule; the launcher's existing
+  `allowed_domains` smoke checks guard the move. **Launcher line budget: ≈ +4 net code lines (≤ 490)** — the moved
+  rule frees ~7, the source line, `infra_stall` (~6), its two call sites and the schema/prompt additions (kept on the
+  existing lines' `jq` objects) add ~11. The implementing task counts code lines before committing
+  (`grep -cvE '^\s*(#|$)'`); if the count would reach 500, `infra_stall` moves into `forge-lib.sh` taking `$LEDGER`
+  as an argument.
+- **P8 — `HEFESTO_SETUP_EXTRA`, not `HEFESTO_SETUP_SET` (deviation from FR-007's wording, review round 2, #3).**
+  FR-007 names `env.HEFESTO_SETUP_SET` as the record of the rewrites setup added. That key is a comma list of marker
+  words (`sandbox,autoallow,inbound`, `hooks/hefesto-setup.sh:349`) read with `index([...])`; a rewrite is a
+  `{repo, key, value}` triple with paths and a `:`, which a comma list cannot carry. Setup's structured record of what
+  it added is `env.HEFESTO_SETUP_EXTRA` (a JSON object, `:348`), already read back from the previous run (`:205`,
+  `:314`). The rewrites go there as `push_rewrites`; FR-007's intent — `--remove` unsets only what setup recorded it
+  added — is unchanged.
 - **P2 — the ledger renders the reason.** `ledger.sh block --kind stall --cause <c> [--host <h>]` stores
   `blocked_on.cause` and `blocked_on.reason`; the reason comes from `forge_infra_fix` in the library, fed only the
   cause (enum), the ledger's own hooks folder, the board config path and a host that passed `forge_public_host`.
@@ -19,15 +32,35 @@ Truth map: `research.md`. Decisions D1–D9 are in `spec.md`. Two more taken her
   otherwise it leaves the file untouched and prints the exact snippet — `"allowed_domains": ["github.com",
   "api.github.com"]` — and where it goes (under `orchestrate`), and `--check` keeps reporting it missing. `jq -e` is
   validation only.
-- **P4 — D9 settled from the documentation (review round 1, #2).** Claude Code's sandbox docs: `deniedDomains`
-  blocks a domain even when `allowedDomains` would permit it, in every permission mode, and deny entries merge across
-  scopes (no scope removes another's deny). So when the project's `settings.local.json` reaches a worker, the
-  `api.github.com` that setup denies there (`hooks/hefesto-setup.sh:173,341`) stays denied, and the
-  `api.github.com` entry in `allowed_domains` is inert for that worker: it is the owner's list, kept for a project
-  without lane settings; `gh` reaches the API unsandboxed through the `gh *` exclusion. `github.com` (git over
-  HTTPS) is what the push needs and is not denied anywhere. One unknown remains — whether the launcher's
-  `--settings` (`hooks/session-launch.sh:294`) merges with the project's `settings.local.json` for a worktree under
-  the project — and it is a live check in Quick Start step 3, its answer written into `docs/install.md` (FR-017).
+- **P4 — D9: the workers reach `api.github.com` by the owner's decision (2026-11-09; review round 2, #4).** The
+  worker's cwd is `$TOP/.claude/worktrees/$ID` (`hooks/session-launch.sh:251`); `settings.local.json` is git-excluded,
+  so the worktree has none, and the lanes' `deniedDomains: api.github.com` (`hooks/hefesto-setup.sh:173,341`) does
+  not reach the worker — the `allowed_domains` entry is live. The owner accepts that: **the allowlist is the fence,
+  not the network.** The fence, as the code has it (review round 3, #1–#2):
+  (a) the worker's tool allowlist — the default `allowed_tools.implement` (`hooks/session-launch.sh:200`: Read, Edit,
+  Write, Glob, Grep, Skill, Agent, `Bash(git *)`, `Bash(gh pr create *)`, `Bash(gh pr view *)`) plus `Bash($HERE/*)`
+  (`:197-198`), with `--permission-prompts none` (`:619`) denying every unmatched command; the list is replaced by
+  `orchestrate.allowed_tools.implement` when a project sets it, so the fence is config-dependent (Risks);
+  (b) lane-guard, which reaches the worker through the main checkout's settings (`hooks/lane-lib.sh:20-26` reads
+  `settings.local.json` through the git common dir) and denies a non-read `gh` (`hooks/lane-guard.sh:204-207`);
+  (c) the ledger: a worker cannot clear a stall (`hooks/ledger.sh:590`) or `human:intake` (`:614`); `human:merge`
+  clears only with merge evidence (`:602`). What these do and do not fence (review round 4, #2): `Bash(git *)` runs
+  arbitrary shell (`git -c alias.x='!…' x`), so the allowlist fences *tools*, not code; lane-guard denies any command
+  that names `gh` (`lane-guard.sh:76,109,204`), not a `curl` that reads the token itself; the ledger fences its own
+  record. A worker-driven merge on GitHub is ultimately stopped by branch protection — the same thing that already
+  stops `git push origin HEAD:main` from a worker. `docs/install.md` says exactly that, not "the merge fence is the
+  allowlist + lane-guard + the ledger". The lanes' own deny is unchanged (it fences the lanes, which run `gh`
+  unsandboxed by rule). D9 is also what makes a worker's PR creation work: the worker's `--settings` (`:294`) has no
+  `excludedCommands`, so its `gh pr create` runs sandboxed and needs `api.github.com`. **Live check (Quick Start 3), two outcomes:**
+  - *Expected* — a worker reaches `api.github.com` and `github.com`: `docs/install.md` says the workers reach the
+    forge's hosts, what the allowlist, lane-guard and the ledger fence (above) and that branch protection is what
+    stops a merge, and the lanes keep their deny.
+  - *Deny still reaches the worker* (`api.github.com` refused): the owner's decision is not met. The task records the
+    observed sandbox violation in its report and stops as `failed` with the finding — no workaround is invented
+    (removing the lanes' deny is a separate owner decision). `github.com` alone still carries the push, so the docs
+    state what was observed.
+  If the check cannot run in the implementing session (headless, no terminal), the task says so and leaves it as
+  the PR's manual test; the docs then state the expected outcome and that it is unverified.
 - **P5 — the lock test needs an unsandboxed caller (review round 1, #4).** A sandboxed `--check` sees `/dev/null`
   mounted over `config.lock`, so the zero-byte file is invisible there. Like the probe write
   (`hooks/hefesto-setup.sh:258-260`), the lock report is meaningful from a terminal or the session-start hook
@@ -49,10 +82,11 @@ Truth map: `research.md`. Decisions D1–D9 are in `spec.md`. Two more taken her
 | `hooks/hefesto-setup.sh` | modify | source the lib; compute forge plan per repo (top + external `repos` map); stale-lock pre-check; write `allowed_domains` when absent; add `pushInsteadOf`; record rewrites in `HEFESTO_SETUP_EXTRA` for `--remove`; `--print` reports; `--check` reports lock + missing forge setup; help text |
 | `hooks/session-launch.sh` | modify | source the lib; hostname rule calls `forge_public_host`; implement + plan schemas gain `infra_cause`/`infra_host`; prompts get one infra sentence; `transcribe` maps an infra outcome to a stall before the outcome switch |
 | `hooks/ledger.sh` | modify | source the lib; `block` accepts `--cause`/`--host` (stall only), stores `cause` + rendered `reason`; usage line |
-| `hooks/session-start-context.sh` | modify | the blocked-entries line prints `.blocked_on.reason` and "→ orchestrator" for a stall with a `cause` (P7) |
+| `hooks/session-start-context.sh` | modify | the blocked-entries line prints `.blocked_on.reason` and "→ orchestrator" for a stall with a `cause` (P7; traces to US5/FR-015 — the fix is shown in the orchestrator, never routed to the build pane where no terminal fix runs; also FR-008's `--check` last line is what this hook shows) |
 | `commands/hef.orchestrate.md` | modify | step-2 table: a `stall` with a `reason` is not a form; brief: its reason in "Blocked otherwise", its fix as the Your move line, one line per distinct fix (D8) |
-| `docs/install.md` | modify | setup section: the forge step, the push rewrite, the lock report |
+| `docs/install.md` | modify | setup section: the forge step, the push rewrite, the lock report; §8b (`:426-433`, the manual `allowed_domains` + `pushInsteadOf` instructions) rewritten to say setup does it, so the manual step is replaced, not left beside the automated one; the D9 fence text (P4) and the widened-allowlist warning |
 | `docs/hooks.md` | modify | a row for `forge-lib.sh`; the infra stall under `ledger.sh block` / `session-launch.sh` |
+| `hooks/lane-guard.sh` | modify (comment only) | `:72-73` credits the `api.github.com` deny for `/usr/bin/gh`; after D9 that holds for the lanes only — the comment says so (FR-017's docs accuracy; review round 3, #2) |
 | `tests/smoke-forge.sh` | create | smoke part 11: fixtures + mutants for US1–US5 |
 | `tests/smoke.sh` | modify | source `tests/smoke-forge.sh` after part 10 |
 | `CHANGELOG.md` | modify | Unreleased entry |
@@ -66,9 +100,19 @@ Ledger entry `blocked_on` gains two optional fields, written only with kind `sta
 An entry without `cause` is today's attempts-stall. `unblock` sets `blocked_on = null` (unchanged), so both go.
 
 `settings.local.json` `env.HEFESTO_SETUP_EXTRA` gains `push_rewrites: [{"repo": "<git common dir>", "key":
-"url.https://<host>/.pushinsteadof", "value": "<ssh prefix>"}]` — only values setup itself added.
+"url.https://<host>/.pushinsteadof", "value": "<ssh prefix>"}]` — only values setup itself added (P8). Its life
+cycle (review round 2, #2):
+- **Build** — `push_rewrites` = the previous run's list from `$PREV` (`hooks/hefesto-setup.sh:205`) whose value is
+  still present in that repo's config (carried forward, so a second run that adds nothing still remembers the first
+  run's rewrites), plus the rewrites this run adds; deduplicated with `unique`.
+- **Write** — passed into the merge as `$r.pushrw` and added to the object rebuilt at `:348`
+  (`{allow: …, user_excl: …, push_rewrites: $r.pushrw}`), so the rebuild never drops it.
+- **Remove** — `--remove` reads `push_rewrites` from `$CUR` **before** the merge (the merge at `:330` deletes
+  `HEFESTO_SETUP_EXTRA`), unsets each recorded value with `git config --unset-all <key> <escaped value>`, then runs
+  the merge. A value the person added by hand is not in the list and stays.
 
-Board config: `orchestrate.allowed_domains` written only when absent (D2).
+Board config: `orchestrate.allowed_domains` written only when absent (D2); the hosts of every repository (top +
+`repos` map) are joined with `unique`, so a multi-repo board on one forge lists `github.com` once (review round 2, #8).
 
 ## API Contracts
 - `ledger.sh block <id> --kind stall [--cause <c> [--host <h>]] [--question <f>]` — `--cause`/`--host` with another
@@ -86,25 +130,37 @@ Board config: `orchestrate.allowed_domains` written only when absent (D2).
 
 ## Implementation Approach
 1. Library first, unit-smoked directly (each function with fixtures, no setup run).
-2. Setup: a forge pass builds a list of `{repo, host, prefix}` before any write; the stale-lock pre-check dies
-   "(nothing was written)"; then the existing settings write; then `git config --add` per needed rewrite; then the
-   `allowed_domains` write through temp file + `jq -e` (the existing pattern). `--print`: prints the forge lines with
-   "would", writes nothing. `--check`: adds to `miss` (absent key, missing rewrite, stale lock — all inside the one
-   `miss` line, P5) and notes (present key lacking forge hosts). The board config write follows P3. `--remove`: `git config --unset-all <key> <value-regex-escaped>` for each recorded rewrite.
+2. Setup: a forge pass builds a list of `{repo, host, prefix}` before any write, and collects `forge_stale_lock` for
+   **every** repository (FR-008 has no SSH condition; review round 2, #1). The FR-010 write pre-check applies only to
+   repositories with a rewrite still to add (an SSH remote whose rewrite value is absent): a lingering lock there dies
+   "(nothing was written)" with the path and `rm`; a lock in a repository that needs no write is reported (in
+   `--check`'s `miss` line; as a note on a normal run) and does not stop setup — so a second run with a lingering lock
+   does not die for nothing. Then the existing settings write (carrying `push_rewrites`, Data Model); then
+   `git config --add` per needed rewrite; then the `allowed_domains` write through temp file + `jq -e` (the existing
+   pattern). `--print`: prints the forge lines with "would", writes nothing. `--check`: adds to `miss` (absent key,
+   missing rewrite, stale lock — all inside the one `miss` line, P5) and notes (present key lacking forge hosts). The
+   board config write follows P3. `--remove`: the Data Model's remove order (read `$CUR` first, unset, then merge).
 3. Ledger: `block` parses `--cause`/`--host`, renders with `forge_infra_fix "$cause" "$HERE" "$CFGPATH" "$host"`.
 4. Launcher: in `transcribe`, for implement and plan, right after `record_worktree`, `infra_stall && return`
    — a helper that, when `.infra_cause` is set and outcome is `blocked|failed`, blocks stall, prints
    `infra: <reason>` and returns 0. Plan: the person's answers are not marked consumed on an infra stall.
    Precedence: `infra_cause` wins over `blocked_on` — an outcome with `infra_cause` set and `blocked_on:
    "human:clarify"` is an infra stall (the infra stop is what ended the run; a question it also raised is asked
-   again on the retry). The ledger still refuses to replace an *existing* `human:*` block.
+   again on the retry). An *existing* `human:*` block is never under a finishing worker: no launch or `--prepare`
+   happens over a human gate (`hooks/ledger.sh:649-650`, `hooks/session-launch.sh:489`), and `ledger block` refuses
+   to replace `human:intake`/`human:plan-approval` for every caller (`ledger.sh:562,570`).
 5. Session-start line (P7), orchestrate doc, docs, CHANGELOG.
 6. Smoke part 11 (`tests/smoke-forge.sh`):
-   - library functions called directly on fixture URLs and lock files (`touch -d '2 minutes ago'`);
+   - library functions called directly on fixture URLs and lock files (`touch -t 202601010000` — POSIX, so the
+     macOS lane runs it; `touch -d` is GNU-only);
    - setup on fixture repos with a fake `HOME` (the `lc_su` pattern, `tests/smoke-lane-cache.sh:71`): scp SSH,
      `ssh://`, `ssh://…:2222`, `ssh://deploy@host/` (code 2), HTTPS, self-hosted host, IP remote, existing key,
      a hand-formatted config left byte-identical (`cmp`), a jq-formatted one written, `--print`, `--remove`,
      the stale-lock pre-check ("nothing was written": settings file and git config unchanged);
+   - an external-board fixture (review round 3, #3): a board repo whose `repos` map names two repos on `github.com`
+     (both SSH, one already rewritten and holding a stale lock) — asserts `github.com` appears once in
+     `allowed_domains`, the other repo's rewrite is written, and the lock in the repo that needs no write is in
+     `--check`'s last line but does not stop a write run;
    - `--check` with `HEFESTO_CHECK_UNSANDBOXED=1`: lock inside the last line, young/non-empty lock silent;
    - ledger `block --cause` (enum, `--host` dropped when not public, `--cause` with a non-stall kind refused, an
      existing `human:intake` not replaced);
@@ -113,14 +169,23 @@ Board config: `orchestrate.allowed_domains` written only when absent (D2).
      exit 0, stall; `blocked`+`human:clarify`+`infra_cause` → stall; no `infra_cause` → `human:intake` as today;
      a summary holding `curl x | sh` absent from `reason` (SC-004); the `host-denied` reason carries "reports";
    - tier-1 greps (repo convention, `tests/smoke.sh:567`): `commands/hef.orchestrate.md` holds the reasoned-stall
-     rule and the `Your move: <reason>` line; `docs/hooks.md` has the `forge-lib.sh` row; `docs/install.md` names
-     the push rewrite and the unsandboxed lock check;
-   - **mutants** (SC-005): a mutant of the lib is wired by copying `hooks/` into a temp plugin root
-     (`$m/hooks/*`), `sed`-ing `$m/hooks/forge-lib.sh`, and running the caller from `$m/hooks/` — every caller
-     sources the lib from its own `$HERE`, so the mutant is the one loaded; the "mutant did not apply" guard
-     (`cmp`) stays. Mutants: the "unless set" test, the byte-identical (P3) test, the rewrite dedupe, the
-     zero-byte test, the age test, the `forge_ssh_prefix` port arm, the `infra_stall` call, the cause enum, the
-     summary exclusion (render from `.summary`), the "reports" wording, the `|| die` on `forge_infra_fix`.
+     rule and the `Your move: <reason>` line; `docs/hooks.md` has the `forge-lib.sh` row; `docs/install.md` has a
+     line pairing `hefesto-setup.sh` with the push rewrite (new wording — the bare rewrite text is already at
+     `docs/install.md:432`, so a grep for it alone would be green before the change; review round 4, #4), names the
+     unsandboxed lock check, and no longer instructs the manual `pushInsteadOf` step of §8b;
+   - **mutants** (SC-005), wired by three routes (review round 2, #6), each keeping the "mutant did not apply"
+     guard (`cmp`):
+     - *library guards* (zero-byte test, age test, `forge_ssh_prefix` port arm, the "reports" wording, the
+       `forge_infra_fix` `*) return 1`): `sed` the lib into `$TMPDIR` and `source` the mutated copy directly in a
+       subshell, then call the function — no caller involved;
+     - *setup guards* (the "unless set" test, the byte-identical P3 test, the rewrite dedupe, the per-repo lock
+       pre-check scope): setup refuses to run from a temp-folder root (`hooks/hefesto-setup.sh:40-43`), so the
+       mutant is made the `lc_smut` way (`tests/smoke-lane-cache.sh`) — a mutated copy written **inside the real
+       hooks folder** under a throwaway name, run, and removed by a `trap`;
+     - *ledger/launcher guards* (the cause enum, the `--cause` kind check, the `|| die` on `forge_infra_fix`, the
+       `infra_stall` call, the summary exclusion — render from `.summary`): temp copies of `hooks/` the way the
+       ledger's own smoke does (`hooks/ledger.sh:92-96` accepts a temp plugin root), `sed` the copied script or
+       lib, run from the copy.
 
 ## Code Sketches (Mental Alignment)
 
@@ -199,16 +264,22 @@ lock is invisible to a sandboxed caller (P5): `--check` from the Bash tool repor
 ```bash
 . "$HERE/forge-lib.sh"
 fg_repos=("$TOP"); for d in ${x_dirs[@]+"${x_dirs[@]}"}; do fg_repos+=("$d"); done
-fg_rw=(); fg_dom=(); fg_lock=()
+fg_rw=(); fg_dom=(); fg_lock=(); fg_block=()
 for r in "${fg_repos[@]}"; do
   u="$(forge_remote_url "$r")" || { echo "setup: note: $r has no origin (or several remotes) — no forge setup"; continue; }
   h="$(forge_host "$u")"; forge_public_host "$h" || { echo "setup: note: $r's remote host '$h' is not a public hostname — not written"; continue; }
   while IFS= read -r d; do fg_dom+=("$d"); done < <(forge_domains "$h")
-  if hp="$(forge_ssh_prefix "$u")"; then fg_rw+=("$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)	$hp")
-    l="$(forge_stale_lock "$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)")" && fg_lock+=("$l"); fi
-done
+  cd_="$(git -C "$r" rev-parse --path-format=absolute --git-common-dir)"
+  l="$(forge_stale_lock "$cd_")" && fg_lock+=("$l")                       # every repo (FR-008)
+  if hp="$(forge_ssh_prefix "$u")"; then
+    git config -f "$cd_/config" --get-all "url.https://${hp%%	*}/.pushinsteadof" | grep -qxF "${hp#*	}" && continue
+    fg_rw+=("$cd_	$hp"); [ -z "${l:-}" ] || fg_block+=("$l")              # a write is due here: FR-010 pre-check
+  fi
+done                                                                      # (l is reassigned every pass)
+[ "${#fg_block[@]}" = 0 ] || [ "$MODE" = check ] || [ "$MODE" = print ] || die "…stale ${fg_block[*]} — rm … (nothing was written)"
 ```
-**Why this shape:** the plan is complete before any write, so the D7 pre-check can say "nothing was written";
+**Why this shape:** the plan is complete before any write, so the D7 pre-check can say "nothing was written"; the
+pre-check holds only where a rewrite is still to be written (review round 2, #1), while every stale lock is reported;
 `x_dirs` is setup's existing external-board repo list (`hooks/hefesto-setup.sh:178-187`, populated only with
 `--lanes`; without `--lanes` an external board's repos are read from `$BCTX` the same way).
 
@@ -221,12 +292,12 @@ done
 [ -z "$CAUSE$HOST" ] || [ "$KIND" = stall ] || die "ledger block $ID: --cause/--host go with --kind stall only (got $KIND)"
 case "${CAUSE:-none}" in none|push-refused|host-denied|credential-helper-missing) ;; *) die "ledger block $ID: --cause must be push-refused, host-denied or credential-helper-missing (got '$CAUSE')" ;; esac
 forge_public_host "$HOST" || HOST=""
-REASON=""; [ -z "$CAUSE" ] || REASON="$(forge_infra_fix "$CAUSE" "$HERE" "$(board_config_path)" "$HOST")" \
+REASON=""; [ -z "$CAUSE" ] || REASON="$(forge_infra_fix "$CAUSE" "$HERE" "$(project_config)" "$HOST")" \
   || die "ledger block $ID: no fix line for cause '$CAUSE'"
 jq --arg k "$KIND" --arg q "$Q" --arg c "$CAUSE" --arg r "$REASON" '.blocked_on = {kind: $k, since: (now | todate), question_path: (if $q == "" then null else $q end)}
   + (if $c == "" then {} else {cause: $c, reason: $r} end)' <<<"$E" | write_entry "$ID"
 ```
-**Why this shape:** P2; the human-block guards above it (`:562-574`) still run first, so an infra stall never
+**Why this shape:** P2; `project_config` (`hooks/board-lib.sh:8-15`) already resolves the external-board case; the human-block guards above it (`:562-574`) still run first, so an infra stall never
 replaces a person's block.
 
 ### Sketch 6: the launcher's infra mapping
@@ -263,21 +334,27 @@ reason; on "retry", run `ledger.sh unblock <id>` for each".
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | Moving the hostname regex changes launcher behaviour | A valid domain refused, or an IP let through | Byte-identical regex; existing `allowed_domains` smoke checks run unchanged; a mutant on the moved function |
-| `deniedDomains: api.github.com` (lane settings) vs the worker's `allowedDomains` | `api.github.com` inert for a worker | Settled (P4): deny wins; only `github.com` is required; the `--settings` merge question is a live check (Quick Start 3) |
+| A worker reaches `api.github.com` (owner's D9, P4) | A sandboxed worker's script could call the GitHub API, e.g. a merge | Accepted by the owner: the worker tool allowlist with `--permission-prompts none` (P4 a — it fences tools, not code: `Bash(git *)` runs shell), lane-guard through the main checkout's settings (P4 b — any command naming `gh`), the ledger (P4 c — its own record); a merge on GitHub is ultimately stopped by branch protection, as a worker's `git push` to a protected branch already is; the live check (Quick Start 3) has two defined outcomes (P4) and the docs say which held |
+| A project widens `orchestrate.allowed_tools.implement` (e.g. `Bash(curl *)`) | With `api.github.com` in `allowed_domains` that tool reaches the GitHub API from inside the worker sandbox (D9 automates the step `docs/install.md:430-433` already told the person to take by hand) | `docs/install.md` warns beside the forge step: widening the worker allowlist widens what reaches the forge's API; branch protection stays the merge fence |
+| A worker sets `infra_cause` on an injected item (INJECTION_RULE, `session-launch.sh:297`) | The would-be `human:intake` becomes a stall showing a table fix line instead of the item | Accepted: the stall is still a person's to clear (a worker cannot unblock it, `ledger.sh:590`); the line shown is the plugin's own fix table, never the item's text (D6), and the worst fix it can name is "run setup" / "gh auth setup-git" / "confirm a host against the run log" (P6); the item on the board is unchanged and the run's log keeps the worker's summary (where the injection rule has it report what it refused), so a person deciding "retry" can read both; a smoke fixture asserts the item text never reaches `blocked_on.reason` |
 | Writing a tracked board config | An unexpected diff in the person's repo | Written only when the key is absent and the file is already jq-formatted (P3); otherwise the snippet is printed; setup says "changed a tracked file — commit it" |
 | A worker nominates an exfiltration host | The person widens the worker sandbox to it | P6 wording: the host is the worker's claim, to confirm against the run log; a mutant guards the wording |
 | Sandboxed `--check` cannot see the lock | False "ok" from a lane | P5: documented; the session-start hook runs it unsandboxed |
 | `git config --add` under a live (non-stale) lock | Partial setup | FR-010: named non-zero exit saying what was and was not written; re-run is idempotent |
-| A worker sets `infra_cause` to dodge a `human:*` block | A person's question silently becomes a stall | `ledger block` refuses to replace `human:*` (`hooks/ledger.sh:562-574`); a stall is still a person's to clear (`:590`); smoke covers both |
+| A worker sets `infra_cause` to dodge a `human:*` block | A person's question silently becomes a stall | No launch or `--prepare` happens over a human gate (`hooks/ledger.sh:649-650`, `hooks/session-launch.sh:489`), so a worker never finishes over an existing `human:*` block; `ledger block` also refuses to replace `human:intake`/`human:plan-approval` for every caller (`ledger.sh:562,570`); a stall is still a person's to clear (`:590`); smoke covers both |
 | macOS `stat`/`date` differences | Lock test wrong on BSD | both `stat` spellings; the static macOS guard in `tests/smoke.sh` runs on the new file |
 
 ## Quick Start
 1. Write `hooks/forge-lib.sh` and its direct smoke (part 11, first block).
 2. Wire setup (forge pass, pre-check, writes, `--check`, `--print`, `--remove`).
-3. Live check (P4), from a terminal in a project set up with `--lanes`: launch a dry worker
-   (`session-launch.sh implement <id> --dry-run` shows the `--settings`), then a real one-line worker that runs
-   `curl -sI https://api.github.com` and `git ls-remote https://github.com/<o>/<r>` in its sandbox; record which
-   reach in `docs/install.md`. If it cannot be run in the implementing session (headless, no terminal), the task
-   says so and the docs state the documented deny-wins rule only.
+3. Live check (P4, D9), from a terminal in a project set up with `--lanes`: launch a dry worker
+   (`session-launch.sh implement <id> --dry-run` shows the `--settings`), then a real one-line worker whose probes
+   are commands its default allowlist admits (`session-launch.sh:200`; `curl` is not in it, and under
+   `--permission-prompts none` it would be denied by the permission system before any network is tried):
+   `gh pr view <n>` (sandboxed in the worker, reaches `api.github.com`) and `git ls-remote
+   https://github.com/<o>/<r>`. Expected: both reach (the deny is gone for the worker) → `docs/install.md` says so.
+   `api.github.com` refused **with a sandbox-violation entry** → the task stops `failed` with the observed violation
+   (P4's second outcome); a permission denial is a defect in the probe, not that outcome — fix the probe and re-run. Not runnable here (headless) → the task says so, it
+   becomes the PR's manual test, and the docs state the expected outcome as unverified.
 4. Ledger `block --cause`; launcher schema, prompt sentence, `infra_stall`; session-start reason line.
 5. Orchestrate doc, docs, CHANGELOG; mutants; `bash tests/smoke.sh` and `node --test tests/`.
