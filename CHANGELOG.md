@@ -63,6 +63,12 @@ it is what caught the hand-bumped era:
   whole). Measured on a four-lane board: 408 `ask` rules and about 100 dialogs from RFC to a staging deploy. A
   person who relied on a mechanics ask as a brake loses that dialog; `ledger.sh` still refuses a person's decision
   from any lane but the orchestrator.
+- **A signature must be spelled plain** (HEF-27 FR-007). An ask rule matches literal text, so a quoted, escaped or
+  tab-separated signature flag (`"--merge-sha"`, `--reviewed-by-"human"`) — or a quoted or tab-followed
+  `pr-watch.sh reply|comment` verb — matched no ask and got the `unblock:*` / `record:*` / `release:*` /
+  `pr-watch.sh:*` allow, with no dialog. In every set-up project and every lane, the orchestrator included,
+  `lane-guard.sh` now denies such a call to the helper and names the plain spelling; a command that only mentions
+  the helper (a `grep`, a commit message) is untouched.
 - **One spelling per root.** Each rule and sandbox exclusion is written once per plugin root, in the spelling the
   matcher sees — `<installPath>//hooks/…` for a profile's installed copy, `<clone>/hooks/…` for the clone — and
   never as `bash <path>`. The first run after the upgrade takes out every other spelling and version an earlier
