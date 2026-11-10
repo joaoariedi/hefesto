@@ -7,9 +7,14 @@
 #
 # It merges into <main checkout>/.claude/settings.local.json (kept out of git) what a lane needs, so a lane
 # opens with plain `claude --name <repo>-<lane>` — or any wrapper that forwards claude's arguments:
-#   permissions.allow         hefesto's own read-only and registering helper calls, as exact rules; gh's read and
-#                             PR-opening forms; each --allow-command
-#   permissions.ask           the commands that clear or rewrite a person's decision — their dialog always shows
+#   permissions.allow         hefesto's own helper calls, as exact rules — every ledger.sh subcommand but the
+#                             signatures one by one (never ledger.sh as a whole; claim and run get no rule: ledger.sh
+#                             refuses them unless session-launch.sh calls); gh's read and PR-opening forms; each
+#                             --allow-command
+#   permissions.ask           only where a person signs: the ledger.sh forms that record a person's decision (approve,
+#                             answer, revise, drop, fold, supersede, reopen, op close|drop; unblock/record/release with
+#                             their signature flag anywhere after the id) and pr-watch.sh reply|comment — their dialog
+#                             always shows
 #   permissions.deny          Edit on ~/.cache/hefesto/{ledger,approvals,sessions}, by every spelling of the path
 #   sandbox.enabled / failIfUnavailable  true: a lane never runs unsandboxed by accident
 #   sandbox.excludedCommands  session-launch.sh, ledger.sh, pr-watch.sh, status-board.sh, `gh *`, and each
@@ -20,7 +25,9 @@
 #                             grant of the ledger folder is taken out (since 9.0 the ledger is in ~/.cache/hefesto)
 #   permissions.additionalDirectories  with --lanes on an external board, the code repos its `repos` names
 #   statusLine                the context gauge, run as `context-gauge.sh --with-user`: your profile's own status
-#                             line first, then `ctx 45% · 90k/200k` (left alone when this file already has one)
+#                             line first, then `ctx 45% · 90k/200k` (left alone when this file already has one);
+#                             the run rows below it are opt-in with context.gauge_rows: true in
+#                             .claude/project-status.json (default false — this script writes nothing for it)
 #   crossSessionInbound       "accept", with --lanes: the orchestrator's doorbells reach the stage lanes
 #   sandbox.autoAllowBashIfSandboxed  false, only with --strict: any command outside the allowlist asks,
 #                             sandboxed or not (without --strict an earlier setup's false is taken back out)
@@ -33,11 +40,12 @@
 #   --allow-command <p>        also allow this plain read-only command pattern (remembered across runs)
 #   --unsandboxed-command <p>  also run this absolute-path command outside the sandbox (remembered across runs)
 #   --forget-commands          drop the remembered --allow-command / --unsandboxed-command patterns
-#   --check                    read-only: "setup: ok", or what is missing for this plugin root (exit 1)
+#   --check                    read-only: "setup: ok", or what is missing for this plugin root (exit 1) — including any
+#                              ask rule on a hefesto helper outside the signature set, named with its settings file
 #   --remove                   take out every entry this script writes (for any hefesto version)
 #   --print                    show the merged file; write nothing
-# Rules name each plugin root explicitly — the clone this runs from and each profile's installed copy —
-# never with a wildcard inside a path: `…/hefesto/*/hooks/session-launch.sh *` would also match
+# Rules name each plugin root explicitly — the clone this runs from and each profile's installed copy, in the one
+# spelling the matcher sees for it (<installPath>//hooks, <clone>/hooks) — never with a wildcard inside a path: `…/hefesto/*/hooks/session-launch.sh *` would also match
 # `…/hefesto/../../../tmp/x/hooks/session-launch.sh`, a file a sandboxed session can write, and run it outside
 # the sandbox. For the same reason a root inside this project or a temp folder is skipped. Each run drops the
 # rules of hefesto versions no longer installed; after a plugin update run it again (the session start says so).
@@ -52,7 +60,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --allow-command) [ -n "${2:-}" ] || die "--allow-command needs a pattern"; NEW_ALLOW+=("$2"); shift ;;
   --unsandboxed-command) [ -n "${2:-}" ] || die "--unsandboxed-command needs a pattern"; NEW_EXCL+=("$2"); shift ;;
   --check|--remove|--print) [ "$MODE" = write ] || die "one of --check, --remove, --print at a time (got --$MODE and $1)"; MODE="${1#--}" ;;
-  -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) die "unknown option '$1' (expected --lanes, --strict, --keep-statusline, --allow-command, --unsandboxed-command, --forget-commands, --check, --remove or --print)" ;;
 esac; shift; done
 [ "$LANES" = 0 ] || [ "$MODE" != remove ] || die "--lanes does not go with --remove (it takes every hefesto entry out, the lane ones included)"
@@ -102,46 +110,85 @@ unsafe_root() { # $1 path → 0 when it lies under a sandbox-writable path, or a
     case "$t" in "$p"*) return 0 ;; esac             # a writable path is inside the root (its hooks/, say)
   done; return 1
 }
-roots=(); skipped=(); cfgs=()
-add_root() { local p="${1%/}"; [ -n "$p" ] || return 0
+roots=(); kinds=(); skipped=(); cfgs=()
+add_root() { local p="${1%/}" k="$2"; [ -n "$p" ] || return 0
   if unsafe_root "$p"; then skipped+=("$p"); return 0; fi
-  case " ${roots[*]-} " in *" $p "*) ;; *) roots+=("$p") ;; esac; }
-add_root "$CLONE"
+  case " ${roots[*]-} " in *" $p "*) ;; *) roots+=("$p"); kinds+=("$k") ;; esac; }
+# Installed copies first, the clone last: run from the installed copy, CLONE is that same path, and the dedup keeps
+# its `installed` kind — the spelling Claude Code substitutes for it (HEF-27 plan review round 2).
 for cfg in "${CLAUDE_CONFIG_DIR:-}" "$HOME/.claude" "$HOME"/.claude-*; do
   [ -n "$cfg" ] && [ -f "$cfg/plugins/installed_plugins.json" ] || continue
   case " ${cfgs[*]-} " in *" $cfg "*) continue ;; esac; cfgs+=("$cfg")
-  while IFS= read -r p; do add_root "$p"; done \
+  while IFS= read -r p; do add_root "$p" installed; done \
     < <(jq -r '[.plugins["hefesto@hefesto"][]? | select(.scope == "user") | .installPath // empty] | .[]' "$cfg/plugins/installed_plugins.json" 2>/dev/null)
 done
+add_root "$CLONE" clone
 [ "${#roots[@]}" -gt 0 ] || die "no usable hefesto folder: every candidate lies inside this project or a temp folder (${skipped[*]-}) — run it from your hefesto install (~/.claude-framework)"
+# The one spelling ${CLAUDE_PLUGIN_ROOT}/hooks reaches the permission matcher in (D4, tests/smoke.sh:860-862): an
+# installed copy's root ends in `/`, so its helpers arrive as <root>//hooks/…; the clone (--plugin-dir, a terminal)
+# as <root>/hooks/…. The matcher does no normalization, so a rule in the other spelling never matches.
+hooks_of() { # $1 root, $2 kind (installed | clone) → the hooks folder as the matcher sees it
+  if [ "$2" = installed ]; then printf '%s//hooks' "$1"; else printf '%s/hooks' "$1"; fi
+}
+# The status line keeps a release-stable path: the clone when it is a root, never a version-pinned cache folder
+# the next plugin update deletes (the reorder above moved ${roots[0]} onto one — plan review round 3).
+gauge_root() { local i; for i in "${!roots[@]}"; do [ "${roots[$i]}" = "$CLONE" ] && { printf '%s' "$CLONE"; return; }; done; printf '%s' "${roots[0]}"; }
 
 # What marks an entry as ours, for any version: the clone, and every profile's plugin cache.
 prefixes=("$CLONE"); for c in ${cfgs[@]+"${cfgs[@]}"}; do prefixes+=("$c/plugins/cache/hefesto"); done
+# HEF-27: a dialog only where a person signs. Everything else in ledger.sh's dispatch is allowed, one by one —
+# never ledger.sh as a whole, so a new subcommand is classified before it runs without asking (FR-006; the
+# completeness check in tests/smoke-signatures.sh diffs these lists against ledger.sh's dispatch both ways).
+# merge-auto grant/revoke: a person turns auto-merge on or off — the dialog is the signature (HEF-30 FR-015)
+LEDGER_SIGN_WHOLE=(approve answer revise drop fold supersede reopen "op close" "op drop" "merge-auto grant" "merge-auto revoke")
+LEDGER_SIGN_FLAG=("unblock --reviewed-by-human" "unblock --merge-sha" "record --body-file" "record --body-from-board" "record --rfc"
+  "release --reviewed-by-human")   # it records a person's name → a signature (spec Clarifications 2026-11-09)
+# no rule at all: ledger.sh refuses claim and run unless session-launch.sh calls (FR-010); automerge is the deploy
+# launcher's, gated by itself on the person's grant and the verdicts at the verified head (HEF-30 FR-010)
+# shellcheck disable=SC2034  # written nowhere on purpose; tests/smoke-signatures.sh reads it (FR-006)
+LEDGER_LAUNCHER=(claim run automerge)
+LEDGER_ALLOW=(board list next show metrics register publish escalate questions request actions action "op new" direct
+  directives directive note lanes deployed record advance handoff block release unblock verdict init where branches spec-roots
+  merge-by)   # read-only (HEF-30)
+LEDGER_ALLOW_EXACT=("park --all" dir "merge-auto preview" "merge-auto show")
+# The signature ask rules for one hooks folder (FR-001): written by setup, looked for by --check. ask outranks allow
+# (D7), so `record:*` in allow and `record * --body-file*` here coexist: the flag anywhere after the id asks.
+# `record * --rfc*` also matches the launcher-only --rfc-snapshot — an over-ask, never an under-ask.
+sign_asks() { # $1 hooks folder → one rule per line
+  local s
+  for s in "${LEDGER_SIGN_WHOLE[@]}"; do printf 'Bash(%s/ledger.sh %s:*)\n' "$1" "$s"; done
+  for s in "${LEDGER_SIGN_FLAG[@]}"; do printf 'Bash(%s/ledger.sh %s * %s*)\n' "$1" "${s% *}" "${s#* }"; done
+  # pr-watch's two verbs that write to GitHub (a reply, a comment) ask — the rest of it reads
+  printf 'Bash(%s/pr-watch.sh reply:*)\nBash(%s/pr-watch.sh comment:*)\n' "$1" "$1"
+}
+ask_defects() { # $1 a settings file → each of its ask rules on a hefesto helper that is not a signature, one per line
+  jq -r --argjson w "$(printf '%s\n' "${LEDGER_SIGN_WHOLE[@]}" | jq -R . | jq -sc .)" --argjson fl "$(printf '%s\n' "${LEDGER_SIGN_FLAG[@]}" | jq -R . | jq -sc .)" '
+    # the strip stops at the first word (the helper path): an argument that holds another /hooks/ path must not swallow it
+    def signature: (sub("^Bash\\((bash )?[^ ]*/hooks/"; "") | rtrimstr(")") | capture("^(?<hp>[a-z-]+[.]sh)(?<rest>.*)$")) as $c
+      | ($c.rest | sub(":\\*$"; "") | split(" ") | map(select(. != ""))) as $a
+      | if $c.hp == "pr-watch.sh" then ($a[0] == "reply" or $a[0] == "comment")
+        elif $c.hp == "ledger.sh" then (if $a[0] == "op" or $a[0] == "merge-auto" then "\($a[0]) \($a[1] // "")" else ($a[0] // "") end) as $s
+          | ($w | index([$s]) != null) or any($fl[]; split(" ") as [$fs, $ff] | $fs == $s and any($a[1:][]; startswith($ff)))
+        else false end;
+    (.permissions.ask // [])[] | strings
+    | select(test("^Bash\\((bash )?/.*/hooks/(ledger|pr-watch|session-launch|status-board|speckit-helper|run-follow|hefesto-setup)[.]sh( |:|\\)|$)"))
+    | select(signature | not)' "$1" 2>/dev/null
+}
 allow=(); ask=(); excl=()
-for r in "${roots[@]}"; do for h in "$r/hooks" "$r//hooks"; do
+for i in "${!roots[@]}"; do h="$(hooks_of "${roots[$i]}" "${kinds[$i]}")"
   # status-board.sh --set-status is never allowed here: it writes a GitHub Project card, and its one caller is
   # ledger.sh publish (github-project-board NR-004; tests/smoke-github-board.sh checks every pattern below).
   allow+=("Bash($h/status-board.sh)" "Bash($h/status-board.sh --detailed:*)" "Bash($h/status-board.sh --check:*)" "Bash($h/status-board.sh --item:*)"
           "Bash($h/status-board.sh --add:*)" "Bash($h/status-board.sh --list:*)" "Bash($h/status-board.sh --init)" "Bash($h/status-board.sh --detect)" "Bash($h/status-board.sh --item-raw:*)" "Bash($h/hefesto-setup.sh --check)"
-          "Bash($h/ledger.sh board:*)" "Bash($h/ledger.sh list:*)" "Bash($h/ledger.sh next:*)" "Bash($h/ledger.sh show:*)" "Bash($h/ledger.sh metrics:*)"
-          "Bash($h/ledger.sh register:*)" "Bash($h/ledger.sh publish:*)" "Bash($h/ledger.sh escalate:*)" "Bash($h/ledger.sh questions:*)"
-          "Bash($h/ledger.sh request:*)" "Bash($h/ledger.sh actions:*)" "Bash($h/ledger.sh action:*)" "Bash($h/ledger.sh op new:*)"
-          "Bash($h/ledger.sh direct:*)" "Bash($h/ledger.sh directives:*)" "Bash($h/ledger.sh directive:*)" "Bash($h/ledger.sh note:*)"
-          "Bash($h/ledger.sh park --all)" "Bash($h/ledger.sh lanes:*)" "Bash($h/ledger.sh dir)"
-          "Bash($h/ledger.sh deployed:*)"   # git decides, any lane (lanes-parity US3)
-          "Bash($h/ledger.sh merge-by:*)" "Bash($h/ledger.sh merge-auto preview)" "Bash($h/ledger.sh merge-auto show)"   # read-only (HEF-30)
           "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/run-follow.sh:*)")
-  # merge-auto grant/revoke: a person turns auto-merge on or off — the dialog is the signature (HEF-30 FR-015)
-  for c in unblock record claim advance handoff block revise answer approve release drop fold supersede reopen "op close" "op drop" "merge-auto grant" "merge-auto revoke"; do
-    ask+=("Bash($h/ledger.sh $c:*)" "Bash(bash $h/ledger.sh $c:*)")   # the second spelling would miss the first rule
-  done
-  # pr-watch's two verbs that write to GitHub (a reply, a comment) ask — the rest of it reads
-  ask+=("Bash($h/pr-watch.sh reply:*)" "Bash($h/pr-watch.sh comment:*)")
+  for s in "${LEDGER_ALLOW[@]}"; do allow+=("Bash($h/ledger.sh $s:*)"); done
+  for s in "${LEDGER_ALLOW_EXACT[@]}"; do allow+=("Bash($h/ledger.sh $s)"); done
+  while IFS= read -r s; do ask+=("$s"); done < <(sign_asks "$h")
   # pr-watch: the babysitter's gh calls live in it; status-board: a github-project board is read through gh — both
   # need the API the lanes' sandbox no longer reaches (code review of PR A)
   excl+=("$h/session-launch.sh *" "$h/ledger.sh *" "$h/pr-watch.sh *" "$h/status-board.sh *")
   allow+=("Bash($h/pr-watch.sh:*)")
-done; done
+done
 # hefesto 9 keeps the ledger in ~/.cache/hefesto, outside every sandbox: the 8.x grant of the board repo's
 # .git/hefesto (and this project's) is taken out, and nothing a sandbox can reach is granted in its place.
 wr=()
@@ -229,9 +276,10 @@ while IFS= read -r x; do
   case "$x" in */hooks/session-launch.sh\ \*) f="${x% \*}"; { [ -f "$f" ] && ! unsafe_root "$(dirname "$(dirname "$f")")"; } || badx+=("$x") ;; esac
 done < <(jq -r '.sandbox.excludedCommands // [] | .[] | strings' <<<"$CUR")
 jarr() { if [ $# -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq -sc .; fi; }
+jarr_lines() { jq -R . | jq -sc .; }   # stdin, one string per line → a JSON array
 RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@]}")" --argjson x "$(jarr "${excl[@]}")" \
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
-  --arg g "${roots[0]}/hooks/context-gauge.sh --with-user" --argjson lanes "$LANES" --argjson keep "$KEEP" --argjson strict "$STRICT" \
+  --arg g "$(gauge_root)/hooks/context-gauge.sh --with-user" --argjson lanes "$LANES" --argjson keep "$KEEP" --argjson strict "$STRICT" \
   --argjson xa "$(jarr "${x_allow[@]}")" --argjson xe "$(jarr "${x_excl[@]}")" --argjson xd "$(jarr "${x_deny[@]}")" --argjson xr "$(jarr ${x_dirs[@]+"${x_dirs[@]}"})" \
   --argjson xn "$(jarr "${x_net[@]}")" --argjson xw "$(jarr ${LCP:+"$LCP"})" --argjson ua "$(jarr ${u_allow[@]+"${u_allow[@]}"})" --argjson ue "$(jarr ${u_excl[@]+"${u_excl[@]}"})" \
   '{allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep,
@@ -239,12 +287,15 @@ RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@
 
 if [ "$MODE" = check ]; then
   me="${CLAUDE_PLUGIN_ROOT:-$CLONE}"; me="${me%/}"
-  miss="$(jq -r --arg h "$me/hooks" '[
+  # This session's root and its kind come from setup's own roots/kinds (installed wins, FR-005); a root setup does
+  # not trust — or never saw — is reported, never given a guessed spelling.
+  mh=""; for i in "${!roots[@]}"; do [ "${roots[$i]}" = "$me" ] && { mh="$(hooks_of "$me" "${kinds[$i]}")"; break; }; done
+  miss="$(jq -r --arg h "$mh" --arg me "$me" --argjson sig "$(if [ -n "$mh" ]; then jarr_lines < <(sign_asks "$mh"); else echo '[]'; fi)" '[
+      (if $h == "" then "the hefesto folder this session runs from (\($me)) is not one setup trusts" else
       (if ((.permissions.allow // []) | index(["Bash(\($h)/ledger.sh board:*)"])) then empty else "the helper allowlist" end),
-      (if ((.permissions.ask // []) | index(["Bash(\($h)/ledger.sh unblock:*)"])) then empty else "the ask rules" end),
-      (["drop", "fold", "supersede", "reopen", "op close", "op drop"][] as $c | if ((.permissions.ask // []) | index(["Bash(\($h)/ledger.sh \($c):*)"])) then empty else "the ask rule for ledger.sh \($c)" end),
+      ($sig[] as $r | if ((.permissions.ask // []) | index([$r])) then empty else "the ask rule \($r | ltrimstr("Bash(\($h)/") | rtrimstr(")"))" end),
       (if ((.sandbox.excludedCommands // []) | index(["\($h)/session-launch.sh *"])) then empty else "the launcher sandbox exclusion" end),
-      (if ((.sandbox.excludedCommands // []) | index(["\($h)/ledger.sh *"])) then empty else "the ledger.sh sandbox exclusion (hefesto 9 keeps the ledger outside the project)" end),
+      (if ((.sandbox.excludedCommands // []) | index(["\($h)/ledger.sh *"])) then empty else "the ledger.sh sandbox exclusion (hefesto 9 keeps the ledger outside the project)" end) end),
       (if ((.sandbox.excludedCommands // []) | index(["gh *"])) then empty else "gh outside the sandbox (so a merge is decided by the permission rules)" end),
       (if .sandbox.enabled == true then empty else "sandbox.enabled true" end),
       (if ((.sandbox.network.deniedDomains // []) | index(["api.github.com"])) then empty else "the GitHub API denied to the sandbox (sandbox.network.deniedDomains)" end),
@@ -277,6 +328,12 @@ if [ "$MODE" = check ]; then
   for sf in "$F" "$TOP/.claude/settings.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"; do
     [ -f "$sf" ] || continue
     [ "$(jq -r '.sandbox.enabled // empty' "$sf" 2>/dev/null)" = false ] && miss="${miss:+$miss, }the sandbox on ($sf sets sandbox.enabled false)"
+    # HEF-27 FR-005: an ask rule on a hefesto helper outside the signature set stops every lane pass on a dialog.
+    # Read from every applying file, under any prefix (a moved clone, a removed profile) — reported, never edited
+    # outside $F (D6). Classified by subcommand + signature flag, never by exact text, so a signature written in
+    # another form (`ledger.sh approve`, no `:*`) is never called a mechanic.
+    while IFS= read -r r; do miss="${miss:+$miss, }no ask rule outside the signature set ($r in $sf — every lane pass would stop on it)"
+    done < <(ask_defects "$sf")
     while IFS= read -r hc; do
       hp="$(first_word "$hc")"; case "$hp" in /*) ;; *) continue ;; esac
       unsafe_root "$(dirname "$hp")" && miss="${miss:+$miss, }no hook command where a sandboxed session can write ($hp, in $sf)"
@@ -408,7 +465,7 @@ if [ "$LANES" = 1 ] && [ "$(jq -r '.crossSessionInbound // ""' <<<"$NEW")" != ac
   echo "note: crossSessionInbound is '$(jq -r '.crossSessionInbound' <<<"$NEW")' in $F (your setting, kept) — the stage lanes will not receive the orchestrator's doorbells until it is \"accept\""
 fi
 if [ "$KEEP" = 0 ] && [ "$(jq -c '.statusLine' <<<"$NEW")" != "$(jq -c '.gauge' <<<"$RULES")" ]; then
-  echo "your own status line is kept; to show the context gauge in it, print: \"\$(printf '%s' \"\$INPUT\" | ${roots[0]}/hooks/context-gauge.sh)\""
+  echo "your own status line is kept; to show the context gauge in it, print: \"\$(printf '%s' \"\$INPUT\" | $(gauge_root)/hooks/context-gauge.sh)\""
 fi
 if [ "$LANES" = 1 ]; then
   echo "next: open each lane with  claude --name <name>  (any wrapper that forwards claude's arguments works), one per role:"

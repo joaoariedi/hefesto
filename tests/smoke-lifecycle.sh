@@ -86,7 +86,7 @@ fi
 LC_LG="$REPO/hooks/ledger.sh"
 
 # --- Section helpers -----------------------------------------------------------------------------------------------
-lc() { local r="$1"; shift; (cd "$r" && bash "$LC_LG" "$@"); }            # lc <repo> <ledger args…>
+lc() { local r="$1"; shift; (cd "$r" && as_launcher "${1:-}" bash "$LC_LG" "$@"); }   # lc <repo> <ledger args…>; claim/run as the launcher (HEF-27)
 lc_git() { git -C "$1" -c user.email=t@t -c user.name=t "${@:2}"; }      # lc_git <repo> <git args…>
 lc_entry() { printf '%s/%s.json\n' "$(sld "$1")" "$2"; }                  # lc_entry <repo> <id> → its file
 lc_put() { mkdir -p "$(sld "$1")" && cat > "$(lc_entry "$1" "$2")"; }    # lc_put <repo> <id> < json (a raw write)
@@ -385,9 +385,10 @@ grep -qF 'dropped' <<<"$lc_o" || { bad "the block refusal must name the phase �
 lc_sh="$(mktemp -d)"; lc_su() { (cd "$lc_t" && HOME="$lc_sh" CLAUDE_CONFIG_DIR='' bash "$REPO/hooks/hefesto-setup.sh" "$@" 2>&1); }
 lc_su --lanes >/dev/null; lc_sf="$lc_t/.claude/settings.local.json"
 for lc_v in drop fold supersede reopen "op close" "op drop"; do
-  jq -e --arg h "$REPO/hooks" --arg v "$lc_v" '(.permissions.ask | index(["Bash(\($h)/ledger.sh \($v):*)"])) and (.permissions.ask | index(["Bash(bash \($h)/ledger.sh \($v):*)"]))
+  # one spelling per root (HEF-27 FR-004): the clone's $h/hooks, never a `bash ` copy of the rule
+  jq -e --arg h "$REPO/hooks" --arg v "$lc_v" '(.permissions.ask | index(["Bash(\($h)/ledger.sh \($v):*)"])) and (.permissions.ask | index(["Bash(bash \($h)/ledger.sh \($v):*)"]) | not)
     and (.permissions.allow | map(select(contains("ledger.sh \($v)"))) | length == 0)' "$lc_sf" >/dev/null 2>&1 \
-    || { bad "setup must write an ask rule (both spellings) for ledger.sh $lc_v, never an allow (NR-001)"; x_fail=1; }
+    || { bad "setup must write an ask rule (one spelling, HEF-27 FR-004) for ledger.sh $lc_v, never an allow (NR-001)"; x_fail=1; }
 done
 [ "$(lc_su --check | tail -1)" = "setup: ok" ] || { bad "--check must pass right after setup — got: $(lc_su --check | head -c 300)"; x_fail=1; }
 jq --arg r "Bash($REPO/hooks/ledger.sh fold:*)" '.permissions.ask -= [$r]' "$lc_sf" > "$lc_t/s.json" && mv "$lc_t/s.json" "$lc_sf"

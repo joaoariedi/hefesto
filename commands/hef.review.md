@@ -1,7 +1,7 @@
 ---
 model: fable
-description: "Review — the plan before tasks exist (read-only gate), or the code before the PR (two stages, via code-reviewer)"
-argument-hint: "[plan | code] [--inline] [--second-opinion <provider>] [focus: file, module, or FR id]"
+description: "Review — the plan before tasks exist (a gate that logs every round in plan-review.md), or the code before the PR (two stages, via code-reviewer)"
+argument-hint: "[plan | code] [--cap <N>] [--spec-dir <d>] [--inline] [--second-opinion <provider>] [focus: file, module, or FR id]"
 ---
 
 # Review
@@ -35,6 +35,16 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh pr-files`
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh spec`
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh plan`
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh constitution`
+
+**`--cap <N>` and `--spec-dir <d>`** in $ARGUMENTS are passed through to the round helper below. With
+`--spec-dir d` (a lane's worktree branch is `worktree-<ID>`, never the spec folder's name), read
+`d/spec.md`, `d/plan.md` and `d/plan.md`'s `## Reviewed` line directly, instead of the branch-resolved
+`check-plan-review`, `spec` and `plan` above. Without it, the pre-flight is unchanged. **`--cap` present is
+the lane signal** (the launcher always writes it). A run without `--cap` is a person's own: before the
+review, run with the Bash tool
+`${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh plan-review-round --person-input review [--spec-dir <d>]` —
+it opens a `person review` segment (kept across the person's re-runs until a round blocks), so the cap
+never binds a person, and an item a lane blocked at the cap can always be reviewed again.
 
 Both `spec.md` and `plan.md` must exist; if either is missing, name the command to run first
 (`/hefesto:hef.spec` or `/hefesto:hef.plan`) and spawn nothing.
@@ -70,14 +80,32 @@ pre-flight outputs (spec, plan, constitution) in full:
 > ## Verdict: APPROVE / REVISE_PLAN / NEEDS_DISCUSSION
 > ## Suggested Changes (if REVISE_PLAN, numbered)
 > ```
+> Prefix a suggested change with `[DECISION]` when it needs a product or design choice that has no
+> best-practice answer in the code, the spec or the item; keep `NEEDS_DISCUSSION` for a verdict that rests
+> on such a question.
 > Do not edit files. Do not write `## Reviewed`. Report.
 
-When the agent returns, relay the report unchanged. Then:
+When the agent returns, relay the report unchanged. Then record the round — every verdict, every
+round, in `<spec dir>/plan-review.md`, which only the helper writes. Save the Suggested Changes to
+`<spec dir>/.review-findings.md` — write it even when it is empty (an `APPROVE` has no Suggested
+Changes; a missing file is refused), and run with the Bash tool
+`${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh plan-review-round --verdict <V> --findings-file <spec dir>/.review-findings.md [--decision] [--cap <N>] [--spec-dir <d>]`
+(`--decision` when you cannot settle a finding from the code and the item). The helper deletes the
+findings file whether it records or refuses: the log holds them, a stray copy would be committed by
+`git add .specify`, and a headless planner has no `rm`. Print `next: <the helper's line>`, and act on
+that line, never on the bare verdict:
 
-- `APPROVE` → **you** append `## Reviewed <YYYY-MM-DD>` to `plan.md` (the one write this mode makes —
-  it is how `/hefesto:hef.tasks` and the next `/hefesto:hef.review` know the gate passed), then `/hefesto:hef.tasks`.
-- `REVISE_PLAN` → the numbered changes are the next edit to `plan.md`; re-run `/hefesto:hef.review plan`.
-- `NEEDS_DISCUSSION` → stop and surface the question to the user.
+- `approve` → **you** append `## Reviewed <YYYY-MM-DD>` to `plan.md` (the writes this mode makes: the
+  `## Reviewed` line, `plan-review.md`, and the transient `.review-findings.md` — the `## Reviewed` line is
+  how `/hefesto:hef.tasks` and the next `/hefesto:hef.review` know the gate passed), then `/hefesto:hef.tasks`.
+- `revise` → the numbered changes are the next edit to `plan.md`; re-run `/hefesto:hef.review plan` with
+  the same arguments.
+- `block decision` or `block cap` → stop and surface the question (or the cap and the log) to the user.
+
+A refusal from the helper is surfaced as-is; it is never a verdict. In a lane (`--cap` present), a
+refusal naming a blocked round → outcome `blocked`, `blocked_on` `human:plan-review`, the summary quoting
+it; any other refusal → outcome `failed`, the summary quoting it. In a person's own run, show the refusal
+to the user.
 
 ### `--inline` — a second opinion, not the gate
 

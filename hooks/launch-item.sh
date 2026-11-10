@@ -39,6 +39,12 @@ rfc_as_data() { # → the delimited RFC block (and the pin recorded); nothing wh
     "$RFC_RULE" "$p" "$ID" "$nonce" "$(sed -E 's/<!--([^-]|-[^-])*-->//g' "$snap" | sed '/<!--/,/-->/d')" "$nonce"
   rm -f "$snap"
 }
+rfc_drifted() { # 0 when a pinned RFC no longer holds what its plan was made from
+  local p pin; p=$(jq -r '.source.rfc.path // empty' <<<"$E"); pin=$(jq -r '.source.rfc.sha256 // empty' <<<"$E")
+  [ -n "$p" ] || return 1
+  [ -f "$p" ] && [ "$({ sha256sum 2>/dev/null || shasum -a 256; } < "$p" | cut -c1-64)" = "$pin" ] && return 1
+  return 0
+}
 
 # --- monorepo-spec-roots (#172): the folder an app's item works in ----------------------------------------------
 # shellcheck source=hooks/spec-root-lib.sh

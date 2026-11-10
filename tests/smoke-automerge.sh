@@ -376,9 +376,9 @@ am_o="$(amu --print)"
 am_o="$(amu)"
 [ "$(jq -r '.orchestrate.decider' "$am_sp/.claude/project-status.json")" = "Ana Souza" ] && [ "$(jq -r '.orchestrate.merge_by' "$am_sp/.claude/project-status.json")" = auto ] \
   || { bad "setup must write orchestrate.decider from git config user.name when it is absent, keeping the rest (FR-015, SC-005) — got $(cat "$am_sp/.claude/project-status.json"); output: $(tail -c 300 <<<"$am_o")"; x_fail=1; }
-jq -e --arg h "$REPO/hooks" '(.permissions.ask | index(["Bash(\($h)/ledger.sh merge-auto grant:*)"])) and (.permissions.ask | index(["Bash(bash \($h)/ledger.sh merge-auto revoke:*)"]))
+jq -e --arg h "$REPO/hooks" '(.permissions.ask | index(["Bash(\($h)/ledger.sh merge-auto grant:*)"])) and (.permissions.ask | index(["Bash(\($h)/ledger.sh merge-auto revoke:*)"]))
   and (.permissions.allow | index(["Bash(\($h)/ledger.sh merge-by:*)"])) and (.permissions.allow | map(select(test("merge-auto (grant|revoke)"))) | length == 0)' \
-  "$am_sp/.claude/settings.local.json" >/dev/null 2>&1 || { bad "setup's ask rules must hold ledger.sh merge-auto grant/revoke in both spellings, never in allow (FR-015)"; x_fail=1; }
+  "$am_sp/.claude/settings.local.json" >/dev/null 2>&1 || { bad "setup's ask rules must hold ledger.sh merge-auto grant/revoke (one spelling per root, HEF-27), never in allow (FR-015)"; x_fail=1; }
 git -C "$am_sp" config user.name "Bob"; amu >/dev/null
 [ "$(jq -r '.orchestrate.decider' "$am_sp/.claude/project-status.json")" = "Ana Souza" ] || { bad "setup must never overwrite orchestrate.decider (FR-015, SC-005)"; x_fail=1; }
 amu --remove >/dev/null
@@ -391,7 +391,7 @@ am_o="$(amu)"
 git -C "$am_sp" config user.name "Ana;rm"; am_o="$(amu)"
 { ! jq -e '.orchestrate | has("decider")' "$am_sp/.claude/project-status.json" >/dev/null && grep -qF "not a name the ledger accepts" <<<"$am_o"; } \
   || { bad "setup must not write a decider the ledger refuses as --by, and say so (FR-015) — got: $(tail -c 300 <<<"$am_o")"; x_fail=1; }
-[ "$x_fail" -eq 0 ] && ok "hefesto-setup.sh: --print shows the decider and writes nothing; writes orchestrate.decider from git user.name when absent, never over it, kept by --remove, none for an empty name; merge-auto grant/revoke ask in both spellings (HEF-30 FR-015 SC-005)"
+[ "$x_fail" -eq 0 ] && ok "hefesto-setup.sh: --print shows the decider and writes nothing; writes orchestrate.decider from git user.name when absent, never over it, kept by --remove, none for an empty name; merge-auto grant/revoke ask (HEF-30 FR-015 SC-005)"
 
 # --- FR-016: the docs and the CHANGELOG describe auto, the grant, the batched form and the decider -------------------------
 head_ "merge-auto: the docs describe merge_by auto, the grant, the one merge form and orchestrate.decider (HEF-30 FR-016)"

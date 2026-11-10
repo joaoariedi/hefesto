@@ -11,14 +11,17 @@
 #     /rename) — orchestrator, plan|planner, build|builder, deploy|deployer; anything else → "general"
 #
 # A status line runs on every refresh and must never fail: bad input, no usage yet, or no jq → no output, exit 0.
-# No ledger, board-lib or git call, for the same reason. Not a hook — a helper.
+# No board-lib or git call, for the same reason; the ledger is read only with context.gauge_rows: true (below).
+# Not a hook — a helper.
 #   tokens: `ctx 45% · 90k/200k` — context_window.total_input_tokens over context_window_size, when both are there
 #   --with-user: first run the status line the session's own profile defines (statusLine.command in
 #     ${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json — a profile wrapper sets CLAUDE_CONFIG_DIR, and the status
 #     line inherits it) with the same input, and print the gauge after it: `<yours> · ctx …`. hefesto-setup.sh
 #     writes the gauge this way, so a project-level status line never hides a profile's own (live trial
 #     2026-10-23). A command that is itself this gauge is skipped.
-#   runs: one row each, stacked below the first — `▶ implement FAB-1 · 4m` for every claim in the project's ledger
+#   runs: opt-in (HEF-23) — only when .context.gauge_rows in <project_dir>/.claude/project-status.json is the JSON
+#     boolean true (default false; anything else, or no file, and the ledger is not read at all). Then
+#     one row each, stacked below the first — `▶ implement FAB-1 · 4m` for every claim in the project's ledger
 #     (stage, item, time since the claim), `⏸ FAB-3 · plan approval` for every decision waiting on a person — at
 #     most six rows, then `… +N more`: a background run is named, not counted.
 #     The ledger is read straight from its files (<git common dir>/hefesto/ledger), found from the project folder
@@ -75,6 +78,11 @@ runs_rows() { # $1 project folder → one row per run, per decision waiting on a
   fi
   printf '%s\n%s\n' "${rows:-}" "${acts:-}" | awk 'NF { n++; if (n <= 6) print } END { if (n > 6) printf "… +%d more\n", n - 6 }'
 }
+rows_on() { # $1 project folder → 0 only when .context.gauge_rows is the boolean true (HEF-23; default off)
+  # `== true` is false for "true", 1, null and absent; an unreadable or invalid file makes jq fail → off, silently
+  [ -f "$1/.claude/project-status.json" ] || return 1
+  [ "$(jq -r '.context.gauge_rows == true' "$1/.claude/project-status.json" 2>/dev/null)" = true ]
+}
 emit() { if [ -n "$U" ]; then printf '%s \033[2m·\033[0m %s\n' "$U" "$1"; else printf '%s\n' "$1"; fi; }
 pct="$(jq -r '.context_window.used_percentage // empty | if type == "number" then floor else empty end' <<<"$in" 2>/dev/null)"
 [[ "$pct" =~ ^[0-9]{1,5}$ ]] || { [ -n "$U" ] && printf '%s\n' "$U"; exit 0; }   # bounded: [ -ge ] errors on a number past 2^63
@@ -97,5 +105,5 @@ if [ -n "$dir" ] && [ -f "$dir/.claude/project-status.json" ]; then
 fi
 [[ "$at" =~ ^[0-9]{1,5}$ ]] || at=40
 if [ "$at" -gt 0 ] && [ "$pct" -ge "$at" ]; then emit "ctx ${pct}%${tok} · /compact (${lane})"; else emit "ctx ${pct}%${tok}"; fi
-[ -n "$pdir" ] && runs_rows "$pdir"
+[ -n "$pdir" ] && rows_on "$pdir" && runs_rows "$pdir"
 exit 0
