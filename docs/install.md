@@ -396,7 +396,9 @@ For the short path — install, one lane or four, a new or a running project —
    budget per PR; `merge_by` — `person` (the default: you merge on GitHub) or `lane` (the orchestrator drafts a
    merge action for the deploy lane, approved by you as a form); `merge.checks`, the commands a lane merge runs
    first (`{repo_path}` and `{base}` placeholders); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
-   deploy and release-train scopes a request is built from (8c).
+   deploy and release-train scopes a request is built from (8c); `plan_review_rounds` (default 5, an integer
+   from 1 to 20) the plan-review rounds the planner works through on its own before it asks you — a product or
+   design question still stops it on the round it appears.
 
 8b. **RFCs, plan approval and the lanes** (lanes v2; [`quickstart.md`](quickstart.md) steps 5–8). An
    item names its RFC with a line `rfc: docs/rfcs/<ID>.md` (folder: `orchestrate.rfc_dir`); the plan stage
@@ -405,7 +407,9 @@ For the short path — install, one lane or four, a new or a running project —
    reviewer's verdict suffices; anything else is refused) a finished plan stops at phase `plan-review` on
    `human:plan-approval`: only `ledger.sh unblock <id> --reviewed-by-human --by <name>` clears it (refused in a
    launched worker; recorded with the RFC's hash), nothing replaces that block, and leaving `plan-review`
-   needs the approval on record. An RFC that changes after approval stops the build and re-blocks the item
+   needs the approval on record. Every plan-review round is logged in `plan-review.md` beside `plan.md` (round,
+   verdict, whether it needs a decision, the reviewer's suggested changes); a `human:plan-review` question
+   carries its round index and open findings, and your answer or revision notes restart the round count. An RFC that changes after approval stops the build and re-blocks the item
    until a person aligns the plan, re-pins (`ledger.sh record <id> --rfc`) and approves again. Set the
    project up once with `hooks/hefesto-setup.sh` (`--lanes` for four lanes), in a terminal. It writes
    `.claude/settings.local.json`:

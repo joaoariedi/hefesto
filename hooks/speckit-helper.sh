@@ -49,7 +49,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # req-coverage --all re
 . "$(dirname "$SELF")/spec-root-lib.sh"
 case "${1:-}" in
   spec|plan|check-spec|check-plan|check-tasks-inputs|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
-  constitution|list-specs|list-specs-dir|check-plan-review|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
+  constitution|list-specs|list-specs-dir|check-plan-review|plan-review-round|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
   detect-stack|detect-test-framework|mutation-*)   # a glob ends the list: the docs' subcommand count reads simple arms only
     SPEC_ROOT="$(spec_root_find "$PWD")" && cd "$SPEC_ROOT" || { echo "speckit-helper: cannot enter the spec root of $PWD" >&2; exit 1; } ;;
 esac
@@ -450,6 +450,12 @@ case "$1" in
     test -f ".specify/specs/$BRANCH/plan.md" && echo "PLAN_EXISTS: $BRANCH" || echo "NO_PLAN"
     grep -q "^## Reviewed" ".specify/specs/$BRANCH/plan.md" 2>/dev/null && echo "PLAN_REVIEWED" || echo "PLAN_NOT_REVIEWED"
     ;;
+  plan-review-round)   # HEF-21: record one plan-review round (or a person's input) in <spec dir>/plan-review.md, print the next action
+    shift
+    # shellcheck source=hooks/plan-review-lib.sh
+    . "$(dirname "$SELF")/plan-review-lib.sh" || die "speckit-helper: cannot source $(dirname "$SELF")/plan-review-lib.sh"
+    prr_main "$@"
+    ;;
   detect-existing-code)
     SRC_COUNT=$(find . -maxdepth 4 -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.rs" -o -name "*.go" -o -name "*.java" -o -name "*.rb" -o -name "*.kt" -o -name "*.swift" -o -name "*.c" -o -name "*.cpp" \) ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/vendor/*" ! -path "*/target/*" 2>/dev/null | wc -l)
     echo "SOURCE_FILES: $SRC_COUNT"
@@ -821,7 +827,8 @@ case "$1" in
     echo "  checklists, checklists-dir,"
     echo "  checklists-content, constitution, list-specs, list-specs-dir, check-specify-dir,"
     echo "  detect-stack, detect-test-framework, list-config-files, list-rules, readme-head,"
-    echo "  check-plan-review, detect-existing-code, trivial-change-check,"
+    echo "  check-plan-review, plan-review-round (--verdict <V> [--decision] [--findings-file f] | --person-input <kind>) [--spec-dir d] [--cap N],"
+    echo "  detect-existing-code, trivial-change-check,"
     echo "  plan-phase-start, plan-phase-end, plan-phase-status,"
     echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage [<spec>|--all],"
     echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>, doctor-copies,"

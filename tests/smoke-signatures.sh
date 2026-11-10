@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016  # jq programs are single-quoted on purpose
 #
-# signature-dialogs smoke checks, part 11 (HEF-27; FR-001..FR-010, SC-001..SC-007): a permission dialog only where a
+# signature-dialogs smoke checks, part 12 (HEF-27; FR-001..FR-010, SC-001..SC-007): a permission dialog only where a
 # person signs. hefesto-setup.sh writes the signature set as ask rules, every other ledger.sh subcommand as its own
 # allow rule (claim and run: no rule — ledger.sh refuses them outside the launcher), one spelling per plugin root, and
 # --check names a mechanics ask as the defect.
@@ -425,7 +425,7 @@ sg_gd_want orchestrator "$SG_PW reply"$'\t'"7 --body-file b.md" deny
 # the plain verb must be the command's own, at its start — not a quoted file name later on (code review round 2)
 sg_gd_want orchestrator "$SG_PW \"comment\" 7 --body-file \"pr-watch.sh comment b.md\"" deny
 sg_gd_want orchestrator "$SG_PW status 7 --note \"pr-watch.sh reply\"" none
-# The mutant sits in part 11's own mirror (sg_md): tests/smoke.sh removes l3_md before this part runs, and a mutant
+# The mutant sits in part 12's own mirror (sg_md): tests/smoke.sh removes l3_md before this part runs, and a mutant
 # path that does not exist makes gd say "none" — a mutation "caught" without running (code review B2). So the mutant
 # must first prove it runs: a deny from a rule it keeps (the person-only rule, a builder's answer).
 # shellcheck disable=SC2034  # LG_GD is read by tests/smoke.sh's gd
@@ -457,4 +457,4 @@ printf '      "Bash(<installPath>/hooks/speckit-helper.sh:*)"\n' >> "$sg_base/do
 [ -n "$(sg_docs "$sg_base/docmut")" ] || { bad "mutation survived (FR-009): the single-slash installed rule back in SETUP.md"; sg_fail=1; }
 
 rm -rf -- "${sg_base:?}" "${SG_SUM_FILE:?}"
-[ "$sg_fail" -eq 0 ] && ok "signature dialogs: every check of part 11 held (HEF-27)"
+[ "$sg_fail" -eq 0 ] && ok "signature dialogs: every check of part 12 held (HEF-27)"
