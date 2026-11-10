@@ -62,7 +62,7 @@ usage: ledger.sh <subcommand> …
   where <id>                                            per environment: does it contain the entry's branch (local, then origin/)
   merge-by [--explain]                                  orchestrate.merge_by resolved: person | lane | auto (auto only with a matching grant)
   merge-auto preview | grant --sha <s> --reviewed-by-human --by <name> | revoke --reviewed-by-human --by <name> | show   the standing auto-merge grant a person gives
-  automerge <id> [--if-merged]                          merge a green PR into the integration branch under the grant (0 merged, 2 skipped, 3 blocked, 4 pending, 5 open)
+  automerge <id> [--if-merged] [--before-babysit]       merge a green PR into the integration branch under the grant (0 merged, 2 skipped, 3 blocked, 4 pending, 5 open)
 EOF
   exit 2
 }

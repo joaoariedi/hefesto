@@ -568,7 +568,7 @@ EOF
     fi
     # HEF-30 FR-010 (D4b): under resolved auto, a hand merge is recorded, then the merge helper runs before any
     # babysitter — merged (0) or skipped to human:merge (2) launches nothing; blocked (3) or pending (4) babysits
-    if [ "$MBY" = auto ] && [ "$DRY" != 1 ]; then AMRC=0; "$LEDGER" automerge "$ID" --if-merged >&2 || { "$LEDGER" automerge "$ID" >&2 || AMRC=$?; }
+    if [ "$MBY" = auto ] && [ "$DRY" != 1 ]; then AMRC=0; "$LEDGER" automerge "$ID" --if-merged >&2 || { "$LEDGER" automerge "$ID" --before-babysit >&2 || AMRC=$?; }
       case "$AMRC" in 0|2) [ "$MODE" != prepare ] || echo "done: $ID — the auto-merge pass recorded it; nothing to prepare"; "$LEDGER" show "$ID"; exit 0 ;; 3|4) ;; *) exit 1 ;; esac; fi
     [ "$CAP_HIT" = 0 ] || [ "$MODE" != run ] || die "$CAP_MSG"
     [ -n "$WORKTREE" ] || die "session-launch deploy $ID: no worktree recorded on the entry — the babysitter fixes in the PR's checkout"

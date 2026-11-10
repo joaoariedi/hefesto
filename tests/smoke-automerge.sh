@@ -250,6 +250,20 @@ am_entry HEF-11 17 feat11; am_pr 17 feat11 "$(am_sha feat11)"; printf '[{"name":
 am_case "pending checks (FR-009)" HEF-11 4 none "pending"
 jq -e '.events == [] and .phase == "pr"' "$am_ld/HEF-11.json" >/dev/null 2>&1 || { bad "pending must record nothing (FR-009) — got $(jq -c '{events, phase}' "$am_ld/HEF-11.json")"; x_fail=1; }
 rm -f "$am_t/checks.json"
+# the deploy launcher's pre-babysit pass (plan item 7, FR-010): red, behind or conflicting → exit 4, nothing recorded —
+# a ci/conflict block set here would outlive a babysitter verdict checks/pending/review, which never clear one
+for am_x in red BEHIND DIRTY; do
+  am_entry HEF-11 17 feat11
+  case "$am_x" in red) am_pr 17 feat11 "$(am_sha feat11)"; printf '[{"name":"ci","bucket":"fail","link":"","workflow":"ci"}]\n' > "$am_t/checks.json" ;;
+                  *) am_pr 17 feat11 "$(am_sha feat11)" dev "$am_x" ;; esac
+  : > "$am_t/gh.log"; o="$(am automerge HEF-11 --before-babysit 2>&1 </dev/null)"; am_rc=$?
+  { [ "$am_rc" = 4 ] && grep -qF "the babysitter's turn" <<<"$o" && ! am_merged \
+    && jq -e '.blocked_on == null and .events == [] and .phase == "pr"' "$am_ld/HEF-11.json" >/dev/null 2>&1; } \
+    || { bad "automerge --before-babysit on a $am_x PR must exit 4 and record nothing (plan item 7) — rc $am_rc: $(head -c 300 <<<"$o"); entry $(jq -c '{blocked_on, events}' "$am_ld/HEF-11.json")"; x_fail=1; }
+  rm -f "$am_t/checks.json"
+done
+am_pr 17 feat11 "$(am_sha feat11)"   # back to a clean PR for the cases below
+grep -qF 'automerge "$ID" --before-babysit' "$REPO/hooks/session-launch.sh" || { bad "the deploy launcher's pre-babysit automerge must pass --before-babysit (plan item 7)"; x_fail=1; }
 # NR-005 / SC-008: a check the command rule refuses never runs — the sentinel is never created
 # (a program the preview admits, an argument the command rule refuses: -c — the run-time check, not the preview's)
 am_cfg auto '' "[\"test -c $am_t/SENTINEL\", \"touch $am_t/SENTINEL\"]"; am_grant >/dev/null; am_entry HEF-11 17 feat11
@@ -263,7 +277,7 @@ o="$(cd "$am_w" && PATH="$PATH:.:" HEFESTO_GH_BIN="$am_t/bin/gh" bash "$REPO/hoo
   || { bad "a bare check name must never resolve into the repo through PATH (NR-005) — rc $am_rc: $(head -c 300 <<<"$o")"; x_fail=1; }
 rm -f "$am_w/evilbare"
 am_cfg auto; am_grant >/dev/null
-[ "$x_fail" -eq 0 ] && ok "automerge: a failing merge check → ci naming the command (no merge); BEHIND and DIRTY → conflict; red CI → ci; pending → exit 4, nothing recorded; a check the command rule refuses never runs (HEF-30 FR-008 FR-009 SC-003 SC-008 NR-005)"
+[ "$x_fail" -eq 0 ] && ok "automerge: a failing merge check → ci naming the command (no merge); BEHIND and DIRTY → conflict; red CI → ci; pending → exit 4, nothing recorded; --before-babysit leaves red/BEHIND/DIRTY to the babysitter (exit 4, nothing recorded); a check the command rule refuses never runs (HEF-30 FR-008 FR-009 SC-003 SC-008 NR-005)"
 
 # --- FR-006: the merge, the refusal, and a hand merge -----------------------------------------------------------------
 head_ "merge-auto: automerge merges pinned to the verified head and records it; a refused merge blocks ci; --if-merged (HEF-30 FR-006 SC-001 SC-009)"

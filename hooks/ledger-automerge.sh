@@ -7,8 +7,9 @@
 #
 #   merge-by [--explain]                                         person | lane | auto, resolved (FR-001, FR-003)
 #   merge-auto preview | grant --sha <12+ hex> --reviewed-by-human --by <name> | revoke --reviewed-by-human --by <name> | show
-#   automerge <id> [--if-merged]                                 0 merged · 2 skipped (human:merge) · 3 blocked ci|conflict
-#                                                                · 4 pending · 5 open (--if-merged) · 1 refused
+#   automerge <id> [--if-merged] [--before-babysit]              0 merged · 2 skipped (human:merge) · 3 blocked ci|conflict
+#                                                                · 4 pending (--before-babysit: also red/behind/conflict)
+#                                                                · 5 open (--if-merged) · 1 refused
 #
 # Why a grant and not the config alone: `.claude/project-status.json` is a file a lane can write (ledger-recipes.sh),
 # and the deploy launcher runs this unsandboxed. So a person's grant, in the approvals store outside every sandbox,
@@ -223,14 +224,20 @@ automerge_skip_reason() { # $1 entry, $2 pr-watch state JSON, $3 the entry repo'
   done
   [ "$(jq -r .headRefOid <<<"$2")" = "$(jq -r '.pr.verified_head // ""' <<<"$1")" ] || echo "head moved since verify ($(jq -r '.pr.verified_head // "none recorded"' <<<"$1") → $(jq -r .headRefOid <<<"$2"))"
 }
+am_red() { # $1 block kind, $2 reason — blocks (exit 3); before the babysitter, nothing recorded (exit 4)
+  # the pre-babysit pass must not set the babysitter's own ci/conflict block: its verdicts checks (< max fixes),
+  # pending and review never clear one, so the entry would wait for a Retry person/lane never needs (plan item 7)
+  [ "${AM_PRE:-0}" = 1 ] && { echo "pending $ID — $2; the babysitter's turn, nothing recorded"; exit 4; }
+  am_block "$1" "$2" 3
+}
 am_state_step() { # $1 pr-watch state JSON — returns when mergeable; else blocks conflict/ci, skips, or exits 4 (FR-009)
   local v ms ck
   v=$(jq -r '.verdict // empty' <<<"$1"); ms=$(jq -r '.mergeStateStatus // empty' <<<"$1"); ck=$(jq -r '.checks // empty' <<<"$1")
   case "$v" in
-    conflict) am_block conflict "the PR conflicts with its base" 3 ;;
+    conflict) am_red conflict "the PR conflicts with its base" ;;
     pending)  echo "pending $ID — checks running; nothing recorded"; exit 4 ;;
-    checks)   am_block ci "CI checks are red ($ck)" 3 ;;
-    mergeable) case "$ms" in BEHIND) am_block conflict "the PR is behind its base" 3 ;; CLEAN|HAS_HOOKS) [ "$ck" = pass ] || am_block ci "checks are $ck" 3 ;;
+    checks)   am_red ci "CI checks are red ($ck)" ;;
+    mergeable) case "$ms" in BEHIND) am_red conflict "the PR is behind its base" ;; CLEAN|HAS_HOOKS) [ "$ck" = pass ] || am_red ci "checks are $ck" ;;
                  *) am_skip "PR state ${ms:-unknown}" ;; esac ;;
     *) am_skip "the PR is ${v:-unreadable} (${ms:-unknown}), not mergeable" ;;
   esac
@@ -254,10 +261,10 @@ automerge_run_checks() { # $1 pinned path, $2 base, $3 grant → 0 all pass; els
     echo "$c: $(tail -1 <<<"${out:-exited non-zero}")"; return 1
   done < <(jq -r --arg rp "$1" --arg b "$2" '.checks[] | gsub("\\{repo_path\\}"; $rp) | gsub("\\{base\\}"; $b)' <<<"$3")
 }
-automerge_cmd() { # <id> [--if-merged] — the gate (FR-005, FR-007, FR-009), then the merge (FR-006, FR-008)
+automerge_cmd() { # <id> [--if-merged] [--before-babysit] — the gate (FR-005, FR-007, FR-009), then the merge (FR-006, FR-008)
   ID="${1:-}"; [ -n "$ID" ] || usage; shift
-  local ifm=0 e
-  while [ $# -gt 0 ]; do case "$1" in --if-merged) ifm=1 ;; *) usage ;; esac; shift; done
+  local ifm=0 e AM_PRE=0   # AM_PRE: read by am_red (bash's dynamic scope)
+  while [ $# -gt 0 ]; do case "$1" in --if-merged) ifm=1 ;; --before-babysit) AM_PRE=1 ;; *) usage ;; esac; shift; done
   am_not_worker "automerge $ID"
   e=$(entry "$ID") || exit 1
   [ "$ifm" = 0 ] || automerge_if_merged "$e"
