@@ -47,5 +47,9 @@ Every test cites the FR it covers (`# FR-0NN` in the assertion's label) so `/hef
     leading blank are refused first. The 600 s timeout message has no test (it would take 600 s).
 - [x] T016 Full suite (`tests/smoke.sh` tier 1, `node --test`), shellcheck, file-limit delta gate; `graphify update .` `tests/smoke.sh`
 
+- [ ] T017 Review blocker 1 (verify gate 2026-11-09, code-reviewer + scan HIGH): `hooks/ledger-automerge.sh:278-287` does not re-read the PR's base after the merge checks, so a base change during the checks can merge into a branch that is not the integration branch — probe: "automerge rc=3 … is merged, but the merge evidence is missing", "origin main merges: 1; origin dev merges: 0" (NR-001). Re-read the live state (`pr-watch.sh state`) immediately before the merge command and refuse unless the base is still `branches.integration` and the head is still the verified head; pass `--match-head-commit` as today. Smoke: a fake PR whose base changes between the checks and the merge is refused, nothing merged; mutation: drop the re-read → red `hooks/ledger-automerge.sh`
+- [ ] T018 Review blocker 2 (scan MEDIUM): `hooks/ledger-automerge.sh:19,250` resolves `AM_TIMEOUT` with `command -v`, and the automerge runs outside the sandbox, so a `timeout`/`gtimeout` a lane writes earlier on PATH runs — probe: "LANE-WRITTEN FILE RAN: RAN gtimeout cwd=…/w args=600". Use the bundled `hooks/run-bounded.sh` (or an absolute system path checked with `check_path_plain`), never a PATH lookup. Smoke: a fake `gtimeout` first on PATH never runs; mutation: restore `command -v` → red `hooks/ledger-automerge.sh`
+- [ ] T019 Re-run the full suite (tier 1) and the review; commit; push to `worktree-HEF-30` `tests/smoke.sh`
+
 ---
 **Legend**: `[P]` = parallelizable | `[US#]` = user scenario | `[FR-NNN]` = functional requirement
