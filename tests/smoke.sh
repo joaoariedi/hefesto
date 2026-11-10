@@ -2218,7 +2218,7 @@ chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; 
 if sl bogus HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an unknown role"; sl_fail=1; fi
 if sl implement HEF-NOPE --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an id without a ledger entry"; sl_fail=1; fi
 # provider-runners FR-003 — every launched session carries HEFESTO_WORKER=1. Mutation: the env pair removed → red.
-sl_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$sl_md/board-lib.sh"; ln -s "$REPO/hooks/board-setup.sh" "$sl_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$sl_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$sl_md/launch-item.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$sl_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$sl_md/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$sl_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$sl_md/ledger-recipes.sh"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
+sl_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$sl_md/board-lib.sh"; ln -s "$REPO/hooks/board-setup.sh" "$sl_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$sl_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$sl_md/launch-item.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$sl_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$sl_md/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$sl_md/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$sl_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$sl_md/ledger-recipes.sh"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
 sed_i 's/ HEFESTO_WORKER=1 claude -p/ claude -p/' "$sl_md/session-launch.sh"; cmp -s "$SL" "$sl_md/session-launch.sh" && { bad "launcher env-pair mutation did not apply"; sl_fail=1; }
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
 sl_mo="$(cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1)"
@@ -2439,7 +2439,7 @@ grep -qE 'gh pr merge|gh pr review|gh api' <<<"$st_defaults" && { bad "a default
 [ "$st_fail" -eq 0 ] && ok "stage roles: next --stage (plan/build/deploy, ordering), plan run (tasks, blocked→unblock→next, failed→resume, mode default), implement on a planned entry, deploy verdicts + refusal, tiers, hooks rule after a config list, no merge verbs (stage-roles FR-001..FR-008, FR-011)"
 
 # Mutations on copies (SC-001). The launcher copy sits beside symlinks to the helpers it calls.
-st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$st_mutdir/board-lib.sh"; ln -s "$REPO/hooks/launch-item.sh" "$st_mutdir/launch-item.sh"; ln -s "$REPO/hooks/board-setup.sh" "$st_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$st_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$st_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$st_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$st_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$st_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
+st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$st_mutdir/board-lib.sh"; ln -s "$REPO/hooks/launch-item.sh" "$st_mutdir/launch-item.sh"; ln -s "$REPO/hooks/board-setup.sh" "$st_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$st_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$st_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$st_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$st_mutdir/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$st_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$st_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
 SL_MUT="$st_mutdir/session-launch.sh"; LG_MUT="$st_mutdir/ledger-mut.sh"; st_mfail=0
 st_mut() { cp "$SL" "$SL_MUT"; sed_i "$1" "$SL_MUT"; cmp -s "$SL" "$SL_MUT" && { bad "stage-roles mutation did not apply: $1"; st_mfail=1; }; }
 st_lmut() { cp "$LG" "$LG_MUT"; sed_i "$1" "$LG_MUT"; cmp -s "$LG" "$LG_MUT" && { bad "stage-roles ledger mutation did not apply: $1"; st_mfail=1; }; }
@@ -3588,6 +3588,8 @@ ikl record HEF-22 --item-kind "" >/dev/null 2>&1 && { bad "record --item-kind ''
 ikj HEF-22 '.item_kind == "vulnerability"' || { bad "a refused record --item-kind must leave the recorded kind alone"; ik_fail=1; }
 # FR-004 the implement prompt: the feature prompt has neither sentence; the incident prompt minus its sentence equals it
 ik_feat="$(iks implement HEF-24 --dry-run 2>&1)"; ik_inc="$(iks implement HEF-21 --dry-run 2>&1)"
+# mask the checkout path first: the HEF-21→HEF-24 rewrite below must not touch a checkout living in .../HEF-21/
+ik_feat="${ik_feat//"$REPO"/@REPO@}"; ik_inc="${ik_inc//"$REPO"/@REPO@}"
 { ! grep -qF 'INCIDENT fix' <<<"$ik_feat" && ! grep -qF 'VULNERABILITY fix' <<<"$ik_feat" && grep -qF 'regression test that cites HEF-21' <<<"$ik_inc"; } || { bad "the implement prompt must carry the kind sentence for an incident and none for a feature"; ik_fail=1; }
 ik_strip="$(sed 's/This is an INCIDENT fix: first write a regression test that cites HEF-21 and fails on the current code, then make the fix; that test must pass. //' <<<"$ik_inc" | sed 's/HEF-21/HEF-24/g; s/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f]*//g')"
 ik_featn="$(sed 's/untrusted-[a-z]* HEF-24 [0-9a-f]*//g; s/untrusted-end [0-9a-f]*//g' <<<"$ik_feat")"
@@ -6801,6 +6803,7 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-github-board.sh"     # part 8: a GitHub Project as a lane board (github-project-board FR-001..FR-012)
 . "$REPO/tests/smoke-lane-cache.sh"        # part 9: the lanes' build cache, only inside the sandbox (lane-build-cache, #162)
 . "$REPO/tests/smoke-spec-roots.sh"        # part 10: a .specify/ per app folder in one repository (monorepo-spec-roots, #172)
+. "$REPO/tests/smoke-plan-review.sh"       # part 11: the plan-review round loop, its cap and its log (plan-review-rounds, HEF-21)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.
