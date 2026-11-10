@@ -130,10 +130,13 @@ sign_spelling_check() {
   case "$EXCL_HIT" in */ledger.sh|*/pr-watch.sh) ;; *) return 0 ;; esac
   heredoc_ok 2>/dev/null && text="${CMD%%$'\n'*}"     # the orchestrator's heredoc body is the person's text, not flags
   read_="$(shell_read "$text")"
-  if [[ "$read_" =~ (^|[[:space:]/])pr-watch\.sh[[:space:]]+(reply|comment)([[:space:]]|$) ]]; then
-    verb="${BASH_REMATCH[2]}"   # kept now: the failed match below empties BASH_REMATCH, and set -u would end the hook
-    # a SPACE after the verb, never a tab: the ask rule `reply:*` is the prefix then a space or nothing (code review B1)
-    [[ "$text" =~ pr-watch\.sh\ (reply|comment)(\ |$) ]] \
+  # pr-watch's signature is its verb — the command's own second word, never text later on (code review round 2: a
+  # quoted file name `pr-watch.sh comment b.md` satisfied an unanchored test)
+  case "$EXCL_HIT" in */pr-watch.sh) verb="$(words "$text" | sed -n 2p)" ;; esac
+  if [[ "${verb:-}" =~ ^(reply|comment)$ ]]; then
+    # the ask rule `reply:*` is a PREFIX: the bare helper, one space, the verb, then a space or nothing — a tab
+    # there would match no ask and get the `pr-watch.sh:*` allow (code review B1)
+    [[ "$text" =~ ^[[:space:]]*$(re_quote "$EXCL_HIT")\ (reply|comment)(\ |$) ]] \
       || deny "pr-watch.sh $verb writes to GitHub and asks the person: spell it plain — pr-watch.sh $verb …, unquoted, one space — so its permission dialog matches"
   fi
   [[ "$read_" =~ (^|[[:space:]/])(ledger|pr-watch)\.sh([[:space:]]|$) ]] || return 0

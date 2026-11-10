@@ -422,6 +422,9 @@ sg_gd_want builder "echo \"see pr-watch.sh 'reply'\"" none
 sg_gd_want builder "$LGL show LT-2" none
 # a tab after the verb: the ask rule `reply:*` wants a space, `pr-watch.sh:*` would allow it (code review B1)
 sg_gd_want orchestrator "$SG_PW reply"$'\t'"7 --body-file b.md" deny
+# the plain verb must be the command's own, at its start — not a quoted file name later on (code review round 2)
+sg_gd_want orchestrator "$SG_PW \"comment\" 7 --body-file \"pr-watch.sh comment b.md\"" deny
+sg_gd_want orchestrator "$SG_PW status 7 --note \"pr-watch.sh reply\"" none
 # The mutant sits in part 11's own mirror (sg_md): tests/smoke.sh removes l3_md before this part runs, and a mutant
 # path that does not exist makes gd say "none" — a mutation "caught" without running (code review B2). So the mutant
 # must first prove it runs: a deny from a rule it keeps (the person-only rule, a builder's answer).
