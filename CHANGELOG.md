@@ -85,6 +85,11 @@ it is what caught the hand-bumped era:
   `no ask rule outside the signature set (<rule> in <file> — every lane pass would stop on it)`. It also looks
   for the signature set under the canonical spelling of the root this session runs from, and refuses a root
   setup does not trust instead of guessing a spelling.
+- **The status-line run rows are off by default** (HEF-23; `docs/quickstart.md`, `docs/hooks.md`). The gauge
+  printed, under the context line, a row per ledger claim, per decision waiting on a person and per lane action;
+  it now prints the context line only, and does not read the ledger at all. `"context": {"gauge_rows": true}` in
+  `.claude/project-status.json` turns the rows back on, unchanged; any other value, or no file, is off.
+  `hefesto-setup.sh` writes nothing for the key. The orchestrator's pass brief still lists runs and decisions.
 
 ### Unchanged
 

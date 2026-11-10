@@ -25,7 +25,9 @@
 #                             grant of the ledger folder is taken out (since 9.0 the ledger is in ~/.cache/hefesto)
 #   permissions.additionalDirectories  with --lanes on an external board, the code repos its `repos` names
 #   statusLine                the context gauge, run as `context-gauge.sh --with-user`: your profile's own status
-#                             line first, then `ctx 45% · 90k/200k` (left alone when this file already has one)
+#                             line first, then `ctx 45% · 90k/200k` (left alone when this file already has one);
+#                             the run rows below it are opt-in with context.gauge_rows: true in
+#                             .claude/project-status.json (default false — this script writes nothing for it)
 #   crossSessionInbound       "accept", with --lanes: the orchestrator's doorbells reach the stage lanes
 #   sandbox.autoAllowBashIfSandboxed  false, only with --strict: any command outside the allowlist asks,
 #                             sandboxed or not (without --strict an earlier setup's false is taken back out)
