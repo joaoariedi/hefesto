@@ -452,7 +452,8 @@ if [ "$MODE" = finish ]; then
   BAD="$(schema_errors "$SCHEMA" "$SO")"; [ -z "$BAD" ] || die "session-launch $ROLE $ID --finish: the outcome does not fit the $ROLE schema — $BAD"
   RC=0; NAME="$LANE"; [ "$ROLE" = verify ] && NAME="$LANE:code-reviewer"   # FR-018: the lane's fresh-context reviewers
   case "$ROLE" in verify|deploy) WT="$WORKTREE" ;; esac
-  "$LEDGER" run "$ID" --role "$ROLE" --exit 0 --usd 0 --session-id in-lane --note in-lane >/dev/null || exit 1
+  # HEF-27 FR-010: claim/run carry the launcher marker per call, never exported — the claude worker would inherit it
+  HEFESTO_LAUNCHER=1 "$LEDGER" run "$ID" --role "$ROLE" --exit 0 --usd 0 --session-id in-lane --note in-lane >/dev/null || exit 1
   transcribe
   rm -f "$PF" "$LDF/$ID.prompt.md"
   # #160: one line the lane quotes before it tells the person where a decision waits — read back from the ledger
@@ -592,8 +593,9 @@ if [ "$MODE" = prepare ]; then
   if [[ "$EBK" == human:* ]] && ! { [ "$ROLE" = deploy ] && [ "$EBK" = human:merge ]; }; then
     die "session-launch $ROLE $ID --prepare: blocked on $EBK — the person clears it first, in the orchestrator"
   fi
-  "$LEDGER" claim "$ID" --session "$LANE" --role "$ROLE" --mode interactive >/dev/null || exit 1
-  undo() { "$LEDGER" run "$ID" --role "$ROLE" --exit 1 --usd 0 --session-id in-lane --note "prepare failed" >/dev/null 2>&1; die "$1"; }
+  # HEF-27 FR-010: the launcher marker per call, never exported (the claude worker would inherit it)
+  HEFESTO_LAUNCHER=1 "$LEDGER" claim "$ID" --session "$LANE" --role "$ROLE" --mode interactive >/dev/null || exit 1
+  undo() { HEFESTO_LAUNCHER=1 "$LEDGER" run "$ID" --role "$ROLE" --exit 1 --usd 0 --session-id in-lane --note "prepare failed" >/dev/null 2>&1; die "$1"; }
   [ -z "$APP_NEW" ] || "$LEDGER" record "$ID" --spec-root "$APP_NEW" >/dev/null || undo "session-launch $ROLE $ID --prepare: cannot record the app"
   case "$ROLE:$PHASE" in
     implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || undo "session-launch implement $ID --prepare: advance failed" ;;
@@ -672,7 +674,9 @@ EBK="$(jq -r '.blocked_on.kind // empty' <<<"$E")"
 if [[ "$EBK" == human:* ]] && ! { [ "$ROLE" = deploy ] && [ "$EBK" = human:merge ]; }; then
   die "session-launch $ROLE $ID: blocked on $EBK — the person clears it first (it names the command); no session is launched over a human gate"
 fi
-"$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$" >/dev/null || exit 1
+# HEF-27 FR-010: claim/run carry the launcher marker per call, never exported — the claude worker launched below
+# would inherit an exported one, and its own session could then claim
+HEFESTO_LAUNCHER=1 "$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$" >/dev/null || exit 1
 [ -z "$APP_NEW" ] || "$LEDGER" record "$ID" --spec-root "$APP_NEW" >/dev/null || exit 1   # #172: after the gate and the claim
 case "$ROLE:$PHASE" in
   implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || exit 1 ;;
@@ -702,7 +706,7 @@ CHILD=$!
 # must keep its claim while it runs (review 2026-10-22). touch, not ": >", moves the mtime on every filesystem.
 ( while kill -0 "$$" 2>/dev/null || kill -0 "$CHILD" 2>/dev/null; do touch "$LEASE" 2>/dev/null; sleep 20; done ) >/dev/null 2>&1 &
 HB=$!
-trap 'kill "$CHILD" "$HB" 2>/dev/null; wait "$CHILD" 2>/dev/null; "$LEDGER" run "$ID" --role "$ROLE" --exit 143 --usd 0 --pid "$$" >/dev/null 2>&1; exit 143' TERM INT HUP
+trap 'kill "$CHILD" "$HB" 2>/dev/null; wait "$CHILD" 2>/dev/null; HEFESTO_LAUNCHER=1 "$LEDGER" run "$ID" --role "$ROLE" --exit 143 --usd 0 --pid "$$" >/dev/null 2>&1; exit 143' TERM INT HUP
 wait "$CHILD"; RC=$?
 trap - TERM INT HUP; kill "$HB" 2>/dev/null
 # the outcome: the stream's last `result` event — or, from a session that printed one JSON object (the json
@@ -713,7 +717,7 @@ jq -c 'select(type == "object" and .type? == "result")' "$EVENTS" 2>/dev/null | 
 [ -s "$OUT" ] || { [ "$(jq -s 'length' "$EVENTS" 2>/dev/null)" = 1 ] && cp "$EVENTS" "$OUT"; } || : > "$OUT"
 USD="$(jq -r '.total_cost_usd // 0' "$OUT" 2>/dev/null | head -1)"; SID="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null | head -1)"
 [[ "$USD" =~ ^[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?$ ]] || USD=0
-"$LEDGER" run "$ID" --role "$ROLE" --exit "$RC" --usd "${USD:-0}" --session-id "$SID" --pid "$$" >/dev/null || exit 1
+HEFESTO_LAUNCHER=1 "$LEDGER" run "$ID" --role "$ROLE" --exit "$RC" --usd "${USD:-0}" --session-id "$SID" --pid "$$" >/dev/null || exit 1   # marked per call (FR-010)
 # FR-011: a session that hit --max-budget-usd is a `budget` block for a person to split or raise the
 # cap, not a retry (three retries would spend 3× the cap on one item — review 2026-09-27).
 if jq -e '(.subtype // "") | test("budget")' "$OUT" >/dev/null 2>&1; then

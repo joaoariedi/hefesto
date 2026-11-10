@@ -255,17 +255,31 @@ trusted_check() {
 # checks the caller itself. Claude Code sets CLAUDE_CODE_SESSION_ID in every Bash command (documented; lane-guard
 # denies a command line that sets it), and the session's record says which lane it is. No record (a terminal, a
 # project without --lanes) → 8.0's rule: the permission dialog of the ask rule is the gate.
-caller_gate() {
+in_lanes_session() { # 0 when the caller is a Claude session whose record says lanes (lifted from caller_gate, HEF-27)
   local sid="${CLAUDE_CODE_SESSION_ID:-}" f
-  valid_sid "$sid" || return 0; f=$(session_file "$sid"); [ -f "$f" ] || return 0
-  [ "$(jq -r '.lanes' "$f" 2>/dev/null)" = true ] || return 0
+  valid_sid "$sid" || return 1; f=$(session_file "$sid"); [ -f "$f" ] || return 1
+  [ "$(jq -r '.lanes' "$f" 2>/dev/null)" = true ]
+}
+caller_gate() {
+  local f
+  in_lanes_session || return 0; f=$(session_file "$CLAUDE_CODE_SESSION_ID")
   is_launcher_sub "$SUB" && die "ledger $SUB: the launcher's own record — a lane uses session-launch.sh --prepare/--finish, a person ledger.sh release"
   if is_person_sub "$SUB" "$@" && [ "$(jq -r '.role // empty' "$f")" != orchestrator ]; then
     die "ledger $SUB: this records a person's decision, so it runs only in the orchestrator lane (this session is '$(jq -r 'if .name != "" then .name else .title end' "$f")')"
   fi
   return 0
 }
-hef_git_neutral   # lane-lib.sh: the git config keys that run a program are pinned for every git call below
+# HEF-27 FR-010: claim and run are the launcher's own record in EVERY project, lanes or not — no permission rule is
+# written for them, so this refusal is the brake where lane-guard's lane rule stands down. session-launch.sh (and
+# handoff's own re-entry below) call them with HEFESTO_LAUNCHER=1 and no session id. A Claude session always carries
+# CLAUDE_CODE_SESSION_ID, and in a set-up project lane-guard.sh denies the `env -u …`/assignment that would drop it.
+# The marker is a brake against sessions, not a secret: a person in a terminal could type it — `release` is theirs.
+launcher_gate() {
+  is_launcher_sub "$SUB" || return 0
+  [ "${HEFESTO_LAUNCHER:-}" = 1 ] && [ -z "${CLAUDE_CODE_SESSION_ID:-}" ] && return 0
+  die "ledger $SUB: the launcher's own record — only session-launch.sh calls it (a lane: session-launch.sh --prepare/--finish); a person frees a claim with ledger.sh release <id> --reviewed-by-human --by <name>"
+}
+hef_git_neutral  # lane-lib.sh: the git config keys that run a program are pinned for every git call below
 
 phase_index() { # name → index, or die
   local i; for i in "${!PHASES[@]}"; do [ "${PHASES[$i]}" = "$1" ] && { echo "$i"; return; }; done
@@ -388,6 +402,8 @@ BCTX=$(board_ctx) || exit 1
 if [ "$SUB" = board ]; then [ $# -eq 0 ] || usage; echo "$BCTX"; exit 0; fi
 trusted_check
 caller_gate "$@"
+# after caller_gate: a lane session keeps its lane message; every other caller reaches the launcher check (FR-010)
+launcher_gate
 DIR=$(ledger_dir) || exit 1
 ledger_settle "$DIR" "$(jq -r '.git_common // empty' <<<"$BCTX")" || exit 1
 case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|park|-h|--help) ;; *) ledger_mkdir ;; esac
@@ -606,8 +622,9 @@ case "$SUB" in
         # who had read the item in an interactive session still had to copy the line into a terminal
         # (field report, 2026-10-06). A terminal test proves nothing about who read the item, and anything a
         # session can run, the model that read the hostile text can run too — so the gate is the
-        # PERMISSION PROMPT: this command must never be allowlisted (docs/install.md), every clear is a
-        # dialog the person answers, and the name is recorded. A launched worker is refused outright.
+        # PERMISSION PROMPT: `unblock … --reviewed-by-human` is a signature ask rule (hefesto-setup.sh; plain
+        # `unblock` is allowlisted, the flag never is — HEF-27), lane-guard.sh denies the flag spelled so that no rule
+        # matches it, every clear is a dialog the person answers, and the name is recorded. A launched worker is refused outright.
         # That premise needs the pane in `default` permission mode: under auto, bypassPermissions or
         # dontAsk there is no dialog — session-start-context.sh warns when an intake block meets one.
         [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] \
@@ -615,7 +632,7 @@ case "$SUB" in
         # Compatibility: from a real terminal, --reviewed-by-human alone still works (as before 7.9.1), recording the login.
         [ -z "$RBY" ] && [ "$REVIEWED" = 1 ] && [ -t 0 ] && RBY="${USER:-$(id -un 2>/dev/null)}"
         [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
-          || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist it" ;;
+          || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist the --reviewed-by-human form" ;;
     esac
     if [ "$KIND" = human:merge ] && [ -n "${MERGED_VIA:-}" ]; then
       jq --arg m "$MERGED_VIA" --arg v "$MERGED_VER" '.blocked_on = null | .pr.merge_sha = $m
@@ -758,6 +775,9 @@ case "$SUB" in
   # an implement session) has something to compare. A blocked entry is refused: a handoff must never
   # clear a human:intake or stall block that only a person may clear.
   handoff)
+    # HEF-27: a hand command. A lane finishes with session-launch.sh --finish; refused up front, before the entry is
+    # read or written, because the inner `run` below is marked as the launcher's and would otherwise pass for a lane.
+    in_lanes_session && die "ledger handoff ${1:-}: a hand command — a lane finishes with session-launch.sh --finish"
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; PR=""; BR=""
     while [ $# -gt 0 ]; do case "$1" in --pr) PR="${2:-}"; shift ;; --branch) BR="${2:-}"; shift ;; *) usage ;; esac; shift; done
     [[ "$PR" =~ /pull/[0-9]+$ ]] || die "ledger handoff $ID: --pr must be a pull-request URL ending in /pull/<n> (got '$PR')"
@@ -784,7 +804,9 @@ case "$SUB" in
     jq --arg r "$HREPO" '.owner = {session_name: "hand", role: "implement", pid: null, started: (now | todate)} | if $r == "" then . else .repo = $r end' <<<"$E" | write_entry "$ID" || exit 1
     # A failure after the owner write must not strand the entry under a session that does not exist.
     unhand() { local e; e=$(entry "$ID") && jq 'if .owner.session_name == "hand" then .owner = null else . end' <<<"$e" | write_entry "$ID"; die "ledger handoff $ID: $1 failed — the entry is released; fix the cause and run handoff again"; }
-    bash "$0" run "$ID" --role implement --exit 0 --usd 0 >/dev/null || unhand run
+    # the ledger's own record of a hand-run, so it is marked as the launcher's (FR-010); the session id is dropped
+    # only because the arm already refused a lanes session above
+    env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 bash "$0" run "$ID" --role implement --exit 0 --usd 0 >/dev/null || unhand run
     bash "$0" record "$ID" --pr "$PR" --branch "$BR" --worktree "$PWD" >/dev/null || unhand record
     if [ "$CI" -lt "$PI" ]; then bash "$0" advance "$ID" pr >/dev/null || unhand advance; fi
     bash "$0" block "$ID" --kind human:merge >/dev/null || unhand block

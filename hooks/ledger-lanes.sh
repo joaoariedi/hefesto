@@ -59,14 +59,15 @@ register_gh_args() { # $1 id, $2 status-board.sh → REG_GH=(--url <u> [--intake
 }
 
 # The intake gate's rules for any person-only clear: never from inside a launched worker, and a name. The
-# dialog is the gate — this command is never allowlisted (hefesto-setup.sh puts it in `ask`).
+# dialog is the gate — the --reviewed-by-human form is a signature ask rule (hefesto-setup.sh; the bare `unblock` and
+# `release` are allowlisted, the flag never is — HEF-27), and lane-guard.sh denies the flag spelled to dodge it.
 person_gate() { # $1 kind, $2 verb (default unblock)
   local v="${2:-unblock}"
   [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] \
     || die "ledger $v $ID: $1 is never cleared from inside a launched worker — a person runs it from their own session"
   [ -z "$RBY" ] && [ "$REVIEWED" = 1 ] && [ -t 0 ] && RBY="${USER:-$(id -un 2>/dev/null)}"
   [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
-    || die "ledger $v $ID: $1 needs --reviewed-by-human --by <your name> — a person read it and answers the permission prompt for this command; never allowlist it"
+    || die "ledger $v $ID: $1 needs --reviewed-by-human --by <your name> — a person read it and answers the permission prompt for this command; never allowlist the --reviewed-by-human form"
 }
 
 # human:plan-approval (FR-006): a person approves a background plan. The planner's own /hefesto:hef.review writes

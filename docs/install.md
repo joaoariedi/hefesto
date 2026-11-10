@@ -107,8 +107,7 @@ Two things the plugin cannot ship, because they are machine-local by design:
   "permissions": {
     "allow": [
       // ← your REAL home dir, this profile, the installed version
-      "Bash(/home/you/.claude/plugins/cache/hefesto/hefesto/X.Y.Z//hooks/speckit-helper.sh:*)",
-      "Bash(/home/you/.claude/plugins/cache/hefesto/hefesto/X.Y.Z/hooks/speckit-helper.sh:*)"
+      "Bash(/home/you/.claude/plugins/cache/hefesto/hefesto/X.Y.Z//hooks/speckit-helper.sh:*)"
     ]
   }
 }
@@ -128,11 +127,13 @@ Two things the plugin cannot ship, because they are machine-local by design:
 > | `Bash(~/…)` | ❌ blocked — **`~` is not expanded** |
 > | leading wildcard | ❌ blocked |
 >
-> **Write your home directory out literally** (`echo $HOME`). The doubled slash is not a typo and is the entry that works: `${CLAUDE_PLUGIN_ROOT}` expands *with* a trailing slash, so the helper reaches the matcher as `…/X.Y.Z//hooks/…`. The single-slash entry is a hedge against a future release dropping that slash; it matches nothing today. Keep both.
+> **Write your home directory out literally** (`echo $HOME`). The doubled slash is not a typo and is the entry that works: `${CLAUDE_PLUGIN_ROOT}` expands *with* a trailing slash, so the helper reaches the matcher as `…/X.Y.Z//hooks/…`. **One spelling per root:** a profile's installed copy is written `<installPath>//hooks/…`; the clone loaded with `--plugin-dir` (or run from a terminal) is written `<clone>/hooks/…` — with or without a trailing `/` on `--plugin-dir`, the helper arrives with one slash. `hefesto-setup.sh` writes exactly that one form per root — for the rules and the sandbox exclusions — and takes out the other spellings (and the `bash <path>` form) an earlier version wrote. A call in a spelling with no rule fails closed: it is not excluded from the sandbox, so a ledger write fails loudly instead of running unasked, and `--check` at session start names the set that is missing under this session's root.
 >
 > **This is the single most common failure.** Without the rule, every helper call shows a permission prompt; a prompt you deny stops the command. If a hef command asks on every call, or stops at its first step, this rule is the first thing to check.
 >
 > The same applies to the other helpers the commands call — `status-board.sh` (`/hefesto:hef.status`), `ledger.sh` and `session-launch.sh` (`/hefesto:hef.orchestrate`), `pr-watch.sh` (`/hefesto:hef.babysit`), `arena-run.sh` (`--arena --via`, `--second-opinion`), `release.sh` (`/hefesto:hef.release`): they prompt on first use; allow them in the same form if you use those commands — never `ledger.sh` as a whole, and never `pr-watch.sh reply` or `comment`, which `hefesto-setup.sh` keeps in `ask`.
+>
+> **A dialog only where a person signs.** `hefesto-setup.sh` puts in `ask` exactly the `ledger.sh` forms that record a person's decision — `approve`, `answer`, `revise`, `drop`, `fold`, `supersede`, `reopen`, `op close`, `op drop`, and `unblock … --reviewed-by-human`, `unblock … --merge-sha`, `record … --body-file`, `record … --body-from-board`, `record … --rfc`, `release … --reviewed-by-human` (the flag anywhere after the id) — plus `pr-watch.sh reply` and `comment`. Every other `ledger.sh` subcommand gets its own `allow` rule, one by one (a new subcommand is neither allowed nor asked until it is classified). `claim` and `run` get no rule at all: they are the launcher's own record, and `ledger.sh` refuses them unless `session-launch.sh` calls them — a person frees a claim with `ledger.sh release <id> --reviewed-by-human --by <name>`. `hefesto-setup.sh --check` reports any `ask` rule on a hefesto helper outside that set, in `settings.local.json`, the project's `settings.json` or the profile's `settings.json`, as `no ask rule outside the signature set (<rule> in <file> …)`: every lane pass would stop on it.
 
 Export `GITHUB_TOKEN` if you want the bundled GitHub MCP server to connect.
 
@@ -822,8 +823,9 @@ holds everything the line points at.
 
 **Aligning a release across the panes** is a sequence the ledger makes visible, not a meeting:
 
-1. `project` dispatches or a person in `feature` claims an item (`hooks/ledger.sh claim HEF-7
-   --session <repo>-feature --role implement`) — the orchestrator then leaves it alone.
+1. `project` dispatches or the `feature` lane takes an item (`hooks/session-launch.sh implement HEF-7
+   --prepare --lane <repo>-feature`, which claims it — `ledger.sh claim` is the launcher's alone) —
+   the orchestrator then leaves it alone.
 2. The PR lands the item in `pr`, blocked on `human:merge`. That block is the release queue.
 3. `chore` merges (a person, with a merge commit), then `git pull --ff-only`,
    `hooks/ledger.sh unblock HEF-7`, `hooks/ledger.sh advance HEF-7 merged`, and removes the worktree.
