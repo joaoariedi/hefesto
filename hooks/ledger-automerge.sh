@@ -15,8 +15,10 @@
 # pins per board repo its path, origin and integration branch, plus the merge checks — "pinned at grant, compared
 # at run". Config `auto` with no grant, or with any pinned value changed since, resolves to `person` (NR-003).
 
-# macOS ships no timeout(1): the bundled run-bounded.sh stands in (arena-run.sh does the same)
-AM_TIMEOUT="$(command -v timeout || command -v gtimeout || echo "$HERE/run-bounded.sh")"
+# Always the bundled run-bounded.sh, never a PATH lookup (verify gate 2026-11-09, scan MEDIUM): automerge runs
+# unsandboxed, so a `timeout`/`gtimeout` a lane wrote earlier on PATH would run with the launcher's rights. It also
+# stands in for macOS, which ships no timeout(1); same contract (the command's own code, or 124).
+AM_TIMEOUT="$HERE/run-bounded.sh"
 AM_NAME_RE='^[A-Za-z0-9]([A-Za-z0-9._@ -]{0,62}[A-Za-z0-9._@-])?$'
 
 am_lane_role() { # → the calling session's lane role when a lanes session asks (empty otherwise: a terminal, the launcher)
@@ -263,7 +265,7 @@ automerge_cmd() { # <id> [--if-merged] — the gate (FR-005, FR-007, FR-009), th
   automerge_merge "$e"
 }
 automerge_gate() { # $1 entry — returns when it may be merged, setting AM_GRANT AM_PIN AM_R AM_N AM_URL; else exits 1|2|3|4
-  local bk nm st why
+  local bk nm
   bk=$(jq -r '.blocked_on.kind // empty' <<<"$1")
   # ci and conflict are the babysitter's own blocks (automerge sets them too): after its `mergeable` they are
   # re-evaluated here, every precondition below re-runs — a stale ci would otherwise cost a Retry (verify review).
@@ -275,6 +277,10 @@ automerge_gate() { # $1 entry — returns when it may be merged, setting AM_GRAN
   AM_GRANT=$(store_get merge-auto); nm=$(jq -r '.repo // "."' <<<"$1"); AM_PIN=$(jq -c --arg n "$nm" '.repos[$n] // empty' <<<"$AM_GRANT")
   [ -n "$AM_PIN" ] || am_skip "the grant pins no repo '$nm'"
   read -r AM_R AM_N AM_URL <<<"$(am_pr_of "$1")"; [ -n "${AM_URL:-}" ] || exit 1
+  am_live_ok "$1"
+}
+am_live_ok() { # $1 entry — reads the PR's live state; returns when origin, base, gates, head and state still allow the merge
+  local st why
   st=$( (cd_entry_repo "$1" && bash "$HERE/pr-watch.sh" state "$AM_URL") 2>&1 ) || die "ledger automerge $ID: pr-watch.sh state $AM_URL failed — nothing recorded: $(tail -1 <<<"$st")"
   why=$(automerge_skip_reason "$1" "$st" "$AM_PIN" "$AM_R"); [ -z "$why" ] || am_skip "$why"
   am_state_step "$st"
@@ -283,6 +289,9 @@ automerge_merge() { # $1 entry, after automerge_gate — the pinned checks, the 
   local out vh fact mst oid int
   int=$(jq -r .integration <<<"$AM_PIN")
   out=$(automerge_run_checks "$(jq -r .path <<<"$AM_PIN")" "$int" "$AM_GRANT") || am_block ci "merge check failed — $out" 3
+  # the checks take minutes: the PR's base, which --match-head-commit cannot pin, may be retargeted meanwhile and gh
+  # would merge into it (verify gate 2026-11-09, NR-001) — so the live state is read again, the last thing before it
+  am_live_ok "$1"
   vh=$(jq -r .pr.verified_head <<<"$1")
   out=$("$GH" pr merge "$AM_N" -R "$AM_R" --merge --match-head-commit "$vh" 2>&1 </dev/null) || am_block ci "gh pr merge refused: $(tail -1 <<<"${out:-no output}")" 3
   fact=$(gh_pr_fact "$AM_URL") || am_block ci "merged, but gh cannot read $AM_URL back — the merge is not recorded" 3

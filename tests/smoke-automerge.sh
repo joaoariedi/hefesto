@@ -397,5 +397,32 @@ grep -qF 'orchestrate.merge_by: "auto"' <<<"$am_un" \
   || { bad "CHANGELOG.md's Unreleased section must describe merge_by auto (merge-auto FR-016)"; x_fail=1; }
 [ "$x_fail" -eq 0 ] && ok "docs: quickstart (en, pt-BR) and install describe merge_by auto, the grant and revoke, the decider, checks run without a shell, the one merge form; architecture names ledger.sh automerge; CHANGELOG Unreleased (HEF-30 FR-016)"
 
+# --- NR-001 (T017, verify gate 2026-11-09): the live state is re-read after the checks, right before the merge --------
+head_ "merge-auto: a PR whose base changes while the merge checks run is never merged (HEF-30 FR-005 NR-001)"
+x_fail=0; am_fb="$am_t/fbin"; mkdir -p "$am_fb"
+# a bare-name check that retargets the PR to stg while it runs: the base changes between the gate and the merge
+printf '#!/bin/sh\njq %s %s > %s && mv %s %s\n' "'.baseRefName = \"stg\"'" "$am_t/pr.json" "$am_t/pr.flip" "$am_t/pr.flip" "$am_t/pr.json" > "$am_fb/amflip"; chmod +x "$am_fb/amflip"
+am_cfg auto '' "$(jq -nc --arg c "$AM_CHECK" '[$c, "amflip"]')"
+amp() { (cd "$am_w" && PATH="$am_fb:$PATH" HEFESTO_GH_BIN="$am_t/bin/gh" bash "$REPO/hooks/ledger.sh" "$@"); }
+am_s3="$(amp merge-auto preview 2>/dev/null | sed -n 's/^sha256: //p')"
+amp merge-auto grant --sha "${am_s3:0:12}" --reviewed-by-human --by Ana </dev/null >/dev/null 2>&1 || { bad "the grant with the amflip check must pass"; x_fail=1; }
+am_entry HEF-19 25 feat5; am_pr 25 feat5 "$(am_sha feat5)"; : > "$am_t/gh.log"
+am_stg0="$(git -C "$am_t/origin.git" rev-parse stg)"
+o="$(amp automerge HEF-19 2>&1 </dev/null)"; am_rc=$?
+{ [ "$am_rc" = 2 ] && grep -qF "is not the integration branch" <<<"$o" && ! am_merged \
+  && [ "$(git -C "$am_t/origin.git" rev-parse stg)" = "$am_stg0" ] && [ "$(jq -r '.blocked_on.kind' "$am_ld/HEF-19.json")" = human:merge ]; } \
+  || { bad "a base changed during the merge checks must be re-read and refused before gh pr merge, nothing merged (NR-001, T017) — rc $am_rc: $(head -c 300 <<<"$o"); log: $(tr '\n' '|' < "$am_t/gh.log")"; x_fail=1; }
+[ "$x_fail" -eq 0 ] && ok "automerge: the PR's live state is re-read after the merge checks — a base retargeted to an environment branch meanwhile is refused (human:merge), gh pr merge never runs (HEF-30 FR-005 NR-001)"
+
+# --- NR-005 (T018, scan MEDIUM): the merge checks are bounded by the bundled run-bounded.sh, never a PATH timeout ------
+head_ "merge-auto: a timeout or gtimeout earlier on PATH never runs from automerge (HEF-30 FR-008 NR-005)"
+x_fail=0; am_cfg auto; am_grant >/dev/null; am_tb="$am_t/tbin"; mkdir -p "$am_tb"
+for am_x in timeout gtimeout; do printf '#!/bin/sh\ntouch %s/RAN-%s\nshift\nexec "$@"\n' "$am_t" "$am_x" > "$am_tb/$am_x"; chmod +x "$am_tb/$am_x"; done
+am_entry HEF-20 26 feat7; am_pr 26 feat7 "$(am_sha feat7)"; : > "$am_t/gh.log"
+o="$(cd "$am_w" && PATH="$am_tb:$PATH" HEFESTO_GH_BIN="$am_t/bin/gh" bash "$REPO/hooks/ledger.sh" automerge HEF-20 2>&1 </dev/null)"; am_rc=$?
+{ [ ! -e "$am_t/RAN-timeout" ] && [ ! -e "$am_t/RAN-gtimeout" ]; } || { bad "automerge must never run a timeout/gtimeout found on PATH — the bundled run-bounded.sh bounds the checks (NR-005, T018)"; x_fail=1; }
+{ [ "$am_rc" = 0 ] && am_merged; } || { bad "automerge with a PATH timeout shadow must still run the checks and merge — rc $am_rc: $(head -c 300 <<<"$o")"; x_fail=1; }
+[ "$x_fail" -eq 0 ] && ok "automerge: the merge checks run under the bundled run-bounded.sh — a timeout/gtimeout earlier on PATH never runs (HEF-30 FR-008 NR-005)"
+
 git -C "$am_w" worktree prune 2>/dev/null
 rm -rf -- "${am_t:?}"; rm -f "$HOME"/.cache/hefesto/sessions/sid-am-*-0001.json
