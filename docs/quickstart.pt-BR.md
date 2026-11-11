@@ -212,6 +212,10 @@ formulário e cada pedido antes de responder.
 
 Rode o comando de instalação, depois a preparação em cada projeto (seção 2). Além disso:
 
+- **Para a 9.4:** rode o setup de novo em cada projeto e reabra as lanes: ele remove as perguntas de permissão das
+  mecânicas do ledger, então um diálogo só aparece onde você assina. O gasto fica aberto a menos que
+  `orchestrate.usd_cap` ou `orchestrate.daily_usd_cap` esteja definido: apague-os para não ter limite. O rodapé
+  mostra só o medidor de contexto (`"context": {"gauge_rows": true}` traz as linhas de execução de volta).
 - **Para a 9.3:** os comandos são escritos `/hefesto:hef.<nome>` em todo lugar, do jeito que o Claude Code os
   resolve (o nome sem o prefixo nunca funcionou para um plugin). Um repositório agora pode ter vários apps, cada um
   com a sua `.specify/` (`spec_roots`, [`install.md`](install.md) §7, passo 15); um repositório sem isso funciona como
