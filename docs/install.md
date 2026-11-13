@@ -133,7 +133,7 @@ Two things the plugin cannot ship, because they are machine-local by design:
 >
 > The same applies to the other helpers the commands call — `status-board.sh` (`/hefesto:hef.status`), `ledger.sh` and `session-launch.sh` (`/hefesto:hef.orchestrate`), `pr-watch.sh` (`/hefesto:hef.babysit`), `arena-run.sh` (`--arena --via`, `--second-opinion`), `release.sh` (`/hefesto:hef.release`): they prompt on first use; allow them in the same form if you use those commands — never `ledger.sh` as a whole, and never `pr-watch.sh reply` or `comment`, which `hefesto-setup.sh` keeps in `ask`.
 >
-> **A dialog only where a person signs.** `hefesto-setup.sh` puts in `ask` exactly the `ledger.sh` forms that record a person's decision — `approve`, `answer`, `revise`, `drop`, `fold`, `supersede`, `reopen`, `op close`, `op drop`, and `unblock … --reviewed-by-human`, `unblock … --merge-sha`, `record … --body-file`, `record … --body-from-board`, `record … --rfc`, `release … --reviewed-by-human` (the flag anywhere after the id) — plus `pr-watch.sh reply` and `comment`. Every other `ledger.sh` subcommand gets its own `allow` rule, one by one (a new subcommand is neither allowed nor asked until it is classified). `claim` and `run` get no rule at all: they are the launcher's own record, and `ledger.sh` refuses them unless `session-launch.sh` calls them — a person frees a claim with `ledger.sh release <id> --reviewed-by-human --by <name>`. `hefesto-setup.sh --check` reports any `ask` rule on a hefesto helper outside that set, in `settings.local.json`, the project's `settings.json` or the profile's `settings.json`, as `no ask rule outside the signature set (<rule> in <file> …)`: every lane pass would stop on it.
+> **A dialog only where a person signs.** `hefesto-setup.sh` puts in `ask` exactly the `ledger.sh` forms that record a person's decision — `approve`, `answer`, `revise`, `drop`, `fold`, `supersede`, `reopen`, `op close`, `op drop`, `merge-auto grant`, `merge-auto revoke`, and `unblock … --reviewed-by-human`, `unblock … --merge-sha`, `record … --body-file`, `record … --body-from-board`, `record … --rfc`, `release … --reviewed-by-human` (the flag anywhere after the id) — plus `pr-watch.sh reply` and `comment`. Every other `ledger.sh` subcommand gets its own `allow` rule, one by one (a new subcommand is neither allowed nor asked until it is classified). `claim` and `run` get no rule at all: they are the launcher's own record, and `ledger.sh` refuses them unless `session-launch.sh` calls them — a person frees a claim with `ledger.sh release <id> --reviewed-by-human --by <name>`. `hefesto-setup.sh --check` reports any `ask` rule on a hefesto helper outside that set, in `settings.local.json`, the project's `settings.json` or the profile's `settings.json`, as `no ask rule outside the signature set (<rule> in <file> …)`: every lane pass would stop on it.
 
 Export `GITHUB_TOKEN` if you want the bundled GitHub MCP server to connect.
 
@@ -393,9 +393,21 @@ For the short path — install, one lane or four, a new or a running project —
    Without it, build also takes queued items, as before.
    Other `orchestrate` keys: `max_builders` (default 1, at most 8) builders at once per repository, beside
    one planner and one deployer (the verifier does not count); `max_fixes` (default 3) the babysitter's fix
-   budget per PR; `merge_by` — `person` (the default: you merge on GitHub) or `lane` (the orchestrator drafts a
-   merge action for the deploy lane, approved by you as a form); `merge.checks`, the commands a lane merge runs
-   first (`{repo_path}` and `{base}` placeholders); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
+   budget per PR; `merge_by` — `person` (the default: you merge on GitHub), `lane` (the orchestrator drafts a
+   merge action for the deploy lane, approved by you as a form) or `auto` (the deploy stage merges a green PR into
+   the integration branch itself, through `ledger.sh automerge`, once you granted it: `ledger.sh merge-auto preview`
+   shows what a grant pins — per repo its path, `origin` and integration branch, and the merge checks — and
+   `ledger.sh merge-auto grant --sha <12> --reviewed-by-human --by <name>` records it outside every sandbox; any
+   pinned value that changes makes `ledger.sh merge-by` resolve `person` again until you re-grant, and
+   `ledger.sh merge-auto revoke --reviewed-by-human --by <name>` turns it off; `main`/`master`,
+   an environment or a protected integration branch is never eligible; any other value is refused, and stops the
+   launch); every PR waiting on you is asked in one merge form per pass; `merge.checks`, the commands a lane merge
+   or an auto-merge runs first (`{repo_path}` and `{base}` placeholders; split on whitespace and run without a
+   shell — under `auto` outside the sandbox, in the repo's path, so a check's program must be a bare name on PATH or
+   an absolute path, as written, in hefesto's hooks folder or a system bin folder; a shell or interpreter (`sh`,
+   `env`, `python` …) is refused by name wherever it lives, as are tabs and a leading blank; a bare `npm`/`make`
+   reads that repo's own files); `decider`, the name your decisions are recorded with (setup writes it from `git config user.name` when
+   absent, never over yours; the orchestrator then never asks your name); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
    deploy and release-train scopes a request is built from (8c); `plan_review_rounds` (default 5, an integer
    from 1 to 20) the plan-review rounds the planner works through on its own before it asks you — a product or
    design question still stops it on the round it appears.

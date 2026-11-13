@@ -16,7 +16,7 @@ hefesto/
 ├── .mcp.json                   # GitHub MCP server, shipped by the plugin (registered in every project it is installed for)
 ├── agents/                     # 7 agents (5 pipeline + repo-scout and truth-scout one-shot)
 ├── commands/                   # 27 slash commands, all hef.*
-├── hooks/                      # 16 hooks + hooks.json; helpers: release.sh, speckit-helper.sh (48 subcommands), status-board.sh, ledger.sh, session-launch.sh, pr-watch.sh, arena-run.sh, hefesto-setup.sh (the one-time lane settings), context-gauge.sh (the status-line gauge), lane-build.sh (builds with the lanes' cache), run-follow.sh (narrates a background run), lane-guard.sh (the lanes' PreToolUse guard), changelog-check.sh, merge-tree-probe.sh, spec-cite-probe.sh, run-bounded.sh, doctor-tmp.sh; sourced: board-lib.sh (board resolution and the ledger home), lane-lib.sh (the session record, the lane map), spec-root-lib.sh (one `.specify/` per app folder), plan-review-lib.sh (the plan-review round loop), launch-item.sh (session-launch.sh's item and RFC readers), board-github.sh and board-setup.sh (status-board.sh's GitHub Project board and setup modes), ledger-actions.sh, ledger-lanes.sh, ledger-lifecycle.sh, ledger-notes.sh, ledger-recipes.sh (ledger.sh's verb groups)
+├── hooks/                      # 16 hooks + hooks.json; helpers: release.sh, speckit-helper.sh (48 subcommands), status-board.sh, ledger.sh, session-launch.sh, pr-watch.sh, arena-run.sh, hefesto-setup.sh (the one-time lane settings), context-gauge.sh (the status-line gauge), lane-build.sh (builds with the lanes' cache), run-follow.sh (narrates a background run), lane-guard.sh (the lanes' PreToolUse guard), changelog-check.sh, merge-tree-probe.sh, spec-cite-probe.sh, run-bounded.sh, doctor-tmp.sh; sourced: board-lib.sh (board resolution and the ledger home), lane-lib.sh (the session record, the lane map), spec-root-lib.sh (one `.specify/` per app folder), plan-review-lib.sh (the plan-review round loop), launch-item.sh (session-launch.sh's item and RFC readers), board-github.sh and board-setup.sh (status-board.sh's GitHub Project board and setup modes), ledger-actions.sh, ledger-automerge.sh, ledger-lanes.sh, ledger-lifecycle.sh, ledger-notes.sh, ledger-recipes.sh (ledger.sh's verb groups)
 ├── skills/                     # 7 skills, each a <name>/SKILL.md directory
 ├── workflows/                  # workflow.js — the deterministic task-list executor
 ├── tests/                      # smoke.sh (structural/regression + opt-in live tiers) and its parts smoke-*.sh (changelog-check, github-board, lane-cache, lane-grants, lifecycle, lifecycle-ops, merge, recipes, spec-roots, train); fixtures/ (the 9.2.0 launch fixture); workflow.test.js (node --test)
@@ -152,8 +152,11 @@ board repo's git common dir, every entry tagged with its `repo`), `claim` allows
 session runs in its entry's repo.
 **No worker ever merges.** By default the person merges on GitHub — the merge is the human gate; with
 `orchestrate.merge_by: "lane"` the deployer lane merges an action the person approved with **Merge** in the
-orchestrator's form. See [install §7, Pane layouts](install.md#pane-layouts)
-and `reports/17`.
+orchestrator's form; with `"auto"` the deploy launcher runs `ledger.sh automerge` (a helper, never a model) into the
+integration branch only, under the person's standing grant in the approvals store (`ledger-automerge.sh`: the repo
+paths, origins, integration branches and merge checks pinned at grant, compared at every run), at the head the
+verify launcher recorded. See README §5,
+[install §7, Pane layouts](install.md#pane-layouts) and `reports/17`.
 
 ## 🖥️ Reference Deployment
 

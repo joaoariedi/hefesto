@@ -94,8 +94,8 @@ sg_reduced() { # → empty when $SG_F holds the reduced shape (SC-001), else the
     def ours: test("/hooks/(ledger|pr-watch|session-launch|status-board|speckit-helper|run-follow|hefesto-setup)[.]sh");
     def tail($h): ltrimstr("Bash(" + $h + "/") | rtrimstr(")");
     (.permissions.allow | map(select(ours))) as $al
-    | [ (if (.permissions.ask | sort) == $want then empty else "permissions.ask is not exactly the 17 signature forms × the two live roots + the rules of the person: extra \(.permissions.ask - $want), missing \($want - .permissions.ask)" end),
-        (if ($want | length) == 35 then empty else "the signature set is not 17 forms per root (\($want | length) rules for two roots + 1)" end),
+    | [ (if (.permissions.ask | sort) == $want then empty else "permissions.ask is not exactly the 19 signature forms × the two live roots + the rules of the person: extra \(.permissions.ask - $want), missing \($want - .permissions.ask)" end),
+        (if ($want | length) == 39 then empty else "the signature set is not 19 forms per root (HEF-30 adds merge-auto grant/revoke) (\($want | length) rules for two roots + 1)" end),
         (if (.permissions.allow | group_by(.) | all(length == 1)) then empty else "a duplicated allow rule" end),
         (if ($al | all(startswith("Bash(" + $c + "/") or startswith("Bash(" + $i + "/"))) then empty
          else "an allow rule in another spelling or version: \($al | map(select((startswith("Bash(" + $c + "/") or startswith("Bash(" + $i + "/")) | not)))" end),
@@ -111,7 +111,7 @@ sg_reduced() { # → empty when $SG_F holds the reduced shape (SC-001), else the
 sg_o="$(sg_su "$sg_p" "$sg_cfg" --lanes 2>&1)"
 sg_r="$(sg_reduced)"
 # SC-001 / FR-004: the 9.3 file → the signature set once per live root, in that root's canonical spelling
-[ -z "$sg_r" ] && ok "SC-001: the 9.3-shape file is reduced to 17 signature asks per live root, one spelling each, the person's rules kept" \
+[ -z "$sg_r" ] && ok "SC-001: the 9.3-shape file is reduced to 19 signature asks per live root, one spelling each, the person's rules kept" \
   || { bad "SC-001 (FR-004): setup --lanes on the 9.3-shape file: $sg_r — setup said: $(tail -3 <<<"$sg_o")"; sg_fail=1; }
 [ "$(jq -c '.permissions.ask | index(["Bash(rm -rf:*)"]) != null' "$SG_F")" = true ] || { bad "SC-001: the person's own ask rule Bash(rm -rf:*) must stay"; sg_fail=1; }
 sg_h="$(cksum < "$SG_F")"; sg_o="$(sg_su "$sg_p" "$sg_cfg" --lanes 2>&1)"
@@ -139,7 +139,7 @@ sg_subs() { # $1 a ledger.sh → its subcommands, one per line: usage text ∪ p
       line="${line%%   *}"; line="${line# }"; line="${line# }"
       while [ -n "$line" ]; do alt="${line%% | *}"; [ "$alt" = "$line" ] && line="" || line="${line#* | }"
         read -r w rest <<<"$alt"; case "$w" in [a-z]*) ;; *) continue ;; esac
-        case "$w" in op|park) printf '%s %s\n' "$w" "${rest%% *}" ;; *) printf '%s\n' "$w" ;; esac
+        case "$w" in op|park|merge-auto) printf '%s %s\n' "$w" "${rest%% *}" ;; *) printf '%s\n' "$w" ;; esac
       done
     done < <(sed -n '/^usage() {/,/^EOF$/p' "$f" | grep '^  [a-z]' | grep -v '^  cat ')   # (the heredoc's own cat line)
     # (ii) the dispatches answered before the case (branches, board)
@@ -147,7 +147,7 @@ sg_subs() { # $1 a ledger.sh → its subcommands, one per line: usage text ∪ p
     # (iii) the top-level arms of the dispatch: exactly two-space indent, between `case "$SUB" in` and `esac` — the
     # read-only `case "$SUB" in dir|…` one-liner and the nested arms (publish's, next's) are not subcommands
     sed -n '/^case "\$SUB" in$/,/^esac$/p' "$f" | sed -n 's/^  \([a-z][a-z|-]*\)).*/\1/p' | tr '|' '\n' \
-      | while IFS= read -r w; do case "$w" in op) printf 'op new\nop close\nop drop\n' ;; park) echo 'park --all' ;; *) echo "$w" ;; esac; done
+      | while IFS= read -r w; do case "$w" in op) printf 'op new\nop close\nop drop\n' ;; merge-auto) printf 'merge-auto preview\nmerge-auto grant\nmerge-auto revoke\nmerge-auto show\n' ;; park) echo 'park --all' ;; *) echo "$w" ;; esac; done
   } | sort -u
 }
 sg_classified() { printf '%s\n' "${LEDGER_ALLOW[@]}" "${LEDGER_ALLOW_EXACT[@]}" "${LEDGER_SIGN_WHOLE[@]}" "${LEDGER_LAUNCHER[@]}"; }

@@ -49,7 +49,7 @@ usage() { echo "usage: session-launch.sh <plan|implement|verify|deploy> <id> [--
 HERE="$(cd "$(dirname "$0")" && pwd)"; LEDGER="$HERE/ledger.sh"; BOARD="$HERE/status-board.sh"
 [ -f "$HERE/launch-item.sh" ] || { echo "session-launch: hooks/launch-item.sh is missing beside it" >&2; exit 1; }
 # shellcheck source=hooks/launch-item.sh
-. "$HERE/launch-item.sh"   # item_as_data, rfc_as_data, and an app's folder: app_dir, app_enter, wt_add (#172)
+. "$HERE/launch-item.sh"   # item_as_data, rfc_as_data, rfc_drifted, and an app's folder: app_dir, app_enter, wt_add (#172)
 # lanes-interactive: ledger.sh refuses a person's decision from a session that is not the orchestrator lane
 # (CLAUDE_CODE_SESSION_ID, its second gate). This launcher's own ledger calls — the RFC pin at a plan launch, the
 # transcription — are hefesto's, not the lane's, so the caller's id is kept only for the --lane check below.
@@ -248,6 +248,9 @@ INTEG="$(jq -r .integration <<<"$BM")"; PROT="$(jq -r '.protected | join(", ")' 
 # The explicit PR base only when a branches block is declared: unconfigured, `gh pr create` keeps the
 # repository's default branch (a `master` trunk has no `main`) — code review B2.
 PR_BASE_RULE=""; "$LEDGER" branches --configured 2>/dev/null && PR_BASE_RULE="Open the PR against $INTEG (gh pr create --base $INTEG). "
+# HEF-30 FR-001/FR-010: merge_by resolved by the helper (auto only under a person's matching grant); a refusal stops
+# the launch — never read as "person"
+MBY=person; case "$ROLE" in verify|deploy) MBY="$("$LEDGER" merge-by)" || die "session-launch $ROLE $ID: ledger.sh merge-by failed (see above) — fix orchestrate.merge_by" ;; esac
 cd "$CALLER_PWD" || die "session-launch: cannot return to $CALLER_PWD"
 # The worktree is derived, never taken from the entry (a ledger field is sandbox-writable): the recorded value
 # must be the derived one, and it is entered only after wt_branch has checked its git pointer.
@@ -326,12 +329,7 @@ person_text_as_data() { # $1 answers|revisions|followups, $2 the rule line → t
   nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
   printf '%s\n<<<person-%s-begin %s %s\n%s\nperson-%s-end %s>>>\n' "$2" "$1" "$ID" "$nonce" "$out" "$1" "$nonce"
 }
-rfc_drifted() { # 0 when a pinned RFC no longer holds what its plan was made from
-  local p pin; p=$(jq -r '.source.rfc.path // empty' <<<"$E"); pin=$(jq -r '.source.rfc.sha256 // empty' <<<"$E")
-  [ -n "$p" ] || return 1
-  [ -f "$p" ] && [ "$({ sha256sum 2>/dev/null || shasum -a 256; } < "$p" | cut -c1-64)" = "$pin" ] && return 1
-  return 0
-}
+# rfc_drifted lives in launch-item.sh beside rfc_as_data (moved at the HEF-30 merge of main: the 500-code-line limit)
 
 # The structured outcome a lane writes is checked against the same schema a background run is held to — a small
 # validator for the subset these schemas use (type, enum, maxLength, minimum, required, properties, items).
@@ -417,8 +415,14 @@ case "$ROLE" in
       "$LEDGER" verdict "$ID" --gate review --verdict FAIL --by "$NAME" --evidence "no review verdict was reported" >/dev/null || exit 1
       FAIL=1
     fi
+    # HEF-30 FR-004: the head the gates saw, on the PR — only when THIS run passed every gate automerge reads. A SKIPPED
+    # gate records `none` (clearing an earlier head), so a session's later PASS verdict over it is never merged (verify
+    # gate 2026-11-13, F1: the head comes from the launcher's verify run, never from verdicts written beside it)
+    VH=none; [ "$FAIL" = 0 ] && jq -e --arg k "$ITEM_KIND" '(reduce .verdicts[] as $v ({}; .[$v.gate] = $v.verdict)) as $last | ["verify", "review", "quality", "scan"] + (if $k == "incident" or $k == "vulnerability" then [$k] else [] end) | all(.[]; $last[.] == "PASS")' <<<"$SO" >/dev/null && VH="$(git -C "$WT" rev-parse HEAD 2>/dev/null)"; [ "$VH" = "${VH0:-}" ] || VH=none   # moved during the run
+    HEFESTO_LAUNCHER=1 HEFESTO_VERIFIED_IN="$MODE" "$LEDGER" record "$ID" --verified-head "${VH:-none}" >/dev/null || exit 1   # run | finish
     if [ "$FAIL" = 1 ]; then "$LEDGER" block "$ID" --kind verdict >/dev/null || exit 1
-    else "$LEDGER" advance "$ID" pr >/dev/null && "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
+    # under resolved auto no merge wait — the deploy stage merges it
+    else "$LEDGER" advance "$ID" pr >/dev/null || exit 1; [ "$MBY" = auto ] || "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
   deploy)
     # stage-roles FR-008: questions outrank the verdict — a person must read before anything moves; a
     # mergeable PR already at the gate keeps its block (and its `since`); closed leaves the deploy set.
@@ -427,7 +431,8 @@ case "$ROLE" in
     if [ "$Q" -gt 0 ]; then "$LEDGER" block "$ID" --kind human:intake >/dev/null || exit 1
     else
       case "$V" in
-        mergeable) [ "$CURK" = human:merge ] || { "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; } ;;
+        mergeable) if [ "$MBY" = auto ]; then "$LEDGER" automerge "$ID" >&2; case $? in 0|2|3|4) ;; *) exit 1 ;; esac   # HEF-30 FR-010
+                   else [ "$CURK" = human:merge ] || { "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; }; fi ;;
         conflict)  "$LEDGER" block "$ID" --kind conflict >/dev/null || exit 1 ;;
         checks)    [ "$F" -ge "$MAX_FIXES" ] && { "$LEDGER" block "$ID" --kind ci >/dev/null || exit 1; } ;;
         closed)    "$LEDGER" block "$ID" --kind human:intake >/dev/null || exit 1 ;;
@@ -448,7 +453,7 @@ if [ "$MODE" = finish ]; then
     || die "session-launch $ROLE $ID --finish: no --prepare of $ROLE by $LANE is on record ($PF)"
   [ -f "$OUTF" ] && [ "$(wc -c < "$OUTF" | tr -d ' ')" -le 32768 ] || die "session-launch $ROLE $ID --finish: --outcome-file must name a JSON file of at most 32 KB (got '$OUTF')"
   SO="$(jq -ce . "$OUTF" 2>/dev/null)" || die "session-launch $ROLE $ID --finish: $OUTF is not JSON"
-  SCHEMA="$(jq -c '.schema' "$PF")"; PR_MODE="$(jq -r '.pr_mode // empty' "$PF")"
+  SCHEMA="$(jq -c '.schema' "$PF")"; PR_MODE="$(jq -r '.pr_mode // empty' "$PF")"; VH0="$(jq -r '.head // empty' "$PF")"
   BAD="$(schema_errors "$SCHEMA" "$SO")"; [ -z "$BAD" ] || die "session-launch $ROLE $ID --finish: the outcome does not fit the $ROLE schema — $BAD"
   RC=0; NAME="$LANE"; [ "$ROLE" = verify ] && NAME="$LANE:code-reviewer"   # FR-018: the lane's fresh-context reviewers
   case "$ROLE" in verify|deploy) WT="$WORKTREE" ;; esac
@@ -576,6 +581,10 @@ EOF
         fi
       fi
     fi
+    # HEF-30 FR-010 (D4b): under resolved auto, a hand merge is recorded, then the merge helper runs before any
+    # babysitter — merged (0) or skipped to human:merge (2) launches nothing; blocked (3) or pending (4) babysits
+    if [ "$MBY" = auto ] && [ "$DRY" != 1 ]; then AMRC=0; "$LEDGER" automerge "$ID" --if-merged >&2 || { "$LEDGER" automerge "$ID" --before-babysit >&2 || AMRC=$?; }
+      case "$AMRC" in 0|2) [ "$MODE" != prepare ] || echo "done: $ID — the auto-merge pass recorded it; nothing to prepare"; "$LEDGER" show "$ID"; exit 0 ;; 3|4) ;; *) exit 1 ;; esac; fi
     [ "$CAP_HIT" = 0 ] || [ "$MODE" != run ] || die "$CAP_MSG"
     [ -n "$WORKTREE" ] || die "session-launch deploy $ID: no worktree recorded on the entry — the babysitter fixes in the PR's checkout"
     [ -d "$WORKTREE" ] || die "session-launch deploy $ID: recorded worktree missing: $WORKTREE"
@@ -622,8 +631,9 @@ if [ "$MODE" = prepare ]; then
     echo
     printf '%s\n' "$PROMPT"
   } > "$LDP/$ID.prompt.md" || undo "session-launch $ROLE $ID --prepare: cannot write the prompt"
-  jq -n --arg role "$ROLE" --arg lane "$LANE" --argjson schema "$SCHEMA" --arg pr "${PR_MODE:-}" \
-    '{role: $role, lane: $lane, schema: $schema, pr_mode: $pr, at: (now | todate)}' > "$LDP/$ID.prepare" || undo "session-launch $ROLE $ID --prepare: cannot write the record"
+  # head: the worktree's commit when the lane starts, read back by --finish (VH0) — HEF-30 code review 2026-11-13
+  jq -n --arg role "$ROLE" --arg lane "$LANE" --argjson schema "$SCHEMA" --arg pr "${PR_MODE:-}" --arg h "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" \
+    '{role: $role, lane: $lane, schema: $schema, pr_mode: $pr, head: $h, at: (now | todate)}' > "$LDP/$ID.prepare" || undo "session-launch $ROLE $ID --prepare: cannot write the record"
   echo "worktree: $WT"
   [ -z "$APPDIR" ] || echo "app: $WT/$APPDIR"   # #172 FR-014: the lane works from this folder
   echo "prompt: $LDP/$ID.prompt.md"
@@ -699,7 +709,8 @@ ls -1t "$RUNDIR/$ID".*.events.jsonl 2>/dev/null | sed -n '6,$p' | while IFS= rea
 # and records the run first — a released claim must never leave an orphaned worker behind (review 2026-10-22).
 # The lease: renewed every 20 s while this launcher lives, so a later claim can tell a cut-off run from a
 # running one without seeing this process (ledger-lanes.sh, lease_stale).
-LEASE="$("$LEDGER" dir)/$ID.lease"; touch "$LEASE" 2>/dev/null || true
+# VH0: the head before the worker starts — a commit landing in the worktree during the run is never the verified head
+LEASE="$("$LEDGER" dir)/$ID.lease"; touch "$LEASE" 2>/dev/null || true; VH0="$(git -C "$WT" rev-parse HEAD 2>/dev/null)"
 "${CMD[@]}" > "$EVENTS" 2>"$OUT.err" &
 CHILD=$!
 # renewed while the launcher OR its worker lives: a SIGKILL of the launcher cannot be trapped, and its worker

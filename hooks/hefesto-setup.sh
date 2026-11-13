@@ -139,14 +139,18 @@ prefixes=("$CLONE"); for c in ${cfgs[@]+"${cfgs[@]}"}; do prefixes+=("$c/plugins
 # HEF-27: a dialog only where a person signs. Everything else in ledger.sh's dispatch is allowed, one by one —
 # never ledger.sh as a whole, so a new subcommand is classified before it runs without asking (FR-006; the
 # completeness check in tests/smoke-signatures.sh diffs these lists against ledger.sh's dispatch both ways).
-LEDGER_SIGN_WHOLE=(approve answer revise drop fold supersede reopen "op close" "op drop")
+# merge-auto grant/revoke: a person turns auto-merge on or off — the dialog is the signature (HEF-30 FR-015)
+LEDGER_SIGN_WHOLE=(approve answer revise drop fold supersede reopen "op close" "op drop" "merge-auto grant" "merge-auto revoke")
 LEDGER_SIGN_FLAG=("unblock --reviewed-by-human" "unblock --merge-sha" "record --body-file" "record --body-from-board" "record --rfc"
   "release --reviewed-by-human")   # it records a person's name → a signature (spec Clarifications 2026-11-09)
+# no rule at all: ledger.sh refuses claim and run unless session-launch.sh calls (FR-010); automerge is the deploy
+# launcher's, gated by itself on the person's grant and the verdicts at the verified head (HEF-30 FR-010)
 # shellcheck disable=SC2034  # written nowhere on purpose; tests/smoke-signatures.sh reads it (FR-006)
-LEDGER_LAUNCHER=(claim run)        # no rule at all: ledger.sh refuses them unless session-launch.sh calls (FR-010)
+LEDGER_LAUNCHER=(claim run automerge)
 LEDGER_ALLOW=(board list next show metrics register publish escalate questions request actions action "op new" direct
-  directives directive note lanes deployed record advance handoff block release unblock verdict init where branches spec-roots)
-LEDGER_ALLOW_EXACT=("park --all" dir)
+  directives directive note lanes deployed record advance handoff block release unblock verdict init where branches spec-roots
+  merge-by)   # read-only (HEF-30)
+LEDGER_ALLOW_EXACT=("park --all" dir "merge-auto preview" "merge-auto show")
 # The signature ask rules for one hooks folder (FR-001): written by setup, looked for by --check. ask outranks allow
 # (D7), so `record:*` in allow and `record * --body-file*` here coexist: the flag anywhere after the id asks.
 # `record * --rfc*` also matches the launcher-only --rfc-snapshot — an over-ask, never an under-ask.
@@ -163,7 +167,7 @@ ask_defects() { # $1 a settings file → each of its ask rules on a hefesto help
     def signature: (sub("^Bash\\((bash )?[^ ]*/hooks/"; "") | rtrimstr(")") | capture("^(?<hp>[a-z-]+[.]sh)(?<rest>.*)$")) as $c
       | ($c.rest | sub(":\\*$"; "") | split(" ") | map(select(. != ""))) as $a
       | if $c.hp == "pr-watch.sh" then ($a[0] == "reply" or $a[0] == "comment")
-        elif $c.hp == "ledger.sh" then (if $a[0] == "op" then "op \($a[1] // "")" else ($a[0] // "") end) as $s
+        elif $c.hp == "ledger.sh" then (if $a[0] == "op" or $a[0] == "merge-auto" then "\($a[0]) \($a[1] // "")" else ($a[0] // "") end) as $s
           | ($w | index([$s]) != null) or any($fl[]; split(" ") as [$fs, $ff] | $fs == $s and any($a[1:][]; startswith($ff)))
         else false end;
     (.permissions.ask // [])[] | strings
@@ -409,7 +413,27 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   | (if .sandbox then .sandbox |= keep_own_empty($old.sandbox) else . end)
   | with_entries(select((.key != "permissions" and .key != "sandbox" and .key != "env") or .value != {} or ($old[.key] == {})))' <<<"$CUR")" || die "could not merge into $F (nothing was written)"
 
-if [ "$MODE" = print ]; then jq . <<<"$NEW"; exit 0; fi
+# HEF-30 FR-015 (spec D6): orchestrate.decider, the --by name the orchestrator records decisions with, from
+# `git config user.name` — written only when the key is absent, never overwritten; a label, not proof (the permission
+# dialog stays the proof). The board config is a file a lane can write, so a symlink there is never written through.
+# --remove leaves it: the key belongs to the board, not to these settings.
+decider_plan() { # → DEC_MSG, and DEC_NEW (the name to write) when setup would write it
+  DEC_NEW=""; DEC_MSG=""
+  [ -f "$BCFG" ] || { DEC_MSG="no board config at $BCFG — orchestrate.decider not written"; return 0; }
+  if jq -e '(.orchestrate // {}) | type == "object" and has("decider")' "$BCFG" >/dev/null 2>&1; then
+    DEC_MSG="orchestrate.decider is set ($(jq -c '.orchestrate.decider' "$BCFG")) — left as it is"; return 0; fi
+  jq -e '(.orchestrate // {}) | type == "object"' "$BCFG" >/dev/null 2>&1 || { DEC_MSG="$BCFG has no orchestrate object setup can add to — orchestrate.decider not written"; return 0; }
+  [ ! -L "$BCFG" ] || { DEC_MSG="$BCFG is a symlink — orchestrate.decider not written (set it there by hand)"; return 0; }
+  DEC_NEW="$(git -C "$TOP" config user.name 2>/dev/null)"
+  [ -n "$DEC_NEW" ] || { DEC_MSG="git config user.name is empty — orchestrate.decider not written; the orchestrator asks your name once per session"; return 0; }
+  # the ledger's --by rule (ledger-lanes.sh person_gate): a decider it would refuse is never written
+  [[ "$DEC_NEW" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
+    || { DEC_MSG="git config user.name '$(printf '%s' "$DEC_NEW" | head -c 64 | tr -d '\n\r')' is not a name the ledger accepts as --by (letters, digits, space . _ @ -) — orchestrate.decider not written; set it by hand"; DEC_NEW=""; return 0; }
+  DEC_MSG="orchestrate.decider: \"$DEC_NEW\" (from git config user.name) in $BCFG"
+}
+[ "$MODE" = remove ] || decider_plan
+# --print's stdout stays the settings JSON (callers parse it); the decider it would write goes to stderr
+if [ "$MODE" = print ]; then jq . <<<"$NEW"; [ -z "${DEC_NEW:-}" ] || echo "decider: $DEC_MSG" >&2; exit 0; fi
 if [ "$MODE" != remove ] && [ -n "$LCP" ]; then
   mkdir -p "$LCP" "$LCPROBE" && chmod 700 "$LCP" || die "cannot create the lanes' build cache $LCP (nothing was written)"
   # the probe write must succeed here, outside the sandbox: lane-build.sh reads a failed write as "sandboxed"
@@ -433,6 +457,10 @@ if [ "$MODE" != remove ] && ! git -C "$TOP" check-ignore -q .claude/settings.loc
   printf '/.claude/settings.local.json\n' >> "$CDIR/info/exclude" && echo "kept out of git: added .claude/settings.local.json to $CDIR/info/exclude"
 fi
 [ "$MODE" = remove ] && exit 0
+if [ -n "${DEC_NEW:-}" ]; then
+  DT="$(mktemp "$(dirname "$BCFG")/.project-status.XXXXXX")" && jq --arg d "$DEC_NEW" '.orchestrate.decider = $d' "$BCFG" > "$DT" && jq -e . "$DT" >/dev/null \
+    && mv "$DT" "$BCFG" && echo "wrote $DEC_MSG" || { rm -f "${DT:-}"; echo "could not write orchestrate.decider into $BCFG — set it by hand"; }
+else echo "decider: $DEC_MSG"; fi
 if [ "$LANES" = 1 ] && [ "$(jq -r '.crossSessionInbound // ""' <<<"$NEW")" != accept ]; then
   echo "note: crossSessionInbound is '$(jq -r '.crossSessionInbound' <<<"$NEW")' in $F (your setting, kept) — the stage lanes will not receive the orchestrator's doorbells until it is \"accept\""
 fi

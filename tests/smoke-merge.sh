@@ -224,6 +224,29 @@ awk '/^## Never/{f=1} f' "$mg_oc" | grep -qF 'the merge action it took' \
   || { bad "the Never section must name the deployer's one exception: the granted merge of the merge action it took"; x_fail=1; }
 [ "$x_fail" -eq 0 ] && ok "hef.orchestrate.md: human:merge by merge_by (person unchanged; lane drafts, shows action show, Merge approves, a matching draft reused else superseded), drop/fold/supersede/reopen, recipe and train forms, the deployer's merge/recipe/train procedure, deployed, stop --block conflict → Retry (T023 US9 FR-020 FR-024)"
 
+# --- HEF-30 (merge-auto) SC-006: one merge form per pass, one form per train, the decider, auto-merge ------------------
+head_ "merge-auto: the orchestrator asks one merge form per pass, one train question, uses orchestrate.decider, and the grant form (HEF-30 SC-006)"
+x_fail=0
+for mg_w in 'every `human:merge` entry of this pass goes in ONE form' 'up to four PRs per question' 'at most 16 PRs' '"(then N more)"' \
+  '**multi-select**, one option per PR' 'an unselected PR is Later' 'has that PR and **Later**' 'Never one' 'Approve only the PRs the person selected' \
+  'header names the' 'irreversibility' \
+  '`orchestrate.decider`' 'is the name — use it and do not' \
+  'ledger.sh merge-by --explain' '{configured, effective, reason}' 'read `merge_by` from the config yourself' \
+  'ledger.sh merge-auto preview' 'ledger.sh merge-auto grant --sha <first 12 of the preview'"'"'s sha256> --reviewed-by-human --by "<name>"' \
+  'is not asked again this session' 'one brief line with its reason — no form' \
+  '▷ <id> · awaiting auto-merge (PR #<n>)' '✓ DET-7 · auto-merged PR #61 into dev' 'auto-merge skipped:' \
+  'Yes, merge all N promotions (<repos>)' 'a train is one form, never a question or a form per repository'; do
+  grep -qF -- "$mg_w" "$mg_oc" || { bad "commands/hef.orchestrate.md must say: $mg_w (HEF-30 SC-006, FR-011..FR-014)"; x_fail=1; }
+done
+[ "$(grep -cF '| `human:merge` |' "$mg_oc")" = 1 ] || { bad "hef.orchestrate.md must still have exactly one human:merge row (HEF-30 SC-006)"; x_fail=1; }
+# the name question is asked only when no decider is set (FR-014)
+grep -B3 -F "ask the person's name once per session" "$mg_oc" | grep -qF 'orchestrate.decider' \
+  || { bad "hef.orchestrate.md must ask the person's name only when orchestrate.decider is not set (FR-014)"; x_fail=1; }
+# the Never section names automerge as the one non-person merge, still with the lane exception (FR-012, NR-002)
+mg_nv="$(awk '/^## Never/{f=1} f' "$mg_oc")"   # captured: `awk | grep -q` races under pipefail
+grep -qF 'ledger.sh automerge' <<<"$mg_nv" || { bad "the Never section must name ledger.sh automerge, run by the deploy launcher under the grant (NR-002)"; x_fail=1; }
+[ "$x_fail" -eq 0 ] && ok "hef.orchestrate.md: one merge form per pass (multi-select, ≤4 per question, ≤16, a single PR with Later, oldest first), lane merges confirmed by the irreversible header, the decider replaces the name question, merge-by --explain, the grant form with merge-auto preview/grant, awaiting/auto-merged/skipped in the brief, one train question, automerge in Never; still one human:merge row (HEF-30 SC-006 FR-011 FR-012 FR-013 FR-014)"
+
 # --- T025: the eval that keeps a lane merge behind the person's form (US9 FR-020 NR-004 SC-004) --------------------
 # The live score needs an authenticated CLI (evals/README.md); here: the mixed layout T001 settled, the three max-0
 # tool-call guards the task names, and a scaffold that really leaves HEF-7 on human:merge with no merge action at all.

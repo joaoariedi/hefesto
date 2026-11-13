@@ -197,12 +197,27 @@ falha no cache somente-leitura.
   exemplo `changelog-check.sh -C {repo_path} placement --base origin/{base}`, por caminho absoluto) e faz o merge
   com um merge commit exatamente nesse head e o registra. Um head que mudou, uma verificação vermelha ou um conflito
   voltam para você como um formulário. Um merge por repositório de cada vez. O padrão, `"merge_by": "person"`, não
-  muda: o merge você faz no GitHub.
+  muda: o merge você faz no GitHub. Nos dois casos, todo PR esperando por você vem num **único** formulário de merge
+  por passada: marque os que vão para o merge (até 16, os mais antigos primeiro); o resto espera a próxima passada.
+- **Merges sem formulário.** Com `"merge_by": "auto"`, um PR para a **branch de integração** entra sozinho quando os
+  gates (verify, review, quality, scan) passaram no head que está aberto, o CI está verde e cada comando de
+  `orchestrate.merge.checks` sai com 0. A configuração sozinha nunca liga isso: a orchestrator mostra uma vez o que
+  fica fixado — por repositório o caminho, o `origin` e a branch de integração, e as verificações literais — e
+  **Turn on** é o seu `ledger.sh merge-auto grant` (o diálogo de permissão dele). Mudou qualquer um desses, a
+  pergunta volta. Um ambiente, `main`/`master` ou uma branch protegida nunca entram sozinhos (sem bloco `branches`
+  a branch de integração é a `main`, então o auto nunca se aplica); um head que mudou, um gate que não passou ou
+  uma verificação que falhou voltam para você no formulário de merge. Uma verificação de merge é dividida nos
+  espaços e roda sem shell. Para desligar: `ledger.sh merge-auto revoke`.
+- **O seu nome, uma vez.** O setup grava `"decider"` em `orchestrate` a partir de `git config user.name` quando ele
+  não existe (nunca por cima do seu); a orchestrator registra as suas decisões com ele e para de perguntar o nome.
 
 **Segurança num parágrafo.** As sessões mantêm o sandbox do Claude Code, e os comandos dentro dele rodam sem
 perguntar. Fora dele rodam só os ajudantes do próprio hefesto, o `gh` e os comandos que você acrescentou com
 `--unsandboxed-command`, cada um chamado como um comando simples; num projeto de quatro sessões esses comandos
-acrescentados rodam só como uma ação aprovada. O ledger, as suas aprovações e o registro de qual sessão é qual ficam
+acrescentados rodam só como uma ação aprovada. Com `"merge_by": "auto"`, as verificações de merge que você
+autorizou também rodam fora dele, na pasta do repositório — por isso o programa delas é um nome simples ou um caminho
+absoluto na pasta de hooks do hefesto ou numa pasta bin do sistema (`/usr/bin` …) — um `./script` ou qualquer
+outro arquivo que uma sessão poderia editar é recusado. O ledger, as suas aprovações e o registro de qual sessão é qual ficam
 em `~/.cache/hefesto`, onde nenhum comando com sandbox e nenhuma edição de arquivo chega. Os comandos que registram as
 suas decisões rodam só na orchestrator, atrás de um pedido de permissão, e um `gh pr merge` nunca roda sem uma ação
 aprovada ou sem o seu pedido. Uma sessão lê textos de itens e RFCs escritos por outras pessoas, então leia cada

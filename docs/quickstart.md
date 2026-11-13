@@ -187,10 +187,25 @@ gives the build a writable cache of its own inside the sandbox. A build run with
   instance `changelog-check.sh -C {repo_path} placement --base origin/{base}`, by absolute path), then merges with a
   merge commit at that exact head and records it. A head that moved, a red check or a conflict comes back to you as a
   form. One merge per repository at a time. The default, `"merge_by": "person"`, is unchanged: you merge on GitHub.
+  Either way every PR waiting for you is in **one** merge form per pass: tick the ones to merge (up to 16, oldest
+  first), the rest wait for the next pass.
+- **Merges with no form.** With `"merge_by": "auto"`, a PR into the **integration branch** merges itself when its
+  gates (verify, review, quality, scan) passed at the head that is open, CI is green and every
+  `orchestrate.merge.checks` command exits 0. Config alone never turns it on: the orchestrator shows you once what
+  it pins — per repo its path, `origin` and integration branch, and the checks verbatim — and **Turn on** is your
+  `ledger.sh merge-auto grant` (its permission dialog). Change any of those and it is asked again. An environment,
+  `main`/`master` or a protected branch never auto-merges (with no `branches` block the integration branch is `main`,
+  so auto never applies); a moved head, a gate that did not pass or a failing check comes back to you as the merge
+  form. A merge check is split on whitespace and run without a shell. Turn it off with `ledger.sh merge-auto revoke`.
+- **Your name, once.** Setup writes `"decider"` under `orchestrate` from `git config user.name` when it is absent
+  (never over yours); the orchestrator records your decisions with it and stops asking your name.
 
 **Security in one paragraph.** The lanes keep Claude Code's sandbox, and commands inside it run without asking.
 Outside it run only hefesto's own helpers, `gh` and the commands you added with `--unsandboxed-command`, each called
-as one plain command; in a four-lane project those added commands run only as an approved action. The ledger, your approvals and
+as one plain command; in a four-lane project those added commands run only as an approved action. Under
+`"merge_by": "auto"` your granted merge checks run outside it too, in the repo's folder — so their program must be a
+bare name on PATH, or an absolute path in hefesto's hooks folder or a system bin folder (`/usr/bin` …) — a
+`./script` or any other file a lane could edit is refused. The ledger, your approvals and
 the record of which session is which lane live in `~/.cache/hefesto`, where no sandboxed command and no file edit
 can reach them. The commands that record your decisions run only in the orchestrator, behind a dialog, and
 `gh pr merge` never runs without an approved action or your dialog. A lane reads item and RFC text that others
