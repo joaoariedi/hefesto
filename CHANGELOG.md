@@ -39,18 +39,6 @@ it is what caught the hand-bumped era:
 
 ### Added
 
-- **Spec-qualified requirement citations** (HEF-3; `docs/sdd.md`). Every spec has an `FR-001`, so a test citing a
-  bare id covered every spec that declares it — measured on this repository, each `req-coverage` run listed 10–33
-  ids "declared by other specs", and the collision kept several specs green. A test now cites `<spec>/FR-NNN`
-  (the spec's directory name), which covers that spec only. A qualified citation of another spec is `ELSEWHERE`
-  when that spec exists and declares the id, and `UNKNOWN` (failing) when it does not — a typo in a qualifier
-  fails instead of vanishing. An id list such as `FR-001/FR-002` still reads as two bare ids.
-- **Scoped specs, opt-in per spec.** A `spec.md` carrying `<!-- req-coverage: scoped -->` counts only its own
-  qualified citations; an `UNCOVERED` row then names up to three bare citations it ignored and the form to use
-  (`bare: <file:line> … — cite as <spec>/FR-NNN`). The `/hefesto:hef.spec` template writes the marker, so new
-  specs are scoped; `hef.tasks`, `hef.implement`, `hef.verify` and `hef.mutate` show the qualified form. The
-  matrix header states the mode (`mode: scoped` | `mode: legacy (bare ids count)`).
-- **`spec-cite-probe.sh` names the right spec**: a qualified citation is attributed to the spec it names only.
 - **`orchestrate.merge_by: "auto"`** (HEF-30; `docs/install.md` §7 step 8, `docs/quickstart.md`). Every PR on the
   production board was a `human:merge` form plus an approve dialog. Under `auto` the deploy launcher runs
   `ledger.sh automerge <id>` — a helper, never a model — which merges a PR into the **integration branch** with
@@ -78,6 +66,29 @@ it is what caught the hand-bumped era:
 - **`orchestrate.decider`.** `hefesto-setup.sh` writes it from `git config user.name` when absent (never over a
   value; `--print` shows it, `--remove` leaves it), and the orchestrator uses it as `--by` instead of asking. Setup's
   ask rules gain `ledger.sh merge-auto grant` and `revoke`.
+
+## [9.4.0] - 2026-11-11
+
+**Fewer interruptions: a permission dialog only where a person signs, plan reviews that run to the end on their own, no spend cap unless you set one, and a footer that shows only the context gauge. A one-command install with a page per operating system.**
+
+Measured before this release on a four-lane production board: 217 questions and about 100 dialogs from an RFC to a staging deploy, where 8.0 needed three to five. Most were mechanics, not decisions. Auto-merge into the integration branch (`merge_by: auto`) is not in this release: its review found a flaw, and it ships in 9.4.1 once fixed.
+
+### Added
+
+- **`/hefesto:hef.tasks` accepts the light path** (HEF-1). With `spec.md` and no `plan.md` it generates tasks from the spec alone and says so in the tasks.md header; before, it refused and a throwaway plan had to be written. The full path is unchanged. `speckit-helper.sh check-tasks-inputs` answers `FULL_PATH`, `LIGHT_PATH` or `NO_SPEC_FOR_BRANCH`.
+- **A front-door README and one install page per operating system** (HEF-18). The README is under 150 lines: what hefesto is, the one install command, setup, first use, single lane versus four lanes and how to choose, and how to contribute. Install steps live in `docs/install-linux.md`, `docs/install-macos.md` and `docs/install-windows.md` (WSL 2 required), and `docs/contributing.md` covers the test suite, the commit and PR conventions and review. The quick starts, `docs/install.md` and `SETUP.md` each keep one job and point to the others.
+- **Spec-qualified requirement citations** (HEF-3; `docs/sdd.md`). Every spec has an `FR-001`, so a test citing a
+  bare id covered every spec that declares it — measured on this repository, each `req-coverage` run listed 10–33
+  ids "declared by other specs", and the collision kept several specs green. A test now cites `<spec>/FR-NNN`
+  (the spec's directory name), which covers that spec only. A qualified citation of another spec is `ELSEWHERE`
+  when that spec exists and declares the id, and `UNKNOWN` (failing) when it does not — a typo in a qualifier
+  fails instead of vanishing. An id list such as `FR-001/FR-002` still reads as two bare ids.
+- **Scoped specs, opt-in per spec.** A `spec.md` carrying `<!-- req-coverage: scoped -->` counts only its own
+  qualified citations; an `UNCOVERED` row then names up to three bare citations it ignored and the form to use
+  (`bare: <file:line> … — cite as <spec>/FR-NNN`). The `/hefesto:hef.spec` template writes the marker, so new
+  specs are scoped; `hef.tasks`, `hef.implement`, `hef.verify` and `hef.mutate` show the qualified form. The
+  matrix header states the mode (`mode: scoped` | `mode: legacy (bare ids count)`).
+- **`spec-cite-probe.sh` names the right spec**: a qualified citation is attributed to the spec it names only.
 - **The planner works through plan-review rounds on its own** (HEF-21; `docs/install.md` §8b). It used to stop at the second
   `REVISE_PLAN` and ask you, even when every finding was a plan edit. Now it makes the reviewer's changes and
   reviews again until `APPROVE`, up to `orchestrate.plan_review_rounds` rounds (default 5, 1–20; anything else
@@ -93,6 +104,7 @@ it is what caught the hand-bumped era:
 
 ### Changed
 
+- **No spend cap unless you set one** (HEF-19; `docs/install.md`). A project with no `orchestrate.usd_cap` was capped at 20 USD per session, and the launcher refused once today's spend plus one session cap passed 100. Both caps are now opt-in: no `usd_cap` means no `--max-budget-usd`, and no `daily_usd_cap` means no daily check. A cap you set keeps today's behaviour; a `daily_usd_cap` set alone refuses once today's total reaches it. `status-board.sh --init` writes no caps.
 - **A permission dialog only where a person signs** (HEF-27; `docs/install.md` §2). `hefesto-setup.sh` writes in
   `ask` exactly the `ledger.sh` forms that record a person's decision — `approve`, `answer`, `revise`, `drop`,
   `fold`, `supersede`, `reopen`, `op close`, `op drop`, and `unblock`/`record`/`release` with their signature flag
@@ -136,6 +148,12 @@ it is what caught the hand-bumped era:
   `req-coverage.yml` CI stay green on upgrade with no migration (here: 15 shipped, 0 failing, before and after).
   Specs from `/hefesto:hef.baseline` and `/hefesto:hef.init` stay legacy until marked; `docs/sdd.md` describes the
   move to scoped. `req-coverage` arguments, exit codes and the `--all` skip rule are unchanged.
+
+### Upgrade
+
+- Run the install command, then `hefesto-setup.sh` again in each set-up project (`--lanes` where you run four lanes), and reopen the lanes. The setup rewrites the permission rules: the mechanics asks go, one spelling per root stays, and `--check` names any leftover ask rule outside the signature set.
+- To make spend open, delete `orchestrate.usd_cap` and `orchestrate.daily_usd_cap` from `.claude/project-status.json`; a value you leave there is still enforced.
+- A by-hand `ledger.sh claim` or `ledger.sh run` is now refused; use `ledger.sh release <id> --reviewed-by-human --by <name>` to free a claim, and `handoff` for a hand-run item.
 
 ## [9.3.0] - 2026-11-06
 

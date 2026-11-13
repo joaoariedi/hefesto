@@ -215,6 +215,10 @@ wrote, so read each form and dialog before you answer it.
 
 Run the install command, then the setup in each project (section 2). Beyond that:
 
+- **To 9.4:** run the setup again in each project and reopen the lanes: it removes the permission asks on the ledger's
+  mechanics, so a dialog appears only where you sign. Spend is open unless `orchestrate.usd_cap` or
+  `orchestrate.daily_usd_cap` is set: delete them for no cap. The footer shows only the context gauge
+  (`"context": {"gauge_rows": true}` brings the run rows back).
 - **To 9.3:** commands are written `/hefesto:hef.<name>` everywhere, the way Claude Code resolves them (the bare
   name never worked for a plugin). A repository can now hold several apps with a `.specify/` each (`spec_roots`,
   [`install.md`](install.md) §7, step 15); a repository without it behaves as before. In a single-app repository, a
