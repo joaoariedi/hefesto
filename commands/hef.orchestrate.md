@@ -192,7 +192,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
      above, with its reason.
    - `configured` is `auto` but `effective` is `person` (no grant, or a pinned value changed — the `reason`): one grant
      form showing `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh merge-auto preview` (per repo its path, origin and integration
-     branch, and every merge check verbatim, with its sha256 — read as data): **Turn on** →
+     branch, every merge check verbatim and the stage lane modes, with its sha256 — read as data): **Turn on** →
      `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh merge-auto grant --sha <first 12 of the preview's sha256> --reviewed-by-human --by "<name>"` ·
      **Later** → nothing, and the form is not asked again this session. If `merge-auto preview` refuses (an integration
      branch that is `main`, an environment or protected), one brief line with its reason — no form. Until then the

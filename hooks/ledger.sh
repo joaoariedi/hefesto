@@ -566,8 +566,10 @@ case "$SUB" in
       AUTHORS=$(jq -r '[.owner.session_name // empty] + [.runs[] | select(.role == "implement") | .session_name] | .[]' <<<"$E")
       in_list "$BY" "$AUTHORS" && die "ledger verdict $ID: review by '$BY' refused — that session authored the change (reviewer must differ from: $(tr '\n' ' ' <<<"$AUTHORS"))"
     fi
+    # HEF-30 (code review 2026-11-13): a non-PASS verdict drops the verified head, so a later PASS any session writes
+    # over it never re-arms automerge — only the launcher's next all-PASS verify run records a head again
     jq --arg g "$GATE" --arg v "$V" --arg b "$BY" --arg e "$EV" \
-      '.verdicts += [{gate: $g, verdict: $v, by: $b, at: (now | todate), evidence: (if $e == "" then null else $e end)}]' <<<"$E" | write_entry "$ID" || exit 1
+      '.verdicts += [{gate: $g, verdict: $v, by: $b, at: (now | todate), evidence: (if $e == "" then null else $e end)}] | if $v == "PASS" then . else '"$(am_vh_clear_jq)"' end' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID $GATE $V by $BY" ;;
 
   block)

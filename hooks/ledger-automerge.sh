@@ -35,12 +35,22 @@ am_not_worker() { # $1 the command, for the message
 # --- record <id> --verified-head <sha> (FR-004): the head the verify launcher checked, on the current PR --------------
 # Written through .prs[-1] (as pr_stamp_merged), since .pr is a projection of it: a new PR carries no verified head.
 # The launcher's own record — a lane that could write it would vouch for a head the gates never saw (NR-004).
-verified_head_set() { # $1 the sha; updates E (record's entry) — no PR recorded yet leaves it unchanged
-  [[ "$1" =~ ^[0-9a-f]{40}$ ]] || die "ledger record $ID: --verified-head must be the full 40-hex commit the verify run checked (got '$1')"
+verified_head_set() { # $1 the sha, or `none` (a verify run that did not pass every gate clears it); updates E (record's
+  # entry) — no PR recorded yet leaves it unchanged
+  [ "$1" = none ] || [[ "$1" =~ ^[0-9a-f]{40}$ ]] || die "ledger record $ID: --verified-head must be the full 40-hex commit the verify run checked, or none (got '$1')"
   am_not_worker "record $ID --verified-head"
   [ -z "$(am_lane_role)" ] || die "ledger record $ID: --verified-head is the launcher's own record (session-launch.sh writes it after verify), never a lane's"
+  # B1 (verify gate 2026-11-10): refusing workers and lanes left every OTHER session — a single-lane orchestrator in
+  # auto mode — free to write four PASS verdicts and this head, and automerge merged it. So it is launcher-only, with
+  # launcher_gate's marker (HEF-27 FR-010): HEFESTO_LAUNCHER=1 and no session id, which only session-launch.sh sets.
+  [ "${HEFESTO_LAUNCHER:-}" = 1 ] && [ -z "${CLAUDE_CODE_SESSION_ID:-}" ] \
+    || die "ledger record $ID: --verified-head is the launcher's own record — only session-launch.sh writes it, after a verify run"
+  # where the gates ran (code review 2026-11-13): `lane` for an interactive lane's --finish outcome, the session's own
+  # report; else `worker`. Bound to the head, so a lane_mode flipped and flipped back never passes for a worker run —
+  # automerge takes a lane-verified head only under a grant that pinned an interactive build lane.
+  local via=worker; [ "${HEFESTO_VERIFIED_IN:-}" != finish ] || via=lane
   # shellcheck disable=SC2016  # a jq program
-  E=$(jq --arg v "$1" "$ENTRY_PRS"' as $l | if .pr == null then . else (.pr + {verified_head: $v}) as $p | .prs = ($l[0:-1] + [$p]) | .pr = $p end' <<<"$E") \
+  E=$(jq --arg v "$1" --arg w "$via" "$ENTRY_PRS"' as $l | if .pr == null then . else (if $v == "none" then .pr | del(.verified_head, .verified_in) else .pr + {verified_head: $v, verified_in: $w} end) as $p | .prs = ($l[0:-1] + [$p]) | .pr = $p end' <<<"$E") \
     && [ -n "$E" ] || die "ledger record $ID: cannot set the verified head"
 }
 
@@ -115,13 +125,20 @@ am_checks_prog_ok() { # $1 checks JSON, $2 the pins (one JSON line each) → die
     done < <(jq -r '.[]' <<<"$1")
   done <<<"$2"
 }
-automerge_preview() { # → {repos: {<name>: {path, origin, integration}}, checks: […]} as one line, or die
-  local ch nm pin pins=""
+automerge_preview() { # → {repos: {<name>: {path, origin, integration}}, checks: […], lane_modes: {…}} as one line, or die
+  local ch nm pin pins="" lm
   ch=$(merge_checks_get "ledger merge-auto preview") || exit 1
   while IFS= read -r nm; do pin=$(automerge_repo_pin "$nm") || exit 1; pins="$pins$pin"$'\n'; done < <(am_repo_names)
   am_checks_prog_ok "$ch" "$pins"   # re-run by every merge-by resolve: a grant can never pin such a check
-  printf '%s' "$pins" | jq -sc --argjson ch "$ch" '{repos: (map({(.name): {path, origin, integration}}) | add // {}), checks: $ch}'
+  # the stage lane modes are pinned too (code review 2026-11-13): an interactive build lane's own verify outcome
+  # (session-launch.sh --prepare/--finish) records the verified head, and orchestrate.lane_mode sits in the
+  # lane-writable config — a flip from worker after the grant must re-ask the person, never merge unseen
+  lm=$(lane_modes) || exit 1
+  printf '%s' "$pins" | jq -sc --argjson ch "$ch" --argjson lm "$lm" '{repos: (map({(.name): {path, origin, integration}}) | add // {}), checks: $ch, lane_modes: $lm}'
 }
+# a jq program that drops the verified head from the current PR (through .prs[-1], as verified_head_set writes it)
+# shellcheck disable=SC2016  # a jq program
+am_vh_clear_jq() { printf '%s' "$ENTRY_PRS"' as $l | if .pr == null then . else (.pr | del(.verified_head, .verified_in)) as $p | .prs = ($l[0:-1] + [$p]) | .pr = $p end'; }
 am_sha() { jq -cS . <<<"$1" | hef_sha256; }
 
 # --- merge-by (FR-001, FR-003): validate, then honour auto only when the grant equals a fresh preview -------------------
@@ -133,8 +150,8 @@ merge_by_resolve() { # sets MB_CONF, MB_EFF, MB_WHY; dies on a value that is not
   g=$(store_get merge-auto)
   [ -n "$g" ] || { MB_WHY="no grant — a person turns it on: ledger.sh merge-auto preview, then merge-auto grant"; return 0; }
   p=$(automerge_preview 2>/dev/null) || { MB_WHY="ledger.sh merge-auto preview refuses now (run it to see why)"; return 0; }
-  if [ "$(jq -cS '{repos, checks}' <<<"$g" 2>/dev/null)" = "$(jq -cS . <<<"$p")" ]; then MB_EFF=auto
-  else MB_WHY="the grant no longer matches: a repo path, origin, integration branch or merge check changed since it was given"; fi
+  if [ "$(jq -cS '{repos, checks, lane_modes}' <<<"$g" 2>/dev/null)" = "$(jq -cS . <<<"$p")" ]; then MB_EFF=auto
+  else MB_WHY="the grant no longer matches: a repo path, origin, integration branch, merge check or lane mode changed since it was given"; fi
 }
 merge_by_cmd() { # [--explain]
   local ex=0; while [ $# -gt 0 ]; do case "$1" in --explain) ex=1 ;; *) usage ;; esac; shift; done
@@ -222,7 +239,16 @@ automerge_skip_reason() { # $1 entry, $2 pr-watch state JSON, $3 the entry repo'
   for g in verify review quality scan $(jq -r '.item_kind // "" | select(. == "incident" or . == "vulnerability")' <<<"$1"); do
     [ "$(jq -r --arg g "$g" '[.verdicts[]? | select(.gate == $g)][-1].verdict // "none"' <<<"$1")" = PASS ] || { echo "gate $g is not PASS"; return; }
   done
-  [ "$(jq -r .headRefOid <<<"$2")" = "$(jq -r '.pr.verified_head // ""' <<<"$1")" ] || echo "head moved since verify ($(jq -r '.pr.verified_head // "none recorded"' <<<"$1") → $(jq -r .headRefOid <<<"$2"))"
+  [ "$(jq -r .headRefOid <<<"$2")" = "$(jq -r '.pr.verified_head // ""' <<<"$1")" ] || { echo "head moved since verify ($(jq -r '.pr.verified_head // "none recorded"' <<<"$1") → $(jq -r .headRefOid <<<"$2"))"; return; }
+  # a head a lane's own --finish outcome vouched for, under a grant that pinned a worker build stage: the person
+  # granted worker runs, so a lane_mode flipped around --prepare/--finish and back never merges unseen
+  # fail closed: a head with no recorded provenance is no worker's either (code review 2026-11-13, round 3)
+  case "$(jq -r '.pr.verified_in // "none"' <<<"$1")" in
+    worker) ;;
+    lane) [ "$(jq -r '.lane_modes.build // "worker"' <<<"${AM_GRANT:-null}")" = interactive ] \
+            || echo "the head was verified in an interactive lane, but the grant pins the build stage as worker" ;;
+    *) echo "the verified head records no verify run (worker or lane) behind it" ;;
+  esac
 }
 am_red() { # $1 block kind, $2 reason — blocks (exit 3); before the babysitter, nothing recorded (exit 4)
   # the pre-babysit pass must not set the babysitter's own ci/conflict block: its verdicts checks (< max fixes),

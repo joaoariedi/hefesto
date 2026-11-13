@@ -67,12 +67,14 @@ am_cfg() { # am_cfg <merge_by> [branches JSON] [checks JSON] → the board confi
   local b="${2:-}" c="${3:-}"; [ -n "$b" ] || b="$AM_BR"; [ -n "$c" ] || c="$(jq -nc --arg c "$AM_CHECK" '[$c]')"
   jq -n --arg m "$1" --argjson b "$b" --argjson c "$c" '{name: "app", branches: $b, orchestrate: {merge_by: $m, merge: {checks: $c}}}' > "$am_w/.claude/project-status.json"
 }
-am() { (cd "$am_w" && HEFESTO_GH_BIN="$am_t/bin/gh" bash "$REPO/hooks/ledger.sh" "$@"); }   # am <ledger args…>
+# am <ledger args…>; AM_LAUNCHER=1 am … calls it as session-launch.sh does (the marker, no session id — HEF-27 FR-010)
+am() { (cd "$am_w" && { [ "${AM_LAUNCHER:-}" != 1 ] || { unset CLAUDE_CODE_SESSION_ID; export HEFESTO_LAUNCHER=1; }; } \
+  && HEFESTO_GH_BIN="$am_t/bin/gh" bash "$REPO/hooks/ledger.sh" "$@"); }
 am_ld="$(sld "$am_w")"; mkdir -p "$am_ld"
 am_entry() { # am_entry <id> <PR n> <branch> [jq filter] — at pr, the four gates PASS, verified at the branch head
   local h; h="$(am_sha "$3")"
   jq -n --arg id "$1" --arg b "$3" --argjson n "$2" --arg h "$h" '{id: $id, item_kind: "feature", phase: "pr", owner: null, branch: $b, worktree: null,
-    pr: {url: "https://github.com/acme/app/pull/\($n)", number: $n, verified_head: $h}, prs: [{url: "https://github.com/acme/app/pull/\($n)", number: $n, verified_head: $h}],
+    pr: {url: "https://github.com/acme/app/pull/\($n)", number: $n, verified_head: $h, verified_in: "worker"}, prs: [{url: "https://github.com/acme/app/pull/\($n)", number: $n, verified_head: $h, verified_in: "worker"}],
     verdicts: ([("verify", "review", "quality", "scan") | {gate: ., verdict: "PASS", by: "verify-\($id)", at: "2026-11-09T00:00:00Z", evidence: null}]),
     blocked_on: null, events: [], runs: [], attempts: 0}' | jq "${4:-.}" > "$am_ld/$1.json"
 }
@@ -104,7 +106,7 @@ done
 head_ "merge-auto: record --verified-head writes through the current PR; the launcher's own record (HEF-30 FR-004)"
 x_fail=0; am_cfg auto
 am_entry HEF-1 7 feat1 'del(.pr.verified_head) | del(.prs[0].verified_head)'; am_h1="$(am_sha feat1)"
-am_ok "record --verified-head" record HEF-1 --verified-head "$am_h1"
+AM_LAUNCHER=1 am_ok "record --verified-head" record HEF-1 --verified-head "$am_h1"
 jq -e --arg h "$am_h1" '.pr.verified_head == $h and .prs[-1].verified_head == $h' "$am_ld/HEF-1.json" >/dev/null 2>&1 \
   || { bad "record --verified-head must set .pr.verified_head through .prs[-1] (FR-004) — got $(jq -c '{pr, prs}' "$am_ld/HEF-1.json")"; x_fail=1; }
 am_ok "record --pr <the same url>" record HEF-1 --pr https://github.com/acme/app/pull/7
@@ -134,7 +136,7 @@ jq 'del(.orchestrate.merge_by)' "$am_w/.claude/project-status.json" > "$am_t/c.j
 # FR-002: the preview pins the repo's path, origin and integration branch and the checks, with its sha256
 am_cfg auto; am_o="$(am merge-auto preview 2>/dev/null)"   # stdout: the JSON and its sha256 (the note is on stderr)
 am merge-auto preview 2>&1 >/dev/null | grep -qF "outside the sandbox" || { bad "merge-auto preview must say the checks run outside the sandbox (NR-005)"; x_fail=1; }
-{ jq -e --arg p "$am_w" --arg c "$AM_CHECK" '.repos["."] == {path: $p, origin: "acme/app", integration: "dev"} and .checks == [$c]' <<<"$(sed '/^sha256: /d' <<<"$am_o")" >/dev/null 2>&1 \
+{ jq -e --arg p "$am_w" --arg c "$AM_CHECK" '.repos["."] == {path: $p, origin: "acme/app", integration: "dev"} and .checks == [$c] and .lane_modes == {plan: "worker", build: "worker", deploy: "worker"}' <<<"$(sed '/^sha256: /d' <<<"$am_o")" >/dev/null 2>&1 \
   && grep -qE '^sha256: [0-9a-f]{64}$' <<<"$am_o"; } || { bad "merge-auto preview must pin {path, origin, integration} per repo plus the checks, and print its sha256 (FR-002) — got: $(head -c 400 <<<"$am_o")"; x_fail=1; }
 # D2: an integration branch that is main, the final environment, or a declared protected glob is never eligible
 am_cfg auto '{"integration": "main"}'; am_no "preview with no environments (integration main)" "not eligible" merge-auto preview
@@ -188,6 +190,12 @@ am_cfg auto '' '["test -d {repo_path}"]'
 am_cfg auto; git -C "$am_w" remote set-url origin https://github.com/evil/app.git
 [ "$(am merge-by 2>/dev/null)" = person ] || { bad "a changed origin after the grant must resolve to person (FR-003)"; x_fail=1; }
 git -C "$am_w" remote set-url origin https://github.com/acme/app.git
+# code review 2026-11-13: the stage lane modes are pinned — an interactive build lane's own --finish outcome records the
+# verified head, and lane_mode sits in the lane-writable config, so a flip after the grant re-asks the person
+jq '.orchestrate.lane_mode = {build: "interactive"}' "$am_w/.claude/project-status.json" > "$am_t/c.json" && mv "$am_t/c.json" "$am_w/.claude/project-status.json"
+{ [ "$(am merge-by 2>/dev/null)" = person ] && am merge-by 2>&1 >/dev/null | grep -qF "lane mode"; } \
+  || { bad "a lane_mode changed after the grant must resolve to person, naming the lane mode (FR-003) — got '$(am merge-by 2>&1)'"; x_fail=1; }
+am_cfg auto; [ "$(am merge-by 2>/dev/null)" = auto ] || { bad "the lane modes restored must resolve to auto again (FR-003)"; x_fail=1; }
 am_cfg auto '{"integration": "stg", "environments": ["stg", "main"]}'
 [ "$(am merge-by 2>/dev/null)" = person ] || { bad "a changed integration branch after the grant must resolve to person (FR-003)"; x_fail=1; }
 am_cfg auto; [ "$(am merge-by 2>/dev/null)" = auto ] || { bad "restoring the pinned values must resolve to auto again"; x_fail=1; }
@@ -437,6 +445,131 @@ o="$(cd "$am_w" && PATH="$am_tb:$PATH" HEFESTO_GH_BIN="$am_t/bin/gh" bash "$REPO
 { [ ! -e "$am_t/RAN-timeout" ] && [ ! -e "$am_t/RAN-gtimeout" ]; } || { bad "automerge must never run a timeout/gtimeout found on PATH — the bundled run-bounded.sh bounds the checks (NR-005, T018)"; x_fail=1; }
 { [ "$am_rc" = 0 ] && am_merged; } || { bad "automerge with a PATH timeout shadow must still run the checks and merge — rc $am_rc: $(head -c 300 <<<"$o")"; x_fail=1; }
 [ "$x_fail" -eq 0 ] && ok "automerge: the merge checks run under the bundled run-bounded.sh — a timeout/gtimeout earlier on PATH never runs (HEF-30 FR-008 NR-005)"
+
+# --- B1 (T020, verify gate 2026-11-10, code-reviewer + scan HIGH): the verified head is the launcher's alone ----------
+head_ "merge-auto: a hand-written verified head with four hand-written PASS verdicts is never merged (HEF-30 FR-004 NR-004)"
+x_fail=0; am_cfg auto; am_grant >/dev/null
+am_entry HEF-22 28 feat9 '.verdicts = [] | del(.pr.verified_head) | del(.prs[0].verified_head)'; am_pr 28 feat9 "$(am_sha feat9)"
+am_dev0="$(git -C "$am_t/origin.git" rev-parse dev)"
+# a session that is no launcher — a terminal, a single-lane orchestrator in auto mode (no lanes session file) — forges
+# the record: four PASS verdicts, then the PR's head as the verified head; without the marker, and with it plus a session id
+for am_gt in verify review quality scan; do am verdict HEF-22 --gate "$am_gt" --verdict PASS --by forger --evidence forged >/dev/null 2>&1; done
+o="$(cd "$am_w" && env -u CLAUDE_CODE_SESSION_ID -u HEFESTO_LAUNCHER bash "$REPO/hooks/ledger.sh" record HEF-22 --verified-head "$(am_sha feat9)" 2>&1)" \
+  && { bad "--verified-head without the launcher marker must be refused — it is session-launch.sh's own record (B1, T020)"; x_fail=1; }
+grep -qF "launcher" <<<"$o" || { bad "the refusal of a non-launcher --verified-head must name the launcher — got: $(head -c 200 <<<"$o")"; x_fail=1; }
+o="$(cd "$am_w" && CLAUDE_CODE_SESSION_ID=sid-am-single-0001 HEFESTO_LAUNCHER=1 bash "$REPO/hooks/ledger.sh" record HEF-22 --verified-head "$(am_sha feat9)" 2>&1)" \
+  && { bad "--verified-head from a Claude session that sets the marker must be refused (B1, T020)"; x_fail=1; }
+jq -e '.pr.verified_head == null and .prs[-1].verified_head == null' "$am_ld/HEF-22.json" >/dev/null 2>&1 \
+  || { bad "a refused --verified-head must leave no verified head — got $(jq -c .pr "$am_ld/HEF-22.json")"; x_fail=1; }
+am_case "forged verdicts, no launcher-recorded verified head" HEF-22 2 human:merge "head moved since verify"
+[ "$(git -C "$am_t/origin.git" rev-parse dev)" = "$am_dev0" ] || { bad "the forged fixture must leave origin dev unmerged (B1, T020)"; x_fail=1; }
+[ "$x_fail" -eq 0 ] && ok "record --verified-head is launcher-only (marker, no session id): a hand-written head plus four hand-written PASS verdicts is refused, automerge skips it, nothing merged (HEF-30 FR-004 NR-004)"
+
+# --- F1 (verify gate 2026-11-13): a verify run with a SKIPPED gate records no head; a later forged PASS never merges ---
+head_ "merge-auto: a verify run with a SKIPPED gate records no verified head, so a session's PASS over it is never merged (HEF-30 FR-004 FR-005 FR-007)"
+x_fail=0; am_cfg auto; am_grant >/dev/null
+git -C "$am_w" worktree add -q "$am_w/.claude/worktrees/HEF-23" feat10 2>/dev/null
+# verified at the head by an EARLIER run (am_entry's default): a run that does not pass every gate must clear it
+am_entry HEF-23 29 feat10 '.phase = "verify" | .verdicts = [] | .route = "fix"'
+jq --arg wt "$am_w/.claude/worktrees/HEF-23" '.worktree = $wt' "$am_ld/HEF-23.json" > "$am_t/e.json" && mv "$am_t/e.json" "$am_ld/HEF-23.json"
+printf '{"session_id":"v2","total_cost_usd":0,"structured_output":{"summary":"ok","verdicts":[%s]}}\n' \
+  '{"gate":"verify","verdict":"PASS"},{"gate":"review","verdict":"PASS"},{"gate":"quality","verdict":"PASS"},{"gate":"scan","verdict":"SKIPPED","evidence":"no scanner"}' > "$am_t/result.json"
+o="$(aml verify HEF-23 2>&1)" || { bad "session-launch verify with a SKIPPED gate must pass — got: $(tail -c 300 <<<"$o")"; x_fail=1; }
+jq -e '.phase == "pr" and .pr.verified_head == null and .prs[-1].verified_head == null' "$am_ld/HEF-23.json" >/dev/null 2>&1 \
+  || { bad "a verify run with a SKIPPED gate must leave no verified head, clearing an earlier one (F1) — got $(jq -c '{phase, pr}' "$am_ld/HEF-23.json")"; x_fail=1; }
+am verdict HEF-23 --gate scan --verdict PASS --by forger --evidence forged >/dev/null 2>&1
+am_pr 29 feat10 "$(am_sha feat10)"; am_dev1="$(git -C "$am_t/origin.git" rev-parse dev)"
+am_case "a forged PASS over a SKIPPED gate" HEF-23 2 human:merge "head moved since verify"
+[ "$(git -C "$am_t/origin.git" rev-parse dev)" = "$am_dev1" ] || { bad "a forged PASS over a SKIPPED gate must leave origin dev unmerged (F1)"; x_fail=1; }
+[ "$x_fail" -eq 0 ] && ok "session-launch records the verified head only when its own verify run passed every gate — a SKIPPED gate clears it, and a session's later PASS verdict over it is skipped to human:merge, nothing merged (HEF-30 FR-004 FR-005 FR-007)"
+
+# --- code review 2026-11-13: verdict freshness — the LAST verdict per gate, and a non-PASS drops the head ------------
+head_ "merge-auto: a non-PASS verdict drops the verified head; the launcher reads the last verdict per gate (HEF-30 FR-004 FR-005 FR-007)"
+x_fail=0; am_cfg auto; am_grant >/dev/null
+# S1: verified at the head (the launcher's earlier all-PASS run), then a FAIL, then a session's PASS over it
+am_entry HEF-24 30 feat11; am_pr 30 feat11 "$(am_sha feat11)"
+am verdict HEF-24 --gate review --verdict FAIL --by reviewer --evidence "a finding" >/dev/null 2>&1
+jq -e '.pr.verified_head == null and .prs[-1].verified_head == null' "$am_ld/HEF-24.json" >/dev/null 2>&1 \
+  || { bad "a FAIL verdict must drop the verified head — got $(jq -c .pr "$am_ld/HEF-24.json")"; x_fail=1; }
+am verdict HEF-24 --gate review --verdict PASS --by forger --evidence forged >/dev/null 2>&1
+am_case "a session's PASS over a later FAIL" HEF-24 2 human:merge "head moved since verify"
+# S3: an outcome reporting scan twice, PASS then SKIPPED — the last one counts, as automerge reads it
+git -C "$am_w" worktree add -q "$am_w/.claude/worktrees/HEF-25" feat13 2>/dev/null
+am_entry HEF-25 31 feat13 '.phase = "verify" | .verdicts = [] | .route = "fix"'
+jq --arg wt "$am_w/.claude/worktrees/HEF-25" '.worktree = $wt' "$am_ld/HEF-25.json" > "$am_t/e.json" && mv "$am_t/e.json" "$am_ld/HEF-25.json"
+printf '{"session_id":"v3","total_cost_usd":0,"structured_output":{"summary":"ok","verdicts":[%s]}}\n' \
+  '{"gate":"verify","verdict":"PASS"},{"gate":"review","verdict":"PASS"},{"gate":"quality","verdict":"PASS"},{"gate":"scan","verdict":"PASS"},{"gate":"scan","verdict":"SKIPPED"}' > "$am_t/result.json"
+rm -f "$am_t/refuse"; o="$(aml verify HEF-25 2>&1)" || { bad "session-launch verify with scan reported twice must pass — got: $(tail -c 300 <<<"$o")"; x_fail=1; }
+jq -e '.pr.verified_head == null' "$am_ld/HEF-25.json" >/dev/null 2>&1 \
+  || { bad "the launcher must read the LAST verdict per gate (scan PASS then SKIPPED → no head) — got $(jq -c .pr "$am_ld/HEF-25.json")"; x_fail=1; }
+am verdict HEF-25 --gate scan --verdict PASS --by forger --evidence forged >/dev/null 2>&1
+am_pr 31 feat13 "$(am_sha feat13)"
+am_case "a forged PASS over a gate the outcome reported last as SKIPPED" HEF-25 2 human:merge "head moved since verify"
+[ "$x_fail" -eq 0 ] && ok "a FAIL/SKIPPED verdict drops the verified head, and the launcher reads the last verdict per gate — a session's PASS afterwards is skipped to human:merge, nothing merged (HEF-30 FR-004 FR-005 FR-007)"
+
+# --- code review 2026-11-13 (round 2): a lane-verified head merges only under a grant that pinned an interactive build --
+head_ "merge-auto: a lane_mode flipped around --prepare/--finish verify and back never merges on a worker grant (HEF-30 FR-004 FR-005 NR-004)"
+x_fail=0; am_cfg auto; am_grant >/dev/null
+am_pass4='{"gate":"verify","verdict":"PASS"},{"gate":"review","verdict":"PASS"},{"gate":"quality","verdict":"PASS"},{"gate":"scan","verdict":"PASS"}'
+printf '{"summary":"ok","verdicts":[%s]}\n' "$am_pass4" > "$am_t/out.json"
+am_mk() { # am_mk <id> <PR n> <branch> — at verify in its own worktree, no verdicts, no verified head
+  git -C "$am_w" worktree add -q "$am_w/.claude/worktrees/$1" "$3" 2>/dev/null
+  am_entry "$1" "$2" "$3" '.phase = "verify" | .verdicts = [] | .route = "fix" | del(.pr.verified_head) | del(.prs[0].verified_head)'
+  jq --arg wt "$am_w/.claude/worktrees/$1" '.worktree = $wt' "$am_ld/$1.json" > "$am_t/e.json" && mv "$am_t/e.json" "$am_ld/$1.json"
+}
+am_lm() { jq --arg m "$1" '.orchestrate.lane_mode = $m' "$am_w/.claude/project-status.json" > "$am_t/c.json" && mv "$am_t/c.json" "$am_w/.claude/project-status.json"; }
+# ordering 1: flip → --prepare → flip back → --finish (merge-by is auto again) → automerge
+am_mk HEF-26 32 feat4; am_lm interactive
+aml verify HEF-26 --prepare --lane anyname >/dev/null 2>&1 || { bad "the control: --prepare verify on an interactive build stage must pass"; x_fail=1; }
+am_cfg auto; aml verify HEF-26 --finish --lane anyname --outcome-file "$am_t/out.json" >/dev/null 2>&1 || { bad "the control: --finish verify must pass"; x_fail=1; }
+jq -e '.pr.verified_in == "lane" and .pr.verified_head != null' "$am_ld/HEF-26.json" >/dev/null 2>&1 \
+  || { bad "a --finish verify must record the head as verified in a lane — got $(jq -c .pr "$am_ld/HEF-26.json")"; x_fail=1; }
+am_pr 32 feat4 "$(am_sha feat4)"
+am_case "a lane-verified head on a worker grant (flip back before --finish)" HEF-26 2 human:merge "verified in an interactive lane"
+# ordering 2: flip → --prepare → --finish → flip back → the deploy launcher
+am_mk HEF-27 33 feat8; am_lm interactive
+aml verify HEF-27 --prepare --lane anyname >/dev/null 2>&1; aml verify HEF-27 --finish --lane anyname --outcome-file "$am_t/out.json" >/dev/null 2>&1
+am_cfg auto; am_pr 33 feat8 "$(am_sha feat8)"; : > "$am_t/gh.log"; : > "$am_t/claude.log"
+aml deploy HEF-27 >/dev/null 2>&1
+{ ! am_merged && [ "$(jq -r '.blocked_on.kind // "none"' "$am_ld/HEF-27.json")" = human:merge ]; } \
+  || { bad "a lane-verified head on a worker grant must never merge from the deploy launcher (flip back after --finish) — entry $(jq -c '{phase, blocked_on}' "$am_ld/HEF-27.json"), log: $(tr '\n' '|' < "$am_t/gh.log")"; x_fail=1; }
+# the design path: a grant that pinned an interactive build lane merges its own verified head
+git -C "$am_w" checkout -q -b feat17 dev && am_g "$am_w" commit -q --allow-empty -m feat17 && git -C "$am_w" push -q origin feat17 2>/dev/null; git -C "$am_w" checkout -q dev
+am_lm interactive; am_grant >/dev/null; am_mk HEF-28 34 feat17
+aml verify HEF-28 --prepare --lane anyname >/dev/null 2>&1; aml verify HEF-28 --finish --lane anyname --outcome-file "$am_t/out.json" >/dev/null 2>&1
+am_pr 34 feat17 "$(am_sha feat17)"
+am_case "a lane-verified head under a grant that pinned an interactive build lane" HEF-28 0 none "merged"
+am_cfg auto; am_grant >/dev/null
+[ "$x_fail" -eq 0 ] && ok "a head verified by an interactive lane's --finish is recorded as such and merges only under a grant that pinned an interactive build lane — a lane_mode flipped and flipped back, before or after --finish, never merges on a worker grant (HEF-30 FR-004 FR-005 NR-004)"
+
+# --- code review 2026-11-13 (round 3): the verified head is the head the run STARTED at; no provenance fails closed ----
+head_ "merge-auto: a commit landing in the worktree during a verify run is never the verified head (HEF-30 FR-004 NR-004)"
+x_fail=0; am_cfg auto; am_grant >/dev/null
+for am_b in feat18 feat19; do
+  git -C "$am_w" checkout -q -b "$am_b" dev && am_g "$am_w" commit -q --allow-empty -m "$am_b" && git -C "$am_w" push -q origin "$am_b" 2>/dev/null
+done; git -C "$am_w" checkout -q dev
+# worker run: a stand-in verifier that reports four PASS while a commit lands in its worktree
+am_mk HEF-29 35 feat18; cp "$am_cb/claude" "$am_t/claude.orig"
+printf '#!/bin/bash\ngit -C %q -c user.email=t@t -c user.name=t commit -q --allow-empty -m unreviewed\ncat %q/result.json\n' "$am_w/.claude/worktrees/HEF-29" "$am_t" > "$am_cb/claude"
+printf '{"session_id":"v4","total_cost_usd":0,"structured_output":{"summary":"ok","verdicts":[%s]}}\n' "$am_pass4" > "$am_t/result.json"
+o="$(aml verify HEF-29 2>&1)" || { bad "session-launch verify with a commit during the run must still pass — got: $(tail -c 300 <<<"$o")"; x_fail=1; }
+cp "$am_t/claude.orig" "$am_cb/claude"
+jq -e '.phase == "pr" and .pr.verified_head == null' "$am_ld/HEF-29.json" >/dev/null 2>&1 \
+  || { bad "a head that moved during the verify run must not be recorded (worker run) — got $(jq -c '{phase, pr}' "$am_ld/HEF-29.json")"; x_fail=1; }
+am_pr 35 feat18 "$(git -C "$am_w/.claude/worktrees/HEF-29" rev-parse HEAD)"
+am_case "a head committed during the verify run (worker)" HEF-29 2 human:merge "head moved since verify"
+# lane run: a commit between --prepare and --finish
+am_lm interactive; am_grant >/dev/null; am_mk HEF-32 36 feat19
+aml verify HEF-32 --prepare --lane anyname >/dev/null 2>&1
+am_g "$am_w/.claude/worktrees/HEF-32" commit -q --allow-empty -m unreviewed
+aml verify HEF-32 --finish --lane anyname --outcome-file "$am_t/out.json" >/dev/null 2>&1
+jq -e '.phase == "pr" and .pr.verified_head == null' "$am_ld/HEF-32.json" >/dev/null 2>&1 \
+  || { bad "a head that moved between --prepare and --finish must not be recorded (lane run) — got $(jq -c '{phase, pr}' "$am_ld/HEF-32.json")"; x_fail=1; }
+am_cfg auto; am_grant >/dev/null
+# a verified head with no provenance (an older record, a hand edit) fails closed
+am_entry HEF-31 37 feat18 'del(.pr.verified_in) | del(.prs[0].verified_in)'; am_pr 37 feat18 "$(am_sha feat18)"
+am_case "a verified head with no recorded provenance" HEF-31 2 human:merge "records no verify run"
+[ "$x_fail" -eq 0 ] && ok "the verified head is the head the verify run started at — a commit during a worker run or between --prepare and --finish records none; a head with no provenance is skipped (HEF-30 FR-004 NR-004)"
 
 git -C "$am_w" worktree prune 2>/dev/null
 rm -rf -- "${am_t:?}"; rm -f "$HOME"/.cache/hefesto/sessions/sid-am-*-0001.json

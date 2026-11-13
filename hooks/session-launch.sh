@@ -415,10 +415,14 @@ case "$ROLE" in
       "$LEDGER" verdict "$ID" --gate review --verdict FAIL --by "$NAME" --evidence "no review verdict was reported" >/dev/null || exit 1
       FAIL=1
     fi
+    # HEF-30 FR-004: the head the gates saw, on the PR — only when THIS run passed every gate automerge reads. A SKIPPED
+    # gate records `none` (clearing an earlier head), so a session's later PASS verdict over it is never merged (verify
+    # gate 2026-11-13, F1: the head comes from the launcher's verify run, never from verdicts written beside it)
+    VH=none; [ "$FAIL" = 0 ] && jq -e --arg k "$ITEM_KIND" '(reduce .verdicts[] as $v ({}; .[$v.gate] = $v.verdict)) as $last | ["verify", "review", "quality", "scan"] + (if $k == "incident" or $k == "vulnerability" then [$k] else [] end) | all(.[]; $last[.] == "PASS")' <<<"$SO" >/dev/null && VH="$(git -C "$WT" rev-parse HEAD 2>/dev/null)"; [ "$VH" = "${VH0:-}" ] || VH=none   # moved during the run
+    HEFESTO_LAUNCHER=1 HEFESTO_VERIFIED_IN="$MODE" "$LEDGER" record "$ID" --verified-head "${VH:-none}" >/dev/null || exit 1   # run | finish
     if [ "$FAIL" = 1 ]; then "$LEDGER" block "$ID" --kind verdict >/dev/null || exit 1
-    # HEF-30 FR-004: the head the gates saw, on the PR; under resolved auto no merge wait — the deploy stage merges it
-    else VH="$(git -C "$WT" rev-parse HEAD 2>/dev/null)"; [ -z "$VH" ] || "$LEDGER" record "$ID" --verified-head "$VH" >/dev/null || exit 1
-      "$LEDGER" advance "$ID" pr >/dev/null || exit 1; [ "$MBY" = auto ] || "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
+    # under resolved auto no merge wait — the deploy stage merges it
+    else "$LEDGER" advance "$ID" pr >/dev/null || exit 1; [ "$MBY" = auto ] || "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
   deploy)
     # stage-roles FR-008: questions outrank the verdict — a person must read before anything moves; a
     # mergeable PR already at the gate keeps its block (and its `since`); closed leaves the deploy set.
@@ -449,7 +453,7 @@ if [ "$MODE" = finish ]; then
     || die "session-launch $ROLE $ID --finish: no --prepare of $ROLE by $LANE is on record ($PF)"
   [ -f "$OUTF" ] && [ "$(wc -c < "$OUTF" | tr -d ' ')" -le 32768 ] || die "session-launch $ROLE $ID --finish: --outcome-file must name a JSON file of at most 32 KB (got '$OUTF')"
   SO="$(jq -ce . "$OUTF" 2>/dev/null)" || die "session-launch $ROLE $ID --finish: $OUTF is not JSON"
-  SCHEMA="$(jq -c '.schema' "$PF")"; PR_MODE="$(jq -r '.pr_mode // empty' "$PF")"
+  SCHEMA="$(jq -c '.schema' "$PF")"; PR_MODE="$(jq -r '.pr_mode // empty' "$PF")"; VH0="$(jq -r '.head // empty' "$PF")"
   BAD="$(schema_errors "$SCHEMA" "$SO")"; [ -z "$BAD" ] || die "session-launch $ROLE $ID --finish: the outcome does not fit the $ROLE schema — $BAD"
   RC=0; NAME="$LANE"; [ "$ROLE" = verify ] && NAME="$LANE:code-reviewer"   # FR-018: the lane's fresh-context reviewers
   case "$ROLE" in verify|deploy) WT="$WORKTREE" ;; esac
@@ -627,8 +631,9 @@ if [ "$MODE" = prepare ]; then
     echo
     printf '%s\n' "$PROMPT"
   } > "$LDP/$ID.prompt.md" || undo "session-launch $ROLE $ID --prepare: cannot write the prompt"
-  jq -n --arg role "$ROLE" --arg lane "$LANE" --argjson schema "$SCHEMA" --arg pr "${PR_MODE:-}" \
-    '{role: $role, lane: $lane, schema: $schema, pr_mode: $pr, at: (now | todate)}' > "$LDP/$ID.prepare" || undo "session-launch $ROLE $ID --prepare: cannot write the record"
+  # head: the worktree's commit when the lane starts, read back by --finish (VH0) — HEF-30 code review 2026-11-13
+  jq -n --arg role "$ROLE" --arg lane "$LANE" --argjson schema "$SCHEMA" --arg pr "${PR_MODE:-}" --arg h "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" \
+    '{role: $role, lane: $lane, schema: $schema, pr_mode: $pr, head: $h, at: (now | todate)}' > "$LDP/$ID.prepare" || undo "session-launch $ROLE $ID --prepare: cannot write the record"
   echo "worktree: $WT"
   [ -z "$APPDIR" ] || echo "app: $WT/$APPDIR"   # #172 FR-014: the lane works from this folder
   echo "prompt: $LDP/$ID.prompt.md"
@@ -704,7 +709,8 @@ ls -1t "$RUNDIR/$ID".*.events.jsonl 2>/dev/null | sed -n '6,$p' | while IFS= rea
 # and records the run first — a released claim must never leave an orphaned worker behind (review 2026-10-22).
 # The lease: renewed every 20 s while this launcher lives, so a later claim can tell a cut-off run from a
 # running one without seeing this process (ledger-lanes.sh, lease_stale).
-LEASE="$("$LEDGER" dir)/$ID.lease"; touch "$LEASE" 2>/dev/null || true
+# VH0: the head before the worker starts — a commit landing in the worktree during the run is never the verified head
+LEASE="$("$LEDGER" dir)/$ID.lease"; touch "$LEASE" 2>/dev/null || true; VH0="$(git -C "$WT" rev-parse HEAD 2>/dev/null)"
 "${CMD[@]}" > "$EVENTS" 2>"$OUT.err" &
 CHILD=$!
 # renewed while the launcher OR its worker lives: a SIGKILL of the launcher cannot be trapped, and its worker
