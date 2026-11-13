@@ -37,7 +37,19 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+## [9.4.1] - 2026-11-13
+
+**Auto-merge into the integration branch, behind a grant you sign: a PR whose verify, review, quality and scan gates passed at the head that was checked merges without a form.**
+
+Held back from 9.4.0 because its verify gate found that a session could write a verified head and four `PASS` verdicts by hand and get unverified code merged. Now only the verify launcher records that head, only from its own run, and only when the head did not move during that run. Nothing changes until you set `orchestrate.merge_by: "auto"` and sign the grant; `main`/`master` and environment branches are never merged.
+
+### Upgrade
+
+- Run the install command, then `hefesto-setup.sh` again in each project: it adds the ask rules for `ledger.sh merge-auto grant` and `revoke`, and writes `orchestrate.decider` from `git config user.name` when absent. Reopen the lanes.
+- To turn it on: set `orchestrate.merge_by: "auto"`, run `ledger.sh merge-auto preview` in the orchestrator, read what it pins, and sign it with `ledger.sh merge-auto grant --sha <12> --reviewed-by-human --by <name>`.
+
 ### Added
+
 
 - **`orchestrate.merge_by: "auto"`** (HEF-30; `docs/install.md` §7 step 8, `docs/quickstart.md`). Every PR on the
   production board was a `human:merge` form plus an approve dialog. Under `auto` the deploy launcher runs
@@ -66,6 +78,10 @@ it is what caught the hand-bumped era:
 - **`orchestrate.decider`.** `hefesto-setup.sh` writes it from `git config user.name` when absent (never over a
   value; `--print` shows it, `--remove` leaves it), and the orchestrator uses it as `--by` instead of asking. Setup's
   ask rules gain `ledger.sh merge-auto grant` and `revoke`.
+
+### Known issue
+
+- `ledger.sh record <id> --item-kind` can relabel an `incident` or `vulnerability` item as a lighter kind, and under `auto` that skips the item's own gate (found by this release's scan, rated MEDIUM). Fix scheduled for 9.4.2 (HEF-54). Until then, leave `merge_by` on `lane` on a board that carries incident or vulnerability items.
 
 ## [9.4.0] - 2026-11-11
 

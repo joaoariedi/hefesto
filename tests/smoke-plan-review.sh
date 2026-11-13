@@ -362,9 +362,9 @@ pr_case_docs() {
   grep -qF '`plan-review-round`' "$d/docs/hooks.md" && grep -qF '`plan-review-lib.sh`' "$d/docs/hooks.md" || { bad "FR-011 docs/hooks.md documents the subcommand and the lib"; x_fail=1; }
   grep -qF 'plan-review-lib.sh' "$d/docs/architecture.md" || { bad "FR-011 docs/architecture.md lists plan-review-lib.sh"; x_fail=1; }
   # capture first, match second (tests/smoke.sh:75): `awk | grep -q` under pipefail failed once Unreleased grew past one flush
-  # [Unreleased] or the newest release: a release cut moves the entry out of [Unreleased] (9.4.0 cut, 2026-11-11)
-  local unrel; unrel="$(awk '/^## \[/{n++} n>=1 && n<=2 && !/^## \[/' "$d/CHANGELOG.md")"
-  grep -qF 'plan_review_rounds' <<<"$unrel" || { bad "FR-011 CHANGELOG.md's Unreleased or newest release entry names plan_review_rounds"; x_fail=1; }
+  # [Unreleased] down to [9.4.0], the release that shipped it: "the newest release" broke again at the 9.4.1 cut
+  local unrel; unrel="$(awk -v r='## [9.4.0]' '/^## \[/{if (f) exit; if (index($0, r) == 1) f=1} !/^## \[/' "$d/CHANGELOG.md")"
+  grep -qF 'plan_review_rounds' <<<"$unrel" || { bad "FR-011 CHANGELOG.md's [Unreleased]..[9.4.0] entries name plan_review_rounds"; x_fail=1; }
 }
 x_fail=0; pr_case_docs
 [ "$x_fail" = 0 ] && ok "install.md, hooks.md, architecture.md and the CHANGELOG document the round loop (FR-011)"
