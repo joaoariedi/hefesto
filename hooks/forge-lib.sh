@@ -29,13 +29,16 @@ forge_public_host() { # $1 host[:port], optional leading *. → 0 when a public 
   [[ "$1" =~ ^(\*\.)?([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(:([0-9]{1,5}))?$ ]] || return 1
   local port="${BASH_REMATCH[5]}"   # read before the next match overwrites BASH_REMATCH
   # names that resolve inside a network by convention: the cloud metadata service (metadata.google.internal),
-  # the container host (host.docker.internal), mDNS, home routers — a text check cannot stop DNS beyond these
-  [[ ! "$1" =~ (^|\.)(localhost|internal|local|localdomain|lan|home|intranet|corp)(:|$) ]] || return 1
+  # the container host (host.docker.internal), mDNS, home routers — a text check cannot stop DNS beyond these.
+  # Matched lowercased: DNS is case-insensitive, so metadata.google.INTERNAL is the same host (HEF-22 verify
+  # gate 2026-11-14). tr, not ${1,,}: macOS /bin/bash 3.2 has no case conversion.
+  local lc; lc="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  [[ ! "$lc" =~ (^|\.)(localhost|internal|local|localdomain|lan|home|intranet|corp)(:|$) ]] || return 1
   [ -z "$port" ] || { [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; }
 }
 
 forge_domains() { # $1 host → the allowed_domains entries (D3): github.com also needs its API host for gh pr create
-  case "$1" in github.com) printf '%s\n' github.com api.github.com ;; *) printf '%s\n' "$1" ;; esac
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in github.com) printf '%s\n' github.com api.github.com ;; *) printf '%s\n' "$1" ;; esac
 }
 
 forge_remote_url() { # $1 repo dir → pushurl, else url, of origin (exact name) or of the only remote

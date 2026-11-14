@@ -39,10 +39,13 @@ fg_lib_hosts() { # forge-setup/FR-002
   . "${FG_LIB:-$REPO/hooks/forge-lib.sh}"
   local h
   for h in github.com '*.npmjs.org' gitlab.example.org registry.npmjs.org:443; do forge_public_host "$h" || { bad "FR-002 forge_public_host must accept '$h'"; x_fail=1; }; done
-  for h in 10.0.0.5 localhost metadata.google.internal host.docker.internal printer.local github.com:70000 'https://github.com' github.com/o ''; do
+  # DNS is case-insensitive: an upper-case internal name is the same host (verify gate 2026-11-14)
+  for h in 10.0.0.5 localhost metadata.google.internal host.docker.internal printer.local github.com:70000 'https://github.com' github.com/o '' \
+    metadata.google.INTERNAL a.LOCAL LocalHost Host.Docker.Internal; do
     forge_public_host "$h" && { bad "FR-002 forge_public_host must refuse '$h'"; x_fail=1; }; done
   [ "$(forge_domains github.com | tr '\n' ' ')" = "github.com api.github.com " ] || { bad "FR-002 github.com → github.com, api.github.com (D3)"; x_fail=1; }
   [ "$(forge_domains gitlab.example.org)" = gitlab.example.org ] || { bad "FR-002 a self-hosted forge → that host alone (D3)"; x_fail=1; }
+  [ "$(forge_domains GitHub.com | tr '\n' ' ')" = "github.com api.github.com " ] || { bad "FR-002 GitHub.com is github.com: both hosts, lowercased (D3)"; x_fail=1; }
   return 0
 }
 fg_lib_urls() { # forge-setup/FR-001
@@ -110,12 +113,13 @@ fg_lib_fix() { # forge-setup/FR-013
   return 0
 }
 fg_lib_hosts; fg_lib_urls; fg_lib_lock; fg_lib_fix
+fg_lmut "the deny list matched case-sensitively again (FR-002)" 's/local lc; lc="\$(printf .%s. "\$1" | tr .\[:upper:\]. .\[:lower:\].)"/local lc="$1"/' fg_lib_hosts
 fg_lmut "the zero-byte test dropped (D7)" 's/\[ -f "\$l" \] && \[ ! -s "\$l" \] || return 1/[ -f "$l" ] || return 1/' fg_lib_lock
 fg_lmut "the age test dropped (D7)" 's/-gt 60 \] || return 1/-gt -1 ] || return 1/' fg_lib_lock
 fg_lmut "the explicit-port arm dropped (D5)" '/git@\*:\*) return 2 ;;/d' fg_lib_urls
 fg_lmut "the host-denied line loses 'reports' (P6)" 's/the worker reports it was denied \$4/add $4/' fg_lib_fix
 fg_lmut "forge_infra_fix's unknown cause answers at exit 0 (constitution 5)" '/^forge_infra_fix/,/^}/s/^    \*) return 1 ;;$/    *) echo "" ;;/' fg_lib_fix
-fg_lmut "the internal-suffix refusal dropped (FR-002)" 's/^  \[\[ ! "\$1" =~ (^|\\.)(localhost.*$/  true/' fg_lib_hosts
+fg_lmut "the internal-suffix refusal dropped (FR-002)" 's/^  \[\[ ! "\$lc" =~ (^|\\.)(localhost.*$/  true/' fg_lib_hosts
 [ "$x_fail" -eq 0 ] && ok "forge-lib.sh: the public-hostname rule, the D3 hosts, remote → host and SSH prefix (pushurl first, exact origin, codes 0/1/2), the stale lock (zero bytes and > 60 s), the fix table (P6 'reports', unknown → 1); 6 mutations caught (FR-001, FR-002, FR-008, FR-013)"
 
 # --- FR-001..FR-007 / FR-010 / SC-001: setup's forge pass -------------------------------------------------------------
@@ -220,7 +224,7 @@ fg_case_external() { # forge-setup/FR-001 FR-008 FR-010: an external board, two 
   grep -qF "rm $b/api/.git/config.lock" <<<"$(tail -1 <<<"$o")" || { bad "FR-008 --check names the repos map repository's stale lock in its last line: $(tail -1 <<<"$o")"; x_fail=1; }
   return 0
 }
-fg_case_scp; fg_case_forms; fg_case_keys; fg_case_lock; fg_case_livelock; fg_case_external
+fg_case_scp; fg_case_forms; fg_case_keys; fg_case_lock; fg_case_external
 fg_case_livelock() { # forge-setup/FR-007 FR-010 (verify gate 2026-11-14): a rewrite git could not write is never recorded as setup's
   local p o rc=0
   # a live lock (not zero bytes, so the stale-lock pre-check lets setup through): the rewrite write fails
@@ -238,6 +242,7 @@ fg_case_livelock() { # forge-setup/FR-007 FR-010 (verify gate 2026-11-14): a rew
   [ "$(fg_rw_of "$p" github.com)" = "git@github.com: " ] || { bad "FR-007 --remove deleted a hand-added rewrite setup never wrote: $o"; x_fail=1; }
   return 0
 }
+fg_case_livelock   # called here, after its definition (it ran only as a mutant before: SC2218)
 fg_smut() { # label sed-expr test-fn — the setup mutant sits in the real hooks folder (setup refuses a clone in a temp folder)
   local m="$REPO/hooks/.smoke-mut-fg-setup.sh" red
   sed "$2" "$REPO/hooks/hefesto-setup.sh" > "$m"
