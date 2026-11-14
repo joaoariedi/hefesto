@@ -298,8 +298,13 @@ if [ -n "${BTOP:-}" ]; then while IFS= read -r d; do [ -n "$d" ] && [ -d "$d" ] 
 fg_rw=(); fg_dom=(); fg_lock=(); fg_block=(); fg_note=()   # fg_rw: repo<TAB>common dir<TAB>host<TAB>prefix, a rewrite due
 forge_plan() { # → the arrays above, one pass over fg_repos, nothing written
   local r u h cd_ l hp rc v
+  local seen=$'\n'
   for r in "${fg_repos[@]}"; do
     cd_="$(git -C "$r" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || { fg_note+=("$r is not a git repository — no forge setup there"); continue; }
+    # one plan per git config: an external board's map usually lists the repository setup runs from, and a linked
+    # worktree shares its main repository's config — planned twice, the same rewrite was added twice (verify gate
+    # 2026-11-14, FR-005)
+    case "$seen" in *$'\n'"$cd_"$'\n'*) continue ;; esac; seen="$seen$cd_"$'\n'
     l=""; l="$(forge_stale_lock "$cd_")" && fg_lock+=("$l")                 # every repository (FR-008)
     u="$(forge_remote_url "$r")" || { fg_note+=("$r has no origin (or several remotes, none named origin) — no forge setup there"); continue; }
     h="$(forge_host "$u")" || { fg_note+=("$r: no host in its remote $u — no forge setup there"); continue; }
@@ -319,29 +324,13 @@ forge_plan() { # → the arrays above, one pass over fg_repos, nothing written
 [ "${#fg_block[@]}" -eq 0 ] || [ "$MODE" = check ] || [ "$MODE" = print ] \
   || die "a stale ${fg_block[*]} (zero bytes, left by a sandboxed session) would block the push rewrite — rm ${fg_block[*]} and run this again (nothing was written)"
 fg_dom_u=(); if [ "${#fg_dom[@]}" -gt 0 ]; then while IFS= read -r d; do fg_dom_u+=("$d"); done < <(printf '%s\n' "${fg_dom[@]}" | awk '!seen[$0]++'); fi
-# The push rewrites are written BEFORE the settings, so push_rewrites records only a rewrite whose write succeeded: a
-# failed write (a live config.lock) recorded as setup's own let --remove delete a person's identical value (HEF-22
-# verify gate, 2026-11-14). A failure is reported with the rest by forge_apply, after the settings are written.
-fg_ok=(); fg_bad=(); fg_rw_done=()
-forge_rewrites_apply() { # write mode: each planned rewrite; fg_rw_done keeps the ones git wrote
-  local e r c h p
-  for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r r c h p <<<"$e"
-    if ! git config -f "$c/config" --add "url.https://$h/.pushinsteadof" "$p" 2>/dev/null; then fg_bad+=("the push rewrite in $r"); continue; fi
-    fg_rw_done+=("$e"); fg_ok+=("the push rewrite in $r")
-    echo "forge: push over HTTPS: url.\"https://$h/\".pushInsteadOf $p (in $r) — pushes from there now go over HTTPS"
-    # FR-006: an HTTPS push with no credential helper asks for a password no worker can type
-    [ -n "$(git -C "$r" config --get-urlmatch credential.helper "https://$h/" 2>/dev/null)" ] \
-      || echo "forge: no git credential helper applies to https://$h/ — run in a terminal: gh auth setup-git"
-  done
-}
-[ "$MODE" != write ] || forge_rewrites_apply
 # push_rewrites (plan P8): the previous run's still present in their repository, plus this run's — only what setup added
 fg_pushrw="$(
   jq -c '.push_rewrites // [] | if type == "array" then .[] else empty end | select(type == "object")' <<<"$PREV" | while IFS= read -r o; do
     v="$(git config -f "$(jq -r '.repo' <<<"$o")/config" --get-all "$(jq -r '.key' <<<"$o")" 2>/dev/null)"
     case $'\n'"$v"$'\n' in *$'\n'"$(jq -r '.value' <<<"$o")"$'\n'*) echo "$o" ;; esac
   done
-  if [ "$MODE" = write ]; then for e in ${fg_rw_done[@]+"${fg_rw_done[@]}"}; do IFS='	' read -r _ c h p <<<"$e"
+  if [ "$MODE" = write ]; then for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r _ c h p <<<"$e"
     jq -nc --arg r "$c" --arg k "url.https://$h/.pushinsteadof" --arg v "$p" '{repo: $r, key: $k, value: $v}'; done; fi
 )"
 fg_pushrw="$(jq -sc 'unique' <<<"$fg_pushrw")" || die "could not build the push rewrite record (nothing was written)"
@@ -585,8 +574,30 @@ forge_domains_write() { # the board config's orchestrate.allowed_domains, only w
       else echo "forge: orchestrate.allowed_domains in $BCFG already lists ${fg_dom_u[*]} — unchanged"; fi ;;
   esac
 }
-forge_apply() { # write mode: the forge hosts after the settings; a write that fails names what was and was not written
-  forge_notes; forge_domains_write
+forge_unrecord() { # repo-common-dir key value… triples → drop them from the settings' push_rewrites (a write that failed)
+  local cur gone extra tmp; [ -f "$F" ] || return 0
+  cur="$(jq -c . "$F" 2>/dev/null)" || return 1
+  # shellcheck disable=SC2016  # a jq program
+  gone="$(printf '%s\n' "$@" | jq -R . | jq -sc '[range(0; length; 3) as $i | {repo: .[$i], key: .[$i+1], value: .[$i+2]}]')" || return 1
+  extra="$(jq -c --argjson gone "$gone" '(.env.HEFESTO_SETUP_EXTRA // "{}") | fromjson | .push_rewrites = ((.push_rewrites // []) - $gone)' <<<"$cur")" || return 1
+  tmp="$(mktemp "$(dirname "$F")/.settings.XXXXXX")" || return 1
+  jq --arg x "$extra" '.env.HEFESTO_SETUP_EXTRA = $x' <<<"$cur" > "$tmp" && jq -e . "$tmp" >/dev/null || { rm -f "$tmp"; return 1; }
+  if [ -L "$F" ]; then cat "$tmp" > "$F"; rm -f "$tmp"; else mv "$tmp" "$F"; fi
+}
+forge_apply() { # write mode, after the settings: the push rewrites, then the forge hosts; a failure names what was and was not written
+  local e r c h p gone=(); fg_ok=(); fg_bad=(); forge_notes
+  for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r r c h p <<<"$e"
+    if ! git config -f "$c/config" --add "url.https://$h/.pushinsteadof" "$p" 2>/dev/null; then
+      fg_bad+=("the push rewrite in $r"); gone+=("$c" "url.https://$h/.pushinsteadof" "$p"); continue; fi
+    fg_ok+=("the push rewrite in $r"); echo "forge: push over HTTPS: url.\"https://$h/\".pushInsteadOf $p (in $r) — pushes from there now go over HTTPS"
+    # FR-006: an HTTPS push with no credential helper asks for a password no worker can type
+    [ -n "$(git -C "$r" config --get-urlmatch credential.helper "https://$h/" 2>/dev/null)" ] \
+      || echo "forge: no git credential helper applies to https://$h/ — run in a terminal: gh auth setup-git"
+  done
+  # push_rewrites was saved with the settings, before these writes: a rewrite git did not write is taken back out, or
+  # a later --remove would delete a person's identical value as setup's own (verify gate 2026-11-14, FR-007)
+  [ "${#gone[@]}" -eq 0 ] || forge_unrecord "${gone[@]}" || fg_bad+=("the push_rewrites record in $F (it lists a rewrite that was not written)")
+  forge_domains_write
   [ "${#fg_bad[@]}" -eq 0 ] || die "could not write ${fg_bad[*]} (a live git config.lock? another git running?) — written: ${fg_ok[*]:-nothing}; run this again when it is free"
 }
 forge_apply

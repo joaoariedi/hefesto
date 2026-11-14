@@ -243,6 +243,21 @@ fg_case_livelock() { # forge-setup/FR-007 FR-010 (verify gate 2026-11-14): a rew
   return 0
 }
 fg_case_livelock   # called here, after its definition (it ran only as a mutant before: SC2218)
+fg_case_dup() { # forge-setup/FR-005 (verify gate 2026-11-14): a board whose repos map lists the board repository itself and a
+  # linked worktree of a code repository — each git config is planned once, so each rewrite is added once
+  local b="$fg_t/dup" o
+  rm -rf "$b"; mkdir -p "$b"; git init -q -b main "$b/board"; git init -q -b main "$b/api"
+  git -C "$b/board" remote add origin git@github.com:o/board.git; git -C "$b/api" remote add origin git@github.com:o/api.git
+  git -C "$b/api" commit -q --allow-empty -m init; git -C "$b/api" worktree add -q "$b/api-wt" -b wt 2>/dev/null
+  mkdir -p "$b/board/.claude"
+  jq . <<<'{"source":"tasks-repo","root":"tasks","repos":{"self":".","api":"../api","apiwt":"../api-wt"},"orchestrate":{"decider":"t"}}' > "$b/board/.claude/project-status.json"
+  o="$(fg_su "$b/board")" || { bad "FR-005 setup on a board that lists itself must pass: $o"; x_fail=1; }
+  { [ "$(fg_rw_of "$b/board" github.com)" = "git@github.com: " ] && [ "$(fg_rw_of "$b/api" github.com)" = "git@github.com: " ] \
+    && [ "$(grep -c 'pushInsteadOf git@github.com: (in' <<<"$o")" = 2 ]; } \
+    || { bad "FR-005 each git config gets its rewrite once (board listed in its own map, a linked worktree of api): board '$(fg_rw_of "$b/board" github.com)' api '$(fg_rw_of "$b/api" github.com)': $o"; x_fail=1; }
+  return 0
+}
+fg_case_dup
 fg_smut() { # label sed-expr test-fn — the setup mutant sits in the real hooks folder (setup refuses a clone in a temp folder)
   local m="$REPO/hooks/.smoke-mut-fg-setup.sh" red
   sed "$2" "$REPO/hooks/hefesto-setup.sh" > "$m"
@@ -252,7 +267,8 @@ fg_smut() { # label sed-expr test-fn — the setup mutant sits in the real hooks
 }
 fg_smut "unless set: a present allowed_domains read as absent (D2)" 's/type == "object" and has("allowed_domains")'"'"' "\$BCFG" >\/dev\/null 2>&1; then echo present/type == "object" and has("x")'"'"' "$BCFG" >\/dev\/null 2>\&1; then echo present/' fg_case_keys
 fg_smut "the byte-identical jq-form test dropped (P3)" 's/ && jq \. "\$BCFG" 2>\/dev\/null | cmp -s - "\$BCFG"$/ \&\& true/' fg_case_keys
-fg_smut "a failed rewrite recorded as setup's own (FR-007, verify gate 2026-11-14)" 's/for e in ${fg_rw_done\[@\]+"${fg_rw_done\[@\]}"}; do IFS/for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS/' fg_case_livelock
+fg_smut "a failed rewrite left in push_rewrites (FR-007, verify gate 2026-11-14)" 's/|| forge_unrecord "\${gone\[@\]}" ||/|| true ||/' fg_case_livelock
+fg_smut "the same git config planned twice (FR-005, verify gate 2026-11-14)" '/case "\$seen" in \*/d' fg_case_dup
 fg_smut "the rewrite dedupe dropped (FR-005)" '/that exact value is set already (FR-005)/d' fg_case_scp
 fg_smut "the pre-check widened to every repository's lock (FR-010)" 's/ && fg_lock+=("\$l")  / \&\& fg_lock+=("$l") \&\& fg_block+=("$l")  /' fg_case_external
 [ "$x_fail" -eq 0 ] && ok "setup: SSH github → the push rewrite and [github.com, api.github.com], recorded, idempotent, removable (a hand-added rewrite stays); ssh:// rewritten; a port or another user noted; HTTPS untouched; self-hosted; an IP refused; a present key and a hand-formatted file byte-identical; --print writes nothing; a stale lock stops a due write; an external board lists github.com once; 4 mutations caught (FR-001..FR-007, FR-010, SC-001)"
