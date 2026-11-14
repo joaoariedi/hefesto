@@ -5620,9 +5620,9 @@ cp "$l3_t/ps.bak" "$l3_t/.claude/project-status.json"
 for f in hooks/context-gauge.sh hooks/hefesto-setup.sh docs/hooks.md docs/quickstart.md docs/quickstart.pt-BR.md docs/install.md SETUP.md; do
   grep -qF gauge_rows "$REPO/$f" || { bad "$f must name context.gauge_rows (the run rows are opt-in)"; l3_fail=1; }
 done
-# [Unreleased] or the newest release: a release cut moves the entry out of [Unreleased] (9.4.0 cut, 2026-11-11)
-l3_cl="$(awk '/^## \[/{n++} n>=1 && n<=2 && !/^## \[/' "$REPO/CHANGELOG.md")"
-grep -qF gauge_rows <<<"$l3_cl" || { bad "CHANGELOG.md [Unreleased] or the newest release must record that the run rows are off by default (gauge_rows)"; l3_fail=1; }
+# [Unreleased] down to [9.4.0], the release that shipped it: "the newest release" broke again at the 9.4.1 cut
+l3_cl="$(awk -v r='## [9.4.0]' '/^## \[/{if (f) exit; if (index($0, r) == 1) f=1} !/^## \[/' "$REPO/CHANGELOG.md")"
+grep -qF gauge_rows <<<"$l3_cl" || { bad "CHANGELOG.md [Unreleased]..[9.4.0] must record that the run rows are off by default (gauge_rows)"; l3_fail=1; }
 for f in docs/quickstart.md docs/hooks.md; do
   ! grep -qF 'one row per background run' "$REPO/$f" || { bad "$f must not keep the unconditional 'one row per background run' sentence"; l3_fail=1; }
 done

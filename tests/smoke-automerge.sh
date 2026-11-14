@@ -414,9 +414,10 @@ for am_w3 in '`auto`' 'ledger.sh merge-auto preview' '`decider`' 'one merge form
   grep -qF -- "$am_w3" "$REPO/docs/install.md" || { bad "docs/install.md must say: $am_w3 (merge-auto FR-016)"; x_fail=1; }
 done
 grep -qF 'ledger.sh automerge' "$REPO/docs/architecture.md" || { bad "docs/architecture.md must name ledger.sh automerge (merge-auto FR-016)"; x_fail=1; }
-am_un="$(awk '/^## \[Unreleased\]/{f=1; next} /^## \[/{f=0} f' "$REPO/CHANGELOG.md")"   # captured: `awk | grep -q` races under pipefail
+# [Unreleased] down to [9.4.1], the release that shipped it: a release cut must not fail its own suite
+am_un="$(awk -v r='## [9.4.1]' '/^## \[/{if (f) exit; if (index($0, r) == 1) f=1} !/^## \[/' "$REPO/CHANGELOG.md")"   # captured: `awk | grep -q` races under pipefail
 grep -qF 'orchestrate.merge_by: "auto"' <<<"$am_un" \
-  || { bad "CHANGELOG.md's Unreleased section must describe merge_by auto (merge-auto FR-016)"; x_fail=1; }
+  || { bad "CHANGELOG.md's [Unreleased]..[9.4.1] must describe merge_by auto (merge-auto FR-016)"; x_fail=1; }
 [ "$x_fail" -eq 0 ] && ok "docs: quickstart (en, pt-BR) and install describe merge_by auto, the grant and revoke, the decider, checks run without a shell, the one merge form; architecture names ledger.sh automerge; CHANGELOG Unreleased (HEF-30 FR-016)"
 
 # --- NR-001 (T017, verify gate 2026-11-09): the live state is re-read after the checks, right before the merge --------
