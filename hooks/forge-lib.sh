@@ -15,9 +15,11 @@
 # "no answer" for an empty answer.
 
 # The causes a worker may report (FR-011): a closed enum, so no worker text ever becomes the fix line (D6).
+# shellcheck disable=SC2034  # read by the scripts that source this file (session-launch.sh, ledger.sh)
 FORGE_CAUSES="push-refused host-denied credential-helper-missing"
 # The worker prompt's sentence on when to set infra_cause (FR-011) — here, beside the table it feeds, because the
 # launcher is at the 500-code-line limit.
+# shellcheck disable=SC2034  # read by session-launch.sh, which sources this file
 FORGE_INFRA_RULE='If the run stopped on infrastructure rather than on the work, also set infra_cause: "push-refused" when git push was refused (an SSH remote, or the sandbox), "host-denied" when the sandbox denied a host the build needs (its hostname in infra_host), "credential-helper-missing" when an HTTPS push had no credential helper; otherwise leave infra_cause null. The fix the person sees comes from a fixed table, never from your summary. '
 
 forge_public_host() { # $1 host[:port], optional leading *. → 0 when a public hostname

@@ -220,7 +220,24 @@ fg_case_external() { # forge-setup/FR-001 FR-008 FR-010: an external board, two 
   grep -qF "rm $b/api/.git/config.lock" <<<"$(tail -1 <<<"$o")" || { bad "FR-008 --check names the repos map repository's stale lock in its last line: $(tail -1 <<<"$o")"; x_fail=1; }
   return 0
 }
-fg_case_scp; fg_case_forms; fg_case_keys; fg_case_lock; fg_case_external
+fg_case_scp; fg_case_forms; fg_case_keys; fg_case_lock; fg_case_livelock; fg_case_external
+fg_case_livelock() { # forge-setup/FR-007 FR-010 (verify gate 2026-11-14): a rewrite git could not write is never recorded as setup's
+  local p o rc=0
+  # a live lock (not zero bytes, so the stale-lock pre-check lets setup through): the rewrite write fails
+  p="$(fg_proj live git@github.com:o/r.git)"; printf 'x' > "$p/.git/config.lock"
+  o="$(fg_su "$p")" || rc=$?
+  rm -f "$p/.git/config.lock"
+  { [ "$rc" != 0 ] && grep -qF 'could not write the push rewrite' <<<"$o" && fg_norw "$p"; } \
+    || { bad "FR-010 a live config.lock fails the rewrite and setup says so (rc=$rc): $o"; x_fail=1; }
+  [ ! -f "$p/.claude/settings.local.json" ] \
+    || jq -e '(.env.HEFESTO_SETUP_EXTRA // "{}") | fromjson | (.push_rewrites // []) | length == 0' "$p/.claude/settings.local.json" >/dev/null \
+    || { bad "FR-007 a rewrite whose write failed must not be recorded in push_rewrites: $(jq -r '.env.HEFESTO_SETUP_EXTRA' "$p/.claude/settings.local.json" 2>&1 | head -c 300)"; x_fail=1; }
+  # the person then adds the same value by hand: --remove must leave it (it was never setup's)
+  git -C "$p" config --add url.https://github.com/.pushinsteadof git@github.com:
+  o="$(fg_su "$p" --remove)"
+  [ "$(fg_rw_of "$p" github.com)" = "git@github.com: " ] || { bad "FR-007 --remove deleted a hand-added rewrite setup never wrote: $o"; x_fail=1; }
+  return 0
+}
 fg_smut() { # label sed-expr test-fn — the setup mutant sits in the real hooks folder (setup refuses a clone in a temp folder)
   local m="$REPO/hooks/.smoke-mut-fg-setup.sh" red
   sed "$2" "$REPO/hooks/hefesto-setup.sh" > "$m"
@@ -230,6 +247,7 @@ fg_smut() { # label sed-expr test-fn — the setup mutant sits in the real hooks
 }
 fg_smut "unless set: a present allowed_domains read as absent (D2)" 's/type == "object" and has("allowed_domains")'"'"' "\$BCFG" >\/dev\/null 2>&1; then echo present/type == "object" and has("x")'"'"' "$BCFG" >\/dev\/null 2>\&1; then echo present/' fg_case_keys
 fg_smut "the byte-identical jq-form test dropped (P3)" 's/ && jq \. "\$BCFG" 2>\/dev\/null | cmp -s - "\$BCFG"$/ \&\& true/' fg_case_keys
+fg_smut "a failed rewrite recorded as setup's own (FR-007, verify gate 2026-11-14)" 's/for e in ${fg_rw_done\[@\]+"${fg_rw_done\[@\]}"}; do IFS/for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS/' fg_case_livelock
 fg_smut "the rewrite dedupe dropped (FR-005)" '/that exact value is set already (FR-005)/d' fg_case_scp
 fg_smut "the pre-check widened to every repository's lock (FR-010)" 's/ && fg_lock+=("\$l")  / \&\& fg_lock+=("$l") \&\& fg_block+=("$l")  /' fg_case_external
 [ "$x_fail" -eq 0 ] && ok "setup: SSH github → the push rewrite and [github.com, api.github.com], recorded, idempotent, removable (a hand-added rewrite stays); ssh:// rewritten; a port or another user noted; HTTPS untouched; self-hosted; an IP refused; a present key and a hand-formatted file byte-identical; --print writes nothing; a stale lock stops a due write; an external board lists github.com once; 4 mutations caught (FR-001..FR-007, FR-010, SC-001)"
