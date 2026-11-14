@@ -37,8 +37,62 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+## [9.4.1] - 2026-11-13
+
+**Auto-merge into the integration branch, behind a grant you sign: a PR whose verify, review, quality and scan gates passed at the head that was checked merges without a form.**
+
+Held back from 9.4.0 because its verify gate found that a session could write a verified head and four `PASS` verdicts by hand and get unverified code merged. Now only the verify launcher records that head, only from its own run, and only when the head did not move during that run. Nothing changes until you set `orchestrate.merge_by: "auto"` and sign the grant; `main`/`master` and environment branches are never merged.
+
+### Upgrade
+
+- Run the install command, then `hefesto-setup.sh` again in each project: it adds the ask rules for `ledger.sh merge-auto grant` and `revoke`, and writes `orchestrate.decider` from `git config user.name` when absent. Reopen the lanes.
+- To turn it on: set `orchestrate.merge_by: "auto"`, run `ledger.sh merge-auto preview` in the orchestrator, read what it pins, and sign it with `ledger.sh merge-auto grant --sha <12> --reviewed-by-human --by <name>`.
+
 ### Added
 
+
+- **`orchestrate.merge_by: "auto"`** (HEF-30; `docs/install.md` §7 step 8, `docs/quickstart.md`). Every PR on the
+  production board was a `human:merge` form plus an approve dialog. Under `auto` the deploy launcher runs
+  `ledger.sh automerge <id>` — a helper, never a model — which merges a PR into the **integration branch** with
+  `gh pr merge --merge --match-head-commit <verified head>` when the latest verify, review, quality and scan verdicts
+  (and the item's incident or vulnerability gate) are `PASS` at that head, the PR is CLEAN with green checks, and
+  every pinned merge check exits 0. The verify launcher — and only it — records `.pr.verified_head`, only when its
+  own run's last verdict for every one of those gates is `PASS` (otherwise it clears it, as any later non-`PASS`
+  verdict does), and under `auto` sets no `human:merge` block. A head an interactive lane's own `--finish` outcome
+  vouched for is merged only under a grant that pinned the build stage as interactive. A miss (an environment or protected base, a moved head, a gate not `PASS`, another origin)
+  blocks `human:merge` with an `auto-merge-skipped` event and the reason; a failing check or a refused merge blocks
+  `ci`; BEHIND or a conflict blocks `conflict`; pending checks record nothing. A PR merged by hand is recorded
+  (`automerge --if-merged`), never reported as closed.
+- **The grant behind `auto`.** Config is a file a lane can write, so `auto` alone never merges: `ledger.sh
+  merge-auto preview` prints what a grant pins — per board repo its path, `origin` and integration branch, the
+  merge checks and the stage lane modes — with its sha256, and the person's `merge-auto grant --sha <12> --reviewed-by-human --by <name>`
+  stores it in the approvals store (refused from a worker and from any lane but the orchestrator). `ledger.sh
+  merge-by [--explain]` resolves `auto` only while the grant equals a fresh preview; an invalid `merge_by` is refused
+  and stops the launch. `main`/`master`, an environment or a declared protected integration branch is never
+  eligible. Merge checks run as argv under a 600 s timeout, never through a shell — outside the sandbox, so a
+  check's program must be a bare name on PATH or an absolute path, as written, in hefesto's hooks folder or a system
+  bin folder, and never a shell or interpreter (refused by name, `/bin/sh` as `sh`): a file a lane could write
+  never runs there.
+- **One merge form per pass.** The orchestrator asks every `human:merge` PR in one form (multi-select, up to four
+  per question, 16 per pass, oldest first); a train's irreversible confirmation is one question for all its repos.
+- **`orchestrate.decider`.** `hefesto-setup.sh` writes it from `git config user.name` when absent (never over a
+  value; `--print` shows it, `--remove` leaves it), and the orchestrator uses it as `--by` instead of asking. Setup's
+  ask rules gain `ledger.sh merge-auto grant` and `revoke`.
+
+### Known issue
+
+- `ledger.sh record <id> --item-kind` can relabel an `incident` or `vulnerability` item as a lighter kind, and under `auto` that skips the item's own gate (found by this release's scan, rated MEDIUM). Fix scheduled for 9.4.2 (HEF-54). Until then, leave `merge_by` on `lane` on a board that carries incident or vulnerability items.
+
+## [9.4.0] - 2026-11-11
+
+**Fewer interruptions: a permission dialog only where a person signs, plan reviews that run to the end on their own, no spend cap unless you set one, and a footer that shows only the context gauge. A one-command install with a page per operating system.**
+
+Measured before this release on a four-lane production board: 217 questions and about 100 dialogs from an RFC to a staging deploy, where 8.0 needed three to five. Most were mechanics, not decisions. Auto-merge into the integration branch (`merge_by: auto`) is not in this release: its review found a flaw, and it ships in 9.4.1 once fixed.
+
+### Added
+
+- **`/hefesto:hef.tasks` accepts the light path** (HEF-1). With `spec.md` and no `plan.md` it generates tasks from the spec alone and says so in the tasks.md header; before, it refused and a throwaway plan had to be written. The full path is unchanged. `speckit-helper.sh check-tasks-inputs` answers `FULL_PATH`, `LIGHT_PATH` or `NO_SPEC_FOR_BRANCH`.
+- **A front-door README and one install page per operating system** (HEF-18). The README is under 150 lines: what hefesto is, the one install command, setup, first use, single lane versus four lanes and how to choose, and how to contribute. Install steps live in `docs/install-linux.md`, `docs/install-macos.md` and `docs/install-windows.md` (WSL 2 required), and `docs/contributing.md` covers the test suite, the commit and PR conventions and review. The quick starts, `docs/install.md` and `SETUP.md` each keep one job and point to the others.
 - **Spec-qualified requirement citations** (HEF-3; `docs/sdd.md`). Every spec has an `FR-001`, so a test citing a
   bare id covered every spec that declares it — measured on this repository, each `req-coverage` run listed 10–33
   ids "declared by other specs", and the collision kept several specs green. A test now cites `<spec>/FR-NNN`
@@ -51,6 +105,58 @@ it is what caught the hand-bumped era:
   specs are scoped; `hef.tasks`, `hef.implement`, `hef.verify` and `hef.mutate` show the qualified form. The
   matrix header states the mode (`mode: scoped` | `mode: legacy (bare ids count)`).
 - **`spec-cite-probe.sh` names the right spec**: a qualified citation is attributed to the spec it names only.
+- **The planner works through plan-review rounds on its own** (HEF-21; `docs/install.md` §8b). It used to stop at the second
+  `REVISE_PLAN` and ask you, even when every finding was a plan edit. Now it makes the reviewer's changes and
+  reviews again until `APPROVE`, up to `orchestrate.plan_review_rounds` rounds (default 5, 1–20; anything else
+  is refused before a planner starts). It stops for you only on a product or design question: a
+  `NEEDS_DISCUSSION` verdict, a suggested change the reviewer tags `[DECISION]`, or a finding the planner cannot
+  settle from the code. It also stops at the cap.
+- `speckit-helper.sh plan-review-round` records each round in `<spec dir>/plan-review.md`, an append-only
+  log beside `plan.md`, and prints the next action. `/hefesto:hef.review` plan mode records every round
+  through it, a person's own run included, and follows its `next:` line. Your answer or revision notes open
+  a new segment, and the count restarts there.
+- A `human:plan-review` question now carries the round index, the last round's open findings and the log's
+  path, within the 8,000 bytes `ledger.sh questions` shows.
+
+### Changed
+
+- **No spend cap unless you set one** (HEF-19; `docs/install.md`). A project with no `orchestrate.usd_cap` was capped at 20 USD per session, and the launcher refused once today's spend plus one session cap passed 100. Both caps are now opt-in: no `usd_cap` means no `--max-budget-usd`, and no `daily_usd_cap` means no daily check. A cap you set keeps today's behaviour; a `daily_usd_cap` set alone refuses once today's total reaches it. `status-board.sh --init` writes no caps.
+- **A permission dialog only where a person signs** (HEF-27; `docs/install.md` §2). `hefesto-setup.sh` writes in
+  `ask` exactly the `ledger.sh` forms that record a person's decision — `approve`, `answer`, `revise`, `drop`,
+  `fold`, `supersede`, `reopen`, `op close`, `op drop`, and `unblock`/`record`/`release` with their signature flag
+  (`--reviewed-by-human`, `--merge-sha`, `--body-file`, `--body-from-board`, `--rfc`) anywhere after the id — plus
+  `pr-watch.sh reply|comment`. The **mechanics asks are gone**: `record`, `advance`, `handoff`, `block`, plain
+  `unblock` and `release`, `verdict` and every other subcommand get their own `allow` rule (never `ledger.sh` as a
+  whole). Measured on a four-lane board: 408 `ask` rules and about 100 dialogs from RFC to a staging deploy. A
+  person who relied on a mechanics ask as a brake loses that dialog; `ledger.sh` still refuses a person's decision
+  from any lane but the orchestrator.
+- **A signature must be spelled plain** (HEF-27 FR-007). An ask rule matches literal text, so a quoted, escaped or
+  tab-separated signature flag (`"--merge-sha"`, `--reviewed-by-"human"`) — or a quoted or tab-followed
+  `pr-watch.sh reply|comment` verb — matched no ask and got the `unblock:*` / `record:*` / `release:*` /
+  `pr-watch.sh:*` allow, with no dialog. In every set-up project and every lane, the orchestrator included,
+  `lane-guard.sh` now denies such a call to the helper and names the plain spelling; a command that only mentions
+  the helper (a `grep`, a commit message) is untouched.
+- **One spelling per root.** Each rule and sandbox exclusion is written once per plugin root, in the spelling the
+  matcher sees — `<installPath>//hooks/…` for a profile's installed copy, `<clone>/hooks/…` for the clone — and
+  never as `bash <path>`. The first run after the upgrade takes out every other spelling and version an earlier
+  setup wrote; the person's own rules stay byte-identical.
+- **`claim` and `run` are launcher-only, in every project.** No permission rule is written for them; `ledger.sh`
+  refuses them, nothing written, unless `session-launch.sh` (or `handoff`'s own re-entry) calls them. A person
+  frees a claim with `ledger.sh release <id> --reviewed-by-human --by <name>`; a hand-run item goes through
+  `handoff`, which now refuses a lanes session up front (a lane finishes with `session-launch.sh --finish`). The
+  launcher's marker (`HEFESTO_LAUNCHER=1` with no session id) is a brake against sessions, not a secret: a Claude
+  session always carries its id and, in a set-up project, `lane-guard.sh` denies the wrapper that would drop it;
+  a person in a terminal could type it. In a project with neither setup nor sandbox there is no brake — as today.
+- **`--check` names a mechanics ask as the defect**: any `ask` rule on a hefesto helper outside the signature set,
+  in `settings.local.json`, the project's `settings.json` or the profile's `settings.json`, exits 1 with
+  `no ask rule outside the signature set (<rule> in <file> — every lane pass would stop on it)`. It also looks
+  for the signature set under the canonical spelling of the root this session runs from, and refuses a root
+  setup does not trust instead of guessing a spelling.
+- **The status-line run rows are off by default** (HEF-23; `docs/quickstart.md`, `docs/hooks.md`). The gauge
+  printed, under the context line, a row per ledger claim, per decision waiting on a person and per lane action;
+  it now prints the context line only, and does not read the ledger at all. `"context": {"gauge_rows": true}` in
+  `.claude/project-status.json` turns the rows back on, unchanged; any other value, or no file, is off.
+  `hefesto-setup.sh` writes nothing for the key. The orchestrator's pass brief still lists runs and decisions.
 
 ### Unchanged
 
@@ -58,6 +164,12 @@ it is what caught the hand-bumped era:
   `req-coverage.yml` CI stay green on upgrade with no migration (here: 15 shipped, 0 failing, before and after).
   Specs from `/hefesto:hef.baseline` and `/hefesto:hef.init` stay legacy until marked; `docs/sdd.md` describes the
   move to scoped. `req-coverage` arguments, exit codes and the `--all` skip rule are unchanged.
+
+### Upgrade
+
+- Run the install command, then `hefesto-setup.sh` again in each set-up project (`--lanes` where you run four lanes), and reopen the lanes. The setup rewrites the permission rules: the mechanics asks go, one spelling per root stays, and `--check` names any leftover ask rule outside the signature set.
+- To make spend open, delete `orchestrate.usd_cap` and `orchestrate.daily_usd_cap` from `.claude/project-status.json`; a value you leave there is still enforced.
+- A by-hand `ledger.sh claim` or `ledger.sh run` is now refused; use `ledger.sh release <id> --reviewed-by-human --by <name>` to free a claim, and `handoff` for a hand-run item.
 
 ## [9.3.0] - 2026-11-06
 

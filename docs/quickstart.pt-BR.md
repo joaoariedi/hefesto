@@ -1,8 +1,11 @@
 # Guia rápido
 
-Instale o hefesto e escolha uma de duas formas de trabalhar: **uma sessão** ou **quatro sessões**. Toda decisão —
-aprovar um plano, responder uma pergunta, pedir mudanças — é um formulário numa sessão só, a orchestrator; nada é
-copiado entre sessões. Linux e macOS. O guia completo, em inglês, é o [`install.md`](install.md).
+Esta página leva você de um hefesto instalado até o trabalho saindo: prepare um projeto e escolha uma de duas formas
+de trabalhar — **uma sessão** ou **quatro ou mais sessões**. Toda decisão — aprovar um plano, responder uma pergunta,
+pedir mudanças — é um formulário numa sessão só, a orchestrator; nada é copiado entre sessões. Linux, macOS e Windows
+(WSL) — instale pela página do seu sistema (em inglês): [Linux](install-linux.md) · [macOS](install-macos.md) ·
+[Windows (WSL)](install-windows.md). A referência de instalação e configuração, em inglês, é o
+[`install.md`](install.md); para o Claude guiar você, [`SETUP.md`](../SETUP.md).
 
 *In English: [`quickstart.md`](quickstart.md).*
 
@@ -12,34 +15,13 @@ copiado entre sessões. Linux e macOS. O guia completo, em inglês, é o [`insta
 
 ## 1. Antes de começar
 
-O hefesto roda dentro do [Claude Code](https://code.claude.com/docs/en/setup) (o comando `claude`). Ele também
-precisa de `git` e `jq`, e do `gh` para pull requests e quadros no GitHub. As sessões rodam dentro do sandbox do
-Claude Code, que no Linux precisa de `bubblewrap` e `socat`; no macOS o sandbox já vem no sistema.
-
-| | Instale as ferramentas |
-|---|---|
-| **macOS** | `xcode-select --install` (git), depois `brew install jq gh` |
-| **Ubuntu / Debian** | `sudo apt install git jq bubblewrap socat`, e o gh em [cli.github.com](https://cli.github.com) |
-| **Fedora** | `sudo dnf install git jq bubblewrap socat gh` |
-| **Arch** | `sudo pacman -S git jq bubblewrap socat github-cli` |
-
-Depois entre no gh uma vez: `gh auth login`. No macOS tudo roda com o `/bin/bash` 3.2 e as ferramentas BSD que vêm
-no sistema; não precisa do bash do Homebrew.
+Instale o hefesto primeiro: [Linux](install-linux.md) · [macOS](install-macos.md) · [Windows (WSL)](install-windows.md).
+Cada página lista as ferramentas, o único comando de instalação e a conferência.
 
 ## 2. Instalar ou atualizar o hefesto
 
-O mesmo comando instala e atualiza o hefesto. Feche todas as janelas do Claude Code e, num terminal normal:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/joaoariedi/hefesto/main/install.sh) --lang pt
-```
-
-Ele mostra o que encontrou e os passos que recomenda, e pergunta sobre cada um; aperte Enter para aceitar. Ele nunca
-usa `sudo`, e copia todo arquivo que substitui para `~/hefesto-old/` antes. No fim aparece
-`Tudo certo: todos os perfis rodam o hefesto <versão>.` Opções: `--version v9.3.0` (uma release), `--dry-run`
-(mostra o plano, não muda nada), `--help`.
-
-Confira no Claude Code com `/hefesto:hef.doctor`.
+O comando `install.sh` da página do seu sistema instala o hefesto e também o atualiza (acrescente `--lang pt` para o
+assistente falar português).
 
 **Depois de atualizar**, em todo projeto preparado para o hefesto, rode a preparação de novo na pasta principal dele
 e reinicie as sessões do Claude Code dele:
@@ -52,12 +34,12 @@ As primeiras linhas de uma sessão de um projeto de quatro sessões avisam quand
 `/hefesto:hef.orchestrate` para e diz o comando. O que mudou entre as releases: [Notas de atualização](#notas-de-atualização)
 abaixo.
 
-## 3. Uma sessão ou quatro sessões?
+## 3. Uma sessão ou quatro ou mais sessões?
 
-|  | **Uma sessão** | **Quatro sessões** |
+|  | **Uma sessão** | **Quatro ou mais sessões** |
 |---|---|---|
 | Para | experimentos, projetos pequenos, uma feature por vez | um fluxo contínuo de RFCs e correções |
-| Sessões abertas | uma: a orchestrator | a orchestrator + planner, builder e deployer |
+| Sessões abertas | uma: a orchestrator | a orchestrator + planner, builder e deployer — e mais builders com `orchestrate.max_builders` |
 | Quem roda as etapas | sessões em segundo plano que a orchestrator abre | as três sessões de etapa, chamadas pela orchestrator |
 | Preparação | `hefesto-setup.sh` | `hefesto-setup.sh --lanes` |
 
@@ -157,14 +139,18 @@ falha no cache somente-leitura.
 - **RFCs** ficam em `docs/rfcs/<ID>.md`, uma por item, ligadas por uma linha `rfc:`. Se uma RFC muda depois
   que o plano foi aprovado, a builder para e a orchestrator pede que você alinhe o plano.
 - **A linha de status** mantém a sua (perfil, modelo, pasta…) e acrescenta `ctx 45% · 90k/200k` (o contexto
-  usado, os tokens no contexto sobre o tamanho da janela); abaixo, uma linha por execução em segundo plano
-  (`▶ implement FAB-1 · 4m`) e por decisão que espera por você (`⏸ FAB-3 · plan approval`).
+  usado, os tokens no contexto sobre o tamanho da janela). As linhas das execuções em segundo plano
+  (`▶ implement FAB-1 · 4m`) e das decisões que esperam por você (`⏸ FAB-3 · plan approval`) vêm desligadas;
+  `"context": {"gauge_rows": true}` no `.claude/project-status.json` as mostra abaixo dela. Versione esse arquivo
+  no git para as linhas aparecerem dentro de um worktree (`git add -f` quando os seus excludes globais ignoram
+  `.claude/`). O resumo da passada da orchestrator lista execuções e
+  decisões de qualquer jeito.
 - **Compacte** quando a linha de status de uma sessão disser `/compact`, com o prompt próprio dela
   ([`performance.md`](performance.md), "Compact prompts per pane"). `/clear` só para trabalho sem relação.
   `context.compact_at` no `.claude/project-status.json` define quando ela avisa (40% por padrão; por sessão, ou 0
   para nunca).
-- **Gasto e rede.** Cada execução em segundo plano pode gastar até `orchestrate.usd_cap` (US$ 20 por padrão), e um
-  quadro até `daily_usd_cap` (US$ 100) por dia; o trabalho feito numa sessão interativa não tem limite. Uma execução
+- **Gasto e rede.** As execuções em segundo plano não têm limite de gasto a menos que você defina um: `orchestrate.usd_cap`
+  limita cada execução, e `daily_usd_cap` o total de um quadro no dia; o trabalho feito numa sessão interativa não tem limite. Uma execução
   em segundo plano não acessa nenhum endereço da rede que não esteja listado: para trabalho com dependências,
   acrescente `"allowed_domains": ["registry.npmjs.org"]` em `orchestrate` (só nomes públicos).
 - **Um GitHub Project como quadro.** As sessões podem tirar seus itens de um GitHub Project: cada issue do
@@ -184,8 +170,8 @@ falha no cache somente-leitura.
   Peça à orchestrator com as suas palavras. Ela escreve os passos, os heads exatos, as verificações de parada e os
   comandos, e mostra tudo. Você responde **Approve** e confirma o pedido de permissão. A sessão faz exatamente isso,
   sem nenhum pedido na tela dela, e avisa quando terminou ou onde parou. Um head que mudou, ou qualquer coisa fora do
-  combinado, volta para você como um novo formulário. A linha de status mostra cada uma que espera por você
-  (`⏸ DET-7-A2 · action: merge PR #726`).
+  combinado, volta para você como um novo formulário. Com `context.gauge_rows: true`, a linha de status mostra cada
+  uma que espera por você (`⏸ DET-7-A2 · action: merge PR #726`).
 - **Receitas de deploy.** Escreva um deploy uma vez, por ambiente, em `orchestrate.deploy.recipes` no
   `.claude/project-status.json`: passos em ordem, cada um com um título e os seus comandos, com `{version}`, `{sha}` e
   `{env}` preenchidos quando você pede. Um passo com `"expect": "{version}"` para a execução quando a versão que ele
@@ -211,12 +197,27 @@ falha no cache somente-leitura.
   exemplo `changelog-check.sh -C {repo_path} placement --base origin/{base}`, por caminho absoluto) e faz o merge
   com um merge commit exatamente nesse head e o registra. Um head que mudou, uma verificação vermelha ou um conflito
   voltam para você como um formulário. Um merge por repositório de cada vez. O padrão, `"merge_by": "person"`, não
-  muda: o merge você faz no GitHub.
+  muda: o merge você faz no GitHub. Nos dois casos, todo PR esperando por você vem num **único** formulário de merge
+  por passada: marque os que vão para o merge (até 16, os mais antigos primeiro); o resto espera a próxima passada.
+- **Merges sem formulário.** Com `"merge_by": "auto"`, um PR para a **branch de integração** entra sozinho quando os
+  gates (verify, review, quality, scan) passaram no head que está aberto, o CI está verde e cada comando de
+  `orchestrate.merge.checks` sai com 0. A configuração sozinha nunca liga isso: a orchestrator mostra uma vez o que
+  fica fixado — por repositório o caminho, o `origin` e a branch de integração, e as verificações literais — e
+  **Turn on** é o seu `ledger.sh merge-auto grant` (o diálogo de permissão dele). Mudou qualquer um desses, a
+  pergunta volta. Um ambiente, `main`/`master` ou uma branch protegida nunca entram sozinhos (sem bloco `branches`
+  a branch de integração é a `main`, então o auto nunca se aplica); um head que mudou, um gate que não passou ou
+  uma verificação que falhou voltam para você no formulário de merge. Uma verificação de merge é dividida nos
+  espaços e roda sem shell. Para desligar: `ledger.sh merge-auto revoke`.
+- **O seu nome, uma vez.** O setup grava `"decider"` em `orchestrate` a partir de `git config user.name` quando ele
+  não existe (nunca por cima do seu); a orchestrator registra as suas decisões com ele e para de perguntar o nome.
 
 **Segurança num parágrafo.** As sessões mantêm o sandbox do Claude Code, e os comandos dentro dele rodam sem
 perguntar. Fora dele rodam só os ajudantes do próprio hefesto, o `gh` e os comandos que você acrescentou com
 `--unsandboxed-command`, cada um chamado como um comando simples; num projeto de quatro sessões esses comandos
-acrescentados rodam só como uma ação aprovada. O ledger, as suas aprovações e o registro de qual sessão é qual ficam
+acrescentados rodam só como uma ação aprovada. Com `"merge_by": "auto"`, as verificações de merge que você
+autorizou também rodam fora dele, na pasta do repositório — por isso o programa delas é um nome simples ou um caminho
+absoluto na pasta de hooks do hefesto ou numa pasta bin do sistema (`/usr/bin` …) — um `./script` ou qualquer
+outro arquivo que uma sessão poderia editar é recusado. O ledger, as suas aprovações e o registro de qual sessão é qual ficam
 em `~/.cache/hefesto`, onde nenhum comando com sandbox e nenhuma edição de arquivo chega. Os comandos que registram as
 suas decisões rodam só na orchestrator, atrás de um pedido de permissão, e um `gh pr merge` nunca roda sem uma ação
 aprovada ou sem o seu pedido. Uma sessão lê textos de itens e RFCs escritos por outras pessoas, então leia cada
@@ -226,6 +227,10 @@ formulário e cada pedido antes de responder.
 
 Rode o comando de instalação, depois a preparação em cada projeto (seção 2). Além disso:
 
+- **Para a 9.4:** rode o setup de novo em cada projeto e reabra as lanes: ele remove as perguntas de permissão das
+  mecânicas do ledger, então um diálogo só aparece onde você assina. O gasto fica aberto a menos que
+  `orchestrate.usd_cap` ou `orchestrate.daily_usd_cap` esteja definido: apague-os para não ter limite. O rodapé
+  mostra só o medidor de contexto (`"context": {"gauge_rows": true}` traz as linhas de execução de volta).
 - **Para a 9.3:** os comandos são escritos `/hefesto:hef.<nome>` em todo lugar, do jeito que o Claude Code os
   resolve (o nome sem o prefixo nunca funcionou para um plugin). Um repositório agora pode ter vários apps, cada um
   com a sua `.specify/` (`spec_roots`, [`install.md`](install.md) §7, passo 15); um repositório sem isso funciona como

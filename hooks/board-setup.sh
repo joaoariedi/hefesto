@@ -38,7 +38,7 @@ board_init() {
   { [ -n "$BCTX" ] && [ "$(jq -r .mode <<<"$BCTX")" = external ]; } && { echo "status-board --init: the board is external ($ROOT) — set it up there" >&2; exit 1; }
   made=""; troot="$ROOT/tasks"
   if [ ! -f "$CONFIG" ]; then
-    mkdir -p "$(dirname "$CONFIG")" && jq -n '{source: "tasks-repo", root: "tasks", orchestrate: {usd_cap: 20, daily_usd_cap: 100, plan_review: "human", plan_first: true, rfc_dir: "docs/rfcs"}}' > "$CONFIG" \
+    mkdir -p "$(dirname "$CONFIG")" && jq -n '{source: "tasks-repo", root: "tasks", orchestrate: {plan_review: "human", plan_first: true, rfc_dir: "docs/rfcs"}}' > "$CONFIG" \
       || { echo "status-board --init: cannot write $CONFIG" >&2; exit 1; }
     made="$made ${CONFIG#"$ROOT"/}"
   else

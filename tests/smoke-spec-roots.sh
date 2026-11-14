@@ -44,6 +44,12 @@ sr_launch_lines() { # hooks-dir → the normalised plan + implement dry runs of 
   # macOS /bin/bash 3.2 renders the dry run's quoted apostrophe ('\'' under bash 5) as \'\\'\' — the launcher's display
   # helper q(), unchanged since 9.2.0; the fixture is the bash 5 rendering, so the 3.2 form is mapped onto it
   local b32="\\'\\\\'\\'" b5="'\\''"; out="${out//"$b32"/$b5}"
+  # HEF-21 (plan-review-rounds FR-005) replaced the fresh planner's review sentence with the round-helper rule; the
+  # fixture is 9.2.0's, so both changed spans are mapped back by exact string (no regex): everything else must hold
+  local pr_new1='/hefesto:hef.review plan --cap 5 --spec-dir <spec dir> (plan mode' pr_old1='/hefesto:hef.review (plan mode'
+  local pr_new2='for the review, run /hefesto:hef.review plan --cap 5 --spec-dir <spec dir> after every plan change; it records the round and ends with a line "next: <action>" — follow that line: revise → make the numbered changes to plan.md and run the same command again; approve → /hefesto:hef.tasks; block … → outcome "blocked", blocked_on "human:plan-review", your summary naming the decision needed or the cap. If the round helper refuses instead: a refusal naming a blocked round → outcome "blocked", blocked_on "human:plan-review", your summary quoting it; any other refusal → outcome "failed", your summary quoting it.'
+  local pr_old2='blocked_on "human:plan-review" if the reviewer returns NEEDS_DISCUSSION or a second REVISE_PLAN.'
+  out="${out//"$pr_new1"/$pr_old1}"; out="${out//"$pr_new2"/$pr_old2}"
   # 9.3.0 spells every command the way Claude Code resolves a plugin component (/hefesto:hef.<name>); the fixture is
   # 9.2.0's, so the spelling is mapped back: everything else must still be byte-identical
   local ns_full="/hefesto:hef." ns_bare="/hef."; out="${out//"$ns_full"/$ns_bare}"   # no backslash: bash 3.2 keeps it in the replacement

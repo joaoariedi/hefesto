@@ -52,6 +52,7 @@ is_person_sub() { # $1 subcommand, then its arguments → 0 when it records a pe
   local a
   case "${1:-}" in
     approve|answer|revise|request|direct|op|unblock|drop|fold|supersede|reopen) return 0 ;;
+    merge-auto) case "${2:-}" in grant|revoke) return 0 ;; esac ;;   # HEF-30 FR-015; ledger-automerge.sh gates it too
     release|record) shift; for a in "$@"; do case "$a" in --reviewed-by-human|--body-file|--body-from-board|--rfc) return 0 ;; esac; done ;;
   esac
   return 1

@@ -16,6 +16,7 @@ For typos, config updates, formatting fixes, and dependency bumps:
 ```
 
 The triviality gate ensures only genuinely trivial changes bypass the full pipeline. If your change modifies logic, APIs, or schemas, you'll be redirected to the Standard path.
+The hooks still apply: you cannot commit secrets or skip the tests just because you took the short path.
 
 ### 📋 Standard SDD Path (features, refactors, bug fixes)
 
@@ -91,6 +92,9 @@ For projects with existing code that lack formal specifications:
 /hefesto:hef.tasks        → 📋 generate tasks for enhancements
 /hefesto:hef.implement    → 🧪 execute with quality gates
 ```
+
+Read the generated spec before trusting it — it is inferred, not authoritative. Once you have one, treat the module
+as a feature in a project already set up (the Standard path, without the bootstrap).
 
 ### 🔗 After shipping: traceability in CI
 

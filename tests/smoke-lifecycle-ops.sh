@@ -292,7 +292,14 @@ lc_entry_90 HEF-3 verify hef-3 "" '{"session_name":"hef-verify-HEF-3","role":"ve
 : > "$(sld "$lc_t")/HEF-3.lease"   # alive for the first claim; its lease dies before the second
 lc_entry_90 HEF-5 merged hef-5 "" null | jq '.runs = [{role: "verify", session_name: "v", exit: 0, usd: 0, at: "2026-10-21T00:00:00Z"}]
   | .verdicts = [{gate: "verify", verdict: "FAIL", by: "v", at: "2026-10-21T00:00:00Z"}]' | lc_put "$lc_t" HEF-5
-lc_o="$(lc "$lc_t" claim HEF-1 --session hand-1 --role plan 2>&1)" || { bad "a bare hand claim must succeed — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }
+# HEF-27 FR-010 / SC-007 (the terminal case): a bare hand claim — no session id, no launcher marker — is refused,
+# naming the launcher and `release`, with the entry byte-identical; the FR-044 check below runs on a marked claim.
+lc_s="$(cksum < "$(lc_entry "$lc_t" HEF-1)")"
+lc_o="$(cd "$lc_t" && env -u CLAUDE_CODE_SESSION_ID -u HEFESTO_LAUNCHER bash "$LC_LG" claim HEF-1 --session hand-1 --role plan 2>&1)" \
+  && { bad "FR-010: a bare hand claim must be refused (launcher-only)"; x_fail=1; }
+{ grep -qF 'session-launch.sh' <<<"$lc_o" && grep -qF 'release' <<<"$lc_o" && [ "$(cksum < "$(lc_entry "$lc_t" HEF-1)")" = "$lc_s" ]; } \
+  || { bad "FR-010: the refused hand claim must name session-launch.sh and release, and write nothing — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }
+lc_o="$(lc "$lc_t" claim HEF-1 --session hand-1 --role plan 2>&1)" || { bad "a launcher claim with no --pid must succeed — got: $(head -c 200 <<<"$lc_o")"; x_fail=1; }
 lc_jq "$lc_t" HEF-1 '.owner.session_name == "hand-1" and .owner.mode == "interactive" and (.owner | has("pid") | not)' \
   || { bad "a claim with no --pid must be interactive (FR-044) — got: $(jq -c .owner "$(lc_entry "$lc_t" HEF-1)")"; x_fail=1; }
 # five minutes on, with no lease: another claim must leave it alone (and reap HEF-3, whose lease is now dead)
