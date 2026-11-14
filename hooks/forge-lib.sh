@@ -41,15 +41,26 @@ forge_domains() { # $1 host → the allowed_domains entries (D3): github.com als
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in github.com) printf '%s\n' github.com api.github.com ;; *) printf '%s\n' "$1" ;; esac
 }
 
-forge_remote_url() { # $1 repo dir → pushurl, else url, of origin (exact name) or of the only remote
-  local rs r
+forge_remote_name() { # $1 repo dir → origin (exact name), else the only remote; several without origin, or none → 1
+  local rs
   rs="$(git -C "$1" remote 2>/dev/null)" || return 1
   case $'\n'"$rs"$'\n' in
-    *$'\n'origin$'\n'*) r=origin ;;
+    *$'\n'origin$'\n'*) echo origin ;;
     $'\n'$'\n') return 1 ;;                                  # no remote
-    *) case "$rs" in *$'\n'*) return 1 ;; esac; r="$rs" ;;   # several, none named origin: ambiguous
+    *) case "$rs" in *$'\n'*) return 1 ;; esac; echo "$rs" ;;   # several, none named origin: ambiguous
   esac
+}
+forge_remote_url() { # $1 repo dir → pushurl, else url, of origin (exact name) or of the only remote
+  local r
+  r="$(forge_remote_name "$1")" || return 1
   git -C "$1" config --get "remote.$r.pushurl" || git -C "$1" config --get "remote.$r.url"
+}
+forge_https_form() { # $1 host, $2 an SSH remote (git@host:o/r.git or ssh://git@host/o/r.git) → https://host/o/r.git
+  case "$2" in
+    ssh://*) local rest="${2#ssh://}"; printf 'https://%s/%s\n' "$1" "${rest#*/}" ;;
+    *:*) printf 'https://%s/%s\n' "$1" "${2#*:}" ;;
+    *) return 1 ;;
+  esac
 }
 
 forge_host() { # $1 url (scheme://[user@]host[:port]/…, [user@]host:path) → host

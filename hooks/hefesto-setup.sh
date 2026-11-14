@@ -295,7 +295,9 @@ jarr_lines() { jq -R . | jq -sc .; }   # stdin, one string per line → a JSON a
 . "$HERE/forge-lib.sh"
 fg_repos=("$TOP")   # with an external board, every repository of its repos map too (D4)
 if [ -n "${BTOP:-}" ]; then while IFS= read -r d; do [ -n "$d" ] && [ -d "$d" ] && fg_repos+=("$(cd "$d" && pwd -P)"); done < <(jq -r '.repos // {} | .[]' <<<"$BCTX"); fi
-fg_rw=(); fg_dom=(); fg_lock=(); fg_block=(); fg_note=()   # fg_rw: repo<TAB>common dir<TAB>host<TAB>prefix, a rewrite due
+fg_rw=(); fg_dom=(); fg_lock=(); fg_block=(); fg_note=(); fg_pin=()   # fg_rw: repo<TAB>common dir<TAB>host<TAB>prefix, a rewrite due
+# fg_pin: a remote whose push URL is set explicitly to SSH — git applies no pushInsteadOf to an explicit pushurl, so a
+# rewrite would report success and change nothing (verify gate 2026-11-14); setup names the fix, never edits that URL
 forge_plan() { # → the arrays above, one pass over fg_repos, nothing written
   local r u h cd_ l hp rc v
   local seen=$'\n'
@@ -313,6 +315,10 @@ forge_plan() { # → the arrays above, one pass over fg_repos, nothing written
     rc=0; hp="$(forge_ssh_prefix "$u")" || rc=$?
     [ "$rc" != 2 ] || { fg_note+=("$r: its SSH remote $u has an explicit port or a user other than git — no push rewrite (its HTTPS form is unknown; set one by hand)"); continue; }
     [ "$rc" = 0 ] || continue                                               # HTTPS: nothing to rewrite
+    if [ -n "$(git -C "$r" config --get "remote.$(forge_remote_name "$r").pushurl" 2>/dev/null)" ]; then
+      fg_pin+=("$r: its push URL is set to $u, and git applies no pushInsteadOf to an explicit push URL — pushes go over SSH, which the sandbox cannot carry; run: git -C $r remote set-url --push $(forge_remote_name "$r") $(forge_https_form "$h" "$u")")
+      continue
+    fi
     v="$(git config -f "$cd_/config" --get-all "url.https://$h/.pushinsteadof" 2>/dev/null)"
     case $'\n'"$v"$'\n' in *$'\n'"${hp#*	}"$'\n'*) continue ;; esac          # that exact value is set already (FR-005)
     fg_rw+=("$r	$cd_	$h	${hp#*	}")
@@ -419,6 +425,7 @@ if [ "$MODE" = check ]; then
   # caller sees /dev/null over config.lock, so the lock is reported only to an unsandboxed one, by construction.
   for l in ${fg_lock[@]+"${fg_lock[@]}"}; do miss="${miss:+$miss, }$(fg_lock_text "$l")"; done
   for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r r _ h p <<<"$e"; miss="${miss:+$miss, }the HTTPS push rewrite for $r (url.\"https://$h/\".pushInsteadOf $p)"; done
+  for e in ${fg_pin[@]+"${fg_pin[@]}"}; do miss="${miss:+$miss, }an HTTPS push URL — $e"; done
   case "$(fg_ad_state)" in
     absent) miss="${miss:+$miss, }the forge hosts in orchestrate.allowed_domains of $BCFG (${fg_dom_u[*]})" ;;
     present) fgl="$(fg_lacks | tr '\n' ' ')"; [ -z "$fgl" ] || echo "setup: note: orchestrate.allowed_domains in $BCFG is yours and lacks ${fgl% } — the workers cannot reach it there" ;;
@@ -513,7 +520,7 @@ fg_jqform() { # 0 when setup may write the board config: a plain file already in
 }
 fg_snippet() { printf '"allowed_domains": %s' "$(jarr "${fg_dom_u[@]}" | sed 's/","/", "/g')"; }
 forge_notes() { # the forge notes and the locks in repositories with no write due (reported, never fatal, never deleted)
-  local n l; for n in ${fg_note[@]+"${fg_note[@]}"}; do echo "setup: note: $n"; done
+  local n l; for n in ${fg_note[@]+"${fg_note[@]}"} ${fg_pin[@]+"${fg_pin[@]}"}; do echo "setup: note: $n"; done
   for l in ${fg_lock[@]+"${fg_lock[@]}"}; do echo "setup: note: $(fg_lock_text "$l") — a git config write there would fail"; done
 }
 forge_would() { # --print: the forge changes setup would make; nothing is written

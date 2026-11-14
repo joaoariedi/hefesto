@@ -45,6 +45,8 @@ fg_lib_hosts() { # forge-setup/FR-002
     forge_public_host "$h" && { bad "FR-002 forge_public_host must refuse '$h'"; x_fail=1; }; done
   [ "$(forge_domains github.com | tr '\n' ' ')" = "github.com api.github.com " ] || { bad "FR-002 github.com → github.com, api.github.com (D3)"; x_fail=1; }
   [ "$(forge_domains gitlab.example.org)" = gitlab.example.org ] || { bad "FR-002 a self-hosted forge → that host alone (D3)"; x_fail=1; }
+  [ "$(forge_https_form github.com git@github.com:o/r.git) $(forge_https_form github.com ssh://git@github.com/o/r.git)" = "https://github.com/o/r.git https://github.com/o/r.git" ] \
+    || { bad "FR-005 forge_https_form: both SSH spellings → https://github.com/o/r.git"; x_fail=1; }
   [ "$(forge_domains GitHub.com | tr '\n' ' ')" = "github.com api.github.com " ] || { bad "FR-002 GitHub.com is github.com: both hosts, lowercased (D3)"; x_fail=1; }
   return 0
 }
@@ -258,6 +260,19 @@ fg_case_dup() { # forge-setup/FR-005 (verify gate 2026-11-14): a board whose rep
   return 0
 }
 fg_case_dup
+fg_case_pushurl() { # forge-setup/FR-005 FR-009 (verify gate 2026-11-14): an explicit SSH push URL takes no pushInsteadOf (git
+  # documents it), so setup writes no rewrite there, names the set-url fix, and --check counts it as missing
+  local p o rc=0
+  p="$(fg_proj pushurl git@github.com:o/r.git)"; git -C "$p" config remote.origin.pushurl git@github.com:o/r.git
+  o="$(fg_su "$p")" || { bad "FR-005 setup with an explicit SSH push URL must still pass (a note, not a failure): $o"; x_fail=1; }
+  { fg_norw "$p" && grep -qF "remote set-url --push origin https://github.com/o/r.git" <<<"$o" && ! grep -qF 'forge: push over HTTPS' <<<"$o"; } \
+    || { bad "FR-005 an explicit SSH push URL: no useless rewrite, and the set-url fix named: $o"; x_fail=1; }
+  o="$(HEFESTO_CHECK_UNSANDBOXED=1 fg_su "$p" --check)" || rc=$?
+  { [ "$rc" != 0 ] && grep -qF 'an HTTPS push URL' <<<"$(tail -1 <<<"$o")"; } \
+    || { bad "FR-009 --check counts an explicit SSH push URL as missing (rc=$rc): $(tail -1 <<<"$o")"; x_fail=1; }
+  return 0
+}
+fg_case_pushurl
 fg_smut() { # label sed-expr test-fn — the setup mutant sits in the real hooks folder (setup refuses a clone in a temp folder)
   local m="$REPO/hooks/.smoke-mut-fg-setup.sh" red
   sed "$2" "$REPO/hooks/hefesto-setup.sh" > "$m"
@@ -268,6 +283,7 @@ fg_smut() { # label sed-expr test-fn — the setup mutant sits in the real hooks
 fg_smut "unless set: a present allowed_domains read as absent (D2)" 's/type == "object" and has("allowed_domains")'"'"' "\$BCFG" >\/dev\/null 2>&1; then echo present/type == "object" and has("x")'"'"' "$BCFG" >\/dev\/null 2>\&1; then echo present/' fg_case_keys
 fg_smut "the byte-identical jq-form test dropped (P3)" 's/ && jq \. "\$BCFG" 2>\/dev\/null | cmp -s - "\$BCFG"$/ \&\& true/' fg_case_keys
 fg_smut "a failed rewrite left in push_rewrites (FR-007, verify gate 2026-11-14)" 's/|| forge_unrecord "\${gone\[@\]}" ||/|| true ||/' fg_case_livelock
+fg_smut "an explicit SSH push URL rewritten anyway (FR-005, verify gate 2026-11-14)" 's/^    if \[ -n "\$(git -C "\$r" config --get "remote\.\$(forge_remote_name "\$r")\.pushurl" 2>\/dev\/null)" \]; then$/    if false; then/' fg_case_pushurl
 fg_smut "the same git config planned twice (FR-005, verify gate 2026-11-14)" '/case "\$seen" in \*/d' fg_case_dup
 fg_smut "the rewrite dedupe dropped (FR-005)" '/that exact value is set already (FR-005)/d' fg_case_scp
 fg_smut "the pre-check widened to every repository's lock (FR-010)" 's/ && fg_lock+=("\$l")  / \&\& fg_lock+=("$l") \&\& fg_block+=("$l")  /' fg_case_external
