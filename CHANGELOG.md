@@ -62,12 +62,12 @@ it is what caught the hand-bumped era:
 - Run `hefesto-setup.sh` again in each project, in a terminal: it writes the forge's hosts and the push rewrite, and
   says when it changed the tracked board config — commit it.
 
-### Known
+### Unchanged
 
-- The live check of D9 (a worker reaching `api.github.com`) did not hold: in a worker launched in a `--lanes`
-  project, a sandboxed request to `api.github.com` was refused ("host is on the deny list" — the lanes'
-  `deniedDomains` reaches the worker), while `github.com` was reached and `gh` reached the API outside the sandbox.
-  The push over HTTPS works; whether workers should reach the API from inside the sandbox is an open owner decision.
+- **Workers reach the forge's API only through `gh`.** The lanes' `deniedDomains: api.github.com` reaches the
+  workers too, and stays (owner's decision, 2026-11-14, after HEF-22's live check): a sandboxed request to
+  `api.github.com` is refused, `github.com` carries the push, and `gh` reaches the API outside the sandbox under the
+  rules (`docs/install.md` §7).
 
 ## [9.4.1] - 2026-11-13
 

@@ -480,12 +480,13 @@ For the short path — install, one lane or four, a new or a running project —
    host a build needs (a package registry) to the list yourself.
 
    **What a worker reaches of the forge, and what fences it.** The lanes keep `api.github.com` in
-   `sandbox.network.deniedDomains` (they run `gh` unsandboxed, under the permission rules). **Observed** (live check,
-   HEF-22, 2026-11-14, a worker launched in a `--lanes` project): that deny reaches the worker too — a sandboxed
-   `git ls-remote https://api.github.com/…` was refused with a sandbox violation ("host is on the deny list") while
-   `git ls-remote https://github.com/<o>/<r>` was reached, and `gh pr view` reached the API because `gh` runs outside
-   the sandbox there (the lanes' `gh *` exclusion reaches the worker as well). So `github.com` carries the push, and
-   `api.github.com` in `allowed_domains` does not, by itself, open the API to a worker's sandboxed commands. What
+   `sandbox.network.deniedDomains` (they run `gh` unsandboxed, under the permission rules), and **that deny reaches
+   the workers too, by design** (owner's decision, 2026-11-14): a worker reaches the API only through `gh`, which runs
+   outside the sandbox under the rules, never through `curl` or another command inside it. Live check (HEF-22,
+   2026-11-14, a launched worker): a sandboxed `git ls-remote https://api.github.com/…` was refused ("host is on the
+   deny list"), `git ls-remote https://github.com/<o>/<r>` was reached, and `gh pr view` reached the API. So
+   `github.com` carries the push, `gh` carries the PR, and `api.github.com` in `allowed_domains` does not open the API
+   to a worker's sandboxed commands. What
    fences a worker is not only the network: its tool allowlist (the default `allowed_tools.implement` — file tools, `Bash(git *)`,
    `Bash(gh pr create *)`, `Bash(gh pr view *)` — with every other command denied; it fences tools, not code:
    `git` can run a shell), lane-guard (it denies any command naming `gh` that is not a read or PR-opening form) and

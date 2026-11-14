@@ -168,3 +168,9 @@ D1–D8 were decided from the code. D9 went to the owner after plan review round
   confirms the deny is gone for a worker.
 - Q: The other round-2 changes? → A: apply all and re-review until APPROVE (standing decision 2026-11-07, cap 5
   rounds).
+
+### Session 2026-11-14 (owner answer, after T017's live check)
+- Q: D9's live check found the lanes' `api.github.com` deny reaches a launched worker (a sandboxed request refused,
+  "host is on the deny list"); `github.com` and `gh`, which runs outside the sandbox, both work. Lift the deny for
+  workers, or keep it? → A: **Keep the deny.** Workers reach the API only through `gh`, under the rules; D9 is
+  amended to the observed behaviour, the docs state it as designed, and no code change follows.
