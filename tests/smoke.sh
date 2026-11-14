@@ -6833,6 +6833,7 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-plan-review.sh"       # part 11: the plan-review round loop, its cap and its log (plan-review-rounds, HEF-21)
 . "$REPO/tests/smoke-signatures.sh"        # part 12: a dialog only where a person signs, one spelling per root (HEF-27)
 . "$REPO/tests/smoke-automerge.sh"         # part 13: merge_by auto under a person's standing grant (HEF-30 merge-auto)
+. "$REPO/tests/smoke-forge.sh"             # part 14: setup configures the forge once; an infra stop is a stall with its fix (HEF-22 forge-setup)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.

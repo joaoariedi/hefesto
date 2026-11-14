@@ -34,14 +34,23 @@
 #   env.HEFESTO_TRUSTED_TOP / HEFESTO_TRUSTED_BOARD  the folders the launcher may run in, fixed here where no
 #                             sandboxed session can change them; with --lanes also HEFESTO_LANES, HEFESTO_LANE_MAP
 # Every other key is kept. A plugin cannot ship these settings itself, hence this step.
-#   --lanes                    the four-lane setup (doorbells, the lane map, the build cache)
+# The forge, for the workers (HEF-22), in the project and each repository of an external board's repos map:
+#   orchestrate.allowed_domains  in the board config, only when absent and the file is in `jq .` form: the forge's
+#                             hosts (github.com → github.com, api.github.com); a hand-formatted file gets the snippet
+#   url."https://<host>/".pushInsteadOf  for an SSH remote (git@<host>: or ssh://git@<host>/), in the repository's
+#                             config: the workers' sandbox carries HTTPS only (gh auth setup-git when no helper applies)
+#   a zero-byte config.lock older than 60 s (left by a sandboxed session) stops a due write; --check reports it, and
+#                             only an unsandboxed caller can see it (the sandbox mounts /dev/null over it)
+#   --lanes                   the four-lane setup (doorbells, the lane map, the build cache)
 #   --strict                   autoAllowBashIfSandboxed false
 #   --keep-statusline          never touch statusLine
 #   --allow-command <p>        also allow this plain read-only command pattern (remembered across runs)
 #   --unsandboxed-command <p>  also run this absolute-path command outside the sandbox (remembered across runs)
 #   --forget-commands          drop the remembered --allow-command / --unsandboxed-command patterns
 #   --check                    read-only: "setup: ok", or what is missing for this plugin root (exit 1) — including any
-#                              ask rule on a hefesto helper outside the signature set, named with its settings file
+#                              ask rule on a hefesto helper outside the signature set, named with its settings file, the
+#                              forge setup and a stale config.lock (that report needs an unsandboxed caller: a terminal,
+#                              or the session-start hook)
 #   --remove                   take out every entry this script writes (for any hefesto version)
 #   --print                    show the merged file; write nothing
 # Rules name each plugin root explicitly — the clone this runs from and each profile's installed copy, in the one
@@ -60,7 +69,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --allow-command) [ -n "${2:-}" ] || die "--allow-command needs a pattern"; NEW_ALLOW+=("$2"); shift ;;
   --unsandboxed-command) [ -n "${2:-}" ] || die "--unsandboxed-command needs a pattern"; NEW_EXCL+=("$2"); shift ;;
   --check|--remove|--print) [ "$MODE" = write ] || die "one of --check, --remove, --print at a time (got --$MODE and $1)"; MODE="${1#--}" ;;
-  -h|--help) sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) die "unknown option '$1' (expected --lanes, --strict, --keep-statusline, --allow-command, --unsandboxed-command, --forget-commands, --check, --remove or --print)" ;;
 esac; shift; done
 [ "$LANES" = 0 ] || [ "$MODE" != remove ] || die "--lanes does not go with --remove (it takes every hefesto entry out, the lane ones included)"
@@ -277,13 +286,65 @@ while IFS= read -r x; do
 done < <(jq -r '.sandbox.excludedCommands // [] | .[] | strings' <<<"$CUR")
 jarr() { if [ $# -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq -sc .; fi; }
 jarr_lines() { jq -R . | jq -sc .; }   # stdin, one string per line → a JSON array
+
+# The forge (forge-setup, HEF-22): this terminal is the one place outside the sandbox, so setup configures the forge
+# for the workers once — the forge's hosts in orchestrate.allowed_domains of the board config, the HTTPS push rewrite
+# for an SSH remote (the sandbox proxy carries HTTPS only), and a report of the zero-byte config.lock a sandboxed
+# session leaves (the sandbox mounts /dev/null over it). The whole plan is made before anything is written.
+# shellcheck source=hooks/forge-lib.sh
+. "$HERE/forge-lib.sh"
+fg_repos=("$TOP")   # with an external board, every repository of its repos map too (D4)
+if [ -n "${BTOP:-}" ]; then while IFS= read -r d; do [ -n "$d" ] && [ -d "$d" ] && fg_repos+=("$(cd "$d" && pwd -P)"); done < <(jq -r '.repos // {} | .[]' <<<"$BCTX"); fi
+fg_rw=(); fg_dom=(); fg_lock=(); fg_block=(); fg_note=()   # fg_rw: repo<TAB>common dir<TAB>host<TAB>prefix, a rewrite due
+forge_plan() { # → the arrays above, one pass over fg_repos, nothing written
+  local r u h cd_ l hp rc v
+  for r in "${fg_repos[@]}"; do
+    cd_="$(git -C "$r" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || { fg_note+=("$r is not a git repository — no forge setup there"); continue; }
+    l=""; l="$(forge_stale_lock "$cd_")" && fg_lock+=("$l")                 # every repository (FR-008)
+    u="$(forge_remote_url "$r")" || { fg_note+=("$r has no origin (or several remotes, none named origin) — no forge setup there"); continue; }
+    h="$(forge_host "$u")" || { fg_note+=("$r: no host in its remote $u — no forge setup there"); continue; }
+    forge_public_host "$h" || { fg_note+=("$r: its remote host '$h' is not a public hostname (an IP address, localhost or an internal name) — not written to allowed_domains, no push rewrite"); continue; }
+    while IFS= read -r v; do fg_dom+=("$v"); done < <(forge_domains "$h")
+    rc=0; hp="$(forge_ssh_prefix "$u")" || rc=$?
+    [ "$rc" != 2 ] || { fg_note+=("$r: its SSH remote $u has an explicit port or a user other than git — no push rewrite (its HTTPS form is unknown; set one by hand)"); continue; }
+    [ "$rc" = 0 ] || continue                                               # HTTPS: nothing to rewrite
+    v="$(git config -f "$cd_/config" --get-all "url.https://$h/.pushinsteadof" 2>/dev/null)"
+    case $'\n'"$v"$'\n' in *$'\n'"${hp#*	}"$'\n'*) continue ;; esac          # that exact value is set already (FR-005)
+    fg_rw+=("$r	$cd_	$h	${hp#*	}")
+    [ -z "$l" ] || fg_block+=("$l")                                         # a write is due here: the FR-010 pre-check
+  done
+}
+[ "$MODE" = remove ] || forge_plan
+# FR-010: a stale lock where a rewrite is due stops setup before it writes anything (a lock elsewhere is reported only)
+[ "${#fg_block[@]}" -eq 0 ] || [ "$MODE" = check ] || [ "$MODE" = print ] \
+  || die "a stale ${fg_block[*]} (zero bytes, left by a sandboxed session) would block the push rewrite — rm ${fg_block[*]} and run this again (nothing was written)"
+fg_dom_u=(); if [ "${#fg_dom[@]}" -gt 0 ]; then while IFS= read -r d; do fg_dom_u+=("$d"); done < <(printf '%s\n' "${fg_dom[@]}" | awk '!seen[$0]++'); fi
+# push_rewrites (plan P8): the previous run's still present in their repository, plus this run's — only what setup added
+fg_pushrw="$(
+  jq -c '.push_rewrites // [] | if type == "array" then .[] else empty end | select(type == "object")' <<<"$PREV" | while IFS= read -r o; do
+    v="$(git config -f "$(jq -r '.repo' <<<"$o")/config" --get-all "$(jq -r '.key' <<<"$o")" 2>/dev/null)"
+    case $'\n'"$v"$'\n' in *$'\n'"$(jq -r '.value' <<<"$o")"$'\n'*) echo "$o" ;; esac
+  done
+  if [ "$MODE" = write ]; then for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r _ c h p <<<"$e"
+    jq -nc --arg r "$c" --arg k "url.https://$h/.pushinsteadof" --arg v "$p" '{repo: $r, key: $k, value: $v}'; done; fi
+)"
+fg_pushrw="$(jq -sc 'unique' <<<"$fg_pushrw")" || die "could not build the push rewrite record (nothing was written)"
 RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@]}")" --argjson x "$(jarr "${excl[@]}")" \
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
   --arg g "$(gauge_root)/hooks/context-gauge.sh --with-user" --argjson lanes "$LANES" --argjson keep "$KEEP" --argjson strict "$STRICT" \
   --argjson xa "$(jarr "${x_allow[@]}")" --argjson xe "$(jarr "${x_excl[@]}")" --argjson xd "$(jarr "${x_deny[@]}")" --argjson xr "$(jarr ${x_dirs[@]+"${x_dirs[@]}"})" \
-  --argjson xn "$(jarr "${x_net[@]}")" --argjson xw "$(jarr ${LCP:+"$LCP"})" --argjson ua "$(jarr ${u_allow[@]+"${u_allow[@]}"})" --argjson ue "$(jarr ${u_excl[@]+"${u_excl[@]}"})" \
-  '{allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep,
+  --argjson xn "$(jarr "${x_net[@]}")" --argjson xw "$(jarr ${LCP:+"$LCP"})" --argjson ua "$(jarr ${u_allow[@]+"${u_allow[@]}"})" --argjson ue "$(jarr ${u_excl[@]+"${u_excl[@]}"})" --argjson pushrw "$fg_pushrw" \
+  '{pushrw: $pushrw, allow: $a, ask: $k, exclude: $x, write: $w, prefixes: $px, bad: $bad, env: $env, gauge: {type: "command", command: $g}, lanes: $lanes, keep: $keep,
     strict: $strict, xallow: $xa, xexcl: $xe, xdeny: $xd, xdirs: $xr, xnet: $xn, xwrite: $xw, uallow: $ua, uexcl: $ue}')" || die "could not build the rules"
+fg_lacks() { # → the forge hosts orchestrate.allowed_domains lacks, one per line (D2: a present key is the person's)
+  local d; for d in ${fg_dom_u[@]+"${fg_dom_u[@]}"}; do
+    jq -e --arg d "$d" '(.orchestrate.allowed_domains // []) | type == "array" and index([$d]) != null' "$BCFG" >/dev/null 2>&1 || echo "$d"; done
+}
+fg_ad_state() { # → absent | present | none (no forge host, or no board config)
+  [ "${#fg_dom_u[@]}" -gt 0 ] && [ -f "$BCFG" ] || { echo none; return; }
+  if jq -e '(.orchestrate // {}) | type == "object" and has("allowed_domains")' "$BCFG" >/dev/null 2>&1; then echo present; else echo absent; fi
+}
+fg_lock_text() { printf 'a stale %s (zero bytes, left by a sandboxed session — rm %s)' "$1" "$1"; }
 
 if [ "$MODE" = check ]; then
   me="${CLAUDE_PLUGIN_ROOT:-$CLONE}"; me="${me%/}"
@@ -349,6 +410,14 @@ if [ "$MODE" = check ]; then
       echo "setup: lanes $(jq -r 'to_entries | group_by(.value) | map("\(.[0].value): \(map(.key) | join(" "))") | join(" · ")' <<<"$now")"
     fi
   fi
+  # forge-setup FR-008/FR-009: inside the one missing line, the only line the session-start hook shows (P5). A sandboxed
+  # caller sees /dev/null over config.lock, so the lock is reported only to an unsandboxed one, by construction.
+  for l in ${fg_lock[@]+"${fg_lock[@]}"}; do miss="${miss:+$miss, }$(fg_lock_text "$l")"; done
+  for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r r _ h p <<<"$e"; miss="${miss:+$miss, }the HTTPS push rewrite for $r (url.\"https://$h/\".pushInsteadOf $p)"; done
+  case "$(fg_ad_state)" in
+    absent) miss="${miss:+$miss, }the forge hosts in orchestrate.allowed_domains of $BCFG (${fg_dom_u[*]})" ;;
+    present) fgl="$(fg_lacks | tr '\n' ' ')"; [ -z "$fgl" ] || echo "setup: note: orchestrate.allowed_domains in $BCFG is yours and lacks ${fgl% } — the workers cannot reach it there" ;;
+  esac
   if [ -n "$miss" ]; then echo "setup: missing $miss for $me — run: bash $CLONE/hooks/hefesto-setup.sh$([ "$(jq -r '.env.HEFESTO_LANES // empty' <<<"$CUR")" = 1 ] || [ "$LANES" = 1 ] && echo ' --lanes')"; exit 1; fi
   [ "${#u_excl[@]}" -eq 0 ] || echo "setup: your commands outside the sandbox: ${u_excl[*]}"
   [ "${#u_allow[@]}" -eq 0 ] || echo "setup: your allowed commands: ${u_allow[*]}"
@@ -404,7 +473,8 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
        | (if $r.strict == 0 or .sandbox.autoAllowBashIfSandboxed == false then . else .sandbox.autoAllowBashIfSandboxed = false | .__m += ["autoallow"] end)
        | (if .sandbox.enabled == true and .sandbox.failIfUnavailable == true then . else .sandbox.enabled = true | .sandbox.failIfUnavailable = true | .__m += ["sandbox"] end)
        | (($mk + (.__m // [])) | unique) as $m | del(.__m)
-       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny, dirs: $r.xdirs, net: $r.xnet, write: $r.xwrite, user_allow: $r.uallow, user_excl: $r.uexcl} | tojson)}
+       | .env = ((.env // {}) + $r.env + {HEFESTO_SETUP_EXTRA: ({allow: $r.xallow, excl: $r.xexcl, deny: $r.xdeny, dirs: $r.xdirs, net: $r.xnet, write: $r.xwrite, user_allow: $r.uallow, user_excl: $r.uexcl}
+                  + (if ($r.pushrw | length) > 0 then {push_rewrites: $r.pushrw} else {} end) | tojson)}
                 + (if ($m | length) > 0 then {HEFESTO_SETUP_SET: ($m | join(","))} else {} end)) end)
   | (if .env then .env |= . else . end)
   | (if .permissions then .permissions |= keep_own_empty($old.permissions) else . end)
@@ -433,7 +503,33 @@ decider_plan() { # → DEC_MSG, and DEC_NEW (the name to write) when setup would
 }
 [ "$MODE" = remove ] || decider_plan
 # --print's stdout stays the settings JSON (callers parse it); the decider it would write goes to stderr
-if [ "$MODE" = print ]; then jq . <<<"$NEW"; [ -z "${DEC_NEW:-}" ] || echo "decider: $DEC_MSG" >&2; exit 0; fi
+fg_jqform() { # 0 when setup may write the board config: a plain file already in `jq .` form (P3) with an object orchestrate
+  [ ! -L "$BCFG" ] && jq -e '(.orchestrate // {}) | type == "object"' "$BCFG" >/dev/null 2>&1 && jq . "$BCFG" 2>/dev/null | cmp -s - "$BCFG"
+}
+fg_snippet() { printf '"allowed_domains": %s' "$(jarr "${fg_dom_u[@]}" | sed 's/","/", "/g')"; }
+forge_notes() { # the forge notes and the locks in repositories with no write due (reported, never fatal, never deleted)
+  local n l; for n in ${fg_note[@]+"${fg_note[@]}"}; do echo "setup: note: $n"; done
+  for l in ${fg_lock[@]+"${fg_lock[@]}"}; do echo "setup: note: $(fg_lock_text "$l") — a git config write there would fail"; done
+}
+forge_would() { # --print: the forge changes setup would make; nothing is written
+  local e r h p; forge_notes
+  for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r r _ h p <<<"$e"; echo "forge: would set push over HTTPS: url.\"https://$h/\".pushInsteadOf $p (in $r)"; done
+  case "$(fg_ad_state)" in
+    absent) if fg_jqform; then echo "forge: would write ${fg_dom_u[*]} → allowed_domains under orchestrate in $BCFG"
+            else echo "forge: $BCFG is hand-formatted — add under \"orchestrate\": $(fg_snippet)"; fi ;;
+    present) e="$(fg_lacks | tr '\n' ' ')"; [ -z "$e" ] || echo "forge: orchestrate.allowed_domains in $BCFG is yours and lacks ${e% } — left as it is" ;;
+  esac
+}
+if [ "$MODE" = print ]; then jq . <<<"$NEW"; [ -z "${DEC_NEW:-}" ] || echo "decider: $DEC_MSG" >&2; forge_would >&2; exit 0; fi
+# --remove (FR-007): only the push rewrites setup recorded it added — read from the settings before they are rewritten
+if [ "$MODE" = remove ]; then
+  while IFS= read -r o; do
+    rk="$(jq -r .key <<<"$o")"; rv="$(jq -r .value <<<"$o")"; rr="$(jq -r .repo <<<"$o")"
+    git config -f "$rr/config" --fixed-value --unset-all "$rk" "$rv" 2>/dev/null && echo "removed the push rewrite $rk $rv (in $rr)" \
+      || echo "setup: note: the push rewrite $rk $rv (in $rr) was not removed — gone already, or the config is locked"
+  done < <(jq -c '.push_rewrites // [] | if type == "array" then .[] else empty end | select(type == "object")' <<<"$PREV")
+  jq -e '(.orchestrate // {}) | type == "object" and has("allowed_domains")' "$BCFG" >/dev/null 2>&1 && echo "setup: note: orchestrate.allowed_domains in $BCFG is left as it is — it belongs to the board"
+fi
 if [ "$MODE" != remove ] && [ -n "$LCP" ]; then
   mkdir -p "$LCP" "$LCPROBE" && chmod 700 "$LCP" || die "cannot create the lanes' build cache $LCP (nothing was written)"
   # the probe write must succeed here, outside the sandbox: lane-build.sh reads a failed write as "sandboxed"
@@ -461,6 +557,31 @@ if [ -n "${DEC_NEW:-}" ]; then
   DT="$(mktemp "$(dirname "$BCFG")/.project-status.XXXXXX")" && jq --arg d "$DEC_NEW" '.orchestrate.decider = $d' "$BCFG" > "$DT" && jq -e . "$DT" >/dev/null \
     && mv "$DT" "$BCFG" && echo "wrote $DEC_MSG" || { rm -f "${DT:-}"; echo "could not write orchestrate.decider into $BCFG — set it by hand"; }
 else echo "decider: $DEC_MSG"; fi
+forge_domains_write() { # the board config's orchestrate.allowed_domains, only when absent (D2) and the file is jq-formatted (P3)
+  local e T
+  case "$(fg_ad_state)" in
+    absent) if ! fg_jqform; then echo "forge: $BCFG is hand-formatted — left as it is; add under \"orchestrate\": $(fg_snippet)"; return 0; fi
+      T="$(mktemp "$(dirname "$BCFG")/.project-status.XXXXXX")" && jq --argjson d "$(jarr "${fg_dom_u[@]}")" '.orchestrate.allowed_domains = $d' "$BCFG" > "$T" \
+        && jq -e . "$T" >/dev/null && mv "$T" "$BCFG" || { rm -f "${T:-}"; fg_bad+=("orchestrate.allowed_domains in $BCFG"); return 0; }
+      fg_ok+=("orchestrate.allowed_domains"); echo "forge: ${fg_dom_u[*]} → allowed_domains under orchestrate in $BCFG — setup changed a tracked file: commit it" ;;
+    present) e="$(fg_lacks | tr '\n' ' ')"
+      if [ -n "$e" ]; then echo "forge: orchestrate.allowed_domains in $BCFG is yours and lacks ${e% } — left as it is (add them if the workers need them)"
+      else echo "forge: orchestrate.allowed_domains in $BCFG already lists ${fg_dom_u[*]} — unchanged"; fi ;;
+  esac
+}
+forge_apply() { # write mode: the push rewrites, then the forge hosts; a write that fails names what was and was not written
+  local e r c h p; fg_ok=(); fg_bad=(); forge_notes
+  for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r r c h p <<<"$e"
+    if ! git config -f "$c/config" --add "url.https://$h/.pushinsteadof" "$p" 2>/dev/null; then fg_bad+=("the push rewrite in $r"); continue; fi
+    fg_ok+=("the push rewrite in $r"); echo "forge: push over HTTPS: url.\"https://$h/\".pushInsteadOf $p (in $r) — pushes from there now go over HTTPS"
+    # FR-006: an HTTPS push with no credential helper asks for a password no worker can type
+    [ -n "$(git -C "$r" config --get-urlmatch credential.helper "https://$h/" 2>/dev/null)" ] \
+      || echo "forge: no git credential helper applies to https://$h/ — run in a terminal: gh auth setup-git"
+  done
+  forge_domains_write
+  [ "${#fg_bad[@]}" -eq 0 ] || die "could not write ${fg_bad[*]} (a live git config.lock? another git running?) — written: ${fg_ok[*]:-nothing}; run this again when it is free"
+}
+forge_apply
 if [ "$LANES" = 1 ] && [ "$(jq -r '.crossSessionInbound // ""' <<<"$NEW")" != accept ]; then
   echo "note: crossSessionInbound is '$(jq -r '.crossSessionInbound' <<<"$NEW")' in $F (your setting, kept) — the stage lanes will not receive the orchestrator's doorbells until it is \"accept\""
 fi

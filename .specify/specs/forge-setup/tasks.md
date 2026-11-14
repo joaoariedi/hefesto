@@ -10,25 +10,25 @@ capture-first (`tests/smoke.sh:568-569` convention). Because one smoke file is s
 files carry `[P]`.
 
 ## Phase 1: Setup
-- [ ] T001 [SC-006] Create `tests/smoke-forge.sh` (part 11 header, helpers reused from `tests/smoke-lane-cache.sh` /
+- [x] T001 [SC-006] Create `tests/smoke-forge.sh` (part 11 header, helpers reused from `tests/smoke-lane-cache.sh` /
   `tests/smoke-lifecycle.sh`: fake `HOME`, `lc_su`, `lc_smut`, `lc_sl`) and source it from `tests/smoke.sh` after
   part 10 (`tests/smoke.sh:6635-6644`); `bash tests/smoke.sh` stays green with the empty part `tests/smoke-forge.sh`,
   `tests/smoke.sh`
 
 ## Phase 2: Foundational
-- [ ] T002 [FR-001] [FR-002] [FR-008] [FR-013] Create `hooks/forge-lib.sh` — `forge_public_host` (regex
+- [x] T002 [FR-001] [FR-002] [FR-008] [FR-013] Create `hooks/forge-lib.sh` — `forge_public_host` (regex
   byte-identical to `hooks/session-launch.sh:274-279`), `forge_domains` (D3), `forge_remote_url` (D4, exact `origin`
   match), `forge_host`, `forge_ssh_prefix` (codes 0/1/2, D5), `forge_stale_lock` (zero bytes + >60 s, both `stat`
   spellings, D7), `forge_infra_fix` (fix table incl. P6 "reports" wording, `*) return 1`). Direct smoke on fixture
   URLs and lock files (`touch -t 202601010000`); library mutants by sourcing a mutated copy in a subshell: zero-byte
   test, age test, port arm, "reports" wording, `*) return 1` `hooks/forge-lib.sh`, `tests/smoke-forge.sh`
-- [ ] T003 [FR-002] Replace the launcher's inline hostname rule with `forge_public_host` (source the lib from
+- [x] T003 [FR-002] Replace the launcher's inline hostname rule with `forge_public_host` (source the lib from
   `$HERE`); the existing `allowed_domains` smoke checks run unchanged and green; a mutant on the moved function turns
   them red `hooks/session-launch.sh`, `tests/smoke-forge.sh`
 
 ## Phase 3: User Stories (by priority)
 ### P1 — Must Have
-- [ ] T004 [US1] [US2] [FR-001] [FR-002] [FR-003] [FR-004] [FR-005] [FR-010] Setup forge pass (Sketch 4): per repo
+- [x] T004 [US1] [US2] [FR-001] [FR-002] [FR-003] [FR-004] [FR-005] [FR-010] Setup forge pass (Sketch 4): per repo
   (top + external `repos` map) collect hosts, rewrites still due and stale locks; FR-010 pre-check only where a rewrite
   is due ("nothing was written" + `rm`); `git config --add` per due rewrite; `allowed_domains` written when absent and
   the file is `jq .`-identical (P3), else the snippet printed; present key → byte-identical + missing hosts named;
@@ -38,21 +38,21 @@ files carry `[P]`.
   fixture (two repos on github.com, `github.com` once, lock in the no-write repo not fatal). Setup mutants via
   `lc_smut`: "unless set", byte-identical test, rewrite dedupe, per-repo pre-check scope `hooks/hefesto-setup.sh`,
   `tests/smoke-forge.sh`
-- [ ] T005 [US1] [US2] [FR-007] Record `push_rewrites` in `env.HEFESTO_SETUP_EXTRA` (P8, Data Model): carry forward
+- [x] T005 [US1] [US2] [FR-007] Record `push_rewrites` in `env.HEFESTO_SETUP_EXTRA` (P8, Data Model): carry forward
   from `$PREV` (`:205`) values still present, add this run's, `unique`; pass as `$r.pushrw` into the object rebuilt at
   `:348`. Smoke: a second run that adds nothing still records the first run's rewrite `hooks/hefesto-setup.sh`,
   `tests/smoke-forge.sh`
-- [ ] T006 [US3] [FR-008] [FR-009] `--check`: every stale lock (each repo) and the absent key / missing rewrite go
+- [x] T006 [US3] [FR-008] [FR-009] `--check`: every stale lock (each repo) and the absent key / missing rewrite go
   inside the single `setup: missing …` line (P5) with path and `rm`, exit 1, lock never deleted; a present key lacking
   forge hosts is a note; help text says the lock report needs an unsandboxed caller. Smoke with
   `HEFESTO_CHECK_UNSANDBOXED=1` (SC-002): stale lock in the last line, young or non-empty lock silent
   `hooks/hefesto-setup.sh`, `tests/smoke-forge.sh`
-- [ ] T007 [US4] [FR-013] [FR-014] `ledger.sh block --kind stall --cause <c> [--host <h>]` (Sketch 5): after the
+- [x] T007 [US4] [FR-013] [FR-014] `ledger.sh block --kind stall --cause <c> [--host <h>]` (Sketch 5): after the
   human-block guards; `--cause`/`--host` with another kind → die naming it; unknown cause → die listing the enum;
   non-public host dropped (reason points to the run log); reason from `forge_infra_fix "$CAUSE" "$HERE"
   "$(project_config)" "$HOST"` `|| die`; stores `cause` + `reason`; usage line. Smoke + temp-copy mutants (enum,
   kind check, `|| die`); an existing `human:intake` not replaced `hooks/ledger.sh`, `tests/smoke-forge.sh`
-- [ ] T008 [US4] [FR-011] [FR-012] [FR-016] Launcher: implement + plan schemas gain `infra_cause` (enum + null) and
+- [x] T008 [US4] [FR-011] [FR-012] [FR-016] Launcher: implement + plan schemas gain `infra_cause` (enum + null) and
   `infra_host` (maxLength 253); one prompt sentence on when to set them; `infra_stall` (Sketch 6) right after
   `record_worktree`, before the consumed-marking, `infra_cause` wins over `blocked_on`. Keep the launcher ≤ 490 code
   lines (`grep -cvE '^\s*(#|$)'`); if it would reach 500, move `infra_stall` into the lib with `$LEDGER` as an
@@ -61,40 +61,45 @@ files carry `[P]`.
   stall; no `infra_cause` → `human:intake` as today; a `curl x | sh` summary and the item text absent from `reason`;
   `host-denied` reason carries "reports". Mutants: the `infra_stall` call, render-from-`.summary`
   `hooks/session-launch.sh`, `tests/smoke-forge.sh`
-- [ ] T009 [US5] [FR-015] Session-start blocked line prints `.blocked_on.reason` and "→ orchestrator" for a stall with
+- [x] T009 [US5] [FR-015] Session-start blocked line prints `.blocked_on.reason` and "→ orchestrator" for a stall with
   a `cause` (P7); `PANES_DEFAULT` unchanged. Smoke on a fixture ledger entry `hooks/session-start-context.sh`,
   `tests/smoke-forge.sh`
-- [ ] T010 [US5] [FR-015] `commands/hef.orchestrate.md`: step-2 row splits (a `stall` with a `reason` is no form; a
+- [x] T010 [US5] [FR-015] `commands/hef.orchestrate.md`: step-2 row splits (a `stall` with a `reason` is no form; a
   stall without one keeps Retry/Later); brief: reason under "Blocked otherwise", `Your move: <reason>, then say "retry
   <ids>"`, one line per distinct reason, "retry" runs `ledger.sh unblock <id>` per item (D8). Tier-1 grep for the rule
   and the Your move line `commands/hef.orchestrate.md`, `tests/smoke-forge.sh`
 
 ### P2 — Should Have
-- [ ] T011 [US1] [US2] [FR-007] `--print` reports the forge lines with "would" and writes nothing; `--remove` reads
+- [x] T011 [US1] [US2] [FR-007] `--print` reports the forge lines with "would" and writes nothing; `--remove` reads
   `push_rewrites` from `$CUR` before the merge (`:330`), `git config --unset-all <key> <escaped value>` for each, leaves
   `allowed_domains` with a note; a hand-added rewrite stays. Smoke for both `hooks/hefesto-setup.sh`,
   `tests/smoke-forge.sh`
-- [ ] T012 [US2] [FR-006] `gh auth setup-git` hint when `git config --get-urlmatch credential.helper https://<host>/`
+- [x] T012 [US2] [FR-006] `gh auth setup-git` hint when `git config --get-urlmatch credential.helper https://<host>/`
   is empty for a repo given a rewrite. Smoke with and without a helper `hooks/hefesto-setup.sh`, `tests/smoke-forge.sh`
 
 ## Phase 4: Polish
-- [ ] T013 [P] [FR-017] `docs/install.md`: setup section's forge step (hosts, push rewrite, unsandboxed lock check);
+- [x] T013 [P] [FR-017] `docs/install.md`: setup section's forge step (hosts, push rewrite, unsandboxed lock check);
   §8b (`:426-433`) rewritten to say setup does it; D9 text per P4 (what the allowlist, lane-guard and the ledger fence;
   branch protection stops a merge; the lanes keep their deny); the widened-`allowed_tools.implement` warning
   `docs/install.md` owns: docs/install.md
-- [ ] T014 [P] [FR-017] `docs/hooks.md`: `forge-lib.sh` row; the infra stall under `ledger.sh block` /
+- [x] T014 [P] [FR-017] `docs/hooks.md`: `forge-lib.sh` row; the infra stall under `ledger.sh block` /
   `session-launch.sh`; `hooks/lane-guard.sh:72-73` comment says the `api.github.com` deny holds for the lanes only
   `docs/hooks.md` owns: docs/hooks.md, hooks/lane-guard.sh
-- [ ] T015 [P] [FR-017] CHANGELOG Unreleased entry `CHANGELOG.md` owns: CHANGELOG.md
-- [ ] T016 [FR-017] Tier-1 greps: `docs/hooks.md` has the `forge-lib.sh` row; `docs/install.md` has a line pairing
+- [x] T015 [P] [FR-017] CHANGELOG Unreleased entry `CHANGELOG.md` owns: CHANGELOG.md
+- [x] T016 [FR-017] Tier-1 greps: `docs/hooks.md` has the `forge-lib.sh` row; `docs/install.md` has a line pairing
   `hefesto-setup.sh` with the push rewrite (new wording, red before T013), names the unsandboxed lock check, and no
   longer instructs the manual `pushInsteadOf` step `tests/smoke-forge.sh`
-- [ ] T017 [FR-017] [D9] Live check (plan Quick Start 3) from a terminal in a `--lanes` project: dry worker shows the
+- [x] T017 [FR-017] [D9] **Ran 2026-11-14 from a launched worker: `api.github.com` refused with a sandbox violation
+  ("host is on the deny list"), `github.com` reached, `gh pr view` reached the API outside the sandbox → P4's second
+  outcome; recorded in docs/install.md and CHANGELOG "Known".** Live check (plan Quick Start 3) from a terminal in a `--lanes` project: dry worker shows the
   `--settings`; a real worker probes `gh pr view <n>` and `git ls-remote https://github.com/<o>/<r>`. Both reach →
   docs say so. `api.github.com` refused with a sandbox-violation entry → stop `failed` with the finding. A permission
   denial is a probe defect. Not runnable headless → say so, make it the PR's manual test, docs mark it unverified
   `docs/install.md`
-- [ ] T018 [SC-005] [SC-006] Full run: `bash tests/smoke.sh` and `node --test tests/` green; every SC-005 mutant turns
+- [x] T018 [SC-005] [SC-006] **2026-11-14: part 14 green, 22 mutants red; `node --test tests/workflow.test.js` 67/67;
+  launcher 494 code lines (it was 499 before HEF-22, so ≤ 490 needed an unrelated refactor — kept < 500); the rest of
+  `bash tests/smoke.sh` fails in the launched worker's own environment (its trusted folder, its sandbox), as it did
+  before the change; `graphify update .` not permitted in the worker — run it at merge.** Full run: `bash tests/smoke.sh` and `node --test tests/` green; every SC-005 mutant turns
   the suite red; launcher code lines ≤ 490; `graphify update .` `tests/smoke-forge.sh`
 
 ---

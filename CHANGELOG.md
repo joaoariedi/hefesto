@@ -37,6 +37,38 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+### Added
+
+- **Setup configures the forge for the workers** (HEF-22; `docs/install.md` §7 step 8b, `docs/hooks.md`). A build
+  that finished green ended blocked at `git push` and the person was asked six times: the workers' sandbox had no
+  `orchestrate.allowed_domains`, the remote was SSH (the sandbox proxy carries HTTPS only), and the fix could not run
+  from any sandboxed session. `hefesto-setup.sh` now, for the project and each repository of an external board's
+  `repos` map: writes the forge's hosts into `orchestrate.allowed_domains` of the board config when the key is absent
+  and the file is in `jq .` form (`github.com` → `github.com`, `api.github.com`; a hand-formatted file gets the
+  snippet; a list you wrote is never touched); adds `url."https://<host>/".pushInsteadOf <prefix>` for an SSH remote
+  (`gh auth setup-git` hinted when no credential helper applies); and stops before writing anything on a stale
+  zero-byte `config.lock` — what a sandboxed `git config` leaves — with the `rm` to run. `--check` reports that lock
+  and the missing forge setup in its one `setup: missing …` line; `--print` shows the forge changes; `--remove`
+  unsets only the rewrites setup added. The shared rules live in the new `hooks/forge-lib.sh`, and the launcher's
+  `allowed_domains` hostname check moved there unchanged.
+- **An infrastructure stop is a stall with its fix, not a form** (HEF-22). Implement and plan outcomes may carry
+  `infra_cause` (`push-refused`, `host-denied`, `credential-helper-missing`) and `infra_host`; the launcher turns a
+  `blocked` or `failed` outcome with one into `ledger.sh block <id> --kind stall --cause <c>`, whose reason is one
+  line from hefesto's own fix table — never the worker's summary. The orchestrator shows it once as
+  `Your move: <fix>, then say "retry <ids>"`, and the session-start line sends it to the orchestrator.
+
+### Upgrade
+
+- Run `hefesto-setup.sh` again in each project, in a terminal: it writes the forge's hosts and the push rewrite, and
+  says when it changed the tracked board config — commit it.
+
+### Known
+
+- The live check of D9 (a worker reaching `api.github.com`) did not hold: in a worker launched in a `--lanes`
+  project, a sandboxed request to `api.github.com` was refused ("host is on the deny list" — the lanes'
+  `deniedDomains` reaches the worker), while `github.com` was reached and `gh` reached the API outside the sandbox.
+  The push over HTTPS works; whether workers should reach the API from inside the sandbox is an open owner decision.
+
 ## [9.4.1] - 2026-11-13
 
 **Auto-merge into the integration branch, behind a grant you sign: a PR whose verify, review, quality and scan gates passed at the head that was checked merges without a form.**
