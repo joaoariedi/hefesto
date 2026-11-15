@@ -331,14 +331,16 @@ forge_plan() { # → the arrays above, one pass over fg_repos, nothing written
   || die "a stale ${fg_block[*]} (zero bytes, left by a sandboxed session) would block the push rewrite — rm ${fg_block[*]} and run this again (nothing was written)"
 fg_dom_u=(); if [ "${#fg_dom[@]}" -gt 0 ]; then while IFS= read -r d; do fg_dom_u+=("$d"); done < <(printf '%s\n' "${fg_dom[@]}" | awk '!seen[$0]++'); fi
 # push_rewrites (plan P8): the previous run's still present in their repository, plus this run's — only what setup added
-fg_pushrw="$(
+# a function, not inline in $(…): macOS /bin/bash 3.2 ends a command substitution at a case pattern's ")" (smoke-macos, HEF-22 PR #212: "syntax error near unexpected token `newline'")
+fg_pushrw_list() {
   jq -c '.push_rewrites // [] | if type == "array" then .[] else empty end | select(type == "object")' <<<"$PREV" | while IFS= read -r o; do
     v="$(git config -f "$(jq -r '.repo' <<<"$o")/config" --get-all "$(jq -r '.key' <<<"$o")" 2>/dev/null)"
     case $'\n'"$v"$'\n' in *$'\n'"$(jq -r '.value' <<<"$o")"$'\n'*) echo "$o" ;; esac
   done
   if [ "$MODE" = write ]; then for e in ${fg_rw[@]+"${fg_rw[@]}"}; do IFS='	' read -r _ c h p <<<"$e"
     jq -nc --arg r "$c" --arg k "url.https://$h/.pushinsteadof" --arg v "$p" '{repo: $r, key: $k, value: $v}'; done; fi
-)"
+}
+fg_pushrw="$(fg_pushrw_list)"
 fg_pushrw="$(jq -sc 'unique' <<<"$fg_pushrw")" || die "could not build the push rewrite record (nothing was written)"
 RULES="$(jq -nc --argjson a "$(jarr "${allow[@]}")" --argjson k "$(jarr "${ask[@]}")" --argjson x "$(jarr "${excl[@]}")" \
   --argjson w "$(jarr ${wr[@]+"${wr[@]}"})" --argjson px "$(jarr "${prefixes[@]}")" --argjson bad "$(jarr ${badx[@]+"${badx[@]}"})" --argjson env "$envj" \
