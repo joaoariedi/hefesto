@@ -26,7 +26,9 @@ hl_detacher() {
   # know it is the copy and would detach again, without end (code review 2026-11-16) — attached instead
   case "${4:-}" in *"/../"*) echo "session-launch: the runs folder $4 has a /../ in it — the run is attached to this shell" >&2; return 0 ;; esac
   if command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
-    echo "systemd-run --user --scope --collect --quiet --unit hefesto-$1-$2-$$ -- setsid -w"
+    # OOMPolicy=continue: a scope's default (stop) ends the whole run when the kernel OOM-kills one tool in it
+    # (verify 2026-11-16: a 7.6 GB shellcheck took the run with it, exit 143) — the tool fails, the run goes on
+    echo "systemd-run --user --scope --collect --quiet -p OOMPolicy=continue --unit hefesto-$1-$2-$$ -- setsid -w"
   elif command -v setsid >/dev/null 2>&1; then
     echo "setsid -w"
   else

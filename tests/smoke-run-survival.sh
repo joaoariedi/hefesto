@@ -163,8 +163,8 @@ rm -f "$rs_farm/setsid" "$rs_farm/systemd-run" "$rs_farm/systemctl" "$rs_farm/sh
 rs_det() { # PATH lane-mode [lib] → the detacher words in rs_o, stderr in rs_e
   rs_o="$(PATH="$1" bash -c '. "$1"; hl_detacher RS-0 implement "$2"' _ "${3:-$RS_HL}" "$2" 2>"$rs_w/det.err")"; rs_e="$(cat "$rs_w/det.err")"
 }
-(unset HEFESTO_RUN_DETACH; rs_det "$rs_dboth:$PATH" 0; [[ "$rs_o" == "systemd-run --user --scope --collect --quiet --unit hefesto-RS-0-implement-"*" -- setsid -w" ]]) \
-  || { bad "FR-001 systemd-run + a user manager → systemd-run --user --scope … -- setsid -w"; rs_fail=1; }
+(unset HEFESTO_RUN_DETACH; rs_det "$rs_dboth:$PATH" 0; [[ "$rs_o" == "systemd-run --user --scope --collect --quiet -p OOMPolicy=continue --unit hefesto-RS-0-implement-"*" -- setsid -w" ]]) \
+  || { bad "FR-001 systemd-run + a user manager → systemd-run --user --scope … -p OOMPolicy=continue … -- setsid -w"; rs_fail=1; }
 (unset HEFESTO_RUN_DETACH; rs_det "$rs_dsid:$PATH" 0; [ "$rs_o" = "setsid -w" ]) || { bad "FR-001 no user manager → setsid -w"; rs_fail=1; }
 (unset HEFESTO_RUN_DETACH; rs_det "$rs_farm" 0; [ -z "$rs_o" ] && grep -qF 'session-launch: no systemd-run or setsid — the run is attached to this shell' <<<"$rs_e") \
   || { bad "FR-001 neither → no words and the attached note"; rs_fail=1; }
@@ -292,7 +292,7 @@ rs_sd() {
 rs_pr pr
 # run-survival/FR-001 (SC-001): both on PATH → systemd-run --user --scope, then setsid; the run completes
 rs_sd "$rs_dboth:$rs_bin:$PATH" "$RS_SL" implement RS-10
-{ [ "$rs_rc" = 0 ] && head -1 "$rs_dlog" | grep -q '^systemd-run --user --scope --collect --quiet --unit hefesto-RS-10-implement-[0-9]* -- setsid -w bash ' \
+{ [ "$rs_rc" = 0 ] && head -1 "$rs_dlog" | grep -q '^systemd-run --user --scope --collect --quiet -p OOMPolicy=continue --unit hefesto-RS-10-implement-[0-9]* -- setsid -w bash ' \
   && sed -n 2p "$rs_dlog" | grep -qF "setsid -w bash $RS_SL implement RS-10" && [ "$(rs_phase RS-10)" = verify ]; } \
   || { bad "FR-001 systemd-run + setsid on PATH → the run goes through both and completes — rc=$rs_rc log: $(cat "$rs_dlog") err: $(head -c 300 "$rs_w/sl.err")"; rs_fail=1; }
 # run-survival/FR-003 (SC-002): the caller prints the run's stdout — the final ledger entry
