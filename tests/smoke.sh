@@ -30,6 +30,17 @@ trap smoke_cleanup EXIT
 export TMPDIR="$SMOKE_TMP"
 # The launcher keeps a run's files under ~/.cache (where no sandboxed session writes); the suite gets its own.
 SMOKE_XDG="$(mktemp -d)"; export XDG_CACHE_HOME="$SMOKE_XDG"
+# run-survival/FR-001 (HEF-25, plan R3): the suite's ~40 fake-claude launches stay attached (no real systemd scope
+# per test) and are never refused for the host's memory — ample MemAvailable, zero pressure. Honoured outside lane
+# mode only; tests/smoke-run-survival.sh unsets or overrides them per case, with fake detachers on PATH.
+export HEFESTO_RUN_DETACH=0
+# Run from a set-up project's session (a lane, or a worker the launcher started), the settings env carries the lane
+# variables: every fixture repository would then be refused as "not the trusted board", and the seam above would be
+# ignored (lane mode), so each fake launch would open a real systemd scope. The suite runs as from a terminal.
+unset HEFESTO_TRUSTED_TOP HEFESTO_TRUSTED_BOARD HEFESTO_LANE_MAP HEFESTO_LANES HEFESTO_WORKER
+printf 'MemTotal:       67108864 kB\nMemAvailable:   67108864 kB\n' > "$SMOKE_TMP/meminfo.ample"
+printf 'some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n' > "$SMOKE_TMP/psi.zero"
+export HEFESTO_PROC_MEMINFO="$SMOKE_TMP/meminfo.ample" HEFESTO_PROC_PRESSURE="$SMOKE_TMP/psi.zero"
 HELPER="$REPO/hooks/speckit-helper.sh"
 PASS=0
 FAIL=0
@@ -1379,8 +1390,11 @@ printf '#!/bin/sh\nexit "${SC_FAKE_RC:-0}"\n' > "$sk_b/shellcheck"; chmod +x "$s
 sk_run() { rc=0; sk_o="$(jq -nc --arg d "$sk_t" '{tool_input:{command:"git commit -m \"feat: x\""},cwd:$d}' | SC_FAKE_RC="$1" PATH="$sk_b:/usr/bin:/bin" bash "${2:-$QBC}" 2>&1)" || rc=$?; }
 sk_run 1; [ "$rc" = 2 ] && grep -qF 'shellcheck errors in a.sh' <<<"$sk_o" || { bad "a shellcheck finding (exit 1) must block (rc=$rc: $sk_o)"; sk_fail=1; }
 sk_run 137; { [ "$rc" = 0 ] && grep -qF 'shellcheck could not check a.sh (exit 137' <<<"$sk_o"; } || { bad "a shellcheck that could not run (exit 137) must pass with an advisory (rc=$rc: $sk_o)"; sk_fail=1; }
-sk_md="$(mktemp -d)"; ln -s "$REPO/hooks/speckit-helper.sh" "$sk_md/speckit-helper.sh"; ln -s "$REPO/hooks/lane-lib.sh" "$sk_md/lane-lib.sh"
-sed 's/^        1) ERRORS="${ERRORS}shellcheck errors in $f. " ;;$/        *) ERRORS="${ERRORS}shellcheck errors in $f. " ;;/' "$QBC" > "$sk_md/qbc.sh"; cmp -s "$QBC" "$sk_md/qbc.sh" && { bad "shellcheck mutation did not apply"; sk_fail=1; }
+sk_md="$(mktemp -d)"; ln -s "$REPO/hooks/speckit-helper.sh" "$sk_md/speckit-helper.sh"; ln -s "$REPO/hooks/lane-lib.sh" "$sk_md/lane-lib.sh"; cp "$QBC" "$sk_md/qbc.sh"
+# run-survival (HEF-25): the split now lives in host-limits.sh's bounded runner, which the hook sources from its own
+# folder — the mutation makes its could-not-check arm (`*)` → 3) a finding again
+sed 's/^    \*) echo "shellcheck: could not check \$1 (exit \$rc — out of memory?)"; return 3 ;;$/    *) return 1 ;;/' "$REPO/hooks/host-limits.sh" > "$sk_md/host-limits.sh"
+cmp -s "$REPO/hooks/host-limits.sh" "$sk_md/host-limits.sh" && { bad "shellcheck mutation did not apply"; sk_fail=1; }
 sk_run 137 "$sk_md/qbc.sh"; [ "$rc" = 2 ] || { bad "mutation survived: every failure an error again, yet exit 137 passed"; sk_fail=1; }
 rm -rf -- "${sk_t:?}" "${sk_b:?}" "${sk_md:?}"
 [ "$sk_fail" -eq 0 ] && ok "shellcheck: a finding (exit 1) blocks; one that cannot run (killed, exit 137) passes with an advisory; 1 mutation caught"
@@ -1982,7 +1996,7 @@ lg unblock HEF-10 --reviewed-by-human --by 'Ana Silva' </dev/null >/dev/null 2>&
   && jq -e '.blocked_on == null and (.reviewed[-1] | .kind == "human:intake" and .by == "Ana Silva" and (.at | length) > 0)' "$(sld "$lg_t")/HEF-10.json" >/dev/null 2>&1 \
   || { bad "ledger unblock human:intake --reviewed-by-human --by <name> must clear from a non-TTY session and record the reviewer"; lg_fail=1; }
 lg block HEF-10 --kind human:intake >/dev/null 2>&1
-lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh" 2>/dev/null; ln -s "$REPO/hooks/forge-lib.sh" "$lg_md2/forge-lib.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$lg_md2/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$lg_md2/spec-root-lib.sh" 2>/dev/null; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$lg_md2/ledger-lifecycle.sh" 2>/dev/null; ln -s "$REPO/hooks/ledger-recipes.sh" "$lg_md2/ledger-recipes.sh" 2>/dev/null; ln -s "$REPO/hooks/ledger-automerge.sh" "$lg_md2/ledger-automerge.sh" 2>/dev/null; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"
+lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh" 2>/dev/null; ln -s "$REPO/hooks/forge-lib.sh" "$lg_md2/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$lg_md2/host-limits.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$lg_md2/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$lg_md2/spec-root-lib.sh" 2>/dev/null; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$lg_md2/ledger-lifecycle.sh" 2>/dev/null; ln -s "$REPO/hooks/ledger-recipes.sh" "$lg_md2/ledger-recipes.sh" 2>/dev/null; ln -s "$REPO/hooks/ledger-automerge.sh" "$lg_md2/ledger-automerge.sh" 2>/dev/null; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"
 cp "$LG" "$lg_md2/ledger.sh"; sed_i 's/\[ -z "\${HEFESTO_WORKER:-}" \] || \[ "\$HEFESTO_WORKER" = 0 \] \\/true \\/' "$lg_md2/ledger.sh"
 cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (worker refusal) did not apply"; lg_fail=1; }
 (cd "$lg_t" && HEFESTO_WORKER=1 bash "$lg_md2/ledger.sh" unblock HEF-10 --reviewed-by-human --by Ana) >/dev/null 2>&1 || { bad "mutation survived: intake worker refusal removed, a worker still refused"; lg_fail=1; }
@@ -2005,7 +2019,7 @@ jq -e '.blocked_on.kind == "human:clarify"' "$(sld "$lg_t")/HEF-60.json" >/dev/n
 # a worker may not replace any OTHER human:* block either
 lg block HEF-60 --kind human:merge >/dev/null 2>&1
 if (cd "$lg_t" && HEFESTO_WORKER=1 bash "$LG" block HEF-60 --kind ci) >/dev/null 2>&1; then bad "a launched worker must not replace a human:merge block with ci"; lg_fail=1; fi
-cp "$LG" "$lg_md2/ledger.sh" 2>/dev/null || { lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$lg_md2/forge-lib.sh"; ln -s "$REPO/hooks/launch-item.sh" "$lg_md2/launch-item.sh"; ln -s "$REPO/hooks/board-setup.sh" "$lg_md2/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$lg_md2/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$lg_md2/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$lg_md2/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$lg_md2/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$lg_md2/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$lg_md2/ledger-automerge.sh"; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"; cp "$LG" "$lg_md2/ledger.sh"; }
+cp "$LG" "$lg_md2/ledger.sh" 2>/dev/null || { lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$lg_md2/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$lg_md2/host-limits.sh"; ln -s "$REPO/hooks/launch-item.sh" "$lg_md2/launch-item.sh"; ln -s "$REPO/hooks/board-setup.sh" "$lg_md2/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$lg_md2/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$lg_md2/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$lg_md2/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$lg_md2/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$lg_md2/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$lg_md2/ledger-automerge.sh"; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"; cp "$LG" "$lg_md2/ledger.sh"; }
 sed_i 's/\[\[ "\$CURK" == human:\* \]\] \&\& \[ "\$KIND" != "\$CURK" \]/false/' "$lg_md2/ledger.sh"
 cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (worker block replacement) did not apply"; lg_fail=1; }
 (cd "$lg_t" && HEFESTO_WORKER=1 bash "$lg_md2/ledger.sh" block HEF-60 --kind ci) >/dev/null 2>&1 || { bad "mutation survived: the worker replacement guard removed, still refused"; lg_fail=1; }
@@ -2227,7 +2241,7 @@ chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; 
 if sl bogus HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an unknown role"; sl_fail=1; fi
 if sl implement HEF-NOPE --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an id without a ledger entry"; sl_fail=1; fi
 # provider-runners FR-003 — every launched session carries HEFESTO_WORKER=1. Mutation: the env pair removed → red.
-sl_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$sl_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$sl_md/forge-lib.sh"; ln -s "$REPO/hooks/board-setup.sh" "$sl_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$sl_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$sl_md/launch-item.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$sl_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$sl_md/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$sl_md/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$sl_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$sl_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$sl_md/ledger-automerge.sh"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
+sl_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$sl_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$sl_md/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$sl_md/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$sl_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$sl_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$sl_md/launch-item.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$sl_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$sl_md/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$sl_md/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$sl_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$sl_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$sl_md/ledger-automerge.sh"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
 sed_i 's/ HEFESTO_WORKER=1 claude -p/ claude -p/' "$sl_md/session-launch.sh"; cmp -s "$SL" "$sl_md/session-launch.sh" && { bad "launcher env-pair mutation did not apply"; sl_fail=1; }
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
 sl_mo="$(cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1)"
@@ -2448,7 +2462,7 @@ grep -qE 'gh pr merge|gh pr review|gh api' <<<"$st_defaults" && { bad "a default
 [ "$st_fail" -eq 0 ] && ok "stage roles: next --stage (plan/build/deploy, ordering), plan run (tasks, blocked→unblock→next, failed→resume, mode default), implement on a planned entry, deploy verdicts + refusal, tiers, hooks rule after a config list, no merge verbs (stage-roles FR-001..FR-008, FR-011)"
 
 # Mutations on copies (SC-001). The launcher copy sits beside symlinks to the helpers it calls.
-st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$st_mutdir/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$st_mutdir/forge-lib.sh"; ln -s "$REPO/hooks/launch-item.sh" "$st_mutdir/launch-item.sh"; ln -s "$REPO/hooks/board-setup.sh" "$st_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$st_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$st_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$st_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$st_mutdir/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$st_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$st_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$st_mutdir/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
+st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$st_mutdir/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$st_mutdir/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$st_mutdir/host-limits.sh"; ln -s "$REPO/hooks/launch-item.sh" "$st_mutdir/launch-item.sh"; ln -s "$REPO/hooks/board-setup.sh" "$st_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$st_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$st_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$st_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$st_mutdir/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$st_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$st_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$st_mutdir/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
 SL_MUT="$st_mutdir/session-launch.sh"; LG_MUT="$st_mutdir/ledger-mut.sh"; st_mfail=0
 st_mut() { cp "$SL" "$SL_MUT"; sed_i "$1" "$SL_MUT"; cmp -s "$SL" "$SL_MUT" && { bad "stage-roles mutation did not apply: $1"; st_mfail=1; }; }
 st_lmut() { cp "$LG" "$LG_MUT"; sed_i "$1" "$LG_MUT"; cmp -s "$LG" "$LG_MUT" && { bad "stage-roles ledger mutation did not apply: $1"; st_mfail=1; }; }
@@ -3102,7 +3116,7 @@ pw_out="$(pw in-diff 7 .github/workflows/ci.yml 2>&1)"; pw_rc=$?; { [ "$pw_rc" -
 [ "$pw_fail" -eq 0 ] && ok "pr-watch: --check, resolve refusals, checks buckets/--wait/--after, failed-log, threads stripped+delimited+idempotent, fixes, reply/comment guarded, state verdicts, ledger-id codes, in-diff (FR-001..008, FR-017, FR-018, SC-005)"
 
 # Mutations (constitution 3): each guard reintroduced on a copy must turn a case red.
-pw_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$pw_mutdir/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$pw_mutdir/forge-lib.sh"; ln -s "$REPO/hooks/board-setup.sh" "$pw_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$pw_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$pw_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$pw_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$pw_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$pw_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$pw_mutdir/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger.sh" "$pw_mutdir/ledger.sh"; PW_MUT="$pw_mutdir/pr-watch.sh"; pw_mfail=0
+pw_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$pw_mutdir/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$pw_mutdir/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$pw_mutdir/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$pw_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$pw_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$pw_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$pw_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$pw_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$pw_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$pw_mutdir/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger.sh" "$pw_mutdir/ledger.sh"; PW_MUT="$pw_mutdir/pr-watch.sh"; pw_mfail=0
 pw_mut() { cp "$PW" "$PW_MUT"; sed_i "$1" "$PW_MUT"; cmp -s "$PW" "$PW_MUT" && { bad "pr-watch mutation did not apply: $1"; pw_mfail=1; }; }
 # an s///, not GNU's one-line `c\text`, which BSD sed (macOS) rejects
 pw_mut '/untrusted-begin %s %s/s/"\$(strip_html_comments <<<"\$body")" "\$nonce"$/"$body" "$nonce"/'
@@ -3262,7 +3276,7 @@ LSL_BIN="$ls_hm/ledger.sh" lsl handoff HM-9 --pr https://github.com/o/r/pull/11 
 lsset HEF-1 '.phase = "merged" | .blocked_on = null'; ls_b="$(ls_snap)"
 lsl handoff HEF-1 --pr https://github.com/o/r/pull/9 >/dev/null 2>&1 && { bad "handoff must refuse an entry past pr"; ls_fail=1; }; [ "$(ls_snap)" = "$ls_b" ] || { bad "a refused handoff wrote the entry"; ls_fail=1; }
 # a failure after the owner write releases the entry instead of stranding it under "hand" (code review 2026-10-02)
-ls_hd="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ls_hd/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$ls_hd/forge-lib.sh"; ln -s "$REPO/hooks/board-setup.sh" "$ls_hd/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$ls_hd/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$ls_hd/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$ls_hd/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$ls_hd/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$ls_hd/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$ls_hd/ledger-automerge.sh"; cp "$LG" "$ls_hd/ledger.sh"; sed_i 's/^  run)$/  run) [ -n "${LS_FAIL_RUN:-}" ] \&\& exit 1/' "$ls_hd/ledger.sh"; lsl init HF-1 --kind tasks-repo --ref t >/dev/null 2>&1
+ls_hd="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ls_hd/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$ls_hd/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$ls_hd/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$ls_hd/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$ls_hd/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$ls_hd/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$ls_hd/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$ls_hd/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$ls_hd/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$ls_hd/ledger-automerge.sh"; cp "$LG" "$ls_hd/ledger.sh"; sed_i 's/^  run)$/  run) [ -n "${LS_FAIL_RUN:-}" ] \&\& exit 1/' "$ls_hd/ledger.sh"; lsl init HF-1 --kind tasks-repo --ref t >/dev/null 2>&1
 (cd "$ls_t" && LS_FAIL_RUN=1 bash "$ls_hd/ledger.sh" handoff HF-1 --pr https://x/pull/1 >/dev/null 2>&1) && { bad "handoff must fail when its run step fails"; ls_fail=1; }
 lsj HF-1 '.owner == null' || { bad "a failed handoff must release the entry, not strand it owned by hand"; ls_fail=1; }; rm -rf "$ls_hd"
 [ "$ls_fail" -eq 0 ] && ok "ledger handoff: run/pr/branch/worktree/pr/human:merge in one call; refuses bad URL, main, owned, blocked, past-pr without writing (ledger-surfaces FR-001)"
@@ -3356,7 +3370,7 @@ ls_ma="$(grep -oE "PUBLISH_MARKERS_DEFAULT='[^']*'" "$LG")"; ls_mb="$(grep -oE "
   || bad "PANES_DEFAULT (ledger.sh vs session-start) or PUBLISH_MARKERS_DEFAULT (ledger.sh vs status-board.sh) drifted"
 
 # Mutations on copies (constitution 3) — one per guard
-ls_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ls_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$ls_md/forge-lib.sh"; ln -s "$REPO/hooks/board-setup.sh" "$ls_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$ls_md/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$ls_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$ls_md/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$ls_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$ls_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$ls_md/ledger-automerge.sh"; cp "$SB" "$ls_md/status-board.sh"; LSL_MUT="$ls_md/ledger.sh"; ls_mfail=0
+ls_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ls_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$ls_md/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$ls_md/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$ls_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$ls_md/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$ls_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$ls_md/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$ls_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$ls_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$ls_md/ledger-automerge.sh"; cp "$SB" "$ls_md/status-board.sh"; LSL_MUT="$ls_md/ledger.sh"; ls_mfail=0
 lsmut() { cp "$LG" "$LSL_MUT"; sed_i "$1" "$LSL_MUT"; cmp -s "$LG" "$LSL_MUT" && { bad "ledger-surfaces mutation did not apply: $1"; ls_mfail=1; }; }
 lsfresh() { lsl init "$1" --kind tasks-repo --ref t >/dev/null 2>&1; }
 lsmut 's/\[ -z "\$K" \] || die "ledger handoff/true || die "ledger handoff/'; lsfresh HM-1; lsl block HM-1 --kind ci >/dev/null 2>&1
@@ -3659,7 +3673,7 @@ ikj HEF-22 '.blocked_on.kind == "human:merge"' || { bad "a vulnerability PASS mu
 [ "$ik_vfail" -eq 0 ] && ok "item kinds: the kind gate is required — absent → FAIL, SKIPPED → FAIL with the reason, PASS → human:merge, for incident and vulnerability; feature unaffected; own gate only (item-kinds FR-005)"
 
 # Mutations (constitution 3)
-ik_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ik_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$ik_md/forge-lib.sh"; ln -s "$REPO/hooks/board-setup.sh" "$ik_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$ik_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$ik_md/launch-item.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$ik_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$ik_md/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$ik_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$ik_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$ik_md/ledger-automerge.sh"; ln -s "$LG" "$ik_md/ledger.sh"; ln -s "$SB" "$ik_md/status-board.sh"; ik_mfail=0
+ik_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ik_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$ik_md/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$ik_md/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$ik_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$ik_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$ik_md/launch-item.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$ik_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$ik_md/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$ik_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$ik_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$ik_md/ledger-automerge.sh"; ln -s "$LG" "$ik_md/ledger.sh"; ln -s "$SB" "$ik_md/status-board.sh"; ik_mfail=0
 cp "$SL" "$ik_md/session-launch.sh"; sed_i 's/(.verdict == "PASS" or .verdict == "FAIL")/true/' "$ik_md/session-launch.sh"
 cmp -s "$SL" "$ik_md/session-launch.sh" && { bad "item-kinds mutation (SKIPPED counts) did not apply"; ik_mfail=1; }
 ikl init HEF-26 --kind tasks-repo --ref t --item-kind incident >/dev/null 2>&1; printf '\n## HEF-26 — m\nb\n' >> "$ik_t/tasks/TODO.md"
@@ -6712,9 +6726,39 @@ for c in "$REPO"/evals/*/case.yaml; do
 done
 [ "$ev_n" -ge 1 ] || { bad "no eval cases under evals/"; ev_fail=1; }
 [ "$ev_fail" -eq 0 ] && ok "$ev_n eval case(s) parse structurally: name, prompt, graders with a known type (FR-014)"
-if command -v shellcheck >/dev/null 2>&1; then
-  sc_bad="$(shellcheck -S warning "$REPO"/hooks/*.sh "$REPO/install.sh" 2>&1 | grep -c '^In ' || true)"
-  [ "${sc_bad:-0}" -eq 0 ] && ok "shellcheck (warning+) is clean on every hook and install.sh" || bad "shellcheck reports $sc_bad finding(s) in hooks/ or install.sh"
+# run-survival/FR-014 (HEF-25): one bounded process per file (hooks/host-limits.sh) over the hooks, install.sh and every
+# test part — one shellcheck over the whole list ran a 24 GB host out of memory. A file over 3000 lines gets a visible
+# skip line (no bounded run fits tests/smoke.sh: measured out of memory at 2, 4 and 8 GiB); a file under the limit that
+# could not be checked fails the guard. The real binary (command -v -p): a wrapper on PATH that cannot run inside a
+# sandbox would otherwise read as a finding — or, counted by "^In " lines, as clean.
+# shellcheck source=hooks/host-limits.sh
+. "$REPO/hooks/host-limits.sh"
+sc_tier2() { # file… → a skip line per oversize file, the findings of the others; rc 0 green, 1 red
+  local f rc out red=0
+  for f in "$@"; do
+    rc=0; out="$(hl_shellcheck_bounded "$f" warning 3000)" || rc=$?
+    case "$rc" in
+      0) ;;
+      2) printf '  \033[33mskip\033[0m %s — follow-up: split tests/smoke.sh into sourced parts under 3000 lines\n' "${out#shellcheck: }" ;;
+      *) printf '%s\n' "$out" | head -60; red=1 ;;
+    esac
+  done
+  return "$red"
+}
+sc_real="$(command -v -p shellcheck 2>/dev/null || command -v shellcheck 2>/dev/null)"
+if [ -n "$sc_real" ]; then
+  sc_pd="$(mktemp -d)"; ln -s "$sc_real" "$sc_pd/shellcheck"
+  if PATH="$sc_pd:$PATH" sc_tier2 "$REPO"/hooks/*.sh "$REPO/install.sh" "$REPO"/tests/*.sh; then
+    ok "shellcheck (warning+), one bounded process per file, is clean on every hook, install.sh and test part (run-survival/FR-014)"
+  else bad "shellcheck reports findings (above) in hooks/, install.sh or tests/, or could not check a file under the limit (run-survival/FR-014)"; fi
+  # the guard itself: an oversize file is a skip line and stays green; a could-not-check on a small file turns it red
+  sc_fk="$(mktemp -d)"; printf '#!/bin/sh\nexit "${SC_FAKE_RC:-0}"\n' > "$sc_fk/shellcheck"; chmod +x "$sc_fk/shellcheck"
+  awk 'BEGIN { for (i = 0; i < 3001; i++) print "echo " i }' > "$sc_fk/big.sh"; printf 'echo hi\n' > "$sc_fk/small.sh"
+  sc_o="$(PATH="$sc_fk:$PATH" sc_tier2 "$sc_fk/big.sh")"; sc_rc=$?
+  { [ "$sc_rc" = 0 ] && grep -qF 'skip' <<<"$sc_o" && grep -qF 'split tests/smoke.sh into sourced parts under 3000 lines' <<<"$sc_o"; } \
+    || bad "run-survival/FR-014 the guard prints a skip line for an oversize file and stays green (rc=$sc_rc: $sc_o)"
+  PATH="$sc_fk:$PATH" SC_FAKE_RC=137 sc_tier2 "$sc_fk/small.sh" >/dev/null && bad "run-survival/FR-014 a could-not-check (137) on a file under the limit must turn the guard red"
+  rm -rf "$sc_pd" "$sc_fk"
 else
   printf '  \033[33mskip\033[0m shellcheck not installed — hooks were only bash -n checked at commit time\n'
 fi
@@ -6836,6 +6880,7 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-signatures.sh"        # part 12: a dialog only where a person signs, one spelling per root (HEF-27)
 . "$REPO/tests/smoke-automerge.sh"         # part 13: merge_by auto under a person's standing grant (HEF-30 merge-auto)
 . "$REPO/tests/smoke-forge.sh"             # part 14: setup configures the forge once; an infra stop is a stall with its fix (HEF-22 forge-setup)
+. "$REPO/tests/smoke-run-survival.sh"      # part 15: runs survive the orchestrator and never starve the host (HEF-25 run-survival)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.

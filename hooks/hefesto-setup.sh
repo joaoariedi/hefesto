@@ -432,6 +432,9 @@ if [ "$MODE" = check ]; then
     absent) miss="${miss:+$miss, }the forge hosts in orchestrate.allowed_domains of $BCFG (${fg_dom_u[*]})" ;;
     present) fgl="$(fg_lacks | tr '\n' ' ')"; [ -z "$fgl" ] || echo "setup: note: orchestrate.allowed_domains in $BCFG is yours and lacks ${fgl% } — the workers cannot reach it there" ;;
   esac
+  # run-survival FR-012 (HEF-25): advice only — never a miss, never a write, never "disable oomd" (D10)
+  # shellcheck source=hooks/host-limits.sh
+  . "$HERE/host-limits.sh"; hl_oomd_note
   if [ -n "$miss" ]; then echo "setup: missing $miss for $me — run: bash $CLONE/hooks/hefesto-setup.sh$([ "$(jq -r '.env.HEFESTO_LANES // empty' <<<"$CUR")" = 1 ] || [ "$LANES" = 1 ] && echo ' --lanes')"; exit 1; fi
   [ "${#u_excl[@]}" -eq 0 ] || echo "setup: your commands outside the sandbox: ${u_excl[*]}"
   [ "${#u_allow[@]}" -eq 0 ] || echo "setup: your allowed commands: ${u_allow[*]}"

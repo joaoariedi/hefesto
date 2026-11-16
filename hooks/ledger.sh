@@ -125,6 +125,7 @@ cfgp() { # jq over the project config; empty output when there is no config (cal
 # (session-launch, pr-watch, speckit-helper, merge-tree-probe, the commands) asks `ledger.sh branches`.
 # `jq -n … input?`: an absent config must still run the program — jq never runs one over EMPTY input
 # (plan review 2026-10-05: `jq -ce … /dev/null` printed nothing and exited 4).
+# shellcheck disable=SC2120  # the argument is passed by board-lib.sh and ledger-automerge.sh, which a per-file run does not follow
 branches_model() { # [$1 a branches_block line] → the model + .source; no argument = the repo we stand in NOW
   local blk="${1:-}" src lbl raw out   # the CURRENT repo's model: ops integrates on dev, ui on trunk (external-board)
   [ $# -gt 0 ] || { blk=$(branches_block); [ $? -ne 2 ] || return 1; }   # board-lib.sh: repo file → board → default
@@ -494,6 +495,16 @@ case "$SUB" in
     # verify is exempt: read-only, and the second half of the SAME build pass — refusing it would strand the
     # item in phase verify, which no stage picks up again (quickstart re-review 2026-10-19).
     [ -z "$BUSY" ] || [ "$ROLE" = verify ] || die "ledger claim $ID: the repository is busy with $BUSY — at most $LIM $ROLE session(s) at a time per repository; wait for it to finish"
+    # run-survival FR-004/FR-005 (HEF-25): at most max_concurrent_runs LAUNCHED runs (an owner with a pid) across the
+    # whole ledger — every repo and role, verify included (the orchestrator relaunches a phase-verify entry with no
+    # owner after its 10-minute window). A lane's interactive claim is no run: never counted, never refused.
+    if [ -n "$CPID" ]; then
+      RLIM="$(cfgp '.orchestrate.max_concurrent_runs // 2')"; RLIM="${RLIM:-2}"
+      [[ "$RLIM" =~ ^[1-8]$ ]] || die "ledger claim $ID: orchestrate.max_concurrent_runs must be a whole number from 1 to 8 (got '$RLIM')"
+      RUNS=$(jq -rs --arg id "$ID" --argjson lim "$RLIM" "$JQ_LIVE_OWNER"'[.[] | select(.id != $id and live_owner and .owner.pid != null)]
+        | if length >= $lim then "\(length) runs at once (orchestrate.max_concurrent_runs \($lim)): " + (map("\(.id) (owned by \(.owner.session_name))") | join(", ")) else empty end' "$DIR"/*.json)
+      [ -z "$RUNS" ] || die "ledger claim $ID: busy: $RUNS — retry on the next pass"
+    fi
     # An intake-blocked entry is never worked on: claim → run → claim would reach the stall below and
     # overwrite the block (security re-review 2026-10-06). human:merge stays claimable — the deploy stage
     # babysits exactly that wait.

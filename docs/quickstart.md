@@ -126,6 +126,19 @@ first `/hefesto:hef.orchestrate` creates the board (a `tasks/` folder, `docs/rfc
 Stage lanes build and test through `hooks/lane-build.sh <command>` (for example `lane-build.sh go test ./...`): it
 gives the build a writable cache of its own inside the sandbox. A build run without it fails on the read-only cache.
 
+**How many runs at once.** A launched run (a background plan, build, verify or deploy session) is detached into its
+own scope (`systemd-run --user --scope`) or session (`setsid`), so it survives the orchestrator: closing that
+session, or systemd-oomd killing it, stops no worker, and the next pass reads each run's outcome from the ledger. To
+stop a run, `kill <owner.pid>` with the pid from `ledger.sh show <id>`; it stops its worker and records exit 143. Two
+keys under `orchestrate` keep the runs from starving the host:
+- `"max_concurrent_runs": 2` — launched runs at once, across every repository and role of the ledger (1–8, default
+  2). A lane's interactive work is not a run and is not counted.
+- `"min_free_mb": 4096` — a launch is refused while less memory than this is available (`MemAvailable`, in MiB;
+  0 turns it off), and while memory pressure is over 50 %.
+
+A launch refused by either exits **75**: busy, nothing claimed or recorded, retried on the next pass. A verifier
+refused that way is relaunched once its build has waited 10 minutes in phase `verify` with no owner.
+
 ## Day to day
 
 - **Decisions** come as forms in the orchestrator. Answering one runs the matching command, and Claude
