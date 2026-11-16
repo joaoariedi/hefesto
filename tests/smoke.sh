@@ -6318,6 +6318,17 @@ im builder plan LT-4 --prepare --lane repo-planner >/dev/null 2>&1 && { bad "--p
 l3_mut session-launch.sh 's/^  HEFESTO_LAUNCHER=1 "\$LEDGER" claim "\$ID" --session "\$LANE"/  "$LEDGER" claim "$ID" --session "$LANE"/'
 IM_SL="$l3_md/session-launch.sh" im planner plan LT-4 --prepare --lane repo-planner >/dev/null 2>&1; l3j LT-4 '.owner == null' \
   || { bad "mutation survived (FR-010): the --prepare claim unmarked, yet the lane's claim was written"; im_fail=1; }; l3_restore session-launch.sh
+# HEF-25 verify (review 2026-11-16): the RFC pin is recorded after the claim — on the --prepare path too
+printf '\n## LT-20 — prepared with an RFC\nrfc: docs/rfcs/LT-20.md\n' >> "$l3_t/tasks/TODO.md"; printf '# RFC LT-20\nthe idea\n' > "$l3_t/docs/rfcs/LT-20.md"
+l3l register LT-20 --ref TODO.md#LT-20 >/dev/null 2>&1
+im_rfc20() { # [launcher] → a --prepare of LT-20, then its claim released and its worktree removed; the pin's sha256 in im_p
+  IM_SL="${1:-$SL}" im planner plan LT-20 --prepare --lane repo-planner >/dev/null 2>&1; im_p="$(jq -r '.source.rfc.sha256 // empty' "$(sld "$l3_t")/LT-20.json")"
+  l3l run LT-20 --role plan --exit 1 --usd 0 --session-id in-lane >/dev/null 2>&1; git -C "$l3_t" worktree remove --force .claude/worktrees/LT-20 >/dev/null 2>&1
+  git -C "$l3_t" branch -D worktree-LT-20 >/dev/null 2>&1; l3set LT-20 '.source.rfc = null | .phase = "queued"'
+}
+l3_mut session-launch.sh 's/; rfc_pin_record || undo "session-launch \$ROLE \$ID --prepare: cannot record the RFC pin"//'
+im_rfc20 "$l3_md/session-launch.sh"; [ -n "$im_p" ] && { bad "mutation survived: the --prepare pin record removed, yet LT-20 holds a pin"; im_fail=1; }; l3_restore session-launch.sh
+im_rfc20; [ -n "$im_p" ] || { bad "--prepare of an item with an RFC must record the RFC pin after its claim: $(jq -c .source "$(sld "$l3_t")/LT-20.json")"; im_fail=1; }
 im_o="$(im planner plan LT-4 --prepare --lane repo-planner 2>&1)"; im_wt="$l3_t/.claude/worktrees/LT-4"
 { grep -qx "worktree: $im_wt" <<<"$im_o" && [ -d "$im_wt" ] && grep -qF 'You are the repo-planner lane' "$(sld "$l3_t")/LT-4.prompt.md" \
   && l3j LT-4 '.owner.session_name == "repo-planner" and .owner.mode == "interactive" and (.owner | has("pid") | not) and .phase == "intake" and .branch == "worktree-LT-4"'; } \

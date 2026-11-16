@@ -26,7 +26,8 @@ item_as_data() {
 # approval and the build compare against exactly what the plan was made from.
 rfc_pin_record() { # after the launcher's claim: record the RFC pin rfc_as_data left in $RFC_PIN (HEF-25 verify B1)
   [ -s "${RFC_PIN:-}" ] || { rm -f "${RFC_PIN:-}"; return 0; }
-  [ "$DRY" = 1 ] || "$LEDGER" record "$ID" --rfc-snapshot "$RFC_PIN" >/dev/null || { rm -f "$RFC_PIN"; exit 1; }
+  # returns, never exits: the --prepare caller undoes its claim on a failure (verify 2026-11-16, review)
+  [ "$DRY" = 1 ] || "$LEDGER" record "$ID" --rfc-snapshot "$RFC_PIN" >/dev/null || { rm -f "$RFC_PIN"; return 1; }
   rm -f "$RFC_PIN"
 }
 rfc_as_data() { # → the delimited RFC block, its pin left in $RFC_PIN for rfc_pin_record; nothing when the item names no RFC

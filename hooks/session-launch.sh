@@ -612,8 +612,9 @@ if [ "$MODE" = prepare ]; then
     die "session-launch $ROLE $ID --prepare: blocked on $EBK — the person clears it first, in the orchestrator"
   fi
   # HEF-27 FR-010: the launcher marker per call, never exported (the claude worker would inherit it)
-  HEFESTO_LAUNCHER=1 "$LEDGER" claim "$ID" --session "$LANE" --role "$ROLE" --mode interactive >/dev/null || exit 1
-  undo() { HEFESTO_LAUNCHER=1 "$LEDGER" run "$ID" --role "$ROLE" --exit 1 --usd 0 --session-id in-lane --note "prepare failed" >/dev/null 2>&1; die "$1"; }
+  HEFESTO_LAUNCHER=1 "$LEDGER" claim "$ID" --session "$LANE" --role "$ROLE" --mode interactive >/dev/null || { rm -f "${RFC_PIN:-}"; exit 1; }
+  # the RFC pin, recorded after the claim here too (HEF-25 verify: the prepare path had lost it)
+  undo() { HEFESTO_LAUNCHER=1 "$LEDGER" run "$ID" --role "$ROLE" --exit 1 --usd 0 --session-id in-lane --note "prepare failed" >/dev/null 2>&1; die "$1"; }; rfc_pin_record || undo "session-launch $ROLE $ID --prepare: cannot record the RFC pin"
   [ -z "$APP_NEW" ] || "$LEDGER" record "$ID" --spec-root "$APP_NEW" >/dev/null || undo "session-launch $ROLE $ID --prepare: cannot record the app"
   case "$ROLE:$PHASE" in
     implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || undo "session-launch implement $ID --prepare: advance failed" ;;
