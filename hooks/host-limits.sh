@@ -27,8 +27,12 @@ hl_detacher() {
   case "${4:-}" in *"/../"*) echo "session-launch: the runs folder $4 has a /../ in it — the run is attached to this shell" >&2; return 0 ;; esac
   if command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
     # OOMPolicy=continue: a scope's default (stop) ends the whole run when the kernel OOM-kills one tool in it
-    # (verify 2026-11-16: a 7.6 GB shellcheck took the run with it, exit 143) — the tool fails, the run goes on
-    echo "systemd-run --user --scope --collect --quiet -p OOMPolicy=continue --unit hefesto-$1-$2-$$ -- setsid -w"
+    # (verify 2026-11-16: a 7.6 GB shellcheck took the run with it, exit 143) — the tool fails, the run goes on.
+    # Scopes take the property from systemd 253 on (NEWS); an older one refuses the call, and the run would lose its
+    # scope to the setsid fallback (review 2026-11-16) — so it is passed only where it is understood
+    local sdv oom=""; sdv="$(systemctl --version 2>/dev/null | awk 'NR == 1 { print $2 + 0 }')"
+    [ "${sdv:-0}" -ge 253 ] 2>/dev/null && oom="-p OOMPolicy=continue "
+    echo "systemd-run --user --scope --collect --quiet ${oom}--unit hefesto-$1-$2-$$ -- setsid -w"
   elif command -v setsid >/dev/null 2>&1; then
     echo "setsid -w"
   else

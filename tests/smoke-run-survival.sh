@@ -151,7 +151,7 @@ echo "setsid \$*" >> "$rs_dlog"
 [ -n "\${RS_LOWMEM:-}" ] && { HEFESTO_PROC_MEMINFO="\$RS_LOWMEM"; export HEFESTO_PROC_MEMINFO; }
 [ "\$1" = -w ] && shift; exec "\$@"
 EOF
-printf '#!/bin/sh\n# FakeSystemctl: the user manager answers\n[ "$1 $2" = "--user show-environment" ]\n' > "$rs_dboth/systemctl"
+printf '#!/bin/sh\n# FakeSystemctl: the user manager answers; --version says RS_SDV (default 262)\n[ "$1" != --version ] || { echo "systemd ${RS_SDV:-262} (${RS_SDV:-262}.1-1)"; exit 0; }\n[ "$1 $2" = "--user show-environment" ]\n' > "$rs_dboth/systemctl"
 cp "$rs_dboth/setsid" "$rs_dsid/setsid"
 printf '#!/bin/sh\n# FakeSystemctl: no user manager\nexit 1\n' > "$rs_dsid/systemctl"
 chmod +x "$rs_dboth"/* "$rs_dsid"/*
@@ -165,6 +165,11 @@ rs_det() { # PATH lane-mode [lib] → the detacher words in rs_o, stderr in rs_e
 }
 (unset HEFESTO_RUN_DETACH; rs_det "$rs_dboth:$PATH" 0; [[ "$rs_o" == "systemd-run --user --scope --collect --quiet -p OOMPolicy=continue --unit hefesto-RS-0-implement-"*" -- setsid -w" ]]) \
   || { bad "FR-001 systemd-run + a user manager → systemd-run --user --scope … -p OOMPolicy=continue … -- setsid -w"; rs_fail=1; }
+# systemd before 253 refuses OOMPolicy= on a scope (review 2026-11-16): the property is left out, the scope kept
+(unset HEFESTO_RUN_DETACH; export RS_SDV=252; rs_det "$rs_dboth:$PATH" 0; [[ "$rs_o" == "systemd-run --user --scope --collect --quiet --unit hefesto-RS-0-implement-"*" -- setsid -w" ]]) \
+  || { bad "FR-001 systemd 252 → the scope without OOMPolicy (it would refuse it): $rs_o"; rs_fail=1; }
+(unset HEFESTO_RUN_DETACH; export RS_SDV=253; rs_det "$rs_dboth:$PATH" 0; grep -qF -- '-p OOMPolicy=continue --unit' <<<"$rs_o") \
+  || { bad "FR-001 systemd 253 → OOMPolicy=continue on the scope"; rs_fail=1; }
 (unset HEFESTO_RUN_DETACH; rs_det "$rs_dsid:$PATH" 0; [ "$rs_o" = "setsid -w" ]) || { bad "FR-001 no user manager → setsid -w"; rs_fail=1; }
 (unset HEFESTO_RUN_DETACH; rs_det "$rs_farm" 0; [ -z "$rs_o" ] && grep -qF 'session-launch: no systemd-run or setsid — the run is attached to this shell' <<<"$rs_e") \
   || { bad "FR-001 neither → no words and the attached note"; rs_fail=1; }
