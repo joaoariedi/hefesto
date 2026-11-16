@@ -70,7 +70,9 @@ while IFS= read -r e; do
   [ -n "$e" ] || continue
   w="${e%% *}"; q="$(re_quote "$w")"
   # (a path such as /usr/bin/gh is not matched: it does not leave the sandbox — the exclusion is the bare word — and the
-  # sandbox denies api.github.com, which setup writes and --check verifies)
+  # lanes' sandbox denies api.github.com, which setup writes and --check verifies. That deny is the lanes' settings:
+  # a worker's sandbox is the launcher's --settings, and orchestrate.allowed_domains may list api.github.com for it —
+  # forge-setup D9; the HEF-22 live check saw the lanes' deny reach a worker in a --lanes project)
   # the word anywhere, quoted or escaped too — not only after an operator: `if :; then gh …; fi`, `! gh …`, `"gh" …`
   # and `\gh …` start with something else, so they run INSIDE the sandbox, auto-allowed (code review of PR A)
   re="(^|[^A-Za-z0-9_./-])[\\\\\"']*${q}[\"']*([^A-Za-z0-9_./-]|\$)"

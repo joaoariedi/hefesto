@@ -50,6 +50,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; LEDGER="$HERE/ledger.sh"; BOARD="$HERE/st
 [ -f "$HERE/launch-item.sh" ] || { echo "session-launch: hooks/launch-item.sh is missing beside it" >&2; exit 1; }
 # shellcheck source=hooks/launch-item.sh
 . "$HERE/launch-item.sh"   # item_as_data, rfc_as_data, rfc_drifted, and an app's folder: app_dir, app_enter, wt_add (#172)
+# shellcheck source=hooks/forge-lib.sh
+. "$HERE/forge-lib.sh"     # forge_public_host, forge_infra_stall, FORGE_INFRA_RULE (forge-setup, HEF-22)
 # lanes-interactive: ledger.sh refuses a person's decision from a session that is not the orchestrator lane
 # (CLAUDE_CODE_SESSION_ID, its second gate). This launcher's own ledger calls — the RFC pin at a plan launch, the
 # transcription — are hefesto's, not the lane's, so the caller's id is kept only for the --lane check below.
@@ -277,19 +279,9 @@ fi
 DOMAINS="$(cfg '.orchestrate.allowed_domains // [] | if type == "array" then .[] else error("not a list") end' 2>/dev/null)" \
   || die "session-launch: orchestrate.allowed_domains must be a list of hostnames like [\"registry.npmjs.org\", \"*.pythonhosted.org\"]"
 while IFS= read -r d; do
-  [ -z "$d" ] && continue
-  # a public hostname only: the last label is letters (no IP literal — 169.254.169.254, 10.x, 127.x), no
-  # localhost, a port in 1..65535. This field moves the worker sandbox's own network boundary.
-  DOK=0
-  if [[ "$d" =~ ^(\*\.)?([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(:([0-9]{1,5}))?$ ]]; then
-    DPORT="${BASH_REMATCH[5]}"   # read before the next match overwrites BASH_REMATCH
-    # names that resolve inside a network by convention: the cloud metadata service (metadata.google.internal),
-    # the container host (host.docker.internal), mDNS, home routers — a text check cannot stop DNS beyond these
-    if [[ ! "$d" =~ (^|\.)(localhost|internal|local|localdomain|lan|home|intranet|corp)(:|$) ]]; then
-      if [ -z "$DPORT" ] || { [ "$DPORT" -ge 1 ] && [ "$DPORT" -le 65535 ]; }; then DOK=1; fi
-    fi
-  fi
-  [ "$DOK" = 1 ] || die "session-launch: orchestrate.allowed_domains: '$d' is not a public hostname (expected e.g. registry.npmjs.org or *.npmjs.org, optionally :port 1-65535 — no IP address, no localhost, no scheme, no path)"
+  # a public hostname only (forge-lib.sh, the one rule setup, the launcher and the ledger apply — HEF-22): no IP
+  # literal, no localhost or internal suffix, a port in 1..65535. This field moves the worker sandbox's network boundary.
+  [ -z "$d" ] || forge_public_host "$d" || die "session-launch: orchestrate.allowed_domains: '$d' is not a public hostname (expected e.g. registry.npmjs.org or *.npmjs.org, optionally :port 1-65535 — no IP address, no localhost, no scheme, no path)"
 done <<<"$DOMAINS"
 DOMJ="$(printf '%s\n' "$DOMAINS" | sed '/^$/d' | jq -R . | jq -sc .)"
 # issue #126: a worker's sandbox writes only its worktree, so a toolchain's user cache (Go's ~/.cache/go-build,
@@ -367,6 +359,9 @@ transcribe() { # the ledger after a stage: from SO (the structured outcome), RC,
 case "$ROLE" in
   implement)
     R="$(jq -r '.route // empty' <<<"$SO")"; record_worktree "$R"
+    # HEF-22 FR-012/016: an infrastructure stop is a stall with the plugin's fix line — before the outcome switch, so
+    # blocked + null never becomes human:intake and failed never dies; infra_cause wins over blocked_on
+    forge_infra_stall "$LEDGER" "$ID" "$SO" && return 0
     P="$(jq -r '.pr_url // empty' <<<"$SO")"; [ -n "$P" ] && { "$LEDGER" record "$ID" --pr "$P" >/dev/null || exit 1; }
     # a reopen's follow-up is done once a PR exists, or a person was asked about it; a failure, a red CI or a conflict
     # leaves it for the next run — a reopened item cannot be reopened again to re-record it (code review of 9.1.1)
@@ -381,6 +376,7 @@ case "$ROLE" in
     . "$HERE/plan-review-lib.sh" || die "session-launch plan $ID: cannot source $HERE/plan-review-lib.sh"   # --finish skips the prompt arm
     OC="$(jq -r '.outcome' <<<"$SO")"
     if [ "$OC" = tasks ]; then record_worktree full; else record_worktree ""; fi   # route full: the verify chain must include /hefesto:hef.verify
+    forge_infra_stall "$LEDGER" "$ID" "$SO" && return 0   # HEF-22: before the person's text is marked consumed
     case "$OC" in tasks|blocked) "$LEDGER" record "$ID" --person-text-consumed >/dev/null || exit 1 ;; esac
     case "$OC" in
       tasks)   # lanes-v2 FR-006: with plan_review "human" a finished draft waits for a person's named approval
@@ -484,19 +480,19 @@ case "$ROLE" in
       # artifact, not the phase: a retry after a failed run sits in `implement` and must not go back to
       # /hefesto:hef.agent and re-spec (code review + quality gate 2026-09-30).
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. ${REPLAN}Run /hefesto:hef.implement (hefesto:workflow for a large task list), then /hefesto:hef.verify, /hefesto:hef.quality, /hefesto:hef.review (code mode) and /hefesto:hef.pr; stop at the first human gate. ${KIND_RULE}${APP_RULE}${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
+Board item $ID for this repository was planned by a separate session: the spec, the reviewed plan and the task list are at $SPEC_DIR on this branch. ${REPLAN}Run /hefesto:hef.implement (hefesto:workflow for a large task list), then /hefesto:hef.verify, /hefesto:hef.quality, /hefesto:hef.review (code mode) and /hefesto:hef.pr; stop at the first human gate. ${KIND_RULE}${APP_RULE}${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. ${FORGE_INFRA_RULE}When you stop, fill the structured output: summary (what was done, ≤2000 chars), route "full", outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir ($SPEC_DIR).
 $FUBLK
 EOF
     else
       ITEM="$(item_as_data)" || exit 1
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository. Run /hefesto:hef.agent on it: size the work, follow the route it picks (fix → /hefesto:hef.fix → /hefesto:hef.pr; light or full → /hefesto:hef.spec and onward through /hefesto:hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}${APP_RULE}$INJECTION_RULE ${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
+Board item $ID for this repository. Run /hefesto:hef.agent on it: size the work, follow the route it picks (fix → /hefesto:hef.fix → /hefesto:hef.pr; light or full → /hefesto:hef.spec and onward through /hefesto:hef.pr), and stop at the first human gate (clarify, plan review). ${KIND_RULE}${APP_RULE}$INJECTION_RULE ${PR_BASE_RULE}Never merge, approve, or push to a protected branch ($PROT); the PR is the handoff. ${FORGE_INFRA_RULE}When you stop, fill the structured output: summary (what was done, ≤2000 chars), route, outcome (pr | blocked | failed), pr_url, blocked_on, spec_dir.
 
 $ITEM
 $FUBLK
 EOF
     fi
-    SCHEMA='{"type":"object","required":["summary","route","outcome"],"properties":{"summary":{"type":"string","maxLength":2000},"route":{"enum":["fix","light","full"]},"outcome":{"enum":["pr","blocked","failed"]},"pr_url":{"type":["string","null"]},"blocked_on":{"enum":["human:clarify","human:plan-review","human:merge","ci","conflict",null]},"spec_dir":{"type":["string","null"]}}}' ;;
+    SCHEMA='{"type":"object","required":["summary","route","outcome"],"properties":{"summary":{"type":"string","maxLength":2000},"route":{"enum":["fix","light","full"]},"outcome":{"enum":["pr","blocked","failed"]},"pr_url":{"type":["string","null"]},"blocked_on":{"enum":["human:clarify","human:plan-review","human:merge","ci","conflict",null]},"spec_dir":{"type":["string","null"]},"infra_cause":{"enum":["push-refused","host-denied","credential-helper-missing",null]},"infra_host":{"type":["string","null"],"maxLength":253}}}' ;;
   plan)
     # A plan run never reopens a planned item, nor runs over a person's block — and both refusals come BEFORE
     # the RFC pin below, which would otherwise re-take an approved pin with no dialog (code review 2026-10-19).
@@ -526,7 +522,7 @@ EOF
     # missing artifact — a cleared human:plan-review means "## Reviewed" exists, and re-planning would erase it.
     if [ -n "$SPEC_DIR" ]; then
       read -r -d '' PROMPT <<EOF || true
-The spec for board item $ID already exists at $SPEC_DIR on this branch — do not re-spec. Resume at the first missing artifact: /hefesto:hef.clarify only while [NEEDS CLARIFICATION] markers remain (a marker you cannot decide from the code → outcome "blocked", blocked_on "human:clarify"); /hefesto:hef.plan only if plan.md is missing; /hefesto:hef.review (plan mode) only if plan.md lacks "## Reviewed" (${PRR_RULE}); then /hefesto:hef.tasks. Commit everything under .specify/ on this branch (git add .specify && git commit). Never edit a file outside .specify/, and $WHERE_RULE. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir ($SPEC_DIR), blocked_on.
+The spec for board item $ID already exists at $SPEC_DIR on this branch — do not re-spec. Resume at the first missing artifact: /hefesto:hef.clarify only while [NEEDS CLARIFICATION] markers remain (a marker you cannot decide from the code → outcome "blocked", blocked_on "human:clarify"); /hefesto:hef.plan only if plan.md is missing; /hefesto:hef.review (plan mode) only if plan.md lacks "## Reviewed" (${PRR_RULE}); then /hefesto:hef.tasks. Commit everything under .specify/ on this branch (git add .specify && git commit). Never edit a file outside .specify/, and $WHERE_RULE. ${FORGE_INFRA_RULE}When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir ($SPEC_DIR), blocked_on.
 
 $NOTEBLK
 $ANSBLK
@@ -535,14 +531,14 @@ EOF
     else
       ITEM="$(item_as_data)" || exit 1
       read -r -d '' PROMPT <<EOF || true
-Board item $ID for this repository. Plan it, do not build it: run /hefesto:hef.spec, then /hefesto:hef.plan, then /hefesto:hef.review plan --cap $PRR_CAP --spec-dir <spec dir> (plan mode — the fresh-context reviewer), then /hefesto:hef.tasks; commit everything under .specify/ on this branch (git add .specify && git commit). Stop with outcome "blocked" and blocked_on "human:clarify" at the first [NEEDS CLARIFICATION] you cannot decide from the code; for the review, ${PRR_RULE}. $INJECTION_RULE Never edit a file outside .specify/, and $WHERE_RULE. When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir (the .specify/specs/<name> directory you created), blocked_on.
+Board item $ID for this repository. Plan it, do not build it: run /hefesto:hef.spec, then /hefesto:hef.plan, then /hefesto:hef.review plan --cap $PRR_CAP --spec-dir <spec dir> (plan mode — the fresh-context reviewer), then /hefesto:hef.tasks; commit everything under .specify/ on this branch (git add .specify && git commit). Stop with outcome "blocked" and blocked_on "human:clarify" at the first [NEEDS CLARIFICATION] you cannot decide from the code; for the review, ${PRR_RULE}. $INJECTION_RULE Never edit a file outside .specify/, and $WHERE_RULE. ${FORGE_INFRA_RULE}When you stop, fill the structured output: summary (≤2000 chars), outcome (tasks | blocked | failed), spec_dir (the .specify/specs/<name> directory you created), blocked_on.
 
 $ITEM
 
 $RFCBLK
 EOF
     fi
-    SCHEMA='{"type":"object","required":["summary","outcome"],"properties":{"summary":{"type":"string","maxLength":2000},"outcome":{"enum":["tasks","blocked","failed"]},"spec_dir":{"type":["string","null"]},"blocked_on":{"enum":["human:clarify","human:plan-review",null]}}}' ;;
+    SCHEMA='{"type":"object","required":["summary","outcome"],"properties":{"summary":{"type":"string","maxLength":2000},"outcome":{"enum":["tasks","blocked","failed"]},"spec_dir":{"type":["string","null"]},"blocked_on":{"enum":["human:clarify","human:plan-review",null]},"infra_cause":{"enum":["push-refused","host-denied","credential-helper-missing",null]},"infra_host":{"type":["string","null"],"maxLength":253}}}' ;;
   verify)
     ROUTE="$(jq -r '.route // "fix"' <<<"$E")"
     [ -n "$WORKTREE" ] || die "session-launch verify $ID: no worktree recorded on the entry — run 'session-launch.sh implement $ID' first"

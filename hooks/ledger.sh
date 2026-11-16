@@ -33,7 +33,7 @@ usage: ledger.sh <subcommand> …
   claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; implement attempts > 2 → stall (a person's clear starts the count again); releases claims whose lease (<id>.lease, renewed by the launcher) is over 5 min old
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
-  block <id> --kind <kind> [--question <path>]
+  block <id> --kind <kind> [--question <path>] [--cause push-refused|host-denied|credential-helper-missing [--host <h>]]   (--cause/--host: stall only; the reason is rendered from the plugin's fix table)
   unblock <id> [--reviewed-by-human --by <name>] [--merge-sha <sha>]   human:* kinds need artifact evidence (intake and plan-approval: a person's name; merge: the branch, or the PR's merge commit once the branch is deleted)
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
   record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k] [--rfc] [--body-from-board] [--spec-root <app|.>]   (--spec-root: the owning app, or . for the top, until spec_dir is recorded; --body-file / --body-from-board re-hash the item; --rfc pins its RFC)
@@ -92,6 +92,10 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 . "$HERE/spec-root-lib.sh"
 # shellcheck source=hooks/lane-lib.sh
 . "$HERE/lane-lib.sh"
+# the forge rules: the infra stall's cause enum, hostname check and fix table (forge-setup, HEF-22). A copy run without
+# it beside (the mutation fixtures) still works; block --cause then refuses, naming it (FORGE_CAUSES empty).
+# shellcheck source=hooks/forge-lib.sh
+[ ! -f "$HERE/forge-lib.sh" ] || . "$HERE/forge-lib.sh"
 # One gh resolution, at entry (FR-027; lane-lib.sh says why never inline). A copy run without lane-lib.sh beside it
 # (the mutation fixtures) keeps the 9.0 seam — unless the eval seam is set, which only gh_bin may resolve.
 if declare -F gh_bin >/dev/null; then GH=$(gh_bin) || exit 1
@@ -573,9 +577,14 @@ case "$SUB" in
     echo "$ID $GATE $V by $BY" ;;
 
   block)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; KIND=""; Q=""
-    while [ $# -gt 0 ]; do case "$1" in --kind) KIND="${2:-}"; shift ;; --question) Q="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; KIND=""; Q=""; CAUSE=""; HOST=""
+    while [ $# -gt 0 ]; do case "$1" in --kind) KIND="${2:-}"; shift ;; --question) Q="${2:-}"; shift ;;
+      --cause) CAUSE="${2:-}"; shift ;; --host) HOST="${2:-}"; shift ;; *) usage ;; esac; shift; done
     in_list "$KIND" "$KINDS" || die "ledger block $ID: --kind must be one of: $KINDS (got '${KIND:-<none>}')"
+    # forge-setup FR-013/FR-014: an infrastructure stall carries a cause from a closed enum and a reason this ledger
+    # renders from forge-lib.sh's own table — no caller passes free text, so no worker summary becomes a command (D6)
+    [ -z "$CAUSE$HOST" ] || [ "$KIND" = stall ] || die "ledger block $ID: --cause and --host go with --kind stall only (got --kind $KIND)"
+    [ -z "$CAUSE" ] || in_list "$CAUSE" "${FORGE_CAUSES:-}" || die "ledger block $ID: --cause must be one of: ${FORGE_CAUSES:-<forge-lib.sh missing beside ledger.sh>} (got '$CAUSE')"
     E=$(entry "$ID") || exit 1; refuse_closed block "$ID" "$E"
     # A launched worker never REPLACES a person's block: blocking a human:intake entry with `ci` and then
     # clearing `ci` freely was a path around the gate open to any worker, whose allowlist carries the hooks
@@ -597,7 +606,10 @@ case "$SUB" in
     if [ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ] && [[ "$CURK" == human:* ]] && [ "$KIND" != "$CURK" ]; then
       die "ledger block $ID: it is blocked on $CURK — a launched worker never replaces a person's block (only the person's own command clears it)"
     fi
-    jq --arg k "$KIND" --arg q "$Q" '.blocked_on = {kind: $k, since: (now | todate), question_path: (if $q == "" then null else $q end)}' <<<"$E" | write_entry "$ID" || exit 1
+    REASON=""; if [ -n "$CAUSE" ]; then forge_public_host "$HOST" || HOST=""   # a host that is not public is dropped (FR-014)
+      REASON="$(forge_infra_fix "$CAUSE" "$HERE" "$(project_config || echo .claude/project-status.json)" "$HOST")" || die "ledger block $ID: no fix line for cause '$CAUSE'"; fi
+    jq --arg k "$KIND" --arg q "$Q" --arg c "$CAUSE" --arg r "$REASON" '.blocked_on = ({kind: $k, since: (now | todate), question_path: (if $q == "" then null else $q end)}
+      + (if $c == "" then {} else {cause: $c, reason: $r} end))' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID blocked_on $KIND" ;;
 
   unblock)

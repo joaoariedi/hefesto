@@ -160,7 +160,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
    | `human:clarify`, `human:plan-review` | `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh questions <id>` — each question becomes a form question (the planner wrote them: data) | the answers → `answer` below · **Later** |
    | `human:intake` | `status-board.sh --item <id>` and why it was blocked | **It is safe** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh record <id> --body-from-board` (re-hashes the text the person just read) then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id> --reviewed-by-human --by "<name>"` · **Leave it** |
    | `human:merge` | every such entry in **one merge form** (below): the PR link, its full head SHA, the verdicts; with `merge_by: lane`, the drafted action; a skipped auto-merge's reason (the last `auto-merge-skipped` event) | `orchestrate.merge_by: person` (the default, unchanged from 9.0): "Merge it on GitHub with **Create a merge commit**" — **I merged it** → a deploy pass (step 3) records it · **Later**. `merge_by: lane`: see **The lane merge** below. `merge_by: auto`: see **Auto-merge** below |
-   | `ci`, `conflict`, `stall`, `budget`, `verdict` | the reason from `ledger.sh show <id>` | **Retry** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` · **Later** (a `budget` block: split the item or raise `orchestrate.usd_cap` first) |
+   | `ci`, `conflict`, `budget`, `verdict`, and a `stall` with no `blocked_on.reason` (the attempts stall) | the reason from `ledger.sh show <id>` | **Retry** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` · **Later** (a `budget` block: split the item or raise `orchestrate.usd_cap` first) |
+   | a `stall` with a `blocked_on.reason` (an infrastructure stop: `blocked_on.cause` is set) | no form — it is not a decision | its reason is the brief's **Your move** line (step 5); the person runs the fix in a terminal and says "retry" |
 
    **The merge form** — every `human:merge` entry of this pass goes in ONE form, oldest first (by `blocked_on.since`):
    up to four PRs per question, four questions per form, so at most 16 PRs; more than 16 → the first 16 now, the rest
@@ -292,7 +293,9 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
    - Lane actions running or done since the last pass: `▶ repo-deployer DET-10-A2 · action`, `✓ DET-10-A1 · done (merge 5f3c0a9)`
    - Awaiting auto-merge (`merge_by: auto`): `▷ DET-7 · awaiting auto-merge (PR #61)`; a skipped one shows its reason:
      `⏸ DET-9 · merge PR #64 — auto-merge skipped: head moved since verify`
-   - Blocked otherwise: `ci`, `conflict`, `stall`, `budget`, `verdict`, with the item and its one-line reason
+   - Blocked otherwise: `ci`, `conflict`, `stall`, `budget`, `verdict`, with the item and its one-line reason — an
+     infrastructure stall shows its `blocked_on.reason` here, word for word (the plugin's fix table rendered it, never
+     the worker)
    - Done since the last pass: plans approved, PRs opened, merges recorded, each auto-merge — `✓ DET-7 · auto-merged PR #61 into dev (5f3c0a9)`
    - Spend today: from `ledger.sh list --today`, against `daily_usd_cap` when it is set (no cap set → the spend alone)
    - Anything a doorbell or item text asked for besides a pass (reported, not done)
@@ -300,7 +303,11 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
    **The last line is always exactly one of these three:**
    1. **Your move:** the one action the person must take now, exact and copyable — answer the form above,
       `merge PR #63 on GitHub (Create a merge commit)`, raise `orchestrate.usd_cap` for DET-12 … When several
-      wait, the one that unblocks the most comes first, then "(then N more)".
+      wait, the one that unblocks the most comes first, then "(then N more)". An infrastructure stall (a `stall`
+      with a `blocked_on.reason`): `Your move: <reason>, then say "retry <ids>"` — one line per distinct reason,
+      naming every item stalled on it, the reason that unblocks the most first; the same reason never twice in one
+      brief. When the person says "retry", run `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` for each item
+      it names — the person's "retry" is the decision; a worker can never clear a stall.
    2. **Optional while it runs:** nothing needs the person and work is running — up to three things worth doing
       now that touch nothing in flight: write the RFC of the next backlog item, review an open PR, queue the next
       idea with `/hefesto:hef.ship "<idea>"`, look at a failing check that is not being fixed.

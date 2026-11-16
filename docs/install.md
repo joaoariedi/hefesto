@@ -439,6 +439,28 @@ For the short path — install, one lane or four, a new or a running project —
    - with `--lanes`: `crossSessionInbound: "accept"`, `HEFESTO_LANES` and the lane map (`HEFESTO_LANE_MAP`, from
      `orchestrate.lanes`, `orchestrate.lane_prefix` or the folder name).
 
+   **The forge, for the workers.** `hefesto-setup.sh` also sets the HTTPS push rewrite and the forge's hosts, for the
+   project and each repository of an external board's `repos` map — a terminal is the one place outside the sandbox
+   that can:
+   - `orchestrate.allowed_domains` in the board config gets the forge's hosts (`github.com` → `"github.com",
+     "api.github.com"`; `gitlab.com`, `codeberg.org` or a self-hosted forge → that host) — only when the key is
+     absent: a list you wrote is never touched (setup names the forge hosts it lacks), and a board config that is
+     not in `jq .` form is left byte-identical with the exact snippet printed. The board config is tracked: setup
+     says it changed it, and you commit it. A remote on an IP address, `localhost` or an internal name is refused.
+   - an SSH remote (`git@<host>:…` or `ssh://git@<host>/…`) gets `url."https://<host>/".pushInsteadOf <prefix>` in
+     the repository's own config, so a worker's push goes over HTTPS (the sandbox proxy carries nothing else); setup
+     prints `gh auth setup-git` when no credential helper applies to `https://<host>/`. An `ssh://` remote with a
+     port, or a user other than `git`, is noted and left for you. `--remove` unsets only the rewrites setup added.
+   - a zero-byte `.git/config.lock` older than a minute — what a sandboxed `git config` leaves, since the sandbox
+     mounts `/dev/null` over it — stops a due rewrite before anything is written, with the `rm` to run.
+     `hefesto-setup.sh --check` reports such a lock inside its one `setup: missing …` line; the lock check needs an
+     unsandboxed caller (a terminal, or the session-start hook) — a sandboxed shell cannot see the lock.
+
+   A worker that stops on infrastructure (`git push` refused, a host denied, no credential helper) reports a cause
+   from a closed list; the launcher turns it into a `stall` whose reason is one fix line from hefesto's own table
+   (never the worker's words), shown once as **Your move** in the orchestrator's brief — not asked as a form. Run the
+   fix in a terminal and say "retry".
+
    Its other flags: `--check` (read-only: `setup: ok`, or what is missing; exit 1), `--print` (show the merged file,
    write nothing), `--remove` (take out every entry it wrote, for any version), `--keep-statusline` (never touch
    `statusLine`), `--strict`, and the command lists below (`--allow-command`, `--unsandboxed-command`,
@@ -453,9 +475,25 @@ For the short path — install, one lane or four, a new or a running project —
    your own `~/.cache/go-build`, which your unsandboxed builds share). Go's module cache (`~/go/pkg/mod`) stays
    read-only: modules already there work, a task that adds one cannot download it. The network: only
    `orchestrate.allowed_domains` (public hostnames). A worker cannot push over SSH (the sandbox proxy carries
-   HTTPS only), so for workers that push, add `"github.com"` and `"api.github.com"` and, in the repository,
-   `git config url."https://github.com/".pushInsteadOf git@github.com:` — pushes then go over HTTPS with the
-   `gh` credential helper.
+   HTTPS only); `hefesto-setup.sh` writes the forge's hosts there and the HTTPS push rewrite into the repository
+   (above, "The forge, for the workers") — pushes then go over HTTPS with the `gh` credential helper. Add any other
+   host a build needs (a package registry) to the list yourself.
+
+   **What a worker reaches of the forge, and what fences it.** The lanes keep `api.github.com` in
+   `sandbox.network.deniedDomains` (they run `gh` unsandboxed, under the permission rules), and **that deny reaches
+   the workers too, by design** (owner's decision, 2026-11-14): a worker reaches the API only through `gh`, which runs
+   outside the sandbox under the rules, never through `curl` or another command inside it. Live check (HEF-22,
+   2026-11-14, a launched worker): a sandboxed `git ls-remote https://api.github.com/…` was refused ("host is on the
+   deny list"), `git ls-remote https://github.com/<o>/<r>` was reached, and `gh pr view` reached the API. So
+   `github.com` carries the push, `gh` carries the PR, and `api.github.com` in `allowed_domains` does not open the API
+   to a worker's sandboxed commands. What
+   fences a worker is not only the network: its tool allowlist (the default `allowed_tools.implement` — file tools, `Bash(git *)`,
+   `Bash(gh pr create *)`, `Bash(gh pr view *)` — with every other command denied; it fences tools, not code:
+   `git` can run a shell), lane-guard (it denies any command naming `gh` that is not a read or PR-opening form) and
+   the ledger (a worker cannot clear a stall or a person's block). A merge on GitHub is stopped by **branch
+   protection** — the same thing that stops a worker's `git push origin HEAD:main`. Protect the integration branch.
+   **Widening `orchestrate.allowed_tools.implement`** (say, with `Bash(curl *)`) widens what reaches the forge's API
+   through an unsandboxed or allowed tool.
 
 8c. **Lane actions, and what protects them** (hefesto 9; [`quickstart.md`](quickstart.md), "Lane actions"). Any
    action a stage lane carries out for you — a merge with its head SHA, a release cut, a deploy, a backfill, a
