@@ -197,6 +197,13 @@ rs_oom active 0
 for rs_l in "" 60% 60.00%; do rs_oom active "$rs_l"; grep -qF 'setup: note:' <<<"$rs_o" || { bad "FR-012 a limit of '$rs_l' is oomd's default — the note is due"; rs_fail=1; }; done
 rs_oom active 80%; [ -z "$rs_o" ] || { bad "FR-012 a limit of 80% → no note: $rs_o"; rs_fail=1; }
 rs_oom inactive 0; [ -z "$rs_o" ] || { bad "FR-012 oomd inactive → no note: $rs_o"; rs_fail=1; }
+# what systemctl show really prints: the limit as a fraction of 2^32 (verify gate 2026-11-16, B2, on this host)
+rs_oom active 2576980377; grep -qF 'setup: note:' <<<"$rs_o" || { bad "FR-012 a raw limit 2576980377 is 60 % of 2^32, oomd's default — the note is due"; rs_fail=1; }
+rs_oom active 3435973837; [ -z "$rs_o" ] || { bad "FR-012 a raw limit 3435973837 is 80 % — no note: $rs_o"; rs_fail=1; }
+if rs_mutant host-limits.sh '/(l \* 100 + 2147483648) \/ 4294967296/d'; then
+  rs_oom active 2576980377 "$RS_MD/host-limits.sh"; [ -z "$rs_o" ] || { bad "mutation (e2) survived: the 2^32 conversion dropped, yet the raw 60 % still noted"; rs_fail=1; }
+  rm -rf "$RS_MD"
+fi
 rs_o="$(PATH="$rs_farm" bash -c '. "$1"; hl_oomd_note' _ "$RS_HL" 2>&1)"; [ -z "$rs_o" ] || { bad "FR-012 no systemctl (macOS) → no note: $rs_o"; rs_fail=1; }
 # mutation (e): the limit test dropped → an 80% limit still gets the note
 if rs_mutant host-limits.sh 's/^  case "\$l" in ""|0|0%|60%|60\.00%) ;; \*) return 0 ;; esac$/  :/'; then
@@ -383,6 +390,23 @@ rs_mem_case RS-22 "$rs_w/mem2048" "$HEFESTO_PROC_PRESSURE"
 rs_mem_case RS-22 "$HEFESTO_PROC_MEMINFO" "$rs_w/psi63"
 { [ "$rs_rc" = 75 ] && grep -qF 'busy: memory pressure some avg60=63.20 > 50' <<<"$rs_se" && cmp -s "$rs_w/before.json" "$rs_ld/RS-22.json"; } \
   || { bad "FR-006 PSI avg60 63.20 → exit 75, entry unchanged — rc=$rs_rc: $rs_se"; rs_fail=1; }
+# verify gate 2026-11-16 (B1): a plan launch refused as busy on an item with an rfc: line — the RFC pin was written
+# ~190 lines before the gate; now it is recorded only after the claim, so the entry stays byte-identical
+mkdir -p "$rs_t/docs/rfcs"; printf '# RFC RS-41\nthe idea\n' > "$rs_t/docs/rfcs/RS-41.md"
+printf '\n## RS-41 — item with an RFC\nb\nrfc: docs/rfcs/RS-41.md\n' >> "$rs_t/tasks/TODO.md"
+(cd "$rs_t" && bash "$RS_LG" init RS-41 --kind tasks-repo --ref t >/dev/null 2>&1)
+rs_plan_busy() { # [launcher] → rc in rs_rc; RS-41's entry kept in before.json
+  cp "$rs_ld/RS-41.json" "$rs_w/before.json"; rs_rc=0
+  (cd "$rs_t" && env HEFESTO_PROC_MEMINFO="$rs_w/mem2048" HEFESTO_PROC_PRESSURE="$HEFESTO_PROC_PRESSURE" PATH="$rs_bin:$PATH" CLAUDE_CONFIG_DIR="$rs_cfg" bash "${1:-$RS_SL}" plan RS-41) >/dev/null 2>"$rs_w/sl.err" || rs_rc=$?
+}
+rs_plan_busy
+{ [ "$rs_rc" = 75 ] && cmp -s "$rs_w/before.json" "$rs_ld/RS-41.json"; } \
+  || { bad "FR-006 a busy plan launch on an item with an RFC writes nothing (no source.rfc) — rc=$rs_rc: $(jq -c .source "$rs_ld/RS-41.json") $(head -c 200 "$rs_w/sl.err")"; rs_fail=1; }
+if rs_mutant launch-item.sh 's/^  \[ -z "\${RFC_PIN:-}" \] || cp "\$snap" "\$RFC_PIN"/  "$LEDGER" record "$ID" --rfc-snapshot "$snap" >\/dev\/null; [ -z "${RFC_PIN:-}" ] || cp "$snap" "$RFC_PIN"/'; then
+  rs_plan_busy "$RS_MD/session-launch.sh"
+  cmp -s "$rs_w/before.json" "$rs_ld/RS-41.json" && { bad "mutation (B1) survived: the pin recorded before the gate, yet the busy plan launch left the entry unchanged"; rs_fail=1; }
+  rm -rf "$RS_MD"
+fi
 rs_conf '{"min_free_mb":0}'; rs_mem_case RS-23 "$rs_w/mem2048" "$HEFESTO_PROC_PRESSURE"
 { [ "$rs_rc" = 0 ] && [ "$(rs_phase RS-23)" = verify ]; } || { bad "FR-006 min_free_mb 0 → the floor is off and the launch runs — rc=$rs_rc: $rs_se"; rs_fail=1; }
 for rs_v in -1 '"4G"'; do
@@ -401,7 +425,7 @@ rs_sd "$rs_dsid:$rs_bin:$PATH" "$RS_SL" implement RS-25
 rs_gate="$(grep '^MEMMSG="\$(hl_memory_gate' "$RS_SL")"
 RS_MD="$(mktemp -d)"; for rs_h in "$REPO"/hooks/*.sh; do ln -s "$rs_h" "$RS_MD/$(basename "$rs_h")"; done; rm "$RS_MD/session-launch.sh"
 RS_GATE="$rs_gate" awk 'index($0, "MEMMSG=\"$(hl_memory_gate") == 1 { next }
-  index($0, "  [ \"${#PRE[@]}\" -eq 0 ] || { hl_run_detached") == 1 { print "  " ENVIRON["RS_GATE"] } { print }' "$RS_SL" > "$RS_MD/session-launch.sh"
+  index($0, "  [ \"${#PRE[@]}\" -eq 0 ] || { rm -f \"${RFC_PIN:-}\"; hl_run_detached") == 1 { print "  " ENVIRON["RS_GATE"] } { print }' "$RS_SL" > "$RS_MD/session-launch.sh"
 if [ -z "$rs_gate" ] || cmp -s "$RS_SL" "$RS_MD/session-launch.sh" || [ "$(grep -c '^ *MEMMSG="\$(hl_memory_gate' "$RS_MD/session-launch.sh")" != 1 ] \
    || grep -q '^MEMMSG=' "$RS_MD/session-launch.sh"; then
   bad "mutation (h) did not apply (the gate line moved into the caller's detach branch)"; rs_fail=1

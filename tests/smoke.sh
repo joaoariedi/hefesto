@@ -5367,8 +5367,13 @@ lv_p0="$(lv_pin LV-5)"; printf 'edited\n' >> "$lv_t/docs/rfcs/LV-5.md"
 : > "$lv_log"; lv_o="$(lvs plan LV-5 2>&1)" && { bad "a plan run over human:clarify must be refused"; lv_fail=1; }
 { grep -qF 'no session is launched over a human gate' <<<"$lv_o" && [ ! -s "$lv_log" ] && [ -n "$lv_p0" ] && [ "$(lv_pin LV-5)" = "$lv_p0" ]; } \
   || { bad "a plan run over human:clarify must launch nothing and leave the RFC pin as it was: $lv_o"; lv_fail=1; }
-lv_mut session-launch.sh 's/^    \[\[ "\$PBK" != human:\* \]\] || die/    true || die/'
-LV_SL="$lv_md/session-launch.sh" lvs plan LV-5 >/dev/null 2>&1; [ "$(lv_pin LV-5)" = "$lv_p0" ] && { bad "mutation survived: the plan role's own human-gate check removed, yet the pin was not re-taken"; lv_fail=1; }; lv_restore session-launch.sh
+# both human-gate checks removed: since HEF-25 (verify B1) the pin is recorded after the claim, so the plan role's
+# own check (:514) and the general one before the claim (:694) guard the same moment — either alone refuses
+lv_mut session-launch.sh 's/^    \[\[ "\$PBK" != human:\* \]\] || die/    true || die/; s/^if \[\[ "\$EBK" == human:\* \]\] \&\& /if false \&\& /'
+cp "$(sld "$lv_t")/LV-5.json" "$lv_t/lv5.json"
+lv_mo="$(LV_SL="$lv_md/session-launch.sh" lvs plan LV-5 2>&1)"; [ "$(lv_pin LV-5)" = "$lv_p0" ] && { bad "mutation survived: both human-gate checks removed, yet the pin was not re-taken: $(tail -c 400 <<<"$lv_mo")"; lv_fail=1; }; lv_restore session-launch.sh
+# that mutant launches for real (worktree, entry): undo it, so the planned-item case below starts from the same state
+git -C "$lv_t" worktree remove --force .claude/worktrees/LV-5 >/dev/null 2>&1; git -C "$lv_t" branch -D LV-5 >/dev/null 2>&1; mv "$lv_t/lv5.json" "$(sld "$lv_t")/LV-5.json"
 lvl record LV-5 --rfc >/dev/null 2>&1; lv_set LV-5 '.blocked_on = null | .phase = "tasks"'; lv_p0="$(lv_pin LV-5)"; printf 'again\n' >> "$lv_t/docs/rfcs/LV-5.md"
 : > "$lv_log"; lv_o="$(lvs plan LV-5 2>&1)" && { bad "a plan run on a planned item must be refused"; lv_fail=1; }
 { grep -qF 'it is planned already' <<<"$lv_o" && [ ! -s "$lv_log" ] && [ "$(lv_pin LV-5)" = "$lv_p0" ]; } || { bad "a plan run at phase tasks must launch nothing and keep the approved pin: $lv_o"; lv_fail=1; }

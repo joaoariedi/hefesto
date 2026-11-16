@@ -134,6 +134,9 @@ hl_oomd_note() {
   p=$(systemctl show "$u" -p ManagedOOMMemoryPressure --value 2>/dev/null)
   l=$(systemctl show "$u" -p ManagedOOMMemoryPressureLimit --value 2>/dev/null)
   [ "$p" = kill ] || return 0
+  # systemctl show prints the limit as a fraction of 2^32 (60% → 2576980377), not "60%" (HEF-25 verify B2): a bare
+  # number is turned into whole percent, rounded, before the default test
+  [[ ! "$l" =~ ^[0-9]{1,10}$ ]] || l="$(( (l * 100 + 2147483648) / 4294967296 ))%"
   case "$l" in ""|0|0%|60%|60.00%) ;; *) return 0 ;; esac
   printf '%s\n' "setup: note: systemd-oomd kills this user's slice ($u) at its default 60 % memory pressure — one busy run can take the whole session down" \
     "  your choice — the script writes nothing: /etc/systemd/system/user@.service.d/90-hefesto-oomd.conf with" \

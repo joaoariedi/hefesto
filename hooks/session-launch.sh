@@ -514,7 +514,7 @@ EOF
     [[ "$PBK" != human:* ]] || die "session-launch plan $ID: blocked on $PBK — the person clears it first (it names the command); no session is launched over a human gate"
     PR_MODE="$(cfg '.orchestrate.plan_review // "agent"')"
     case "$PR_MODE" in agent|human) ;; *) die "session-launch plan $ID: orchestrate.plan_review must be \"human\" (a person approves every plan) or \"agent\" (the reviewer's verdict suffices) — got '$PR_MODE'" ;; esac
-    RFCBLK="$(rfc_as_data)" || exit 1
+    RFC_PIN="$(mktemp)" || die "session-launch plan $ID: mktemp failed"; RFCBLK="$(rfc_as_data)" || { rm -f "$RFC_PIN"; exit 1; }
     # HEF-21 (plan-review-rounds FR-004): the round cap, validated before anything is launched. Not `// 5`: jq's
     # alternative operator treats false as absent, and `false` must be refused.
     . "$HERE/plan-review-lib.sh" || die "session-launch plan $ID: cannot source $HERE/plan-review-lib.sh"
@@ -705,12 +705,12 @@ MIN_FREE="$(cfg '.orchestrate.min_free_mb // 4096')"; [[ "$MIN_FREE" =~ ^[0-9]{1
 # take the run. This caller only waits, relays the copy's output and exits with its code (hl_run_detached); it
 # forwards no signal: the copy's own trap below stops a run (`kill <owner.pid>`). The worker never inherits the marker.
 if [ "$RUN_COPY" = 0 ]; then read -r -a PRE <<<"$(hl_detacher "$ID" "$ROLE" "$LANE_MODE" "$RUNDIR")"
-  [ "${#PRE[@]}" -eq 0 ] || { hl_run_detached "$RUNDIR/$ID.$ROLE.$(date -u +%Y%m%dT%H%M%SZ).$$.launcher" "$LAUNCH_CWD" "$HERE/session-launch.sh" "$ROLE" "$ID" "${GIT_RESTORE[@]}" -- "${PRE[@]}"; exit $?; }; fi; unset HEFESTO_RUN_DETACHED
+  [ "${#PRE[@]}" -eq 0 ] || { rm -f "${RFC_PIN:-}"; hl_run_detached "$RUNDIR/$ID.$ROLE.$(date -u +%Y%m%dT%H%M%SZ).$$.launcher" "$LAUNCH_CWD" "$HERE/session-launch.sh" "$ROLE" "$ID" "${GIT_RESTORE[@]}" -- "${PRE[@]}"; exit $?; }; fi; unset HEFESTO_RUN_DETACHED
 # D6/D7: measured in the copy that claims, at the moment that matters — the detach marker grants no way around it
-MEMMSG="$(hl_memory_gate "$MIN_FREE" "$MEMINFO" "$PSI")" || { echo "session-launch $ROLE $ID: $MEMMSG — retry on the next pass" >&2; exit 75; }
+MEMMSG="$(hl_memory_gate "$MIN_FREE" "$MEMINFO" "$PSI")" || { rm -f "${RFC_PIN:-}"; echo "session-launch $ROLE $ID: $MEMMSG — retry on the next pass" >&2; exit 75; }
 # HEF-27 FR-010: claim/run carry the launcher marker per call, never exported — the claude worker launched below
 # would inherit an exported one, and its own session could then claim. A `busy:` refusal (the run cap) is exit 75.
-CLERR="$(HEFESTO_LAUNCHER=1 "$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$" 2>&1 >/dev/null)" && { [ -z "$CLERR" ] || echo "$CLERR" >&2; } || { echo "$CLERR" >&2; case "$CLERR" in *": busy: "*) exit 75 ;; esac; exit 1; }
+CLERR="$(HEFESTO_LAUNCHER=1 "$LEDGER" claim "$ID" --session "$NAME" --role "$ROLE" --pid "$$" 2>&1 >/dev/null)" && { [ -z "$CLERR" ] || echo "$CLERR" >&2; rfc_pin_record; } || { rm -f "${RFC_PIN:-}"; echo "$CLERR" >&2; case "$CLERR" in *": busy: "*) exit 75 ;; esac; exit 1; }
 [ -z "$APP_NEW" ] || "$LEDGER" record "$ID" --spec-root "$APP_NEW" >/dev/null || exit 1   # #172: after the gate and the claim
 case "$ROLE:$PHASE" in
   implement:queued|implement:tasks) "$LEDGER" advance "$ID" implement >/dev/null || exit 1 ;;
