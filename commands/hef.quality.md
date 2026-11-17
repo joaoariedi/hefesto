@@ -21,6 +21,10 @@ Detect and run available linters:
 - **Rust**: `cargo clippy`
 - **Go**: `golangci-lint run` (preferred, 50+ linters) or `go vet ./...`
 - **Java**: Checkstyle, PMD (`mvn pmd:check`), SpotBugs (`mvn spotbugs:check`)
+- **Shell** (`.sh`/`.bash`): only through `"${CLAUDE_PLUGIN_ROOT}"/hooks/speckit-helper.sh shellcheck-changed` — the
+  changed shell files, one memory-bounded process each, files over 3000 lines skipped and listed. Never run
+  `shellcheck` over a tree or a glob: one such run took a 24 GB host's whole session down. Exit 0 = clean, 1 = a
+  finding (FAIL), 2 = **shell check incomplete** — report it as that, with the files it lists, never as clean
 
 ### 2. Type Checking
 Run type validation:
