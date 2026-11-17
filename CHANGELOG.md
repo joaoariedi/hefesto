@@ -37,13 +37,16 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+## [9.4.2] - 2026-11-17
+
 ### Added
 
 - **A launched run survives the orchestrator and never starves the host** (HEF-25; `docs/quickstart.md`,
   `docs/hooks.md`). On a 24 GB host systemd-oomd killed the orchestrator's scope twice in one minute, and every worker
   died with it: `session-launch.sh` ran them as children in the same cgroup and process group. Now:
   - the run tail (claim, worker, lease, transcription) re-executes itself detached — `systemd-run --user --scope …
-    -- setsid -w` when the user manager answers, else `setsid -w`, else attached with one note — writes its output
+    -- setsid -w` when the user manager answers (with `OOMPolicy=continue` on systemd 253 and later, so one tool the
+    kernel kills for memory does not stop the run), else `setsid -w`, else attached with one note — writes its output
     to `<runs>/<id>.<tag>.launcher.out|err`, and the caller relays it and exits with its code. Closing the
     orchestrator stops no worker; `kill <owner.pid>` (from `ledger.sh show <id>`) stops a run, which records exit 143;
   - `orchestrate.max_concurrent_runs` (1–8, default 2): `ledger.sh claim --pid` refuses `busy:` once that many
