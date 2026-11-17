@@ -69,7 +69,7 @@ am_cfg() { # am_cfg <merge_by> [branches JSON] [checks JSON] → the board confi
 }
 # am <ledger args…>; AM_LAUNCHER=1 am … calls it as session-launch.sh does (the marker, no session id — HEF-27 FR-010)
 am() { (cd "$am_w" && { [ "${AM_LAUNCHER:-}" != 1 ] || { unset CLAUDE_CODE_SESSION_ID; export HEFESTO_LAUNCHER=1; }; } \
-  && HEFESTO_GH_BIN="$am_t/bin/gh" bash "$REPO/hooks/ledger.sh" "$@"); }
+  && HEFESTO_GH_BIN="$am_t/bin/gh" bash "${AM_LG:-$REPO/hooks/ledger.sh}" "$@"); }
 am_ld="$(sld "$am_w")"; mkdir -p "$am_ld"
 am_entry() { # am_entry <id> <PR n> <branch> [jq filter] — at pr, the four gates PASS, verified at the branch head
   local h; h="$(am_sha "$3")"
@@ -234,7 +234,7 @@ am_case "no grant (SC-004, NR-003)" HEF-10 2 human:merge "no grant"
 am_grant >/dev/null; am_entry HEF-10 16 feat10 '.phase = "verify"'
 am_no "automerge on an entry not at pr" "only an entry at pr" automerge HEF-10
 o="$(cd "$am_w" && HEFESTO_WORKER=1 HEFESTO_GH_BIN="$am_t/bin/gh" bash "$REPO/hooks/ledger.sh" automerge HEF-2 2>&1)" && { bad "automerge must be refused inside a launched worker"; x_fail=1; }
-[ "$x_fail" -eq 0 ] && ok "automerge → human:merge (exit 2, an auto-merge-skipped event, no gh pr merge) for an environment base, a moved head, a SKIPPED/FAIL/missing gate, the kind gate, another origin, a changed check, merge_by lane, no grant; a pending human:intake outranks it; refused off pr and in a worker (HEF-30 FR-005 FR-007 SC-002 SC-004 SC-008)"
+[ "$x_fail" -eq 0 ] && ok "automerge → human:merge (exit 2, an auto-merge-skipped event, no gh pr merge) for an environment base, a moved head, a SKIPPED/FAIL/missing gate, the kind gate, another origin, a changed check, merge_by lane, no grant; a pending human:intake outranks it; refused off pr and in a worker (HEF-30 FR-005 FR-007 SC-002 SC-004 SC-008; item-kind-downgrade/FR-006: a legacy entry with no intake_kind falls back to item_kind)"
 
 # --- FR-008, FR-009: remote state and the pinned checks --------------------------------------------------------------
 head_ "merge-auto: automerge blocks conflict on BEHIND/DIRTY, ci on red checks or a failing merge check, waits on pending (HEF-30 FR-008 FR-009 SC-003)"
@@ -572,5 +572,6 @@ am_entry HEF-31 37 feat18 'del(.pr.verified_in) | del(.prs[0].verified_in)'; am_
 am_case "a verified head with no recorded provenance" HEF-31 2 human:merge "records no verify run"
 [ "$x_fail" -eq 0 ] && ok "the verified head is the head the verify run started at — a commit during a worker run or between --prepare and --finish records none; a head with no provenance is skipped (HEF-30 FR-004 NR-004)"
 
+. "$REPO/tests/smoke-item-kind.sh"   # part 13b: the signed kind downgrade and the intake kind (HEF-54)
 git -C "$am_w" worktree prune 2>/dev/null
 rm -rf -- "${am_t:?}"; rm -f "$HOME"/.cache/hefesto/sessions/sid-am-*-0001.json

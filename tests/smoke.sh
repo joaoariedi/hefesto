@@ -3611,9 +3611,13 @@ ik_ov="$(jq -rn --argjson k "$(grep -oE "KINDS_DEFAULT='[^']*'" "$SB" | cut -d"'
 # FR-002 init / record
 ikl init HEF-21 --kind tasks-repo --ref t --item-kind incident >/dev/null 2>&1 && ikj HEF-21 '.item_kind == "incident"' || { bad "init --item-kind incident must record it"; ik_fail=1; }
 ikl init HEF-24 --kind tasks-repo --ref t >/dev/null 2>&1 && ikj HEF-24 '.item_kind == "feature"' || { bad "init without --item-kind must record feature"; ik_fail=1; }
+# item-kind-downgrade/FR-001: init records the intake kind beside item_kind
+ikj HEF-21 '.intake_kind == "incident"' && ikj HEF-24 '.intake_kind == "feature"' || { bad "init must record intake_kind equal to item_kind (item-kind-downgrade/FR-001)"; ik_fail=1; }
 ikl init HEF-30 --kind tasks-repo --ref t --item-kind "" >/dev/null 2>&1 && { bad "init --item-kind '' must die (a swallowed detection failure is never feature)"; ik_fail=1; }
 ikl init HEF-30 --kind tasks-repo --ref t --item-kind bug >/dev/null 2>&1 && { bad "init --item-kind bug must die"; ik_fail=1; }
 ikl init HEF-22 --kind tasks-repo --ref t >/dev/null 2>&1; ikl record HEF-22 --item-kind vulnerability >/dev/null 2>&1 && ikj HEF-22 '.item_kind == "vulnerability"' || { bad "record --item-kind must set the kind"; ik_fail=1; }
+# item-kind-downgrade/FR-005: the unsigned upgrade leaves the intake kind alone
+ikj HEF-22 '.intake_kind == "feature"' || { bad "an unsigned record --item-kind upgrade must leave intake_kind at feature (item-kind-downgrade/FR-005)"; ik_fail=1; }
 ikl record HEF-22 --item-kind bug >/dev/null 2>&1 && { bad "record --item-kind bug must die"; ik_fail=1; }
 ikl record HEF-22 --item-kind "" >/dev/null 2>&1 && { bad "record --item-kind '' must die (a swallowed detection failure is never a kind)"; ik_fail=1; }
 ikj HEF-22 '.item_kind == "vulnerability"' || { bad "a refused record --item-kind must leave the recorded kind alone"; ik_fail=1; }
@@ -3638,7 +3642,7 @@ printf '\n## 🐞 HEF-32 — planned incident\nbody\n' >> "$ik_t/tasks/TODO.md"
 ikl init HEF-32 --kind tasks-repo --ref t --item-kind incident >/dev/null 2>&1; ikl record HEF-32 --spec-dir "$ik_t/.specify/specs/hef32" >/dev/null 2>&1
 ik_pl="$(iks implement HEF-32 --dry-run 2>&1)"
 { grep -qF 'planned by a separate session' <<<"$ik_pl" && grep -qF 'This is an INCIDENT fix: first write a regression test that cites HEF-32' <<<"$ik_pl"; } || { bad "the planned-item implement prompt must carry the INCIDENT sentence: $(head -c 300 <<<"$ik_pl")"; ik_fail=1; }
-[ "$ik_fail" -eq 0 ] && ok "item kinds: --item-kind (first, behind a state marker, both 🛡 forms, VS15/VS16, after-the-id, config override, bad map, github-project, missing), --was keeps kinds, init/record + refusals, prompt per kind on both implement branches (item-kinds FR-001 FR-002 FR-004)"
+[ "$ik_fail" -eq 0 ] && ok "item kinds: --item-kind (first, behind a state marker, both 🛡 forms, VS15/VS16, after-the-id, config override, bad map, github-project, missing), --was keeps kinds, init/record + refusals, prompt per kind on both implement branches (item-kinds FR-001 FR-002 FR-004); init records intake_kind, an unsigned upgrade leaves it (item-kind-downgrade/FR-001 item-kind-downgrade/FR-005)"
 
 # FR-005 the verify gate is required: absent → FAIL, SKIPPED → FAIL, PASS → human:merge; only the entry's own gate enters the schema
 ik_vfail=0
