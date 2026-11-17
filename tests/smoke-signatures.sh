@@ -94,8 +94,8 @@ sg_reduced() { # → empty when $SG_F holds the reduced shape (SC-001), else the
     def ours: test("/hooks/(ledger|pr-watch|session-launch|status-board|speckit-helper|run-follow|hefesto-setup)[.]sh");
     def tail($h): ltrimstr("Bash(" + $h + "/") | rtrimstr(")");
     (.permissions.allow | map(select(ours))) as $al
-    | [ (if (.permissions.ask | sort) == $want then empty else "permissions.ask is not exactly the 19 signature forms × the two live roots + the rules of the person: extra \(.permissions.ask - $want), missing \($want - .permissions.ask)" end),
-        (if ($want | length) == 39 then empty else "the signature set is not 19 forms per root (HEF-30 adds merge-auto grant/revoke) (\($want | length) rules for two roots + 1)" end),
+    | [ (if (.permissions.ask | sort) == $want then empty else "permissions.ask is not exactly the 20 signature forms × the two live roots + the rules of the person: extra \(.permissions.ask - $want), missing \($want - .permissions.ask)" end),
+        (if ($want | length) == 41 then empty else "the signature set is not 20 forms per root (HEF-30 adds merge-auto grant/revoke, HEF-54 record --reviewed-by-human) (\($want | length) rules for two roots + 1)" end),
         (if (.permissions.allow | group_by(.) | all(length == 1)) then empty else "a duplicated allow rule" end),
         (if ($al | all(startswith("Bash(" + $c + "/") or startswith("Bash(" + $i + "/"))) then empty
          else "an allow rule in another spelling or version: \($al | map(select((startswith("Bash(" + $c + "/") or startswith("Bash(" + $i + "/")) | not)))" end),
@@ -111,7 +111,7 @@ sg_reduced() { # → empty when $SG_F holds the reduced shape (SC-001), else the
 sg_o="$(sg_su "$sg_p" "$sg_cfg" --lanes 2>&1)"
 sg_r="$(sg_reduced)"
 # SC-001 / FR-004: the 9.3 file → the signature set once per live root, in that root's canonical spelling
-[ -z "$sg_r" ] && ok "SC-001: the 9.3-shape file is reduced to 19 signature asks per live root, one spelling each, the person's rules kept" \
+[ -z "$sg_r" ] && ok "SC-001: the 9.3-shape file is reduced to 20 signature asks per live root, one spelling each, the person's rules kept" \
   || { bad "SC-001 (FR-004): setup --lanes on the 9.3-shape file: $sg_r — setup said: $(tail -3 <<<"$sg_o")"; sg_fail=1; }
 [ "$(jq -c '.permissions.ask | index(["Bash(rm -rf:*)"]) != null' "$SG_F")" = true ] || { bad "SC-001: the person's own ask rule Bash(rm -rf:*) must stay"; sg_fail=1; }
 sg_h="$(cksum < "$SG_F")"; sg_o="$(sg_su "$sg_p" "$sg_cfg" --lanes 2>&1)"
@@ -222,6 +222,7 @@ ask|ledger.sh unblock HEF-1 --merge-sha 0a1b2c3
 ask|ledger.sh record HEF-1 --worktree w --body-file f
 ask|ledger.sh record HEF-1 --branch b --body-from-board
 ask|ledger.sh record HEF-1 --worktree w --rfc
+ask|ledger.sh record HEF-1 --item-kind feature --reviewed-by-human --by A
 ask|ledger.sh release HEF-1 --by "A" --reviewed-by-human
 ask|ledger.sh approve A-1 --sha s --to l --title t --reviewed-by-human --by A
 ask|ledger.sh answer HEF-1 --reviewed-by-human --by A
@@ -251,7 +252,7 @@ none|ledger.sh run HEF-1 --role implement --exit 0 --usd 0
 EOF
 }
 sg_r="$(sg_table "$sg_base/reduced.json")"
-[ -z "$sg_r" ] && ok "SC-003 (FR-001, FR-003): every signature form asks with its flag anywhere after the id; the mechanics allow; claim/run match no rule" \
+[ -z "$sg_r" ] && ok "SC-003 (FR-001, FR-003): every signature form asks with its flag anywhere after the id; the mechanics allow; claim/run match no rule; the signed kind change asks (item-kind-downgrade/FR-009)" \
   || { bad "SC-003 (FR-001, FR-003): $sg_r"; sg_fail=1; }
 jq --arg r "Bash($REPO/hooks/ledger.sh record * --body-file*)" '.permissions.ask -= [$r]' "$sg_base/reduced.json" > "$sg_base/grammar-mut.json"
 grep -qF 'body-file' <<<"$(sg_table "$sg_base/grammar-mut.json")" || { bad "mutation survived (SC-003): the record * --body-file* ask dropped, yet the table held"; sg_fail=1; }

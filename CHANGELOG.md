@@ -37,6 +37,33 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+### Fixed
+
+- **An incident or vulnerability item can no longer be relabelled to skip its own gate** (HEF-54; `docs/hooks.md`,
+  `docs/install.md`). Any session could run `ledger.sh record <id> --item-kind feature` on an incident, and under
+  `merge_by: auto` automerge then merged it without the incident gate. Now a change away from `incident` or
+  `vulnerability` (to any other kind, incident ↔ vulnerability included) is refused, nothing written, unless it is a
+  person's `record <id> --item-kind <k> --reviewed-by-human --by <name>` — refused inside a launched worker, with
+  either flag alone, or without `--item-kind` — or the launcher's own record. `init` now records the kind as
+  `intake_kind` too; only a signed or launcher change rewrites it, and that change appends an `item-kind-changed`
+  event. `automerge` requires the gate of both `item_kind` and `intake_kind`. `intake_kind` is a second layer behind
+  the `record` guard: it catches a future unguarded writer, not a session that can write the ledger file itself (that
+  folder is outside every sandbox's write set). An entry recorded before this release has no `intake_kind` and falls
+  back to `item_kind`, so a downgrade made before it is not detected: check the incident and vulnerability entries
+  recorded before this release.
+
+### Upgrade
+
+- Run `hefesto-setup.sh` again in each project, in a terminal: it adds the ask rule for `record … --reviewed-by-human`.
+  Until then the signed kind change matches the `record` allow rule and shows no dialog.
+
+### Known issues
+
+- **A kind can still be fixed at `feature` at intake.** `init` is open to any session and takes `--item-kind` from its
+  caller, and `register` leaves an existing entry alone, so a session that runs `init <id> … --item-kind feature`
+  before the orchestrator registers an incident fixes both kinds at `feature`. A follow-up item will make `init` read
+  the board's kind. Until then, keep `merge_by` on `lane` on a board that carries incident or vulnerability items.
+
 ## [9.4.2] - 2026-11-17
 
 ### Added
