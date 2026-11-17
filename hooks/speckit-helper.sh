@@ -127,6 +127,49 @@ pr_base() {
   echo ""   # root commit: the caller diffs against the commit itself
 }
 
+# The subcommands shellcheck-changed / shellcheck-files — run-survival FR-009/FR-014 (HEF-25). (This comment must not
+# begin with "shellcheck": that spelling is a directive and fails to parse.) Shellcheck one bounded process per file
+# (hooks/host-limits.sh), never one process over a tree or a glob, which ran a 24 GB host out of memory. Exit 0 = every
+# file checked and clean (or no changed shell file), 1 = a finding, 2 = incomplete: a file skipped or not checked, or
+# no shellcheck installed — each listed, never read as clean (constitution 5). The files subcommand checks the files
+# it is given, with no line skip.
+shellcheck_each() { # severity max-lines top-or-"" ← one file per line on stdin → exit 0 clean, 1 a finding, 2 incomplete
+  local found=0 incomplete=0 n=0 f rc
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    n=$((n + 1)); rc=0; hl_shellcheck_bounded "${3:+$3/}$f" "$1" "$2" </dev/null || rc=$?   # stdin is the file list
+    case "$rc" in 0) ;; 1) found=1 ;; *) incomplete=1 ;; esac
+  done
+  [ "$found" = 0 ] || exit 1
+  [ "$incomplete" = 0 ] || { echo "shellcheck: shell check incomplete — the files above were not checked"; exit 2; }
+  echo "shellcheck: clean ($n file(s), severity $1)"
+}
+shellcheck_bounded_cmd() { # $1 the subcommand, then its options and files
+  local sub="$1" sev=warning base="" hasbase=0 files top max
+  shift
+  # shellcheck source=hooks/host-limits.sh
+  . "$(dirname "$SELF")/host-limits.sh"
+  while [ $# -gt 0 ]; do case "$1" in
+    --severity) sev="${2:-}"; shift ;;
+    --base) [ "$sub" = shellcheck-changed ] || break; base="${2:-}"; hasbase=1; shift ;;
+    --) shift; break ;;
+    *) break ;; esac; shift; done
+  case "$sev" in error|warning|info|style) ;; *) echo "$sub: --severity must be error, warning, info or style (got '$sev')" >&2; exit 2 ;; esac
+  command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck: not installed — skipped"; exit 2; }
+  if [ "$sub" = shellcheck-changed ]; then
+    [ $# -eq 0 ] || { echo "shellcheck-changed: unexpected argument '$1' (usage: shellcheck-changed [--base <ref>] [--severity <s>])" >&2; exit 2; }
+    if [ "$hasbase" = 0 ]; then base=$(pr_base) || { echo "shellcheck-changed: .branches in .claude/project-status.json is malformed — run ledger.sh branches for the reason; shell check incomplete" >&2; exit 2; }; fi
+    files=$(hl_changed_shell_files --base "$base") || { echo "shellcheck-changed: shell check incomplete — the changed files could not be listed" >&2; exit 2; }
+    top=$(git rev-parse --show-toplevel)
+    [ -n "$files" ] || { echo "shellcheck: no changed shell files"; exit 0; }
+    max=3000
+  else
+    [ $# -gt 0 ] || { echo "usage: shellcheck-files [--severity <s>] <file>…" >&2; exit 2; }
+    files=$(printf '%s\n' "$@"); top=""; max=0
+  fi
+  shellcheck_each "$sev" "$max" "$top" <<<"$files"
+}
+
 # --- dependency parsers (feature dependency-audit FR-001): manifest text on stdin → name<TAB>spec ---
 # Manifests, not lockfiles: the review item is the DIRECT dependency a person or an agent chose
 # (llm-security.md — 5–22 % of LLM-suggested package names do not exist and are squattable).
@@ -782,6 +825,13 @@ case "$1" in
     [ "$AUDIT_FOUND" = 0 ] || exit 1
     ;;
 
+  shellcheck-changed)
+    shellcheck_bounded_cmd "$@"
+    ;;
+  shellcheck-files)
+    shellcheck_bounded_cmd "$@"
+    ;;
+
   rtk-available)
     # PREDICATE. The answer is BOTH the string and the exit code.
     #
@@ -833,6 +883,7 @@ case "$1" in
     echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage [<spec>|--all],"
     echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>, doctor-copies,"
     echo "  arena-cite-check <digest-file>, arena-metrics [<spec-dir>], deps-diff [--staged] [<base>], deps-audit,"
+    echo "  shellcheck-changed [--base <ref>] [--severity <s>], shellcheck-files [--severity <s>] <file>…,"
     echo "  rtk-available, rtk-run"
     exit 1
     ;;

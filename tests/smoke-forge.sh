@@ -1,5 +1,6 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016  # jq programs and sed expressions are single-quoted on purpose
+# shellcheck disable=SC1090  # forge-lib.sh, or a mutant of it, is sourced through FG_LIB on purpose
 #
 # forge-setup smoke checks, part 14: setup configures the forge for the workers once — the forge hosts in
 # orchestrate.allowed_domains, the HTTPS push rewrite for an SSH remote, the stale config.lock report — and an

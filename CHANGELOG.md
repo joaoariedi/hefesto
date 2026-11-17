@@ -37,7 +37,31 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+## [9.4.2] - 2026-11-17
+
 ### Added
+
+- **A launched run survives the orchestrator and never starves the host** (HEF-25; `docs/quickstart.md`,
+  `docs/hooks.md`). On a 24 GB host systemd-oomd killed the orchestrator's scope twice in one minute, and every worker
+  died with it: `session-launch.sh` ran them as children in the same cgroup and process group. Now:
+  - the run tail (claim, worker, lease, transcription) re-executes itself detached — `systemd-run --user --scope …
+    -- setsid -w` when the user manager answers (with `OOMPolicy=continue` on systemd 253 and later, so one tool the
+    kernel kills for memory does not stop the run), else `setsid -w`, else attached with one note — writes its output
+    to `<runs>/<id>.<tag>.launcher.out|err`, and the caller relays it and exits with its code. Closing the
+    orchestrator stops no worker; `kill <owner.pid>` (from `ledger.sh show <id>`) stops a run, which records exit 143;
+  - `orchestrate.max_concurrent_runs` (1–8, default 2): `ledger.sh claim --pid` refuses `busy:` once that many
+    launched runs are live across the ledger — every repository and role, verify included; interactive claims are
+    not counted;
+  - `orchestrate.min_free_mb` (default 4096 MiB, 0 = off): a launch is refused while `MemAvailable` is below it or
+    PSI memory `some avg60` is over 50. Both refusals exit **75** (busy, nothing claimed or recorded);
+    `/hefesto:hef.orchestrate` reports them as "busy — next pass" and rings back `done busy <id>`;
+  - `speckit-helper.sh shellcheck-changed` and `shellcheck-files`: one shellcheck process per file under `ulimit -v`
+    (2 GiB), files over 3000 lines skipped and listed; exit 2 means incomplete, never clean. `/hefesto:hef.quality`,
+    `/hefesto:hef.verify` and `/hefesto:hef.doctor` check shell files only through them, the commit hook skips a
+    file over 3000 lines with an advisory, and the suite's shellcheck guard runs file by file over the hooks,
+    `install.sh` and `tests/*.sh` (`tests/smoke.sh` is skipped, visibly, until it is split);
+  - `hefesto-setup.sh --check` notes a systemd-oomd that kills the user slice at its default 60 % pressure, with the
+    drop-in that raises it to 80 %. It writes nothing and never suggests disabling oomd.
 
 - **Setup configures the forge for the workers** (HEF-22; `docs/install.md` §7 step 8b, `docs/hooks.md`). A build
   that finished green ended blocked at `git push` and the person was asked six times: the workers' sandbox had no

@@ -131,6 +131,20 @@ As sessões de etapa compilam e testam por meio do `hooks/lane-build.sh <comando
 `lane-build.sh go test ./...`): ele dá ao build um cache gravável próprio dentro do sandbox. Um build rodado sem ele
 falha no cache somente-leitura.
 
+**Quantas execuções ao mesmo tempo.** Uma execução lançada (uma sessão de plan, build, verify ou deploy em segundo
+plano) roda destacada no seu próprio scope (`systemd-run --user --scope`) ou sessão (`setsid`), e por isso sobrevive à
+orchestrator: fechar aquela sessão, ou o systemd-oomd matá-la, não para nenhum worker, e a próxima passada lê o
+resultado de cada execução no ledger. Para parar uma execução, `kill <owner.pid>` com o pid de `ledger.sh show <id>`;
+ela para o seu worker e registra a saída 143. Duas chaves em `orchestrate` evitam que as execuções sufoquem a máquina:
+- `"max_concurrent_runs": 2` — execuções lançadas ao mesmo tempo, somando todos os repositórios e papéis do ledger
+  (1–8, padrão 2). O trabalho interativo de uma sessão de etapa não é uma execução e não conta.
+- `"min_free_mb": 4096` — um lançamento é recusado enquanto houver menos memória disponível que isso (`MemAvailable`,
+  em MiB; 0 desliga), e enquanto a pressão de memória passar de 50 %.
+
+Um lançamento recusado por qualquer das duas sai com **75**: ocupado, nada reivindicado nem registrado, tentado de
+novo na próxima passada. Um verificador recusado assim é lançado de novo quando o seu build já esperou 10 minutos na
+fase `verify` sem dono.
+
 ## No dia a dia
 
 - **Decisões** chegam como formulários na orchestrator. Responder um roda o comando certo, e o Claude
