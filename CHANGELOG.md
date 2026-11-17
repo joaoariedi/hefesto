@@ -37,6 +37,62 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+## [9.4.2] - 2026-11-17
+
+### Added
+
+- **A launched run survives the orchestrator and never starves the host** (HEF-25; `docs/quickstart.md`,
+  `docs/hooks.md`). On a 24 GB host systemd-oomd killed the orchestrator's scope twice in one minute, and every worker
+  died with it: `session-launch.sh` ran them as children in the same cgroup and process group. Now:
+  - the run tail (claim, worker, lease, transcription) re-executes itself detached — `systemd-run --user --scope …
+    -- setsid -w` when the user manager answers (with `OOMPolicy=continue` on systemd 253 and later, so one tool the
+    kernel kills for memory does not stop the run), else `setsid -w`, else attached with one note — writes its output
+    to `<runs>/<id>.<tag>.launcher.out|err`, and the caller relays it and exits with its code. Closing the
+    orchestrator stops no worker; `kill <owner.pid>` (from `ledger.sh show <id>`) stops a run, which records exit 143;
+  - `orchestrate.max_concurrent_runs` (1–8, default 2): `ledger.sh claim --pid` refuses `busy:` once that many
+    launched runs are live across the ledger — every repository and role, verify included; interactive claims are
+    not counted;
+  - `orchestrate.min_free_mb` (default 4096 MiB, 0 = off): a launch is refused while `MemAvailable` is below it or
+    PSI memory `some avg60` is over 50. Both refusals exit **75** (busy, nothing claimed or recorded);
+    `/hefesto:hef.orchestrate` reports them as "busy — next pass" and rings back `done busy <id>`;
+  - `speckit-helper.sh shellcheck-changed` and `shellcheck-files`: one shellcheck process per file under `ulimit -v`
+    (2 GiB), files over 3000 lines skipped and listed; exit 2 means incomplete, never clean. `/hefesto:hef.quality`,
+    `/hefesto:hef.verify` and `/hefesto:hef.doctor` check shell files only through them, the commit hook skips a
+    file over 3000 lines with an advisory, and the suite's shellcheck guard runs file by file over the hooks,
+    `install.sh` and `tests/*.sh` (`tests/smoke.sh` is skipped, visibly, until it is split);
+  - `hefesto-setup.sh --check` notes a systemd-oomd that kills the user slice at its default 60 % pressure, with the
+    drop-in that raises it to 80 %. It writes nothing and never suggests disabling oomd.
+
+- **Setup configures the forge for the workers** (HEF-22; `docs/install.md` §7 step 8b, `docs/hooks.md`). A build
+  that finished green ended blocked at `git push` and the person was asked six times: the workers' sandbox had no
+  `orchestrate.allowed_domains`, the remote was SSH (the sandbox proxy carries HTTPS only), and the fix could not run
+  from any sandboxed session. `hefesto-setup.sh` now, for the project and each repository of an external board's
+  `repos` map: writes the forge's hosts into `orchestrate.allowed_domains` of the board config when the key is absent
+  and the file is in `jq .` form (`github.com` → `github.com`, `api.github.com`; a hand-formatted file gets the
+  snippet; a list you wrote is never touched); adds `url."https://<host>/".pushInsteadOf <prefix>` for an SSH remote
+  (`gh auth setup-git` hinted when no credential helper applies); and stops before writing anything on a stale
+  zero-byte `config.lock` — what a sandboxed `git config` leaves — with the `rm` to run. `--check` reports that lock
+  and the missing forge setup in its one `setup: missing …` line; `--print` shows the forge changes; `--remove`
+  unsets only the rewrites setup added. The shared rules live in the new `hooks/forge-lib.sh`, and the launcher's
+  `allowed_domains` hostname check moved there unchanged.
+- **An infrastructure stop is a stall with its fix, not a form** (HEF-22). Implement and plan outcomes may carry
+  `infra_cause` (`push-refused`, `host-denied`, `credential-helper-missing`) and `infra_host`; the launcher turns a
+  `blocked` or `failed` outcome with one into `ledger.sh block <id> --kind stall --cause <c>`, whose reason is one
+  line from hefesto's own fix table — never the worker's summary. The orchestrator shows it once as
+  `Your move: <fix>, then say "retry <ids>"`, and the session-start line sends it to the orchestrator.
+
+### Upgrade
+
+- Run `hefesto-setup.sh` again in each project, in a terminal: it writes the forge's hosts and the push rewrite, and
+  says when it changed the tracked board config — commit it.
+
+### Unchanged
+
+- **Workers reach the forge's API only through `gh`.** The lanes' `deniedDomains: api.github.com` reaches the
+  workers too, and stays (owner's decision, 2026-11-14, after HEF-22's live check): a sandboxed request to
+  `api.github.com` is refused, `github.com` carries the push, and `gh` reaches the API outside the sandbox under the
+  rules (`docs/install.md` §7).
+
 ## [9.4.1] - 2026-11-13
 
 **Auto-merge into the integration branch, behind a grant you sign: a PR whose verify, review, quality and scan gates passed at the head that was checked merges without a form.**

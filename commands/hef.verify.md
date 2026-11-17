@@ -62,6 +62,11 @@ from the nearest folder holding `.specify/`), and the tests run from that folder
 runner's real output — the Verification Iron Law (`rules/code-quality.md`) applies here more than
 anywhere: this report is the evidence the PR will carry.
 
+When the diff changes shell files, check them only through
+`"${CLAUDE_PLUGIN_ROOT}"/hooks/speckit-helper.sh shellcheck-changed` (one memory-bounded process per changed file),
+never `shellcheck` over a tree or a glob. Its exit 2 is **shell check incomplete** — say so and list the files it
+names; it is never a clean result.
+
 ### 3. Spec-compliance review
 
 Use the Task tool to spawn the `code-reviewer` agent and ask for **Stage 1 only** (spec
