@@ -31,6 +31,9 @@ am_lane_role() { # → the calling session's lane role when a lanes session asks
 am_not_worker() { # $1 the command, for the message
   [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "ledger $1: never from inside a launched worker"
 }
+# launcher_gate's marker (HEF-27 FR-010): HEFESTO_LAUNCHER=1 and no session id, which only session-launch.sh sets. One
+# copy for this file, so the --verified-head and the kind-change guards cannot drift apart (HEF-54 M3 mutates it here)
+am_is_launcher() { [ "${HEFESTO_LAUNCHER:-}" = 1 ] && [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; }
 
 # --- record <id> --verified-head <sha> (FR-004): the head the verify launcher checked, on the current PR --------------
 # Written through .prs[-1] (as pr_stamp_merged), since .pr is a projection of it: a new PR carries no verified head.
@@ -43,8 +46,7 @@ verified_head_set() { # $1 the sha, or `none` (a verify run that did not pass ev
   # B1 (verify gate 2026-11-10): refusing workers and lanes left every OTHER session — a single-lane orchestrator in
   # auto mode — free to write four PASS verdicts and this head, and automerge merged it. So it is launcher-only, with
   # launcher_gate's marker (HEF-27 FR-010): HEFESTO_LAUNCHER=1 and no session id, which only session-launch.sh sets.
-  [ "${HEFESTO_LAUNCHER:-}" = 1 ] && [ -z "${CLAUDE_CODE_SESSION_ID:-}" ] \
-    || die "ledger record $ID: --verified-head is the launcher's own record — only session-launch.sh writes it, after a verify run"
+  am_is_launcher || die "ledger record $ID: --verified-head is the launcher's own record — only session-launch.sh writes it, after a verify run"
   # where the gates ran (code review 2026-11-13): `lane` for an interactive lane's --finish outcome, the session's own
   # report; else `worker`. Bound to the head, so a lane_mode flipped and flipped back never passes for a worker run —
   # automerge takes a lane-verified head only under a grant that pinned an interactive build lane.
@@ -52,6 +54,38 @@ verified_head_set() { # $1 the sha, or `none` (a verify run that did not pass ev
   # shellcheck disable=SC2016  # a jq program
   E=$(jq --arg v "$1" --arg w "$via" "$ENTRY_PRS"' as $l | if .pr == null then . else (if $v == "none" then .pr | del(.verified_head, .verified_in) else .pr + {verified_head: $v, verified_in: $w} end) as $p | .prs = ($l[0:-1] + [$p]) | .pr = $p end' <<<"$E") \
     && [ -n "$E" ] || die "ledger record $ID: cannot set the verified head"
+}
+
+# --- record <id> --item-kind <k> [--reviewed-by-human --by <name>] (HEF-54) -------------------------------------------
+# A change away from incident/vulnerability drops that kind's gate from automerge's PASS list, so it is a person's
+# signature or the launcher's own record. A signature is BOTH flags and a well-formed name (as am_person_only): the ask
+# rule, lane-guard's SIGN_FLAGS and is_person_sub key on --reviewed-by-human, so `--by` alone would get no dialog.
+item_kind_signer() { # → "launcher", the --by name, or nothing (unsigned); dies on half a signature, or in a worker
+  # reads REVIEWED, RBY, HAVE_SIG (record's loop); the plain unsigned upgrade stays open to a worker (FR-005)
+  if am_is_launcher || [ "$HAVE_SIG" = 1 ]; then am_not_worker "record $ID --item-kind"; fi
+  if [ "$HAVE_SIG" = 1 ]; then
+    [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ $AM_NAME_RE ]] \
+      || die "ledger record $ID: a signature is --reviewed-by-human --by <name>, both, the name letters, digits, spaces and . _ @ - (got --reviewed-by-human $([ "$REVIEWED" = 1 ] && echo given || echo missing), --by '$RBY')"
+    printf '%s\n' "$RBY"; return 0
+  fi
+  ! am_is_launcher || echo launcher
+}
+item_kind_set() { # $1 1 when --item-kind was given, $2 the kind — updates E (record's entry); every refusal before the write
+  local cur by
+  [ "$1" = 1 ] || die "ledger record $ID: --reviewed-by-human / --by sign a kind change only — add --item-kind <k> (nothing else reads the signature)"
+  in_list "$2" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '$2')"
+  by=$(item_kind_signer) || exit 1
+  cur=$(jq -r '.item_kind // "feature"' <<<"$E")
+  case "$cur" in incident|vulnerability) [ "$2" = "$cur" ] || [ -n "$by" ] || die "ledger record $ID: $cur → $2 drops the $cur gate — a person signs it: ledger.sh record $ID --item-kind $2 --reviewed-by-human --by <name>" ;; esac
+  if [ -z "$by" ]; then   # unsigned (an upgrade, or the same kind): item_kind only — the intake kind stays (D1)
+    E=$(jq --arg v "$2" '.item_kind = $v' <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set the item kind"; return 0
+  fi
+  # signed or the launcher's: a re-intake of the kind — both fields, and an event whenever either one changes (D5)
+  # shellcheck disable=SC2016  # a jq program
+  E=$(jq --arg v "$2" --arg by "$by" '(.item_kind // "feature") as $ci | (.intake_kind // $ci) as $ii
+      | (if .item_kind == $v and .intake_kind == $v then . else .events = ((.events // []) + [{kind: "item-kind-changed", by: $by,
+          at: (now | todate), note: "item_kind \($ci) → \($v); intake_kind \($ii) → \($v)"}]) end)
+      | .item_kind = $v | .intake_kind = $v' <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set the item kind"
 }
 
 # --- the preview a grant pins (D1, D2) ----------------------------------------------------------------------------
@@ -236,7 +270,9 @@ automerge_skip_reason() { # $1 entry, $2 pr-watch state JSON, $3 the entry repo'
   [ "$(tr '[:upper:]' '[:lower:]' <<<"$4")" = "$(jq -r '.origin | ascii_downcase' <<<"$3")" ] || { echo "PR repo $4 is not the pinned origin $(jq -r .origin <<<"$3")"; return; }
   [ "$(jq -r .state <<<"$2")" = OPEN ] || { echo "the PR is $(jq -r .state <<<"$2")"; return; }
   [ "$(jq -r .baseRefName <<<"$2")" = "$(jq -r .integration <<<"$3")" ] || { echo "the PR's base $(jq -r .baseRefName <<<"$2") is not the integration branch $(jq -r .integration <<<"$3")"; return; }
-  for g in verify review quality scan $(jq -r '.item_kind // "" | select(. == "incident" or . == "vulnerability")' <<<"$1"); do
+  # HEF-54: the kind recorded at intake is gated too, whatever item_kind reads now (heavier wins); a legacy entry with
+  # no intake_kind yields null, which the select drops — item_kind alone
+  for g in verify review quality scan $(jq -r '[.item_kind, .intake_kind] | unique[] | select(. == "incident" or . == "vulnerability")' <<<"$1"); do
     [ "$(jq -r --arg g "$g" '[.verdicts[]? | select(.gate == $g)][-1].verdict // "none"' <<<"$1")" = PASS ] || { echo "gate $g is not PASS"; return; }
   done
   [ "$(jq -r .headRefOid <<<"$2")" = "$(jq -r '.pr.verified_head // ""' <<<"$1")" ] || { echo "head moved since verify ($(jq -r '.pr.verified_head // "none recorded"' <<<"$1") → $(jq -r .headRefOid <<<"$2"))"; return; }

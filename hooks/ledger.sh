@@ -36,7 +36,7 @@ usage: ledger.sh <subcommand> …
   block <id> --kind <kind> [--question <path>] [--cause push-refused|host-denied|credential-helper-missing [--host <h>]]   (--cause/--host: stall only; the reason is rendered from the plugin's fix table)
   unblock <id> [--reviewed-by-human --by <name>] [--merge-sha <sha>]   human:* kinds need artifact evidence (intake and plan-approval: a person's name; merge: the branch, or the PR's merge commit once the branch is deleted)
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
-  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k] [--rfc] [--body-from-board] [--spec-root <app|.>]   (--spec-root: the owning app, or . for the top, until spec_dir is recorded; --body-file / --body-from-board re-hash the item; --rfc pins its RFC)
+  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k [--reviewed-by-human --by <name>]] [--rfc] [--body-from-board] [--spec-root <app|.>]   (--spec-root: the owning app, or . for the top, until spec_dir is recorded; --body-file / --body-from-board re-hash the item; --rfc pins its RFC)
   register <id> --ref <column>#<id>                     route, detect the kind and init in one call; an existing entry is left untouched
   questions <id>                                        the planner's open questions (human:clarify, human:plan-review), delimited as data
   answer <id> --reviewed-by-human --by <name> [--file f]  the person's answers (stdin or --file) → copied, hashed; clears clarify / plan-review
@@ -452,7 +452,7 @@ case "$SUB" in
     QP=""; if [ -n "$INTAKE" ]; then QP="$DIR/$ID.intake.md"; cp "$INTAKE" "$QP" 2>/dev/null || die "ledger init $ID: cannot write the intake reason to $QP"; fi
     jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" --arg ik "$IKIND" --arg repo "$RNAME" --arg qp "$QP" '{
       id: $id, source: {kind: $kind, ref: $ref, url: (if $url == "" then null else $url end), body_sha256: $sha},
-      item_kind: $ik, route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
+      item_kind: $ik, intake_kind: $ik, route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
       verdicts: [], blocked_on: (if $qp == "" then null else {kind: "human:intake", since: (now | todate), question_path: $qp} end),
       budget: {usd_cap: null, usd_spent: 0}, runs: [], attempts: 0,
       created: (now | todate), updated: (now | todate) } + (if $repo == "" then {} else {repo: $repo} end)' | write_entry "$ID" || exit 1
@@ -708,6 +708,7 @@ case "$SUB" in
   record)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1; refuse_closed record "$ID" "$E"
     setf() { E=$(jq --arg v "$2" "$1" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set $1 to '$2'"; }
+    NEWKIND=""; HAVE_KIND=0; REVIEWED=0; RBY=""; HAVE_SIG=0   # the kind is applied after the loop (HEF-54)
     while [ $# -gt 0 ]; do case "$1" in
       --body-file) [ -f "${2:-}" ] || die "ledger record $ID: body file not found: '${2:-}'"; setf '.source.body_sha256 = $v' "$({ sha256sum 2>/dev/null || shasum -a 256; } < "$2" | cut -c1-64)"; shift ;;
       --worktree) setf '.worktree = $v' "${2:-}"; shift ;;
@@ -717,7 +718,8 @@ case "$SUB" in
       --verified-head) verified_head_set "${2:-}"; shift ;;   # the verify launcher's; ledger-automerge.sh
       --spec-dir) spec_dir_set "${2:-}"; shift ;;      # ledger-lanes.sh: relative to the worktree, no '..'
       --spec-root) spec_root_set "${2:-}"; shift ;;    # a declared app or . (the top), until spec_dir is recorded
-      --item-kind) in_list "${2:-}" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '${2:-}')"; setf '.item_kind = $v' "$2"; shift ;;
+      --item-kind) NEWKIND="${2:-}"; HAVE_KIND=1; shift ;;   # item_kind_set below: the signature may come after it
+      --reviewed-by-human) REVIEWED=1; HAVE_SIG=1 ;; --by) RBY="${2:-}"; HAVE_SIG=1; shift ;;
       --body-from-board)   # the person's re-hash after reading the item: the board's raw text, no temp file
         BR=$("$HERE/status-board.sh" --item-raw "$ID" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64) && [ ${#BR} -eq 64 ] \
           || die "ledger record $ID: cannot read the item's raw text from the board"; setf '.source.body_sha256 = $v' "$BR" ;;
@@ -729,6 +731,7 @@ case "$SUB" in
       --rfc) rfc_pin ;;
       --rfc-snapshot) [ -f "${2:-}" ] || die "ledger record $ID: --rfc-snapshot needs the launcher's copy of the RFC"; rfc_pin "$2"; shift ;;
       *) usage ;; esac; shift; done
+    [ "$HAVE_KIND$HAVE_SIG" = 00 ] || item_kind_set "$HAVE_KIND" "$NEWKIND"   # ledger-automerge.sh: the signed downgrade
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 
   questions) ID="${1:-}"; [ -n "$ID" ] || usage; E=$(entry "$ID") || exit 1; questions_item ;;
