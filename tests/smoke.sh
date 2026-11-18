@@ -6476,6 +6476,107 @@ mp_bad="$(for f in "$REPO"/hooks/*.sh "$REPO"/install.sh; do
     | grep -vE '\|\| (date -j|stat -f|resolve_link)|(md5sum|sha1sum|sha256sum) 2>/dev/null \|\| (md5 -r|shasum)' | sed "s|^|$(basename "$f"):|"
 done)"
 [ -z "$mp_bad" ] || { bad "a hook depends on bash 4 or a GNU-only flag, which macOS /bin/bash 3.2 and BSD tools lack:"; printf '       %s\n' "$mp_bad" | head -10; mp_fail=1; }
+# 1b. No `case` inside a $( … ): /bin/bash 3.2 ends the substitution at the case pattern's ")" (HEF-22, PR #212;
+#     HEF-55). A line regex cannot see a $( opened lines earlier, so this tracks it: a POSIX-awk scanner (BSD awk
+#     on macOS, gawk/mawk on Linux) with a stack of frames — S for $(, P for a plain (, two A for $(( or ((, C for
+#     case. Each frame saves the quote state it opened in; for $(( inside "…" only the outer A saves it, so
+#     "$((a+1))" inside a "$(…)" closes cleanly. A ")" while C is on top ends a pattern and does not pop; esac pops
+#     to its C. Skipped: comments, '…', $'…', "…" text, backslash escapes, <<<, heredoc bodies (<<- strips tabs;
+#     << inside arithmetic is a shift). A file that ends with a quote, a heredoc or a frame still open prints
+#     FILE:0: scanner lost sync, so "stopped reading" can never pass for clean. Single quotes are \047 because
+#     the program is single-quoted. Measured on the tree before it was cut (research.md "Prototype").
+#     macos-case-guard/FR-001 macos-case-guard/FR-002 macos-case-guard/FR-006
+MP_CASE_AWK='
+function push(t) { st[++sp] = t; sq[sp] = q }
+function in_subst(  k) { for (k = sp; k > 0; k--) if (st[k] == "S") return 1; return 0 }
+function in_arith(  k) { for (k = sp; k > 0; k--) if (st[k] == "A") return 1; return 0 }
+function sync_check() { if (cur != "" && (hd != "" || q != "" || sp > 0)) print cur ":0: scanner lost sync" }
+FNR == 1 { sync_check(); cur = FILENAME; sp = 0; q = ""; hd = "" }
+END { sync_check() }
+{
+  line = $0
+  if (hd != "") { t = line; if (hdtab) sub(/^\t+/, "", t); if (t == hd) hd = ""; next }
+  n = length(line); i = 1; pending = ""
+  while (i <= n) {
+    c = substr(line, i, 1)
+    if (q == "\047") { if (c == "\047") q = ""; i++; continue }
+    if (q == "a") { if (c == "\\") { i += 2; continue } if (c == "\047") q = ""; i++; continue }
+    if (c == "\\") { i += 2; continue }
+    if (q == "\"") {
+      if (c == "\"") { q = ""; i++; continue }
+      if (substr(line, i, 3) == "$((") { push("A"); q = ""; push("A"); i += 3; continue }
+      if (substr(line, i, 2) == "$(") { push("S"); q = ""; i += 2; continue }
+      i++; continue
+    }
+    if (c == "#" && (i == 1 || substr(line, i - 1, 1) ~ /[ \t;(|&]/)) break
+    if (c == "\047") { q = "\047"; i++; continue }
+    if (substr(line, i, 2) == "$\047") { q = "a"; i += 2; continue }
+    if (c == "\"") { q = "\""; i++; continue }
+    if (substr(line, i, 3) == "$((" || substr(line, i, 2) == "((") { push("A"); push("A"); i += (c == "$" ? 3 : 2); continue }
+    if (substr(line, i, 2) == "$(") { push("S"); i += 2; continue }
+    if (c == "(") { push("P"); i++; continue }
+    if (c == ")") {
+      if (sp > 0 && st[sp] == "C") { i++; continue }
+      if (sp > 0) { q = sq[sp]; sp-- }
+      i++; continue
+    }
+    if (substr(line, i, 3) == "<<<") { i += 3; continue }
+    if (substr(line, i, 2) == "<<" && !in_arith() && match(substr(line, i), /^<<-?[ \t]*(\\|[\047"])?[A-Za-z_][A-Za-z_0-9]*[\047"]?/)) {
+      w = substr(line, i, RLENGTH); hdtab = (w ~ /^<<-/); gsub(/^<<-?[ \t]*(\\|[\047"])?|[\047"]?$/, "", w); pending = w; i += RLENGTH; continue
+    }
+    if (c ~ /[A-Za-z_]/ && (i == 1 || substr(line, i - 1, 1) ~ /[ \t;(&|{]/)) {
+      match(substr(line, i), /^[A-Za-z_0-9]+/); w = substr(line, i, RLENGTH)
+      nx = substr(line, i + RLENGTH, 1)
+      if (w == "case" && (nx == " " || nx == "\t")) { if (in_subst()) print FILENAME ":" FNR; push("C") }
+      else if (w == "esac" && (nx == "" || nx ~ /[ \t;)|&]/)) { while (sp > 0 && st[sp] != "C") sp--; if (sp > 0) sp-- }
+      i += RLENGTH; continue
+    }
+    i++
+  }
+  if (pending != "") hd = pending
+}'
+# LC_ALL=C: the scanner matches ASCII only, and BSD awk in a UTF-8 locale aborts on a byte it cannot convert
+# ("towc: multibyte conversion failure" on install.sh's pt-BR table, smoke-macos on PR #216) — bytes are read as bytes
+mp_case_in_subst() { LC_ALL=C awk "$MP_CASE_AWK" "$@"; }
+# An awk failure is output, never a clean tree; a FILE:LINE gets the bash 3.2 reason and the remedy, a lost sync
+# is worded as the scanner's own desync (quote the stray word or close the region), not as the function remedy.
+mp_case="$(mp_case_in_subst "$REPO"/hooks/*.sh "$REPO"/install.sh 2>&1)" || mp_case="awk failed (rc $?)${mp_case:+: $mp_case}"
+mp_case_sync="$(printf '%s\n' "$mp_case" | grep ':0: scanner lost sync')"
+mp_case_hit="$(printf '%s\n' "$mp_case" | grep -v ':0: scanner lost sync' | grep .)"
+[ -z "$mp_case_hit" ] || { bad "a case inside \$( … ) — macOS /bin/bash 3.2 ends the substitution at the pattern's \")\"; move the case into a function the substitution calls:"; printf '       %s\n' "$mp_case_hit" | head -10; mp_fail=1; }
+[ -z "$mp_case_sync" ] || { bad "the case-in-\$( scanner lost sync (a quote, heredoc or bracket still open at the end of the file, or an unquoted argument word 'case' — quote it); the rest of that file was not checked:"; printf '       %s\n' "$mp_case_sync" | head -10; mp_fail=1; }
+# The guard read on fixtures: the bad one's reported lines must equal its tagged lines exactly (a missed shape
+# and a false positive both fail; an emptied fixture fails), the good one must exist and read clean, and the
+# desync one must report lost sync. macos-case-guard/FR-003 macos-case-guard/FR-004 macos-case-guard/FR-005
+mp_fx="$REPO/tests/fixtures/macos-case-in-subst"
+mp_want="$(grep -n 'HEF55-flag' "$mp_fx-bad.txt" | cut -d: -f1 | tr '\n' ' ')"
+mp_got="$(mp_case_in_subst "$mp_fx-bad.txt" | sed 's/.*://' | tr '\n' ' ')"
+{ [ -n "$mp_want" ] && [ "$mp_got" = "$mp_want" ]; } || { bad "case-in-\$( guard must report lines '$mp_want' of the bad fixture (got '$mp_got')"; mp_fail=1; }
+mp_gd="$(mp_case_in_subst "$mp_fx-good.txt")"; mp_rc=$?
+{ [ -s "$mp_fx-good.txt" ] && [ "$mp_rc" = 0 ] && [ -z "$mp_gd" ]; } || { bad "case-in-\$( guard must read the good fixture clean (rc $mp_rc): $(printf '%s' "$mp_gd" | tr '\n' ' ')"; mp_fail=1; }
+# non-ASCII and a byte that is no UTF-8 at all: read clean, never an awk failure (BSD awk; see mp_case_in_subst)
+printf 'a="n\303\243o"; b="\377"\n' > "$SMOKE_TMP/mp-bytes.sh"; mp_by="$(mp_case_in_subst "$SMOKE_TMP/mp-bytes.sh" 2>&1)"; mp_rc=$?
+{ [ "$mp_rc" = 0 ] && [ -z "$mp_by" ]; } || { bad "case-in-\$( guard must read non-ASCII bytes clean (rc $mp_rc): $mp_by"; mp_fail=1; }
+mp_ds="$(mp_case_in_subst "$mp_fx-desync.txt")"
+case "$mp_ds" in *':0: scanner lost sync'*) ;; *) bad "case-in-\$( guard must report lost sync on the desync fixture (got '$mp_ds')"; mp_fail=1 ;; esac
+# Mutations (constitution 3), both directions: blind the guard (a, b), make it over-report (c), silence the sync
+# check (d). Each must be shown to apply and the mutant awk to run (exit 0) before its survival is judged — a
+# mutant that does not parse proves nothing. macos-case-guard/FR-007
+mp_case_mut() { # $1 sed expr; $2 fixture (bad|good|desync); $3 what the mutation removes
+  local p o rc; p="$(printf '%s' "$MP_CASE_AWK" | sed "$1")"
+  [ "$p" != "$MP_CASE_AWK" ] || { bad "case-in-\$( mutation did not apply: $1"; mp_fail=1; return; }
+  o="$(LC_ALL=C awk "$p" "$mp_fx-$2.txt")"; rc=$?
+  [ "$rc" = 0 ] || { bad "case-in-\$( mutant failed to run (rc $rc): $1"; mp_fail=1; return; }
+  case "$2" in
+    bad) [ -z "$o" ] ;;
+    good) [ -n "$o" ] ;;
+    desync) case "$o" in *':0: scanner lost sync'*) false ;; *) true ;; esac ;;
+  esac || { bad "mutation survived: $3"; mp_fail=1; }
+}
+mp_case_mut 's/if (in_subst()) print/if (0) print/' bad "no report, yet the bad fixture was still reported"
+mp_case_mut 's/push("S")/push("P")/g' bad "no \$( frame, yet the bad fixture was still reported"
+mp_case_mut 's/push("P")/push("S")/g' good "every ( a substitution, yet the good fixture read clean"
+mp_case_mut 's/print cur ":0: scanner lost sync"/cur = cur/' desync "sync check silenced, yet lost sync was reported"
 # 2. run-bounded.sh — the timeout(1) stand-in for a Mac without coreutils.
 RB="$REPO/hooks/run-bounded.sh"
 mp_rb() { # $1 script, then its args → $mp_o, $mp_rc, $mp_s (whole seconds it took)
@@ -6528,7 +6629,8 @@ bash -c "$mp_fns"'; resolve_link "$1"' _ "$mp_rl/dangling.md" >/dev/null 2>&1 &&
 grep -qF 'command -v timeout || command -v gtimeout || echo "$HERE/run-bounded.sh"' "$REPO/hooks/pr-watch.sh" \
   && grep -qF 'command -v gtimeout || echo "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-bounded.sh"' "$REPO/hooks/arena-run.sh" \
   || { bad "pr-watch.sh and arena-run.sh must fall back to run-bounded.sh when there is no timeout/gtimeout"; mp_fail=1; }
-[ "$mp_fail" -eq 0 ] && ok "macOS portability: no bash-4 construct, GNU-only flag or GNU-only checksum tool in the hooks; run-bounded.sh passes exit codes, stops at the limit (124), keeps stdin, frees \$(…) at once, KILLs after -k, stops its children, forwards a TERM, refuses bad args; 3 mutations caught (no KILL; no job control; no forwarding); epoch_of pins midnight on BSD date; resolve_link follows links physically and fails on a dangling one; pr-watch and arena-run fall back to it"
+# macos-case-guard/FR-008: the ok line names rule 1b, its three fixtures and its four mutations.
+[ "$mp_fail" -eq 0 ] && ok "macOS portability: no bash-4 construct, GNU-only flag or GNU-only checksum tool in the hooks; no case inside a \$( … ), checked on three fixtures; 4 mutations caught; run-bounded.sh passes exit codes, stops at the limit (124), keeps stdin, frees \$(…) at once, KILLs after -k, stops its children, forwards a TERM, refuses bad args; 3 mutations caught (no KILL; no job control; no forwarding); epoch_of pins midnight on BSD date; resolve_link follows links physically and fails on a dangling one; pr-watch and arena-run fall back to it"
 
 # --- Tier 1: the merge gate (field report 2026-10-13: advance stepped over human:merge; a deleted branch) -----
 head_ "Merge gate"

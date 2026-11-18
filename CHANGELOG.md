@@ -51,6 +51,10 @@ it is what caught the hand-bumped era:
   folder is outside every sandbox's write set). An entry recorded before this release has no `intake_kind` and falls
   back to `item_kind`, so a downgrade made before it is not detected: check the incident and vulnerability entries
   recorded before this release.
+- **The macOS portability guard reports a `case` inside a `$( … )` in `hooks/*.sh` and `install.sh`** (HEF-55, found
+  on PR #212; `tests/smoke.sh`). macOS `/bin/bash` 3.2 ends the substitution at the case pattern's `)`, and the
+  existing per-line check could not see a `$(` opened lines earlier. The remedy it names: a function the substitution
+  calls.
 
 ### Upgrade
 

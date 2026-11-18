@@ -1,0 +1,51 @@
+# HEF-55 guard fixture (tests/smoke.sh, "macOS portability" rule 1b): nothing below may be reported.
+# Each shape is one bash 3.2 runs correctly, or text the guard must skip. Every skipped region holds a $(
+# followed by a case word that WOULD be reported if that skip were removed, so each skip is tested.
+
+# The remedy: a function the substitution calls.
+f() { case "$1" in a) echo a ;; esac; }; x="$(f a)"
+
+# Same-line closed $( … ) then a case (shapes of hooks/lane-guard.sh, hooks/session-launch.sh, hooks/status-board.sh).
+t="$(readlink "$p")"; case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac; n=$((n + 1))
+if l="$(readlink "$0" 2>/dev/null)"; then case "$l" in /*) d="$(dirname "$l")" ;; *) d="$d/$(dirname "$l")" ;; esac; fi
+n=$(printf '%s' "$items" | grep -c . || true); case "$key" in todo) c=$n ;; doing) c=$n ;; esac
+
+# A $( inside a case branch.
+case "$1" in
+  a) v="$(echo a)" ;;
+  *) v="$(echo b)" ;;
+esac
+
+# Arithmetic, then a case.
+n=$((1 + 2)); case "$n" in 3) : ;; esac
+x="$(echo "$((a+1))")"; case "$x" in 1) : ;; esac
+
+# A plain ( … ) subshell and an array: a ( is not a $(.
+( case "$1" in a) echo a ;; esac )
+a=( $(echo 1 2) ); case "${a[0]}" in 1) : ;; esac
+
+# << inside arithmetic is a shift, not a heredoc (an identifier operand, so a misread would swallow the rest).
+n=$(( 1 << n )); case "$n" in 2) : ;; esac
+
+# Heredoc bodies are text.
+cat <<EOF
+y="$(case "$1" in a) ;; esac)"
+EOF
+cat <<-EOF
+	y="$(case "$1" in a) ;; esac)"
+	EOF
+cat <<'EOF'
+y="$(case "$1" in a) ;; esac)"
+EOF
+cat <<\EOF
+y="$(case "$1" in a) ;; esac)"
+EOF
+
+# A comment is text.
+# y="$(case "$1" in a) ;; esac)"
+
+# Single-quoted text.
+echo 'y="$(case "$1" in a) ;; esac)"'
+
+# Double-quoted text inside a $( … ).
+x="$(echo "do case y in z) ;; esac")"
