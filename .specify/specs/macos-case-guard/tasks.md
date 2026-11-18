@@ -23,7 +23,7 @@
 
 ## Phase 4: Polish
 - [x] T010 [US3] [FR-006] Run tier 1 of `tests/smoke.sh` in full: 0 failures; the "macOS portability" `ok` line shows the new rule (SC-003, SC-004). Re-run under `/bin/bash` 3.2 semantics where available (smoke-macos CI is the authority) `tests/smoke.sh`
-- [x] T011 [US1] [FR-001] SC-002 against the landed guard (plan Approach 9): source `MP_CASE_AWK` from `tests/smoke.sh`, run `mp_case_in_subst` on `git show 8365d75^:hooks/hefesto-setup.sh` written to a `$TMPDIR` scratch file, and record the output (expected: the old `fg_pushrw` `case` line) in `research.md` `.specify/specs/macos-case-guard/research.md`
+- [x] T011 [US1] [FR-001] SC-002 against the landed guard (plan Approach 9): source `MP_CASE_AWK` from `tests/smoke.sh`, run `mp_case_in_subst` on `git show 8365d75^:hooks/hefesto-setup.sh` written to a `$TMPDIR` scratch file, and record the output (expected: the old `fg_pushrw` `case` line) in `research.md` `.specify/specs/macos-case-guard/research.md` — **the one-off run was NOT executed** (the headless worker is refused `awk`); substitute evidence and the command to close it by hand are in `research.md`
 - [x] T012 [FR-007] Run `speckit-helper.sh req-coverage` for this spec: every FR-001..FR-008 COVERED by a `macos-case-guard/FR-NNN` citation; `git diff --stat` shows only `tests/smoke.sh`, `tests/fixtures/macos-case-in-subst-*.txt`, `CHANGELOG.md` and `.specify/` `.specify/specs/macos-case-guard/tasks.md`
 
 ---
