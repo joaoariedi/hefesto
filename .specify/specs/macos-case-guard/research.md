@@ -62,6 +62,9 @@ this worker is refused any `awk` or ad-hoc script invocation outside the suite. 
 landed program is the measured prototype (which reported `<file>:337` on that file) with only the quote
 spelling changed, and the suite's bad-fixture equality proves the landed program reports the same `fg_pushrw`
 shape. To close it by hand: source `MP_CASE_AWK` from `tests/smoke.sh` and run `awk "$MP_CASE_AWK"` on that file.
+**Closed by hand (orchestrator, 2026-11-18, at `d3aad47`):** `MP_CASE_AWK` and `mp_case_in_subst` taken from
+`tests/smoke.sh` (lines 6489–6538) and run with GNU Awk 5.4.1 → on the pre-`8365d75` `hefesto-setup.sh`:
+`<file>:337` (the `fg_pushrw` `case` line), exit 0; on `hooks/*.sh install.sh`: no output, exit 0. SC-002 met.
 
 ## Open Questions
 _None — the spec's decisions D1–D5 settle scope, form and placement from the code._
