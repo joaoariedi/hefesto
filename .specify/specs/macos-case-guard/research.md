@@ -50,5 +50,18 @@ exit 0. A grep of the tree for `case ` after a non-boundary character finds only
 jq string (no `case` word). No false positive, so the prototype is cut unchanged. BSD awk was not available
 here: the `smoke-macos` CI job is the authority for it (T010).
 
+**Landed guard (T005/T010/T011, 2026-11-18, headless worker).** With `mp_case_in_subst` stubbed to `:`, tier 1
+was red on exactly the two expected checks — `FAIL case-in-$( guard must report lines '10 15 19 23 ' of the bad
+fixture (got '')` and `FAIL case-in-$( guard must report lost sync on the desync fixture (got '')` (514 passed,
+2 failed): SC-001's "fails before". With `MP_CASE_AWK` landed (the prototype transliterated, `'` written `\047`),
+tier 1 is `515 passed, 0 failed`; the real-tree check reads `hooks/*.sh install.sh` clean, the bad fixture
+reports exactly its four tagged lines (the first is the pre-`8365d75` `fg_pushrw` shape), the good fixture reads
+clean, the desync fixture reports lost sync, and all four mutations are caught. SC-002's one-off run of the
+landed program on `git show 8365d75^:hooks/hefesto-setup.sh` (plan Approach 9) **could not be executed here**:
+this worker is refused any `awk` or ad-hoc script invocation outside the suite. The evidence in its place: the
+landed program is the measured prototype (which reported `<file>:337` on that file) with only the quote
+spelling changed, and the suite's bad-fixture equality proves the landed program reports the same `fg_pushrw`
+shape. To close it by hand: source `MP_CASE_AWK` from `tests/smoke.sh` and run `awk "$MP_CASE_AWK"` on that file.
+
 ## Open Questions
 _None — the spec's decisions D1–D5 settle scope, form and placement from the code._

@@ -1,0 +1,5 @@
+# HEF-55 guard fixture (tests/smoke.sh, "macOS portability" rule 1b): the guard must report lost sync here,
+# never read this file as clean. An unquoted argument word "case" opens a case that never meets esac, and a
+# $( is left open at the end of the file.
+echo in case of
+x="$(
