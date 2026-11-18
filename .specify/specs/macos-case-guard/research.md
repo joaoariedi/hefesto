@@ -42,9 +42,13 @@
 `S` (`$(`), `P` (`(`, `$((` ×2) and `C` (`case`) frames, each `S` saving the quote state it opened in;
 single quotes, `$'…'`, double-quoted text, backslash escapes, comments and heredoc bodies skipped; a
 `)` while a `C` frame is on top is a case pattern's and does not pop; `esac` pops to its `C`. It prints
-`FILE:LINE` for a `case` word read while any `S` frame is on the stack. **Unmeasured**: this headless
-planning session was denied `awk -f`, so running it over the tree and the pre-`8365d75` file is task
-T001's first step, and any false positive found there is fixed in the guard before the fixtures are cut.
+`FILE:LINE` for a `case` word read while any `S` frame is on the stack. **Measured (T001, 2026-11-18,
+by the orchestrator — headless workers are refused `awk` even with an allow rule, "awk has an option that
+can't be checked"):** GNU Awk 5.4.1 over `hooks/*.sh install.sh` at `3af530e` → no output, exit 0, 0.16 s;
+over `git show 8365d75^:hooks/hefesto-setup.sh` → `<file>:337`, exactly the old `fg_pushrw` `case` line,
+exit 0. A grep of the tree for `case ` after a non-boundary character finds only `ascii_downcase` inside a
+jq string (no `case` word). No false positive, so the prototype is cut unchanged. BSD awk was not available
+here: the `smoke-macos` CI job is the authority for it (T010).
 
 ## Open Questions
 _None — the spec's decisions D1–D5 settle scope, form and placement from the code._
