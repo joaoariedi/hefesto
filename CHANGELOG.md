@@ -37,6 +37,8 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+## [9.4.3] - 2026-11-18
+
 ### Fixed
 
 - **An incident or vulnerability item can no longer be relabelled to skip its own gate** (HEF-54; `docs/hooks.md`,
