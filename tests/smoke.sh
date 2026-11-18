@@ -6535,7 +6535,9 @@ END { sync_check() }
   }
   if (pending != "") hd = pending
 }'
-mp_case_in_subst() { awk "$MP_CASE_AWK" "$@"; }
+# LC_ALL=C: the scanner matches ASCII only, and BSD awk in a UTF-8 locale aborts on a byte it cannot convert
+# ("towc: multibyte conversion failure" on install.sh's pt-BR table, smoke-macos on PR #216) — bytes are read as bytes
+mp_case_in_subst() { LC_ALL=C awk "$MP_CASE_AWK" "$@"; }
 # An awk failure is output, never a clean tree; a FILE:LINE gets the bash 3.2 reason and the remedy, a lost sync
 # is worded as the scanner's own desync (quote the stray word or close the region), not as the function remedy.
 mp_case="$(mp_case_in_subst "$REPO"/hooks/*.sh "$REPO"/install.sh 2>&1)" || mp_case="awk failed (rc $?)${mp_case:+: $mp_case}"
@@ -6552,6 +6554,9 @@ mp_got="$(mp_case_in_subst "$mp_fx-bad.txt" | sed 's/.*://' | tr '\n' ' ')"
 { [ -n "$mp_want" ] && [ "$mp_got" = "$mp_want" ]; } || { bad "case-in-\$( guard must report lines '$mp_want' of the bad fixture (got '$mp_got')"; mp_fail=1; }
 mp_gd="$(mp_case_in_subst "$mp_fx-good.txt")"; mp_rc=$?
 { [ -s "$mp_fx-good.txt" ] && [ "$mp_rc" = 0 ] && [ -z "$mp_gd" ]; } || { bad "case-in-\$( guard must read the good fixture clean (rc $mp_rc): $(printf '%s' "$mp_gd" | tr '\n' ' ')"; mp_fail=1; }
+# non-ASCII and a byte that is no UTF-8 at all: read clean, never an awk failure (BSD awk; see mp_case_in_subst)
+printf 'a="n\303\243o"; b="\377"\n' > "$SMOKE_TMP/mp-bytes.sh"; mp_by="$(mp_case_in_subst "$SMOKE_TMP/mp-bytes.sh" 2>&1)"; mp_rc=$?
+{ [ "$mp_rc" = 0 ] && [ -z "$mp_by" ]; } || { bad "case-in-\$( guard must read non-ASCII bytes clean (rc $mp_rc): $mp_by"; mp_fail=1; }
 mp_ds="$(mp_case_in_subst "$mp_fx-desync.txt")"
 case "$mp_ds" in *':0: scanner lost sync'*) ;; *) bad "case-in-\$( guard must report lost sync on the desync fixture (got '$mp_ds')"; mp_fail=1 ;; esac
 # Mutations (constitution 3), both directions: blind the guard (a, b), make it over-report (c), silence the sync
@@ -6560,7 +6565,7 @@ case "$mp_ds" in *':0: scanner lost sync'*) ;; *) bad "case-in-\$( guard must re
 mp_case_mut() { # $1 sed expr; $2 fixture (bad|good|desync); $3 what the mutation removes
   local p o rc; p="$(printf '%s' "$MP_CASE_AWK" | sed "$1")"
   [ "$p" != "$MP_CASE_AWK" ] || { bad "case-in-\$( mutation did not apply: $1"; mp_fail=1; return; }
-  o="$(awk "$p" "$mp_fx-$2.txt")"; rc=$?
+  o="$(LC_ALL=C awk "$p" "$mp_fx-$2.txt")"; rc=$?
   [ "$rc" = 0 ] || { bad "case-in-\$( mutant failed to run (rc $rc): $1"; mp_fail=1; return; }
   case "$2" in
     bad) [ -z "$o" ] ;;
