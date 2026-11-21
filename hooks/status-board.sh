@@ -38,7 +38,7 @@ hef_sib() { # $1 file name → its path beside this script
   printf '%s/%s' "$d" "$1"
 }
 # shellcheck source=/dev/null
-for HEF_F in board-setup.sh board-github.sh; do HEF_F="$(hef_sib "$HEF_F")"; [ -f "$HEF_F" ] && . "$HEF_F"; done
+for HEF_F in board-setup.sh board-github.sh board-mark.sh; do HEF_F="$(hef_sib "$HEF_F")"; [ -f "$HEF_F" ] && . "$HEF_F"; done
 need_fn() { declare -F "$1" >/dev/null || die "status-board: $1 is missing — hooks/$2 must sit beside status-board.sh"; }
 
 MODE="run"; CONFIG=""; ITEM_ID=""; MARK=""; WAS=""; ADD_TITLE=""; ADD_INC=0; ADD_RFC=0; ADD_APP=""; LIST_COL=""; SET_STATE=""; NOTE_FILE=""; BODY_FILE=""
@@ -49,6 +49,7 @@ while [ $# -gt 0 ]; do
     --item) shift; MODE="item"; ITEM_ID="${1:-}" ;;
     --item-raw) shift; MODE="item-raw"; ITEM_ID="${1:-}" ;;
     --mark) shift; MODE="mark"; ITEM_ID="${1:-}"; [ $# -gt 0 ] && shift; MARK="${1:-}" ;;
+    --locate) shift; MODE="locate"; ITEM_ID="${1:-}" ;;
     --was) shift; WAS="${1:-}" ;;
     --item-kind) shift; MODE="item-kind"; ITEM_ID="${1:-}" ;;
     --item-repo) shift; MODE="item-repo"; ITEM_ID="${1:-}" ;;
@@ -61,13 +62,13 @@ while [ $# -gt 0 ]; do
     --incident) ADD_INC=1 ;;
     --rfc) ADD_RFC=1 ;;
     --app) shift; ADD_APP="${1:-}"; [[ "$ADD_APP" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo "status-board --app: a name like backend (got '$(printf '%s' "$ADD_APP" | tr -cd 'a-zA-Z0-9._-' | head -c 40)')" >&2; exit 2; } ;;
-    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --item-repo <id> | --item-rfc <id> | --mark <id> <marker|-> [--was <marker>]] [--config <path>]"; exit 0 ;;
+    --help|-h) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; echo "Usage: $(basename "$0") [--check | --detailed | --item <id> | --item-raw <id> | --item-kind <id> | --item-repo <id> | --item-rfc <id> | --mark <id> <marker|-> [--was <marker>] | --locate <id>] [--config <path>]"; exit 0 ;;
     *) n=0; if declare -F ghb_parse_arg >/dev/null; then ghb_parse_arg "$@"; n=$?; fi   # board-github.sh: count consumed
-       if [ "$n" -gt 1 ]; then shift $((n - 1)); elif [ "$n" -eq 0 ]; then echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --item-rfc <id>, --mark <id> <marker>, --config <path>, or --help)" >&2; exit 2; fi ;;
+       if [ "$n" -gt 1 ]; then shift $((n - 1)); elif [ "$n" -eq 0 ]; then echo "unknown option: $1 (try --check, --detailed, --item <id>, --item-raw <id>, --item-kind <id>, --item-repo <id>, --item-rfc <id>, --mark <id> <marker>, --locate <id>, --config <path>, or --help)" >&2; exit 2; fi ;;
   esac
   shift
 done
-case "$MODE" in item|item-raw|mark|item-kind|item-repo|item-rfc|item-app|item-url|item-trust|set-status|as-untrusted)
+case "$MODE" in item|item-raw|mark|locate|item-kind|item-repo|item-rfc|item-app|item-url|item-trust|set-status|as-untrusted)
   [ -n "$ITEM_ID" ] || { echo "status-board: --$MODE needs an item id" >&2; exit 2; }
   [ "$MODE" != mark ] || [ -n "$MARK" ] || { echo "status-board: --mark needs <id> <marker> (or - for no marker)" >&2; exit 2; }
   # A marker is ONE token with no backslash: a space would stack under the next mark, a backslash or a
@@ -254,40 +255,7 @@ item_kind() { # $1 id → feature|incident|vulnerability
   done
   die "status-board --item-kind $1: no such item in $COL_todo, $COL_doing or $COL_backlog under $TROOT"
 }
-mark_item() { # $1 id, $2 marker or "-", $3 the marker publish last wrote (stripped too: a superseded map's glyph)
-  local set col f tmp
-  set=$(jq -r --argjson d "$PUBLISH_MARKERS_DEFAULT" '$d + ((.orchestrate.publish_markers // {}) | if type == "object" then . else {} end) | [.[]] + [$d[]] | map(select(type == "string" and test("^[^\\s\\\\]+$"))) | unique | join(" ")' "$CONFIG" 2>/dev/null) \
-    || set=$(jq -r '[.[]] | join(" ")' <<<"$PUBLISH_MARKERS_DEFAULT")
-  # --was strips the marker publish last wrote — never a kind glyph, whatever a misconfigured map says
-  if [ -n "${3:-}" ] && [ "$3" != - ]; then
-    jq -e --arg w "$3" --argjson d "$KINDS_DEFAULT" 'def novs: gsub("[\ufe0e\ufe0f]"; ""); ($d + ((.kinds // {}) | if type == "object" then . else {} end)) | with_entries(.key |= novs) | has($w | novs)' "$CONFIG" >/dev/null 2>&1 \
-      || set="$set $3"
-  fi
-  for col in todo doing backlog 'done'; do
-    f="$TROOT/$(col "$col")"; [ -f "$f" ] || continue
-    awk -v h="$ITEM_HEADING" -v id="$1" '$0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") {found=1; exit} END {exit !found}' "$f" || continue
-    # A DONE heading is a dated section the quarter count parses (^## YYYY-MM-DD); a marker in front would
-    # break it — and the column already says the item is done.
-    if [ "$col" = 'done' ]; then echo "$1 is in $COL_done — the column says it; not marked"; return 0; fi
-    # Write through a symlink to its target and keep the file's mode: a symlinked column (a specs-in-repo
-    # layout) must not be replaced by a private regular file (quality gate 2026-10-02).
-    f=$(readlink -f "$f" 2>/dev/null || resolve_link "$f") || die "status-board --mark: cannot resolve $f"
-    tmp=$(mktemp "$(dirname "$f")/.mark.XXXXXX") || die "status-board --mark: cannot write next to $f"
-    chmod "$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null || echo 644)" "$tmp"   # GNU, then BSD stat
-    # The marker and the set reach awk through ENVIRON, not -v: -v processes backslash escapes.
-    if ! HB_MARK="$2" HB_SET="$set" awk -v h="$ITEM_HEADING" -v id="$1" '
-        BEGIN { m = ENVIRON["HB_MARK"]; n = split(ENVIRON["HB_SET"], S, " "); for (i = 1; i <= n; i++) mine[S[i]] = 1 }
-        !done && $0 ~ h && $0 ~ ("(^|[^A-Z0-9-])" id "([^A-Z0-9-]|$)") {
-          match($0, /^#+ */); pre = substr($0, 1, RLENGTH); rest = substr($0, RLENGTH + 1)
-          while ((sp = index(rest, " ")) > 0 && (substr(rest, 1, sp - 1) in mine)) { rest = substr(rest, sp + 1); sub(/^ +/, "", rest) }
-          if (m != "-") rest = m " " rest
-          print pre rest; done = 1; next }
-        { print }' "$f" > "$tmp"; then rm -f "$tmp"; die "status-board --mark $1: rewriting $f failed"; fi
-    mv "$tmp" "$f" || { rm -f "$tmp"; die "status-board --mark $1: cannot replace $f"; }
-    echo "marked $1 $2 in $(col "$col")"; return 0
-  done
-  die "status-board --mark $1: no such item in $COL_todo, $COL_doing, $COL_backlog or $COL_done under $TROOT"
-}
+# mark_item and locate_item (--mark, --locate) live in board-mark.sh (publish-commit FR-004, HEF-16).
 
 # Routing (external-board FR-002, spec US2): the item's `repo: <name>` body line → "<name>\t<abs path>". It
 # parses the COMMENT-STRIPPED body, the same text --item shows, so a `<!-- repo: … -->` never routes. The line
@@ -599,13 +567,13 @@ case "$SOURCE" in
     case "$MODE" in item-url|item-trust|set-status) die "status-board --$MODE: a github-project board mode (this board is tasks-repo)" ;; esac
     [ "$MODE" = add ] && { add_item; exit $?; }
     case "$MODE" in item-app) A="$(body_of "$ITEM_ID")" || exit 1; item_app_shape "status-board --item-app $ITEM_ID" "$(strip_comments <<<"$A")"; exit $? ;; esac
-    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark) mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
+    case "$MODE" in item) item_body "$ITEM_ID" clean; exit $? ;; item-raw) item_body "$ITEM_ID" raw; exit $? ;; mark|locate) need_fn mark_item board-mark.sh; [ "$MODE" = mark ] || { locate_item "$ITEM_ID"; exit $?; }; mark_item "$ITEM_ID" "$MARK" "$WAS"; exit $? ;; item-rfc) item_rfc "$ITEM_ID"; exit $? ;; item-kind) item_kind "$ITEM_ID"; exit $? ;; item-repo) item_repo "$ITEM_ID"; exit $? ;; esac
     source_tasks ;;
   github-project)
     case "$MODE" in
       list|item|item-raw|item-kind|item-rfc|item-app|item-url|item-trust|add|set-status) need_fn ghb_config board-github.sh; ghb_config ;;
       item-repo) die "status-board --item-repo: a github-project board is in-repo only — there is no repo to route to" ;;
-      mark) die "status-board --mark: a github-project board is published with ledger.sh publish (--set-status), not by editing a file" ;;
+      mark|locate) die "status-board --$MODE: a github-project board is published with ledger.sh publish (--set-status), not by editing a file" ;;
     esac
     case "$MODE" in
       list) ghb_list "$LIST_COL"; exit $? ;; item) GT="$(ghb_text "$ITEM_ID")" || exit 1; as_untrusted "$ITEM_ID" <<<"$GT"; exit $? ;;

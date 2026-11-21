@@ -736,8 +736,27 @@ For the short path — install, one lane or four, a new or a running project —
       entry's repo (`<repo>/.claude/worktrees/<id>`); start the launcher from the board repo or any
       code repo it feeds. `ledger.sh handoff` records the repo you run it in, and `unblock`,
       `where` and `advance … released` check git in the entry's repo.
-    - **Publish** marks the item in the board repo's file. Commit it yourself; committing
-      automatically is board item HEF-16.
+    - **Publish** marks the item in the board repo's file. Commit it yourself, or set
+      `orchestrate.publish_commit: true` in the board config (the JSON boolean; the string `"true"` is off,
+      and it acts only with `orchestrate.publish` on) and `ledger.sh publish` commits that one file:
+      - **Where it lands.** One commit, `board: <id> <marker>`, on whatever branch the board repo has
+        checked out — commonly `main`. It never switches or creates a branch and never pushes; pushing
+        stays yours. The output names the branch (`committed <sha> on main, not pushed`).
+      - **Path-limited.** Only the column file is committed; anything else you have staged in the board
+        repo stays staged, and other dirty files are left alone.
+      - **Unsigned, hooks not run.** `ledger.sh` runs outside the lane sandbox and keeps the board repo's
+        program-running git config pinned off, so the board repo's hooks do not run and the commit is not
+        signed. A board repo that requires signed commits leaves `publish_commit` off.
+      - **A git identity is needed** for the process that runs `ledger.sh` (`user.name`/`user.email` in the
+        board repo or globally). Without one the commit fails; the mark is rolled back and nothing is
+        recorded, so the next pass retries once it is set.
+      - **Refusals** — non-zero, naming the file or state, nothing written: the column has uncommitted
+        changes (staged or not) or is untracked; it carries a git `filter` attribute (a filter runs a
+        program on commit — remove the attribute or leave `publish_commit` off; `-filter` is accepted); it
+        resolves outside the board repo (a column symlinked into another repository); a merge, rebase,
+        cherry-pick or revert is in progress; HEAD is detached.
+      - Needs git 2.31 or newer (stock macOS git qualifies). On an in-repo board the flag only marks, and
+        says it did not commit — there the column lives in the repo you work in.
 14. **A GitHub Project as the lane board** (optional, hefesto 9.2). The lanes can run from a GitHub Project (v2)
     instead of a `tasks/` folder. Each item is an issue of one repo on the Project, and its Status is the column:
 
