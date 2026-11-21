@@ -162,6 +162,139 @@ handoff_refuse_merged() {
     || die "ledger handoff $1: merged — ask the orchestrator to reopen it first (ledger.sh reopen $1 --reason-file <f>)"
 }
 
+# --- forward: a PR behind or conflicting with its base goes back to the build stage (merge-forward, HEF-31) --------
+# The second backward move beside reopen, and a mechanical one: git decides, not the caller (the `deployed` precedent)
+# — pr-watch.sh state is read again here and only a live conflict/behind moves the entry, so no caller can pull a
+# CLEAN PR off a person's human:merge gate. Every refusal comes before the first write (constitution 5). The two
+# outcomes that are not a move — no usable worktree, the cap — are each one written conflict block whose reason
+# `ledger.sh questions` serves (a question file, as `block` has no --reason), exit 0, so a routing caller never loops.
+FORWARD_CAP=3
+forward_cmd() {   # forward <id> --verdict conflict|behind [--past-cap --by <name>]
+  local id="${1:-}" v="" past=0 by="" e st hb wt
+  [ -n "$id" ] || usage; shift
+  while [ $# -gt 0 ]; do case "$1" in --verdict) v="${2:-}"; shift ;; --past-cap) past=1 ;; --by) by="${2:-}"; shift ;;
+    *) die "ledger forward $id: unexpected '$1'" ;; esac; shift; done
+  case "$v" in conflict|behind) ;; *) die "ledger forward $id: --verdict must be conflict or behind (got '${v:-<none>}')" ;; esac
+  [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] \
+    || die "ledger forward $id: never from inside a launched worker — the launcher forwards from the worker's structured output"
+  forward_by_ok "$id" "$past" "$by"
+  e=$(entry "$id") || exit 1; forward_guards "$id" "$e"
+  st=$(forward_live_state "$id" "$e" "$v") || exit 1
+  hb=$(jq -r .headRefName <<<"$st")
+  # the implement launch's own path (session-launch.sh: <top>/.claude/worktrees/<id>), never .worktree, which a
+  # handoff may record elsewhere — a launch there would make a fresh branch with `claude -w` (FR-005a)
+  wt="$(entry_repo_top "$e")/.claude/worktrees/$id" || exit 1
+  forward_worktree_ok "$wt" "$hb" || { forward_block_reason "$id" "$e" "no worktree on $hb to merge forward in: '$wt' — restore it (git worktree add $wt $hb), then merge forward again"; return 0; }
+  if [ "$past" = 0 ] && forward_cap_reached "$e"; then
+    forward_block_reason "$id" "$e" "merge forward cap $FORWARD_CAP reached for $(jq -r .pr.url <<<"$e") — a person decides (forward $id --verdict <v> --past-cap --by <name>)"; return 0
+  fi
+  forward_write "$id" "$e" "$st" "$by"
+}
+
+forward_by_ok() { # $1 id, $2 past-cap 0|1, $3 by — --past-cap is a person's decision and names them (FR-005)
+  if [ "$2" = 0 ]; then [ -z "$3" ] || die "ledger forward $1: --by goes with --past-cap only (a routine forward records no person)"; return 0; fi
+  [[ "$3" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
+    || die "ledger forward $1: --past-cap is a person's decision and needs --by <your name> (got '${3:-<none>}')"
+}
+
+forward_guards() { # $1 id, $2 entry JSON — the refusals the entry alone decides (FR-003); nothing is written
+  local ph bk
+  ! is_terminal_entry "$2" || die "ledger forward $1: the entry is $(jq -r .phase <<<"$2") — a closed item is never merged forward"
+  ph=$(jq -r '.phase // ""' <<<"$2")
+  [ "$ph" = pr ] || die "ledger forward $1: phase is '$ph', not pr — only an entry waiting on its PR is merged forward"
+  [ -n "$(jq -r '.pr.url // empty' <<<"$2")" ] || die "ledger forward $1: no PR URL is recorded — nothing to merge forward"
+  # D12: what a merge forward may clear — no block, the merge gate (re-earned through the verifier) or conflict
+  bk=$(jq -r '.blocked_on.kind // empty' <<<"$2")
+  case "$bk" in ""|human:merge|conflict) ;;
+    *) die "ledger forward $1: blocked on $bk — a person or another gate clears that (a merge forward clears only none, human:merge or conflict)" ;; esac
+  # a lane's interactive claim has no pid and is allowed: the lane babysit forwards while it holds the entry
+  [ -z "$(jq -r '.owner.pid // empty' <<<"$2")" ] \
+    || die "ledger forward $1: held by a live headless run ($(jq -r '.owner.session_name // "?"' <<<"$2"), pid $(jq -r .owner.pid <<<"$2")) — its launcher forwards from the run's output"
+  forward_merge_action_refuse "$1"
+}
+
+forward_merge_action_refuse() { # $1 id — a merge action approved or taken for the entry is a person's open decision
+  local id="$1" open
+  set -- "$DIR"/actions/*.json; [ -f "${1:-}" ] || return 0
+  open=$(jq -rs --arg id "$id" 'map(select(.entry == $id and .scope.kind == "merge" and (.status == "approved" or .status == "taken"))
+    | "\(.aid) (\(.status))") | join(", ")' "$@") || die "ledger forward $id: an action in $DIR/actions is not valid JSON — repair or remove it"
+  [ -z "$open" ] || die "ledger forward $id: the merge action $open is open on it — it is stopped first (ledger.sh action stop …)"
+}
+
+forward_live_state() { # $1 id, $2 entry JSON, $3 the caller's verdict → the pr-watch.sh state JSON (live conflict|behind)
+  local url st live
+  url=$(jq -r .pr.url <<<"$2")
+  # In a subshell: cd_entry_repo must not move this process (an external board's entry is read in ITS repo)
+  st=$(cd_entry_repo "$2" && bash "$HERE/pr-watch.sh" state "$url" 2>&1) \
+    || die "ledger forward $1: pr-watch.sh state $url failed — nothing changed: $(tail -1 <<<"$st")"
+  live=$(jq -r '.verdict // empty' <<<"$st" 2>/dev/null)
+  # either live verdict is accepted and the live one recorded: a DIRTY↔BEHIND flip between two reads is no refusal (D3)
+  case "$live" in conflict|behind) ;;
+    *) die "ledger forward $1: $url is '${live:-unreadable}' now, not conflict or behind (the caller saw '$3') — nothing changed" ;; esac
+  forward_refs_ok "$1" "$st"
+  printf '%s\n' "$st"
+}
+
+forward_ref_ok() { # $1 a branch name → 0 when git takes it as a branch name unchanged (no leading -, no @{-n})
+  case "$1" in ""|-*) return 1 ;; esac
+  [ "$(git check-ref-format --branch "$1" 2>/dev/null)" = "$1" ]
+}
+forward_refs_ok() { # $1 id, $2 state JSON — the names go into the brief and into the worker's git push (FR-003)
+  local h b o
+  h=$(jq -r '.headRefName // empty' <<<"$2"); b=$(jq -r '.baseRefName // empty' <<<"$2"); o=$(jq -r '.headRefOid // empty' <<<"$2")
+  forward_ref_ok "$h" || die "ledger forward $1: the PR's head branch '$h' is not a valid branch name — nothing changed"
+  forward_ref_ok "$b" || die "ledger forward $1: the PR's base branch '$b' is not a valid branch name — nothing changed"
+  [[ "$o" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || die "ledger forward $1: the PR's head commit '$o' is not a full sha — nothing changed"
+}
+
+forward_worktree_ok() { # $1 the launch's worktree path, $2 the PR's head branch → 0 when a worktree is checked out on it there
+  local top
+  [ -d "$1" ] || return 1
+  top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ "$(cd -P "$top" && pwd -P)" = "$(cd -P "$1" && pwd -P)" ] || return 1   # a plain folder in the main checkout is none
+  [ "$(git -C "$1" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$2" ]
+}
+
+forward_cap_reached() { # $1 entry JSON → 0 when FORWARD_CAP forwards already went to its current PR URL (FR-005)
+  [ "$(jq --argjson c "$FORWARD_CAP" '.pr.url as $u | [(.forwards // [])[] | select(.pr_url == $u)] | length >= $c' <<<"$1")" = true ]
+}
+
+forward_block_reason() { # $1 id, $2 entry JSON, $3 reason → one conflict block whose question file holds the reason
+  local q; q="$DIR/$1.question-$(date +%s).md"
+  rm -f -- "$q"; printf 'Merge forward of %s did not move it: %s\n' "$1" "$3" > "$q" || die "ledger forward $1: cannot write $q"
+  jq --arg q "$q" --arg r "$3" '.blocked_on = {kind: "conflict", since: (now | todate), question_path: $q}
+    | .events = ((.events // []) + [{kind: "forward-blocked", at: (now | todate), by: "ledger", note: $r}])' <<<"$2" \
+    | write_entry "$1" || exit 1
+  echo "$1 blocked_on conflict ($3)"
+}
+
+forward_brief() { # $1 id, $2 n, $3 entry JSON, $4 state JSON → the fixed template (FR-004): generated, never a person's text
+  jq -r --arg id "$1" --argjson n "$2" --argjson st "$4" '"# Merge forward #\($n) — \($id)
+
+- Pull request: #\($st.number // "?") \(.pr.url)
+- Head branch: \($st.headRefName) at \($st.headRefOid)
+- Base branch: \($st.baseRefName)
+- Verdict: \($st.verdict) (\(if $st.verdict == "behind" then "the base moved on and the branch must be brought up to date" else "the branch conflicts with its base" end))
+
+Merge origin/\($st.baseRefName) into \($st.headRefName) in this worktree — never a rebase — and push the same branch."' <<<"$3"
+}
+
+forward_write() { # $1 id, $2 entry JSON, $3 state JSON, $4 by → the brief, its hash and the move in one rewrite (FR-002)
+  local n dst h
+  n=$(( $(jq '.forwards // [] | length' <<<"$2") + 1 )); dst="$DIR/$1.forward-$n.md"
+  rm -f -- "$dst"; forward_brief "$1" "$n" "$2" "$3" > "$dst" || die "ledger forward $1: cannot write the brief $dst"   # never through a link
+  h=$(hef_sha256 < "$dst")
+  # an answer to an earlier question never steers a merge forward: every recorded answer is consumed here
+  jq --argjson st "$3" --argjson n "$n" --arg h "$h" --arg by "$4" '(if $by == "" then null else $by end) as $b
+    | .phase = "implement" | .owner = null | .attempts = 0 | .blocked_on = null
+    | (if .answers then .answers |= map(.consumed = true) else . end)
+    | .forwards = ((.forwards // []) + [{n: $n, pr_url: .pr.url, head_sha: $st.headRefOid, head_branch: $st.headRefName,
+        base: $st.baseRefName, verdict: $st.verdict, sha256: $h, at: (now | todate), by: $b, consumed: false}])
+    | .events = ((.events // []) + [{kind: "forward", at: (now | todate), verdict: $st.verdict, pr_url: .pr.url, head_sha: $st.headRefOid, by: $b}])' <<<"$2" \
+    | write_entry "$1" || exit 1
+  rm -f "$DIR/$1.lease"; echo "$1 pr → implement (merge forward #$n, $(jq -r .verdict <<<"$3"))"
+}
+
 # --- deployed: a release proven by its own commit (FR-007, FR-008; plan Sketch 3, note 17) -------------------------
 # A cherry-picked release carries the item's change as a NEW commit, so the item's branch is never an ancestor of
 # the environment branch. The proof is the deployed commit itself inside that environment (in_branch, 0/1/3/4).

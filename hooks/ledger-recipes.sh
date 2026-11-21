@@ -223,8 +223,9 @@ merge_state_step() { # $1 action JSON, $2 step, $3 the lane's file — sets the 
     merge_stop "$1" 1 "head moved from $want to ${head:-unknown}" "$st"
     die "ledger action step $AID 1: head moved from $want to ${head:-unknown} ($url) — the action is stopped before the merge"
   fi
-  # FR-023: CLEAN (or HAS_HOOKS, CLEAN with hooks) and green. pr-watch's verdict also calls BEHIND "mergeable" — right
-  # for a babysitter, wrong for a merge: behind its base is routed back to the builder like a conflict (T021 verifier).
+  # FR-023: CLEAN (or HAS_HOOKS, CLEAN with hooks) and green. pr-watch.sh now reports BEHIND as its own verdict
+  # `behind` (merge-forward FR-001); the BEHIND remap below stays for a mergeable read — behind its base is routed back
+  # to the builder like a conflict (T021 verifier).
   ms=$(jq -r '.mergeStateStatus // empty' <<<"$st" 2>/dev/null); ck=$(jq -r '.checks // empty' <<<"$st" 2>/dev/null)
   if [ "$v" = mergeable ]; then
     case "$ms" in BEHIND) v=behind ;; CLEAN|HAS_HOOKS) [ "$ck" = pass ] || v="checks $ck" ;; *) v="state ${ms:-unknown}" ;; esac

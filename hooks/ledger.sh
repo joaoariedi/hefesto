@@ -54,6 +54,7 @@ usage: ledger.sh <subcommand> …
   metrics [--since YYYY-MM-DD] [--json]                 delivery numbers from the entries (report 17 §7)
   drop <id> --reason-file <f> | fold <id> --into <id2> --reason-file <f> | supersede <id> --by <id2> --reason-file <f>   a terminal phase (person-only)
   reopen <id> --reason-file <f>                         a merged item back to implement for a follow-up PR (person-only)
+  forward <id> --verdict conflict|behind [--past-cap --by <name>]   a pr entry whose PR is behind or conflicting back to implement, with a merge-forward brief (--past-cap: person-only)
   deployed <id> --env <env> --commit <sha>              record that the commit is in that environment; the final env releases a merged item
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
   publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish; external board: + publish_commit commits it)
@@ -732,6 +733,8 @@ case "$SUB" in
           || die "ledger record $ID: cannot mark the answers consumed" ;;
       --followups-consumed)     # the launcher, after an implement run made the PR or asked a person: the reopen's follow-up is done
         E=$(jq 'if .followups then .followups |= map(.consumed = true) else . end' <<<"$E") || die "ledger record $ID: cannot mark the follow-ups consumed" ;;
+      --forward-consumed)       # the launcher, after a merge-forward run reported pr: its brief is done (merge-forward FR-010)
+        E=$(jq 'if .forwards then .forwards |= map(.consumed = true) else . end' <<<"$E") || die "ledger record $ID: cannot mark the forwards consumed" ;;
       --rfc) rfc_pin ;;
       --rfc-snapshot) [ -f "${2:-}" ] || die "ledger record $ID: --rfc-snapshot needs the launcher's copy of the RFC"; rfc_pin "$2"; shift ;;
       *) usage ;; esac; shift; done
@@ -765,6 +768,7 @@ case "$SUB" in
   actions) actions_list "$@" ;;
   drop|fold|supersede) terminal_cmd "$SUB" "$@" ;;   # US1 — person-only; ledger-lifecycle.sh
   reopen) reopen_cmd "$@" ;;   # US2 — person-only; ledger-lifecycle.sh
+  forward) forward_cmd "$@" ;;   # merge-forward — git decides; --past-cap person-only; ledger-lifecycle.sh
   merge-by) merge_by_cmd "$@" ;;        # HEF-30; ledger-automerge.sh
   merge-auto) merge_auto_cmd "$@" ;;    # grant/revoke person-only, in the ask rules
   automerge) automerge_cmd "$@" ;;

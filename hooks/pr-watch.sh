@@ -14,7 +14,7 @@
 #                                            HTML comments and wrapped in per-call nonce delimiters (untrusted data)
 #   reply <pr> --thread <id> --body-file f   post a thread reply (marker appended, gitleaks-scanned when present)
 #   comment <pr> --body-file f               post an issue comment (same)
-#   state <pr>                               the PR fields + verdict: mergeable|conflict|checks|review|pending|closed
+#   state <pr>                               the PR fields + verdict: mergeable|conflict|behind|checks|review|pending|closed
 #   ledger-id <pr-url>                       the ledger entry recording the PR; exit 3 = none, 1 = ledger unreadable
 #   in-diff <pr> <path>…                     exit 0 only when every path is in the PR's diff and none is CI config
 #   fixes <pr>                               how many fixes the babysitter already pushed (its own marker comments)
@@ -283,7 +283,8 @@ cmd_state() {
       elif $ck == "fail" then "checks"
       elif $ck == "pending" or .mergeStateStatus == "UNKNOWN" or (.mergeStateStatus == "BLOCKED" and $cn == 0) then "pending"
       elif .isDraft then "review"
-      elif .mergeStateStatus == "CLEAN" or .mergeStateStatus == "BEHIND" or .mergeStateStatus == "HAS_HOOKS" then "mergeable"
+      elif .mergeStateStatus == "BEHIND" then "behind"
+      elif .mergeStateStatus == "CLEAN" or .mergeStateStatus == "HAS_HOOKS" then "mergeable"
       elif .mergeStateStatus == "UNSTABLE" then "checks"
       elif .mergeStateStatus == "BLOCKED" then "review"
       else "pending" end)}' <<<"$view" || die "pr-watch state $pr: gh pr view returned something jq could not read: $(head -c 200 <<<"$view")"

@@ -3139,6 +3139,13 @@ pw_view OPEN feature/x main "$pw_head" false BLOCKED; pw_checks "$PW_FAIL";   [ 
 pw_checks "$PW_CANCEL";  [ "$(pw_state)" = checks ]  || { bad "state: a cancelled check → checks"; pw_fail=1; }
 pw_checks "$PW_PEND";    [ "$(pw_state)" = pending ] || { bad "state: a pending check → pending"; pw_fail=1; }
 pw_checks '[]';          [ "$(pw_state)" = pending ] || { bad "state: BLOCKED with zero checks → pending (the workflow has not registered)"; pw_fail=1; }
+# merge-forward/FR-001: BEHIND is its own verdict (a build-stage job), no longer folded into mergeable; failing and
+# pending checks still win over it; DIRTY stays conflict and CLEAN stays mergeable
+pw_checks "$PW_PASS"; pw_view OPEN feature/x main "$pw_head" false BEHIND; [ "$(pw_state)" = behind ] || { bad "state: BEHIND + green → behind (merge-forward/FR-001), got $(pw_state)"; pw_fail=1; }
+pw_checks "$PW_FAIL";    [ "$(pw_state)" = checks ]  || { bad "state: a failed check outranks BEHIND → checks (merge-forward/FR-001), got $(pw_state)"; pw_fail=1; }
+pw_checks "$PW_PEND";    [ "$(pw_state)" = pending ] || { bad "state: a pending check outranks BEHIND → pending (merge-forward/FR-001), got $(pw_state)"; pw_fail=1; }
+pw_checks "$PW_PASS"; pw_view OPEN feature/x main "$pw_head" false DIRTY; [ "$(pw_state)" = conflict ] || { bad "state: DIRTY → conflict unchanged (merge-forward/FR-001)"; pw_fail=1; }
+pw_view OPEN feature/x main "$pw_head" false HAS_HOOKS; [ "$(pw_state)" = mergeable ] || { bad "state: HAS_HOOKS + green → mergeable (merge-forward/FR-001)"; pw_fail=1; }
 pw_view OPEN feature/x main "$pw_head" false CLEAN; pw_checks "$PW_PASS"
 
 # FR-008 ledger-id: 0 = hit, 3 = miss, 1 = broken ledger
@@ -3155,7 +3162,7 @@ pw_out="$(pw in-diff 7 b.txt 2>&1)"; pw_rc=$?; [ "$pw_rc" -eq 0 ] || { bad "pr-w
 pw_out="$(pw in-diff 7 b.txt a.txt 2>&1)"; pw_rc=$?; { [ "$pw_rc" -ne 0 ] && grep -qF 'a.txt: not in git diff' <<<"$pw_out"; } || { bad "pr-watch in-diff must refuse a file outside the diff by name (rc=$pw_rc): $pw_out"; pw_fail=1; }
 pw_out="$(pw in-diff 7 .github/workflows/ci.yml 2>&1)"; pw_rc=$?; { [ "$pw_rc" -ne 0 ] && grep -qF 'CI configuration' <<<"$pw_out"; } || { bad "pr-watch in-diff must refuse CI configuration even when the PR touches it (rc=$pw_rc): $pw_out"; pw_fail=1; }
 
-[ "$pw_fail" -eq 0 ] && ok "pr-watch: --check, resolve refusals, checks buckets/--wait/--after, failed-log, threads stripped+delimited+idempotent, fixes, reply/comment guarded, state verdicts, ledger-id codes, in-diff (FR-001..008, FR-017, FR-018, SC-005)"
+[ "$pw_fail" -eq 0 ] && ok "pr-watch: --check, resolve refusals, checks buckets/--wait/--after, failed-log, threads stripped+delimited+idempotent, fixes, reply/comment guarded, state verdicts (behind for BEHIND, merge-forward/FR-001), ledger-id codes, in-diff (FR-001..008, FR-017, FR-018, SC-005)"
 
 # Mutations (constitution 3): each guard reintroduced on a copy must turn a case red.
 pw_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$pw_mutdir/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$pw_mutdir/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$pw_mutdir/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$pw_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$pw_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$pw_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$pw_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$pw_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$pw_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$pw_mutdir/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$pw_mutdir/ledger-publish.sh"; ln -s "$REPO/hooks/board-mark.sh" "$pw_mutdir/board-mark.sh"; ln -s "$REPO/hooks/ledger.sh" "$pw_mutdir/ledger.sh"; PW_MUT="$pw_mutdir/pr-watch.sh"; pw_mfail=0
@@ -3189,7 +3196,11 @@ pw_mut '/more than 50 comments/s/.*/  || true/'
 sed 's/"id":"T1","isResolved":false,"path":"b.txt","line":1,"comments":{"pageInfo":{"hasNextPage":false}/"id":"T1","isResolved":false,"path":"b.txt","line":1,"comments":{"pageInfo":{"hasNextPage":true}/' "$pw_fx/threads.keep" > "$pw_fx/threads.json"
 PW_BIN="$PW_MUT" pw threads 7 >/dev/null 2>&1 && : || { bad "mutation survived: comments-page guard removed, a truncated thread still refused"; pw_mfail=1; }
 cp "$pw_fx/threads.keep" "$pw_fx/threads.json"
-[ "$pw_mfail" -eq 0 ] && ok "pr-watch mutations: strip, marker filter, gitleaks, static token, cancel, CI config, head=main, ledger-id code, fixes regex, ancestor, comments page — all caught (SC-001, SC-002)"
+# merge-forward/FR-001 + FR-017: the behind verdict dropped → BEHIND no longer reads behind
+pw_mut 's/elif .mergeStateStatus == "BEHIND" then "behind"/elif false then "behind"/'; pw_view OPEN feature/x main "$pw_head" false BEHIND
+[ "$(PW_BIN="$PW_MUT" pw state 7 2>/dev/null | jq -r .verdict)" != behind ] || { bad "mutation survived: the behind verdict removed, BEHIND still read behind (merge-forward/FR-001)"; pw_mfail=1; }
+pw_view OPEN feature/x main "$pw_head" false CLEAN
+[ "$pw_mfail" -eq 0 ] && ok "pr-watch mutations: strip, marker filter, gitleaks, static token, cancel, CI config, head=main, ledger-id code, fixes regex, ancestor, comments page, behind verdict — all caught (SC-001, SC-002, merge-forward/FR-001, merge-forward/FR-017)"
 rm -rf "$pw_bin" "$pw_repo" "$pw_ledger" "$pw_noremote" "$pw_nogit" "$pw_mutdir"
 
 # The command is prose the model executes; what the suite can hold it to is its wiring (FR-009..FR-016):
@@ -7048,6 +7059,7 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-forge.sh"             # part 14: setup configures the forge once; an infra stop is a stall with its fix (HEF-22 forge-setup)
 . "$REPO/tests/smoke-run-survival.sh"      # part 15: runs survive the orchestrator and never starve the host (HEF-25 run-survival)
 . "$REPO/tests/smoke-publish-commit.sh"    # part 16: publish commits the marked column on an external board (HEF-16 publish-commit)
+. "$REPO/tests/smoke-forward.sh"           # part 17: a PR behind or conflicting with its base goes back to the build stage (HEF-31 merge-forward)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.
