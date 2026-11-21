@@ -31,7 +31,7 @@
 
 ## Phase 4: Polish
 - [x] T018 [FR-009] Verify: `code_lines` of `status-board.sh` below T001's and under 500, `ledger.sh` grows by the sourcing/arm lines only; `bash -n` + shellcheck clean on touched hooks; macOS static guard (no GNU-only flags); `tests/smoke.sh` tier 1 and `node --test` green `hooks/ledger-publish.sh`
-- [ ] T019 [FR-009] `graphify update .` after the code changes `graphify-out/` — not run: the command is denied in the headless lane; run it by hand
+- [x] T019 [FR-009] `graphify update .` after the code changes `graphify-out/` — not run: the command is denied in the headless lane; run it by hand — run by the orchestrator 2026-11-21 (graph rebuilt clean); the result is kept out of the PR: `graphify-out/` has not been committed on main since 7.0, and the update is a ~97k-line diff
 
 ## Implementation notes (2026-11-21)
 - T011–T014 live in a sourced part, `tests/smoke-publish-commit.sh` (part 16), with its own fresh external-board
