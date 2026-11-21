@@ -151,7 +151,11 @@ if [ -d "$LDIR" ]; then
   [ -n "$KIND2PANE" ] || KIND2PANE="$(jq -nc --argjson d "$PANES_DEFAULT" '$d | to_entries | map(.key as $p | .value[] | {key: ., value: $p}) | from_entries')"
   for f in "$LDIR"/*.json; do
     [ -f "$f" ] || continue
-    jq -r --argjson k "$KIND2PANE" 'select(.blocked_on != null) | "ledger: \(.id) blocked_on \(.blocked_on.kind) since \(.blocked_on.since) → \($k[.blocked_on.kind] // "orchestrator") pane — " + (if .blocked_on.kind == "human:intake" then "a person reads the item (status-board.sh --item \(.id)) and clears it: ledger.sh unblock \(.id) --reviewed-by-human --by <name>" else "resolve with the human command it names, then ledger.sh unblock \(.id)" end)' "$f" 2>/dev/null
+    # forge-setup P7: an infrastructure stall (a stall with a cause) goes to the orchestrator with its fix line — never to
+    # the build pane, where no terminal fix runs; PANES_DEFAULT stays as it is (the smoke compares the two copies)
+    jq -r --argjson k "$KIND2PANE" 'select(.blocked_on != null) | if .blocked_on.kind == "stall" and (.blocked_on.cause // "") != "" then
+      "ledger: \(.id) blocked_on stall (\(.blocked_on.cause)) since \(.blocked_on.since) → orchestrator: \(.blocked_on.reason // "read ledger.sh show \(.id)"), then ledger.sh unblock \(.id)" else
+      "ledger: \(.id) blocked_on \(.blocked_on.kind) since \(.blocked_on.since) → \($k[.blocked_on.kind] // "orchestrator") pane — " + (if .blocked_on.kind == "human:intake" then "a person reads the item (status-board.sh --item \(.id)) and clears it: ledger.sh unblock \(.id) --reviewed-by-human --by <name>" else "resolve with the human command it names, then ledger.sh unblock \(.id)" end) end' "$f" 2>/dev/null
   done
   # The intake gate is a permission dialog the person answers — there is none under auto, bypassPermissions
   # or dontAsk. Best effort: the last defaultMode among user, project and local settings.

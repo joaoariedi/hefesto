@@ -70,7 +70,9 @@ while IFS= read -r e; do
   [ -n "$e" ] || continue
   w="${e%% *}"; q="$(re_quote "$w")"
   # (a path such as /usr/bin/gh is not matched: it does not leave the sandbox — the exclusion is the bare word — and the
-  # sandbox denies api.github.com, which setup writes and --check verifies)
+  # lanes' sandbox denies api.github.com, which setup writes and --check verifies. That deny is the lanes' settings:
+  # a worker's sandbox is the launcher's --settings, and orchestrate.allowed_domains may list api.github.com for it —
+  # forge-setup D9; the HEF-22 live check saw the lanes' deny reach a worker in a --lanes project)
   # the word anywhere, quoted or escaped too — not only after an operator: `if :; then gh …; fi`, `! gh …`, `"gh" …`
   # and `\gh …` start with something else, so they run INSIDE the sandbox, auto-allowed (code review of PR A)
   re="(^|[^A-Za-z0-9_./-])[\\\\\"']*${q}[\"']*([^A-Za-z0-9_./-]|\$)"
@@ -111,6 +113,42 @@ if [ -n "$EXCL_HIT" ]; then
     esac
   fi
 fi
+
+# FR-007 (HEF-27, amended 2026-11-09 on the code review's blocker): a signature's ask rule matches the literal text
+# ` --merge-sha`, so `"--merge-sha"`, `--merge-\sha`, `--reviewed-by-"human"` or a tab before the flag match no ask
+# rule — and `unblock:*` / `record:*` / `release:*` / `pr-watch.sh:*` are allow rules, so the person would never see
+# the dialog. In every set-up project and every lane, the orchestrator included: a signature the shell reads (quotes,
+# escapes, line continuations removed) must also be written plain, after a space, or the call is denied.
+SIGN_FLAGS=(--reviewed-by-human --merge-sha --body-file --body-from-board --rfc)
+shell_read() { # $1 text → its words roughly as the shell reads them: continuations joined, quotes and escapes gone, one space between
+  local s="${1//$'\\\n'/}"
+  s="${s//\$\'/\'}"; s="${s//\$\"/\"}"
+  printf '%s' "$s" | tr -d "\"'\\\\" | tr -s ' \t' '  '
+}
+sign_spelling_check() {
+  local text="$CMD" read_ f verb
+  # only a call OF the helper — a command that merely names it (`grep -- '--rfc' hooks/ledger.sh`, a commit message)
+  # is no signature (stage-1 review); a helper in any other spelling matches no allow rule, so nothing is lost
+  case "$EXCL_HIT" in */ledger.sh|*/pr-watch.sh) ;; *) return 0 ;; esac
+  heredoc_ok 2>/dev/null && text="${CMD%%$'\n'*}"     # the orchestrator's heredoc body is the person's text, not flags
+  read_="$(shell_read "$text")"
+  # pr-watch's signature is its verb — the command's own second word, never text later on (code review round 2: a
+  # quoted file name `pr-watch.sh comment b.md` satisfied an unanchored test)
+  case "$EXCL_HIT" in */pr-watch.sh) verb="$(words "$text" | sed -n 2p)" ;; esac
+  if [[ "${verb:-}" =~ ^(reply|comment)$ ]]; then
+    # the ask rule `reply:*` is a PREFIX: the bare helper, one space, the verb, then a space or nothing — a tab
+    # there would match no ask and get the `pr-watch.sh:*` allow (code review B1)
+    [[ "$text" =~ ^[[:space:]]*$(re_quote "$EXCL_HIT")\ (reply|comment)(\ |$) ]] \
+      || deny "pr-watch.sh $verb writes to GitHub and asks the person: spell it plain — pr-watch.sh $verb …, unquoted, one space — so its permission dialog matches"
+  fi
+  [[ "$read_" =~ (^|[[:space:]/])(ledger|pr-watch)\.sh([[:space:]]|$) ]] || return 0
+  for f in "${SIGN_FLAGS[@]}"; do
+    [[ "$read_" =~ (^|[[:space:]])${f}([[:space:]=]|$) ]] || continue
+    [[ "$text" =~ \ ${f}([[:space:]=]|$) ]] \
+      || deny "$f is a person's signature and asks for a dialog: spell it plain — ' $f', unquoted and unescaped, after a single space — so the ask rule matches; this command quotes, escapes or tab-separates it"
+  done
+}
+sign_spelling_check
 
 # --- with --lanes: who may record what, then the grants ---------------------------------------------------------
 [ "$LANES" = true ] || exit 0

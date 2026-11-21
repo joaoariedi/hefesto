@@ -68,7 +68,7 @@ lc_mut "the cache writability check dropped (FR-002)" 's/^( : > "\$LC\/.w.\$\$" 
 head_ "hefesto-setup.sh --lanes: the lane cache in allowWrite, its path in env, never a cache variable or an allow rule (FR-003, FR-004, FR-006, NR-001, NR-003, NR-004)"
 x_fail=0
 lc_p="$lc_t/proj"; git init -q -b main "$lc_p"; lc_sh="$lc_t/sh"; mkdir -p "$lc_sh"
-lc_su() { (cd "$lc_p" && HOME="$lc_sh" CLAUDE_CONFIG_DIR= bash "${LC_SU:-$REPO/hooks/hefesto-setup.sh}" "$@" 2>&1); }
+lc_su() { (cd "$lc_p" && HOME="$lc_sh" CLAUDE_CONFIG_DIR='' bash "${LC_SU:-$REPO/hooks/hefesto-setup.sh}" "$@" 2>&1); }
 lc_set() { jq -r "$1" "$lc_p/.claude/settings.local.json" 2>/dev/null; }
 lc_aw() { jq -r --arg p "$1" '[.sandbox.filesystem.allowWrite[]? | select(. == $p)] | length' "$lc_p/.claude/settings.local.json" 2>/dev/null || echo 0; }   # $1 in allowWrite: 1, else 0
 lc_o="$(lc_su --lanes)"; lc_rc=$?

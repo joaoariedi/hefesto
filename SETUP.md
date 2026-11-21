@@ -11,6 +11,13 @@ Claude checks your machine, tells you what it found, and guides you one step at 
 upgrading, fixing a broken install, or setting up a project. Answer its questions and do what it
 asks. You can type the same request again at any time; it picks up where things stand.
 
+This file is the runbook Claude follows. To do it yourself instead: install from your OS's page
+([Linux](https://github.com/joaoariedi/hefesto/blob/main/docs/install-linux.md) ·
+[macOS](https://github.com/joaoariedi/hefesto/blob/main/docs/install-macos.md) ·
+[Windows (WSL)](https://github.com/joaoariedi/hefesto/blob/main/docs/install-windows.md)), then follow the
+[quick start](https://github.com/joaoariedi/hefesto/blob/main/docs/quickstart.md); the reference is
+[`install.md`](https://github.com/joaoariedi/hefesto/blob/main/docs/install.md).
+
 ---
 
 **For Claude: this file is your instructions for this conversation.** The engineer asked you to
@@ -78,7 +85,7 @@ nothing: ask the engineer to restart Claude Code inside a git project, and run S
 
 | What Step 1 shows | Situation | Go to |
 |---|---|---|
-| `git`, `jq`, `claude`, or on Linux `bwrap` or `socat`, is `MISSING` | a tool is missing | Tell the engineer how to install it (Linux: their package manager, for `bwrap` the package `bubblewrap`; macOS: `brew install <tool>`), wait until they have, run Step 1 again. |
+| `git`, `jq`, `claude`, or on Linux `bwrap` or `socat`, is `MISSING` | a tool is missing | Tell the engineer how to install it (Linux: their package manager, for `bwrap` the package `bubblewrap`; macOS: `brew install <tool>`; the per-OS pages list every command: [Linux](https://github.com/joaoariedi/hefesto/blob/main/docs/install-linux.md), [macOS](https://github.com/joaoariedi/hefesto/blob/main/docs/install-macos.md), [Windows (WSL)](https://github.com/joaoariedi/hefesto/blob/main/docs/install-windows.md)), wait until they have, run Step 1 again. |
 | `gh` is `MISSING` | fine for now | Recommend installing it now. It is required, with `gh auth login` done, before Step 4. |
 | `clone: none`, a profile below `latest` or with `hefesto=-`, `old-plugin=yes`, a `legacy:` line, or local changes in the clone | install or upgrade | Step 2 |
 | every profile at `latest`, but the session line is missing or shows an older version | the session is stale, or something is broken | Step 3 |
@@ -136,16 +143,17 @@ sessions load, the profile's plugin cache, not the clone: replace `<installPath>
 (`<profile>/plugins/cache/hefesto/hefesto/<version>`), written literally: the permission matcher
 expands neither `$HOME` nor `~`. The path changes with every release, so the rule must be
 rewritten after each upgrade. The doubled slash is not a typo: `${CLAUDE_PLUGIN_ROOT}` ends in a
-slash, so the commands send `…/<version>//hooks/…`, and the matcher compares literally. The
-single-slash entry is a hedge for a future release. In a project set up in Step 5,
-`hooks/hefesto-setup.sh` writes these rules itself (for every installed copy) — skip this there.
+slash, so the commands send `…/<version>//hooks/…`, and the matcher compares literally. One
+spelling per root: `<installPath>//hooks/…` for an installed copy (the clone, loaded with
+`--plugin-dir`, is `<clone>/hooks/…`). In a project set up in Step 5, `hooks/hefesto-setup.sh`
+writes these rules itself, one spelling per root (for the clone and every installed copy) — skip
+this there.
 
 ```jsonc
 {
   "permissions": {
     "allow": [
-      "Bash(<installPath>//hooks/speckit-helper.sh:*)",
-      "Bash(<installPath>/hooks/speckit-helper.sh:*)"
+      "Bash(<installPath>//hooks/speckit-helper.sh:*)"
     ]
   }
 }
@@ -224,7 +232,7 @@ to bring back the lead's reply **together with the whole message**, then stop. P
 - the integration branch and the promotion order, if not `main`;
 - repository settings only the lead can change: merge commits only (squash and rebase off), protecting the integration branch;
 - the test command, if you could not find it;
-- the spend limits: `usd_cap` (per worker session) and `daily_usd_cap` (per day);
+- the spend limits (optional; none by default): `usd_cap` (per worker session) and `daily_usd_cap` (per day);
 - a project rule that the sessions would break, and whether to make an exception for board items;
 - the mode, if the engineer did not know (single lane or four lanes);
 - whether a person approves every background plan (`plan_review: "human"`, recommended — the cheapest place
@@ -258,8 +266,6 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
      "source": "tasks-repo",
      "root": "tasks",
      "orchestrate": {
-       "usd_cap": 20,
-       "daily_usd_cap": 100,
        "tiers": { "implement": "opus", "verify": "fable" },
        "plan_first": true,
        "plan_review": "human",
@@ -271,7 +277,7 @@ With the lead's answers, write only what was decided. Ask the engineer before ea
                     "Bash(<test command>*)"]
        }
      },
-     "context": { "compact_at": { "orchestrator": 40, "plan": 50, "build": 0, "deploy": 0 } }
+     "context": { "compact_at": { "orchestrator": 40, "plan": 50, "build": 0, "deploy": 0 }, "gauge_rows": false }
    }
    ```
    Create the RFC folder (`docs/rfcs/`) with a short `README.md` saying one file per item, `<ID>.md`, and

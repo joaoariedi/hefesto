@@ -10,6 +10,13 @@
 # its own .claude/project-status.json: "spec_roots": {"backend": "backend", "web": "apps/web"}. Every function
 # that reads that config takes the repository top as $1, so the ledger, the launcher and the helper agree.
 
+# scoped-fr-citations FR-001: the citation grammar, `[<spec>/]FR-NNN`, ONE string for req-coverage and
+# spec-cite-probe.sh so the two cannot disagree. Matched with `grep -owE`: leftmost-longest keeps
+# `<spec>/FR-NNN` one token, so a bare id can never match inside it (a `grep -w FR-001` does — `/` is a
+# word boundary). A qualifier that is itself FR-<digits> is an id list (two bare ids); callers split it.
+# shellcheck disable=SC2034  # read by the files that source this one
+HEF_FR_CITE_RE='([A-Za-z0-9][A-Za-z0-9._-]*/)?FR-[0-9]+'
+
 # spec_root_find <path> → the folder holding .specify/ nearest to <path> (a file or folder, which may not exist
 # yet); the nearest existing folder of <path> when there is none up to the top. Example:
 #   spec_root_find "$PWD/backend/internal/store"   # → /repo/backend

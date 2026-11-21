@@ -38,11 +38,19 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh detect-te
 
 `req-coverage` printed one line per `FR-NNN` in `spec.md`:
 
-- `COVERED` — at least one test file cites the id (a pytest marker `@pytest.mark.req("FR-003")`,
-  a `describe("[FR-003] …")` title, or a `# FR-003` comment all count; the match is lexical).
-- `UNCOVERED` — no test cites it. **This is the finding the command exists to surface.**
-- `UNKNOWN` — a test cites an id the spec does not declare: either the spec lost a requirement or
-  the test invented one. Both are drift.
+The header's `mode:` line says how citations count. `mode: scoped` (the spec carries
+`<!-- req-coverage: scoped -->`, as every new spec does): only the qualified form `<spec>/FR-NNN`
+covers a requirement. `mode: legacy (bare ids count)`: a bare `FR-NNN` counts too.
+
+- `COVERED` — at least one test file cites the id (a pytest marker `@pytest.mark.req("<spec>/FR-NNN")`,
+  a `describe("[<spec>/FR-NNN] …")` title, or a `# <spec>/FR-NNN` comment all count; the match is lexical).
+- `UNCOVERED` — no test cites it. **This is the finding the command exists to surface.** In a scoped
+  spec the row may end `bare: <file:line> … — cite as <spec>/FR-NNN`: tests cite the bare id, which a
+  scoped spec does not count — qualify those citations.
+- `ELSEWHERE` — a test cites an id another spec declares (bare, or qualified `<other>/FR-NNN` where that
+  spec exists and declares it). Reported, not failing: the suite is shared across specs.
+- `UNKNOWN` — a test cites an id no spec declares, or a qualified citation whose spec does not exist or
+  does not declare the id: either the spec lost a requirement or the test invented one. Both are drift.
 
 The helper's exit code is the verdict: non-zero means at least one `UNCOVERED` or `UNKNOWN`.
 
@@ -53,6 +61,11 @@ pass/fail per FR. In a repository with several apps, `req-coverage` reads the ow
 from the nearest folder holding `.specify/`), and the tests run from that folder with the app's runner. A test that cites a requirement and fails is `FAILING`, not `COVERED`. Show the
 runner's real output — the Verification Iron Law (`rules/code-quality.md`) applies here more than
 anywhere: this report is the evidence the PR will carry.
+
+When the diff changes shell files, check them only through
+`"${CLAUDE_PLUGIN_ROOT}"/hooks/speckit-helper.sh shellcheck-changed` (one memory-bounded process per changed file),
+never `shellcheck` over a tree or a glob. Its exit 2 is **shell check incomplete** — say so and list the files it
+names; it is never a clean result.
 
 ### 3. Spec-compliance review
 
