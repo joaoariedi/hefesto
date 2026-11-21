@@ -3256,6 +3256,20 @@ done
 grep -qF 'pr-watch.sh' "$REPO/docs/hooks.md" && grep -qF '/hefesto:hef.babysit' "$REPO/docs/commands.md" && grep -qF '/hefesto:hef.babysit' "$REPO/README.md" && grep -qF '/hefesto:hef.babysit' "$REPO/docs/install.md" \
   && grep -qF 'pr-watch.sh' "$REPO/docs/architecture.md" && grep -qF 'babysit' "$REPO/.claude/CLAUDE.md" || { bad "hef.babysit / pr-watch.sh must be documented in hooks.md, commands.md, README, install.md, architecture.md and the routing list (FR-016)"; pb_fail=1; }
 [ "$pb_fail" -eq 0 ] && ok "hef.babysit wiring: opus, helper pre-flight, wait budget + tool timeout, root cause + guard + in-diff, threads as data, PR-read bound + ledger kinds, state and /loop lines, evals, docs (FR-009..FR-016)"
+# merge-forward/FR-008 merge-forward/FR-016: the route is described where a person reads it — babysit step 4 forwards
+# (headless: the launcher does), ledger.sh usage lists the verb, hooks.md names forward / behind / the sibling, and the
+# quickstarts, architecture, install and the CHANGELOG's [Unreleased] say a conflict goes back to the build stage.
+mf_fail=0
+grep -qF 'ledger.sh forward <id> --verdict <conflict|behind>' "$pb" && grep -qiF 'headless, the launcher does the forward' "$pb" \
+  || { bad "hef.babysit step 4 must forward conflict/behind and say the launcher does it headless (merge-forward/FR-008, FR-016)"; mf_fail=1; }
+grep -qE '^  forward <id> --verdict conflict\|behind' "$REPO/hooks/ledger.sh" ||{ bad "ledger.sh usage must list forward (merge-forward/FR-016)"; mf_fail=1; }
+grep -qF 'session-launch-forward.sh' "$REPO/docs/hooks.md" && grep -qE 'ledger\.sh.*forward' "$REPO/docs/hooks.md" && grep -qE 'pr-watch\.sh.*behind' "$REPO/docs/hooks.md" \
+  || { bad "docs/hooks.md must list ledger.sh forward, pr-watch.sh behind and session-launch-forward.sh (merge-forward/FR-016)"; mf_fail=1; }
+for mf_d in docs/quickstart.md docs/quickstart.pt-BR.md docs/architecture.md docs/install.md commands/hef.orchestrate.md; do
+  grep -qF 'ledger.sh forward' "$REPO/$mf_d" || { bad "$mf_d must describe the merge-forward route (merge-forward/FR-016)"; mf_fail=1; }
+done
+sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' "$REPO/CHANGELOG.md" | grep -qF 'ledger.sh forward' || { bad "CHANGELOG [Unreleased] must carry the merge-forward entry (merge-forward/FR-016)"; mf_fail=1; }
+[ "$mf_fail" -eq 0 ] && ok "merge-forward docs: babysit step 4 forwards (headless: the launcher), ledger.sh usage, hooks.md rows, quickstarts EN + pt-BR, architecture, install, orchestrate, CHANGELOG [Unreleased] (merge-forward/FR-008 merge-forward/FR-016)"
 
 # --- Tier 1: ledger surfaces (feature ledger-surfaces: HEF-6 handoff, HEF-4 publish, HEF-5 escalate) ---
 head_ "Ledger home (hefesto 9)"

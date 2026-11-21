@@ -31,7 +31,7 @@
 ## Phase 4: Polish
 - [x] T016 [US2] [US3] SC-005 live tier in `tests/smoke-forward.sh` (`SMOKE_LIVE=1` + `claude` on PATH, else `skip`; sandboxed or bubblewrap-less shell → `skip` naming why): bare origin placed where the worker's write allowlist reaches (measure first), fixed `XDG_CACHE_HOME`, entry moved by the real `ledger.sh forward`, then the real `session-launch.sh implement`; assert from the kept `stream-json` + origin refs — every case `git merge` called, no rebase, no force push; mechanical: origin advanced, both CHANGELOG entries, phase `verify`, row consumed; two-sided: abort called, origin unchanged, `human:clarify` with both hunks; red suite: abort called, origin unchanged (text check secondary) `tests/smoke-forward.sh`
 - [x] T017 [P] [FR-016] Docs: `docs/quickstart.md`, `docs/quickstart.pt-BR.md`, `docs/architecture.md`, `docs/install.md` describe the route; `docs/hooks.md` — `ledger.sh` row gains `forward`, `pr-watch.sh` row lists `behind`, a `session-launch-forward.sh` row beside `launch-item.sh`; `CHANGELOG.md` `[Unreleased]` entry `docs/hooks.md` owns: docs/quickstart.md, docs/quickstart.pt-BR.md, docs/architecture.md, docs/install.md, docs/hooks.md, CHANGELOG.md
-- [ ] T018 [FR-017] Full run: `bash tests/smoke.sh` green (SC-006); every FR-017 mutation present (SC-004); `quality-before-commit.sh` delta gate passes for every touched hook; `graphify update .` `tests/smoke.sh`
+- [x] T018 [FR-017] Full run: `bash tests/smoke.sh` green (SC-006); every FR-017 mutation present (SC-004); `quality-before-commit.sh` delta gate passes for every touched hook; `graphify update .` `tests/smoke.sh`
 
 ---
 **Legend**: `[P]` = parallelizable | `[US#]` = user scenario | `[FR-NNN]` = functional requirement
