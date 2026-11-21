@@ -125,3 +125,25 @@ wt_add() {
     git -C "$TOP" worktree add -q -b "worktree-$ID" "$WT" "$BASE" >/dev/null 2>&1 || "$1" "session-launch $ROLE $ID: cannot create the worktree $WT from $BASE"
   fi
 }
+
+# Moved from session-launch.sh before HEF-31 (the 500-code-line limit); they read its globals at call time.
+inside_writable() { # $1 path → 0 when it lies strictly inside $2, or in a temp folder
+  local p="${1%/}/" t
+  [ -n "${2:-}" ] && [ "${1%/}" != "${2%/}" ] && case "$p" in "${2%/}"/*) return 0 ;; esac
+  for t in "${TMPDIR:-/tmp}" /tmp /private/tmp /var/folders /private/var/folders; do case "$p" in "${t%/}"/*) return 0 ;; esac; done
+  return 1
+}
+
+# What implement and plan both record after a run in the worktree: where it is, which branch, the spec dir
+# made absolute (unblock runs from the main checkout). Recorded BEFORE the outcome switch so a failed or
+# blocked plan run can resume from it.
+record_worktree() { # $1 extra --route or ""
+  [ -d "$WT" ] || die "session-launch $ROLE $ID: expected the worktree at $WT after the run; not found (exit $RC)"
+  local br args s
+  if [ "$LANE_MODE" = 0 ]; then br="$(git -C "$WT" branch --show-current 2>/dev/null)" || die "session-launch $ROLE $ID: worktree $WT unreadable"
+  else br="$(wt_branch "$WT")" || die "session-launch $ROLE $ID: worktree $WT does not point at this repository's git dir (its .git file or commondir was changed, or it is on no branch) — remove it and re-run"; fi
+  args=(--worktree "$WT" --branch "$br"); [ -n "$1" ] && args+=(--route "$1")
+  # #172: stored relative to the worktree — a relative outcome is the session's folder's (the app's, or the root)
+  s="$(jq -r '.spec_dir // empty' <<<"$SO")"; case "$s" in "") ;; "$WT"/*) args+=(--spec-dir "${s#"$WT"/}") ;; /*) args+=(--spec-dir "$s") ;; *) s="${s#./}"; [ -z "$APPDIR" ] || s="${s#"$APPDIR"/}"; args+=(--spec-dir "${APPDIR:+$APPDIR/}$s") ;; esac
+  "$LEDGER" record "$ID" "${args[@]}" >/dev/null || exit 1
+}
