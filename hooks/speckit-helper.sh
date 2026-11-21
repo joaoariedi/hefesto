@@ -39,6 +39,8 @@ die() {
 }
 
 BRANCH=$(git branch --show-current 2>/dev/null | sed 's|^feature/||')
+# The light-path header /hefesto:hef.tasks writes into tasks.md (commands/hef.tasks.md, HEF-1); one literal (HEF-17)
+LIGHT_PATH_HEADER='<!-- Light path: generated from spec.md alone — no plan.md -->'
 
 # monorepo-spec-roots (#172): the spec subcommands run from the SPEC ROOT — the nearest folder holding .specify/,
 # found the way git finds .git (hooks/spec-root-lib.sh) — so one cd covers every relative .specify/ lookup below.
@@ -48,7 +50,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # req-coverage --all re
 # shellcheck source=hooks/spec-root-lib.sh
 . "$(dirname "$SELF")/spec-root-lib.sh"
 case "${1:-}" in
-  spec|plan|check-spec|check-plan|check-tasks-inputs|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
+  spec|plan|check-spec|check-plan|check-tasks-inputs|check-implement-inputs|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
   constitution|list-specs|list-specs-dir|check-plan-review|plan-review-round|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
   detect-stack|detect-test-framework|mutation-*)   # a glob ends the list: the docs' subcommand count reads simple arms only
     SPEC_ROOT="$(spec_root_find "$PWD")" && cd "$SPEC_ROOT" || { echo "speckit-helper: cannot enter the spec root of $PWD" >&2; exit 1; } ;;
@@ -377,6 +379,16 @@ case "$1" in
     d=".specify/specs/$BRANCH"
     [ -f "$d/spec.md" ] || { echo "NO_SPEC_FOR_BRANCH: $BRANCH"; exit 1; }
     if [ -f "$d/plan.md" ]; then echo "FULL_PATH: $BRANCH"; else echo "LIGHT_PATH: $BRANCH"; fi
+    ;;
+  check-implement-inputs)
+    # /hefesto:hef.implement: no plan.md only when tasks.md says it came from the light path (HEF-17).
+    # The header, not plan absence alone: tasks built from a plan that later vanished are refused.
+    d=".specify/specs/$BRANCH"
+    [ -f "$d/spec.md" ] || { echo "NO_SPEC_FOR_BRANCH: $BRANCH"; exit 1; }
+    [ -f "$d/tasks.md" ] || { echo "NO_TASKS_FOR_BRANCH: $BRANCH"; exit 1; }
+    if [ -f "$d/plan.md" ]; then echo "FULL_PATH: $BRANCH"
+    elif grep -qxF "$LIGHT_PATH_HEADER" "$d/tasks.md"; then echo "LIGHT_PATH: $BRANCH"   # on the file: no pipe (pipefail)
+    else echo "NO_PLAN_FOR_BRANCH: $BRANCH"; exit 1; fi
     ;;
   check-artifacts)
     for f in tasks.md plan.md spec.md; do
@@ -873,7 +885,7 @@ case "$1" in
     echo "Unknown command: $1"
     echo "Usage: speckit-helper.sh <command>"
     echo "Commands: branch, check-git-root, spec, plan, check-spec, check-plan,"
-    echo "  check-tasks-inputs, check-artifacts, all-artifacts, clarifications,"
+    echo "  check-tasks-inputs, check-implement-inputs, check-artifacts, all-artifacts, clarifications,"
     echo "  checklists, checklists-dir,"
     echo "  checklists-content, constitution, list-specs, list-specs-dir, check-specify-dir,"
     echo "  detect-stack, detect-test-framework, list-config-files, list-rules, readme-head,"

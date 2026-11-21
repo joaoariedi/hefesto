@@ -18,8 +18,8 @@ Execute the implementation plan using strict TDD cycles with quality gates.
 
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh branch`
 
-### Load artifacts
-Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh check-artifacts`
+### Which path: full (plan.md) or light (tasks.md from the spec alone)
+Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh check-implement-inputs`
 
 ### Constitution
 Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh constitution`
@@ -40,7 +40,14 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement
 
 ## Instructions
 
-**Required inputs**: `tasks.md`, `plan.md`, and `spec.md` must all exist. If any are missing, tell the user which command to run first.
+**Required inputs**: `spec.md` and `tasks.md`. `plan.md` is required on the full path (`FULL_PATH`); on
+`LIGHT_PATH` — no plan, and `tasks.md` carries the line
+`<!-- Light path: generated from spec.md alone — no plan.md -->` that `/hefesto:hef.tasks` writes on its
+light path — it is not: never write, fetch or require a `plan.md` there, and do not run the `plan`
+fetcher. On a refusal, stop and tell the user which command to run first:
+`NO_SPEC_FOR_BRANCH` → `/hefesto:hef.spec`; `NO_TASKS_FOR_BRANCH` → `/hefesto:hef.tasks`;
+`NO_PLAN_FOR_BRANCH` (a `tasks.md` without the light-path line, and no plan) → `/hefesto:hef.plan`, or
+regenerate the tasks with `/hefesto:hef.tasks`.
 
 ### Pre-Implementation Gate
 
@@ -50,7 +57,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement
 
 2. **Load all artifacts**:
    - `tasks.md` — the task list to execute
-   - `plan.md` — design decisions and affected files
+   - `plan.md` — **only on `FULL_PATH`**: design decisions and affected files
    - `spec.md` — requirements and success criteria
    - `constitution.md` — governance principles
    - `data-model.md`, `contracts/` — if they exist
@@ -85,7 +92,7 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement
      - Functions < 50 lines
      - Files < 500 lines
      - Cyclomatic complexity < 10
-   - Follow patterns identified in `plan.md`
+   - Follow patterns identified in `plan.md` (on `FULL_PATH`; on `LIGHT_PATH`, the task's own target files)
 
    **e. Verify pass**
    - Run the specific test — it must now pass
