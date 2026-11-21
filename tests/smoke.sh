@@ -7097,6 +7097,7 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-run-survival.sh"      # part 15: runs survive the orchestrator and never starve the host (HEF-25 run-survival)
 . "$REPO/tests/smoke-publish-commit.sh"    # part 16: publish commits the marked column on an external board (HEF-16 publish-commit)
 . "$REPO/tests/smoke-forward.sh"           # part 17: a PR behind or conflicting with its base goes back to the build stage (HEF-31 merge-forward)
+. "$REPO/tests/smoke-forward-routing.sh"   # part 17b: the routing mutations, then part 17's fixture removed (HEF-31 merge-forward FR-017)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.

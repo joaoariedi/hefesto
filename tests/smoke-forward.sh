@@ -600,6 +600,4 @@ else
   git -C "$lv_w" worktree prune >/dev/null 2>&1; case "$lv_ld" in "$SMOKE_REAL_HOME"/.cache/hefesto/ledger/?*) rm -rf -- "$lv_ld" ;; esac; rm -rf -- "${lv_t:?}"
 fi
 
-# Later parts (T013+) add their cases above this line; the fixture is removed last.
-git -C "$fw_w" worktree prune >/dev/null 2>&1
-rm -rf -- "${fw_t:?}"; rm -f "$HOME"/.cache/hefesto/sessions/sid-fw-*-0001.json
+# The fixture stays for part 17b (tests/smoke-forward-routing.sh, sourced next), which removes it last.
