@@ -173,8 +173,11 @@ jq -e '.status == "stopped" and .outcome.step == 1 and (.steps_done | length) ==
   || { bad "a moved head must stop the merge action at step 1, before the merge (FR-023) — got: $(jq -c '{status, outcome, steps_done}' "$mg_ld/actions/HEF-5-A1.json" | head -c 400)"; x_fail=1; }
 jq -e '.blocked_on.kind == "human:merge" and any(.events[]?; .kind == "merge-stopped" and (.note | contains("head moved from")))' "$mg_ld/HEF-5.json" >/dev/null 2>&1 \
   || { bad "a moved head at step 1 leaves the entry on human:merge with the evidence (FR-023)"; x_fail=1; }
-# FR-023 / US9 Edge: BEHIND is not CLEAN — pr-watch's verdict calls it mergeable, the merge's step 1 does not: the
-# action stops before any check or the merge is granted, and the entry is blocked conflict (back to its builder)
+# FR-023 / US9 Edge: BEHIND is not CLEAN — the merge's step 1 stops the action before any check or the merge is
+# granted, and (merge-forward FR-007) the entry goes back to the build stage: ledger.sh forward reads the PR again
+# (`pr view` with headRefName, `pr checks` []) and needs the worktree on the head branch at the launch path
+git -C "$mg_w" worktree add -q "$mg_w/.claude/worktrees/HEF-4" -b feat4 main >/dev/null 2>&1 \
+  && git -C "$mg_w" worktree add -q "$mg_w/.claude/worktrees/HEF-3" feat3 >/dev/null 2>&1 || { bad "the merge fixture's worktrees for HEF-4/HEF-3"; x_fail=1; }
 mg_pr 10 feat4 "$(mg_sha feat3)"; mg_ok "request HEF-4 --merge" request HEF-4 --to repo-deployer --merge
 mg_o="$(mg_approve HEF-4-A1)" || { bad "approve HEF-4-A1 must pass — got: $(head -c 300 <<<"$mg_o")"; x_fail=1; }
 mg_ok "take HEF-4-A1" action take HEF-4-A1
@@ -182,19 +185,19 @@ mg_pr 10 feat4 "$(mg_sha feat3)" OPEN BEHIND
 mg_no "step 1 on a PR behind its base" "behind" action step HEF-4-A1 1 --evidence-file "$mg_t/ev.md"
 jq -e '.status == "stopped" and .outcome.step == 1 and (.steps_done | length) == 0' "$mg_ld/actions/HEF-4-A1.json" >/dev/null 2>&1 \
   || { bad "a BEHIND PR must stop the merge action at step 1 (FR-023) — got: $(jq -c '{status, outcome, steps_done}' "$mg_ld/actions/HEF-4-A1.json" | head -c 400)"; x_fail=1; }
-jq -e '.blocked_on.kind == "conflict"' "$mg_ld/HEF-4.json" >/dev/null 2>&1 \
-  || { bad "a BEHIND PR's entry must be blocked conflict (US9 Edge) — got: $(jq -c .blocked_on "$mg_ld/HEF-4.json")"; x_fail=1; }
+jq -e '.phase == "implement" and .blocked_on == null and .forwards[0].verdict == "behind"' "$mg_ld/HEF-4.json" >/dev/null 2>&1 \
+  || { bad "a BEHIND PR's entry must go back to the build stage — phase implement, a forward row (US9 Edge, merge-forward/FR-007) — got: $(jq -c '{phase, blocked_on, forwards}' "$mg_ld/HEF-4.json")"; x_fail=1; }
 # FR-023: stop --block conflict replaces human:merge with conflict; only on a merge action
 mg_pr 9 feat3 "$(mg_sha feat3)"; mg_ok "request HEF-3 --merge" request HEF-3 --to repo-deployer --merge
 mg_o="$(mg_approve HEF-3-A1)" || { bad "approve HEF-3-A1 must pass — got: $(head -c 300 <<<"$mg_o")"; x_fail=1; }
 mg_ok "take HEF-3-A1" action take HEF-3-A1
 mg_no "stop --block with another kind" "conflict" action stop HEF-3-A1 --step 1 --block ci --reason-file "$mg_t/ev.md"
-printf 'pr-watch.sh state: conflict\n' > "$mg_t/conflict.md"
+printf 'pr-watch.sh state: conflict\n' > "$mg_t/conflict.md"; mg_pr 9 feat3 "$(mg_sha feat3)" OPEN DIRTY
 mg_ok "stop --block conflict" action stop HEF-3-A1 --step 1 --block conflict --reason-file "$mg_t/conflict.md"
-jq -e '.blocked_on.kind == "conflict"' "$mg_ld/HEF-3.json" >/dev/null 2>&1 \
-  || { bad "action stop --block conflict must replace human:merge with conflict (FR-023) — got: $(jq -c .blocked_on "$mg_ld/HEF-3.json")"; x_fail=1; }
+jq -e '.phase == "implement" and .blocked_on == null and .forwards[0].verdict == "conflict"' "$mg_ld/HEF-3.json" >/dev/null 2>&1 \
+  || { bad "action stop --block conflict must send the entry back to the build stage — phase implement (FR-023, merge-forward/FR-007) — got: $(jq -c '{phase, blocked_on}' "$mg_ld/HEF-3.json")"; x_fail=1; }
 rm -rf -- "${mg_t:?}"; rm -f "$HOME"/.cache/hefesto/sessions/sid-mg-*-0001.json
-[ "$x_fail" -eq 0 ] && ok "request --merge pins the head through gh_bin and drafts state → checks (after step 1) → the pinned merge (after the last check); one merge action per repo at request and at approve; take fetches; the merge is never granted before step 1; a moved head stops before the merge at heads or step 1 with 'head moved from <a> to <b>' on the entry; BEHIND stops at step 1 and blocks conflict; stop --block conflict; done records the merge commit and advances to merged, refused while unmerged (US9 FR-020 FR-021 FR-022 FR-023 NR-004)"
+[ "$x_fail" -eq 0 ] && ok "request --merge pins the head through gh_bin and drafts state → checks (after step 1) → the pinned merge (after the last check); one merge action per repo at request and at approve; take fetches; the merge is never granted before step 1; a moved head stops before the merge at heads or step 1 with 'head moved from <a> to <b>' on the entry; BEHIND stops at step 1 and stop --block conflict, both sending the entry back to the build stage (merge-forward/FR-007); done records the merge commit and advances to merged, refused while unmerged (US9 FR-020 FR-021 FR-022 FR-023 NR-004)"
 
 # --- T023: the orchestrator's forms and the deployer's procedure (US9 FR-020 FR-024; plan Sketch 11, notes 6, 8) -----
 # The command file is the lane's only instruction set: a form the person never sees, or a deploy procedure that skips

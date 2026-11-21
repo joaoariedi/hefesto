@@ -220,9 +220,15 @@ action_cmd() { # $1 verb, then its arguments; globals: AID set by the caller
               store_consume "$AID" "done"; echo "$AID done — ring the orchestrator" ;;
         stop) [[ "$n" =~ ^(0|[1-9][0-9]*)$ ]] || die "ledger action stop $AID --step <n>: the step where it stopped, with no leading zero (got '$n')"
               jq --argjson n "$n" --rawfile t "$f" '.status = "stopped" | .outcome = {kind: "stopped", step: $n, reason: $t, at: (now | todate)}' <<<"$a" | action_put "$AID" || exit 1
-              store_consume "$AID" "stopped at step $n"; [ -z "$blk" ] || merge_block_conflict "$a"
-              merge_stop_event "$a" "$AID stopped at step $n: $(head -c 300 "$f" | tr '\n' ' ')"
-              echo "$AID stopped at step $n — the orchestrator asks the person again" ;;
+              store_consume "$AID" "stopped at step $n"; local fw="" nx="the orchestrator asks the person again"
+              # merge-forward FR-007: --block conflict sends the entry back to the build stage — after the stop is
+              # written, in a subshell, so a refusal is a note in the event and the closing line, never the verb's end (D14)
+              if [ -n "$blk" ]; then
+                if fw=$( (forward_cmd "$(jq -r .entry <<<"$a")" --verdict conflict) 2>&1 ); then fw=" — $fw"; else fw=" — forward refused: $fw"; fi
+                case "$fw" in *" pr → implement "*) nx="back to the build stage" ;; esac   # a cap / no-worktree block is the person's
+              fi
+              merge_stop_event "$a" "$AID stopped at step $n: $(head -c 300 "$f" | tr '\n' ' ')$fw"
+              echo "$AID stopped at step $n$fw — $nx" ;;
       esac ;;
     *) die "ledger action: unknown verb '$verb' (expected take, heads, step, done, stop or show)" ;;
   esac
