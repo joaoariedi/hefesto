@@ -519,13 +519,18 @@ x_fail=0
 sr_w="$(cd "$(mktemp -d)" && pwd -P)"
 ( cd "$sr_w" && git init -q -b main . && sr_git commit -q --allow-empty -m init && git checkout -q -b feature/triage \
   && mkdir -p backend/.specify/memory backend/.specify/specs/triage backend/internal/svc frontend \
-  && printf '# Backend\n' > backend/.specify/memory/constitution.md && printf '# Spec\nFR-001 x\n' > backend/.specify/specs/triage/spec.md ) >/dev/null 2>&1
+  && printf '# Backend\n' > backend/.specify/memory/constitution.md && printf '# Spec\nFR-001 x\n' > backend/.specify/specs/triage/spec.md \
+  && printf '# Tasks: triage\n%s\n' '<!-- Light path: generated from spec.md alone — no plan.md -->' > backend/.specify/specs/triage/tasks.md ) >/dev/null 2>&1
 for sr_d in backend backend/internal/svc; do
   [ "$(cd "$sr_w/$sr_d" && bash "$REPO/hooks/speckit-helper.sh" check-spec 2>&1)" = "SPEC_FOUND: triage" ] || { bad "SC-001 check-spec from $sr_d finds backend's spec"; x_fail=1; }
   # FR-007 (HEF-1): check-tasks-inputs is spec-root scoped too — backend's spec, no plan → the light path.
   # The subfolder iteration is the one that proves the dispatch: from backend/ itself $PWD already is the root
   sr_ti="$(cd "$sr_w/$sr_d" && bash "$REPO/hooks/speckit-helper.sh" check-tasks-inputs 2>&1)"
   [ "$sr_ti" = "LIGHT_PATH: triage" ] || { bad "FR-007 check-tasks-inputs from $sr_d must answer 'LIGHT_PATH: triage' (spec-root dispatch) — got '$sr_ti'"; x_fail=1; }
+  # implement-light-path/FR-007 (HEF-17): check-implement-inputs is spec-root scoped too — backend's spec +
+  # a light-path tasks.md, no plan → the light path; dropped from the dispatch list it answers NO_SPEC from the subfolder
+  sr_ii="$(cd "$sr_w/$sr_d" && bash "$REPO/hooks/speckit-helper.sh" check-implement-inputs 2>&1)"
+  [ "$sr_ii" = "LIGHT_PATH: triage" ] || { bad "FR-007 check-implement-inputs from $sr_d must answer 'LIGHT_PATH: triage' (spec-root dispatch) — got '$sr_ii'"; x_fail=1; }
   (cd "$sr_w/$sr_d" && bash "$REPO/hooks/speckit-helper.sh" plan-phase-start && bash "$REPO/hooks/speckit-helper.sh" plan-phase-end \
     && bash "$REPO/hooks/speckit-helper.sh" implement-phase-start && bash "$REPO/hooks/speckit-helper.sh" implement-phase-end) >/dev/null 2>&1 \
     || { bad "SC-001 the phase markers work from $sr_d"; x_fail=1; }

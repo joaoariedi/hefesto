@@ -37,6 +37,10 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+### Added
+
+- **`/hefesto:hef.implement` accepts the light path** (HEF-17). With `spec.md` and a `tasks.md` that carries the light-path header `/hefesto:hef.tasks` writes, and no `plan.md`, it runs the tasks from the spec and the tasks' own target files; before, it said all three files were required, so the `/hefesto:hef.agent` Light route stopped there. The full path is unchanged. A `tasks.md` without the header and no plan is still refused. `speckit-helper.sh check-implement-inputs` answers `FULL_PATH`, `LIGHT_PATH`, `NO_SPEC_FOR_BRANCH`, `NO_TASKS_FOR_BRANCH` or `NO_PLAN_FOR_BRANCH`. `hefesto:workflow` still reads `plan.md` on the light path (deferred).
+
 ## [9.4.3] - 2026-11-18
 
 ### Fixed
