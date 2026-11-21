@@ -37,6 +37,21 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+### Added
+
+- **`ledger.sh publish` can commit the marked column on an external board** (HEF-16; `docs/install.md` §7 step 13,
+  `docs/hooks.md`). Opt-in with `orchestrate.publish_commit: true` (the JSON boolean; the string `"true"` is off): one
+  path-limited commit `board: <id> <marker>` in the board repo, on its checked-out branch, never pushed, unsigned and
+  with the board repo's hooks not run; the ledger process needs a git identity. Refused before marking, nothing
+  written, for a dirty or untracked column, a column with a git `filter` attribute or outside the board repo, a merge,
+  rebase, cherry-pick or revert in progress, a detached HEAD, or a `--mark` path that differs from the located one. A
+  failed commit restores the column and records nothing, so the next pass retries; a mark that changes nothing records
+  `published` without a commit; one publish at a time per ledger. In-repo boards only mark, and say so. The logic lives
+  in the sourced `hooks/ledger-publish.sh`.
+- **`status-board.sh --locate <id>`** prints where `--mark` would write — the column file name and its absolute,
+  symlink-resolved path, or `done` for a DONE item — and writes nothing; `--mark` now prints that path as a second
+  `path:` line. Both live in the sourced `hooks/board-mark.sh`, which must sit beside `status-board.sh`.
+
 ## [9.4.3] - 2026-11-18
 
 ### Fixed

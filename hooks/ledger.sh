@@ -56,7 +56,7 @@ usage: ledger.sh <subcommand> …
   reopen <id> --reason-file <f>                         a merged item back to implement for a follow-up PR (person-only)
   deployed <id> --env <env> --commit <sha>              record that the commit is in that environment; the final env releases a merged item
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
-  publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish)
+  publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish; external board: + publish_commit commits it)
   escalate [--record <id>]                              old human:* blocks as one-line pointers (opt-in: orchestrate.escalate_after_hours)
   branches [--configured] [--repo <name>]              the resolved branch model as JSON with .source (repo file | board | default; defaults = trunk on main)
   where <id>                                            per environment: does it contain the entry's branch (local, then origin/)
@@ -116,6 +116,10 @@ else die "ledger: EVAL_GH_BIN=$EVAL_GH_BIN is set but $HERE/lane-lib.sh is missi
 [ -f "$HERE/ledger-automerge.sh" ] || die "ledger: $HERE/ledger-automerge.sh not found — the plugin install is incomplete (reinstall it)"
 # shellcheck source=hooks/ledger-automerge.sh
 . "$HERE/ledger-automerge.sh"
+# publish_commit: publish commits the marked column on an external board (HEF-16)
+[ -f "$HERE/ledger-publish.sh" ] || die "ledger: $HERE/ledger-publish.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/ledger-publish.sh
+. "$HERE/ledger-publish.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -878,10 +882,13 @@ case "$SUB" in
         STORED=$(jq -r '.source.body_sha256 // empty' <<<"$E"); NOW=$({ sha256sum 2>/dev/null || shasum -a 256; } < "$T" | cut -c1-64)
         if [ -n "$STORED" ] && [ "$NOW" != "$STORED" ]; then rm -f "$T"; die "ledger publish $ID: item text changed since claim (board sha256 ${NOW:0:12}…, ledger ${STORED:0:12}…) — a person re-reads it and re-hashes with ledger.sh record $ID --body-file <raw>; the board is untouched"; fi
         PREVM=$(jq -r '.published.state // empty' <<<"$E")
+        BT=""; CM=""; if publish_commit_on; then BT=$(jq -r .board_top <<<"$BCTX"); publish_before_mark "$ID" "$SB" "$BT" "$T"; fi   # ledger-publish.sh
         MARKED=$(bash "$SB" --mark "$ID" "${M:--}" ${PREVM:+--was "$PREVM"}) || { rm -f "$T"; exit 1; }
+        [ -z "$BT" ] || CM=$(publish_after_mark "$ID" "$M" "$BT" "$LOC" "$MARKED") || { rm -f "$T"; exit 1; }   # commit, then re-hash (D4)
         bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: cannot re-read the item after marking"; }
         "$0" record "$ID" --body-file "$T" >/dev/null || { rm -f "$T"; exit 1; }
-        rm -f "$T"; WHERE="the board"; case "$MARKED" in *"not marked"*) WHERE="not marked — the item is in DONE" ;; esac ;;
+        rm -f "$T"; WHERE="the board"; case "$MARKED" in *"not marked"*) WHERE="not marked — the item is in DONE" ;; esac
+        [ -z "$BT" ] || WHERE=$(publish_where "$CM") ;;
       github-project)   # the card's Status, then one comment, through the board's one write path (FR-010)
         URL=$(jq -r '.source.url // empty' <<<"$E")
         [ -n "$URL" ] || die "ledger publish $ID: a github-project entry needs source.url (ledger.sh init … --url <issue-url>)"
@@ -894,7 +901,8 @@ case "$SUB" in
     esac
     E=$(entry "$ID") || exit 1
     jq --arg s "$ST" '.published = {state: (if $s == "" then null else $s end), at: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
-    echo "$ID published ${ST:-no marker} ($WHERE)" ;;
+    echo "$ID published ${ST:-no marker} ($WHERE)"
+    [ "$SK" != tasks-repo ] || publish_inrepo_note "$ID" ;;
 
   # escalate: report 17's single message type. Lists human:* blocks older than the threshold that were
   # not yet escalated for THIS block, one `<session>\t<pointer>` line each; the command sends the
