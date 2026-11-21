@@ -66,9 +66,11 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh implement
    **b. Write failing test** (Red phase)
    - Use `test-specialist` agent patterns to identify test location and conventions
    - Write a test that validates the task's acceptance criteria
-   - **Cite the task's requirement id in the test** — `@pytest.mark.req("FR-003")`, a
-     `describe("[FR-003] …")` title, or a `# FR-003` comment. `/hefesto:hef.verify` maps requirements
-     to tests by that token; an uncited test covers nothing as far as the spec is concerned
+   - **Cite the task's requirement id in the test**, qualified by the spec's directory name:
+     `<spec>/FR-NNN` — `@pytest.mark.req("<spec>/FR-NNN")`, a `describe("[<spec>/FR-NNN] …")` title,
+     or a `# <spec>/FR-NNN` comment. `/hefesto:hef.verify` maps requirements to tests by that token; an
+     uncited test covers nothing as far as the spec is concerned, and a scoped spec (the
+     `<!-- req-coverage: scoped -->` line) does not count a bare `FR-NNN`
    - Test MUST fail at this point (implementation doesn't exist yet)
    - Run the test to confirm failure
 

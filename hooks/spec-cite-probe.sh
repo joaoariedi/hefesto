@@ -37,7 +37,10 @@ case "$FILE" in
 esac
 [ -f "$FILE" ] || exit 0
 
-ids="$(grep -ohwE 'FR-[0-9]+' "$FILE" 2>/dev/null | sort -u)"
+# scoped-fr-citations FR-013: the req-coverage grammar (spec-root-lib.sh), so a qualified `<spec>/FR-NNN`
+# names its spec only; a bare id (and each id of an `FR-a/FR-b` list) names every spec declaring it.
+ids="$(grep -ohwE -- "$HEF_FR_CITE_RE" "$FILE" 2>/dev/null \
+  | awk -F/ 'NF == 2 && $1 ~ /^FR-[0-9]+$/ { print $1; print $2; next } { print }' | sort -u)"
 [ -z "$ids" ] && exit 0
 
 STAMP="${TMPDIR:-/tmp}/.hefesto-spec-cite-$(printf '%s' "$FILE" | { md5sum 2>/dev/null || md5 -r; } | cut -d' ' -f1)"
@@ -51,7 +54,11 @@ while IFS= read -r root; do
 for d in "$root"/.specify/specs/*/; do
   [ -f "$d/spec.md" ] || continue
   name="${d%/}"; name="${name##*/}"
-  hits="$(printf '%s\n' "$ids" | while read -r id; do grep -qwF "$id" "$d/spec.md" && printf '%s ' "$id"; done)"
+  hits="$(printf '%s\n' "$ids" | while read -r tok; do
+    id="${tok##*/}"; q="${tok%/*}"; [ "$q" = "$tok" ] && q=""
+    [ -n "$q" ] && [ "$q" != "$name" ] && continue
+    grep -qwF "$id" "$d/spec.md" && printf '%s ' "$tok"
+  done)"
   [ -z "$hits" ] && continue
   found=1
   echo "hefesto: $rel cites ${hits% } — declared by spec '$name' — and this edit is outside an implement phase." >&2

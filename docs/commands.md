@@ -26,7 +26,7 @@
 | `/hefesto:hef.spec` | `<feature>` | Generate spec with scenarios, requirements, criteria |
 | `/hefesto:hef.clarify` | — | Scan spec for ambiguities, ask targeted questions |
 | `/hefesto:hef.plan` | `[--arena [K]] [--via <provider,…>]` | Generate implementation plan from spec. `--arena [K]` (K 2..3, default 2) fans the truth-map questions out to K read-only `truth-scout` agents at `sonnet`, `opus`, `fable` in one message, verifies their citations with `speckit-helper.sh arena-cite-check`, and writes `research.md` with an `## Arena` table attributing every claim per tier, `### Disagreements` (→ `[NEEDS CLARIFICATION]` markers, resolved before Phase 1) and `### Unverified`, plus a footer `speckit-helper.sh arena-metrics` reads back. `--via <p,…>` gives up to K−1 slots to providers declared in `.claude/project-status.json` (one `truth-scout` always kept), run through `hooks/arena-run.sh --purpose arena` from an unsandboxed pane; each is cite-checked and gets its own column |
-| `/hefesto:hef.tasks` | — | Generate phased task list from plan and spec |
+| `/hefesto:hef.tasks` | — | Generate phased task list from spec (and plan, when there is one) |
 | `/hefesto:hef.checklist` | — | Generate requirement quality checklists |
 | `/hefesto:hef.analyze` | — | Read-only cross-artifact consistency analysis |
 | `/hefesto:hef.implement` | — | Execute TDD implementation with quality gates (arms the test guard) |

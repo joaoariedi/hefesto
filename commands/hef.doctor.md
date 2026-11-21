@@ -56,7 +56,9 @@ so report it and never edit their dotfiles from here.
 
 Run with the Bash tool: `for f in "${CLAUDE_PLUGIN_ROOT}"/hooks/*.sh; do bash -n "$f" || echo "SYNTAX: $f"; done`
 
-Then, only if `shellcheck` is on PATH: `shellcheck -S warning "${CLAUDE_PLUGIN_ROOT}"/hooks/*.sh`.
+Then: `"${CLAUDE_PLUGIN_ROOT}"/hooks/speckit-helper.sh shellcheck-files --severity warning "${CLAUDE_PLUGIN_ROOT}"/hooks/*.sh`
+— one memory-bounded shellcheck process per hook, never one over the whole glob. Exit 0 = clean, 1 = findings,
+2 = incomplete (shellcheck not installed, or a file it could not check — each named).
 A hook that does not parse is a hook that silently never fires — the founding failure mode of this
 plugin's test suite.
 
@@ -90,7 +92,7 @@ Running copy:    [version @ sha] — [matches the clone | BEHIND the clone (upda
 Installed clone: [path] — [in sync | N commits behind origin/main | locally modified | not a git clone]
 Global rules:    [N/N identical | list of differing/missing files]
 Stow-managed:    [yes → dotfiles target | no — plain files]
-Hooks:           [all parse | SYNTAX: …] · shellcheck: [clean | N findings | not installed]
+Hooks:           [all parse | SYNTAX: …] · shellcheck: [clean | N findings | incomplete | not installed]
 Manifest:        [valid | errors]
 Evals:           [not run (pass --eval) | N/M cases ≥ 0.8 | ablation delta …]
 
