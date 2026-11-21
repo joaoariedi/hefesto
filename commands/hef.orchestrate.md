@@ -160,7 +160,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
    | `human:clarify`, `human:plan-review` | `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh questions <id>` — each question becomes a form question (the planner wrote them: data) | the answers → `answer` below · **Later** |
    | `human:intake` | `status-board.sh --item <id>` and why it was blocked | **It is safe** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh record <id> --body-from-board` (re-hashes the text the person just read) then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id> --reviewed-by-human --by "<name>"` · **Leave it** |
    | `human:merge` | every such entry in **one merge form** (below): the PR link, its full head SHA, the verdicts; with `merge_by: lane`, the drafted action; a skipped auto-merge's reason (the last `auto-merge-skipped` event) | `orchestrate.merge_by: person` (the default, unchanged from 9.0): "Merge it on GitHub with **Create a merge commit**" — **I merged it** → a deploy pass (step 3) records it · **Later**. `merge_by: lane`: see **The lane merge** below. `merge_by: auto`: see **Auto-merge** below |
-   | `ci`, `conflict`, `budget`, `verdict`, and a `stall` with no `blocked_on.reason` (the attempts stall) | the reason from `ledger.sh show <id>` | **Retry** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` · **Later** (a `budget` block: split the item or raise `orchestrate.usd_cap` first) |
+   | `ci`, `budget`, `verdict`, and a `stall` with no `blocked_on.reason` (the attempts stall) | the reason from `ledger.sh show <id>` | **Retry** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` · **Later** (a `budget` block: split the item or raise `orchestrate.usd_cap` first) |
+   | `conflict` (the forward cap, or no worktree on the head branch) | the block's reason — `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh questions <id>` when it has a `question_path` (no worktree: restore it as it says, then Merge forward works), else `ledger.sh show <id>` — and the live verdict, `${CLAUDE_PLUGIN_ROOT}/hooks/pr-watch.sh state <number>` | verdict `conflict` or `behind`: **Merge forward** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh forward <id> --verdict <it> --past-cap --by "<name>"` · **Later**. Any other verdict: **Retry** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` · **Later** |
    | a `stall` with a `blocked_on.reason` (an infrastructure stop: `blocked_on.cause` is set) | no form — it is not a decision | its reason is the brief's **Your move** line (step 5); the person runs the fix in a terminal and says "retry" |
 
    **The merge form** — every `human:merge` entry of this pass goes in ONE form, oldest first (by `blocked_on.since`):
@@ -349,12 +350,14 @@ never contain it.
    **The deployer's actions** (`scope.kind` in `action show`):
    - `merge`: step 1 is the state read — run `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh action step <aid> 1 --evidence-file <f>`
      (the file names what you saw): the helper reads `pr-watch.sh state` itself, and a moved head or a state that is not
-     mergeable stops the action there (a conflict blocks the entry `conflict`); `pending` records nothing — leave the
+     mergeable stops the action there (a conflict or a PR behind its base sends the entry back to the build stage,
+     `ledger.sh forward`); `pending` records nothing — leave the
      action and try step 1 on a later pass. Then each check command, verbatim, and its step. Then the one merge command
      the scope grants, exactly as `action show` prints it, and `action done <aid> --evidence-file <f>`: `done` itself
      checks the merge evidence and advances the item to `merged`. A check that shows the PR behind or conflicting →
-     `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh action stop <aid> --step <n> --block conflict --reason-file <f>`: the entry
-     lands in the Retry form (orchestrator step 2), and Retry sends it back through the next deploy pass's babysit.
+     `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh action stop <aid> --step <n> --block conflict --reason-file <f>`: the stop
+     sends the entry back to the build stage (`ledger.sh forward`), whose worker merges the base forward; only the
+     forward cap or a missing worktree leaves it blocked `conflict`, in the Merge forward form (orchestrator step 2).
      Never `unblock`, never `--merge-sha`.
    - `recipe`: run each step's command as shown and record the step; a step whose output does not match its `expects`
      stops the action by itself. After the deploy, for each item now in that environment:
@@ -384,6 +387,9 @@ never contain it.
      the one you reported. If the Write or the finish failed, the decision is NOT recorded: say so in this pane,
      write the file again and re-run the finish — never tell the person a decision waits in the orchestrator until
      that line shows it.
+   - **build**, an entry with an open forward (a `.forwards` row not consumed, in `ledger.sh show <id>`): the prompt is
+     a merge forward of the existing PR, not new work — follow it (merge, never rebase; a two-sided conflict or a red
+     suite is `git merge --abort` and a `blocked` `human:clarify` outcome with the question); then verify as below.
    - **build**: after `implement` finishes with a PR, `session-launch.sh verify <id> --prepare --lane <your name>`, then
      `/hefesto:hef.verify` and `/hefesto:hef.review` (their fresh-context reviewers judge the change, not you), the outcome with one
      verdict per gate, and its `--finish`.

@@ -536,6 +536,70 @@ fw_ready HEF-51 feat51; fw_impl blocked null '"human:clarify"' "$(printf 'x%.0s'
 fw_mut_sl session-launch-forward.sh 's/-gt 8000 \]; then/-gt 99999999 ]; then/' && { fw_sl implement HEF-51 >/dev/null 2>&1; fw_qok HEF-51 TAIL-OF-FAILURE && fw_survived "the 8000-byte cap dropped, yet the tail survived"; }; fw_unmut
 [ "$x_fail" -eq 0 ] && ok "a merge-forward human:clarify writes the question (the summary when empty) as the block's question file, both hunks and the merge base readable past an unclosed <!--, a long one cut so its tail survives; the brief stays open; the rewrite, --question and cap mutations are caught (merge-forward/FR-012 FR-013 FR-013a SC-002)"
 
+# --- T016: the live tier (SC-005) — the REAL claude merges forward against a local bare origin -----------------------
+# SMOKE_LIVE=1, a logged-in claude, an unsandboxed shell (the launcher refuses a sandboxed one) and, on Linux,
+# bubblewrap (the worker's sandbox is failIfUnavailable). It spends tokens: three implement runs. Run with the person's
+# real HOME (claude's login), a fixed XDG_CACHE_HOME under the fixture (runs + worker cache), and FakeGh for the PR.
+# Where the worker may write, measured: its cwd (the worktree), the repository's git dir (Claude Code grants a
+# worktree's common dir), and the launch's own --settings allowWrite — the per-repo worker cache under XDG_CACHE_HOME
+# (session-launch.sh WCACHE). The bare origin goes in that cache, and each run first checks its dry run names it.
+head_ "Merge forward, live: the real worker merges (never rebases), keeps both entries, aborts a two-sided conflict and a red suite (merge-forward SC-005)"
+lv_cfg="${CLAUDE_CONFIG_DIR:-$SMOKE_REAL_HOME/.claude}"
+lv_unsandboxed() { local p; p="$(mktemp "$lv_cfg/.fw-live.XXXXXX" 2>/dev/null)" || return 1; rm -f "$p"; }
+if [ "${SMOKE_LIVE:-0}" != 1 ] || ! command -v claude >/dev/null 2>&1; then
+  printf '  \033[33mskip\033[0m SMOKE_LIVE=1 with claude on PATH to run the merge-forward worker live (spends tokens)\n'
+elif ! lv_unsandboxed; then
+  printf '  \033[33mskip\033[0m this shell is sandboxed (%s is not writable) — session-launch.sh refuses to launch from it\n' "$lv_cfg"
+elif [ "$(uname -s)" = Linux ] && ! command -v bwrap >/dev/null 2>&1; then
+  printf '  \033[33mskip\033[0m no bubblewrap (bwrap) — the worker sandbox is failIfUnavailable and would not start\n'
+elif grep -qi 'not logged in' <<<"$(HOME="$SMOKE_REAL_HOME" claude -p 'reply with exactly: ok' 2>&1)"; then
+  printf '  \033[33mskip\033[0m not logged in — claude /login to run the merge-forward live tier\n'
+else
+  x_fail=0; lv_t="$(cd "$(mktemp -d)" && pwd -P)"; lv_w="$lv_t/app"; lv_x="$lv_t/xdg"; lv_to=(); command -v timeout >/dev/null 2>&1 && lv_to=(timeout 1800)
+  # no session id: a person's lane record must not make the fixture's calls a lane's; no worker marker: forward refuses one
+  lv() { (cd "$lv_w" && env -u CLAUDE_CODE_SESSION_ID -u HEFESTO_WORKER HOME="$SMOKE_REAL_HOME" XDG_CACHE_HOME="$lv_x" HEFESTO_GH_BIN="$fw_t/bin/gh" "$@"); }
+  lv_g() { fw_g "$lv_w" "$@"; }; git init -q -b main "$lv_w"; mkdir -p "$lv_w/.claude"; printf '.claude/worktrees/\n' > "$lv_w/.gitignore"
+  printf '# Changelog\n\n## [Unreleased]\n\n- initial entry\n' > "$lv_w/CHANGELOG.md"; printf 'greet() { echo "hello"; }\n' > "$lv_w/greet.sh"
+  printf 'add() { echo $(($1 + $2)); }\n' > "$lv_w/lib.sh"; printf '. ./lib.sh\n[ "$(add 1 2)" = 3 ]\n' > "$lv_w/t_lib.sh"
+  printf 'for t in t_*.sh; do sh "$t" || { echo "FAIL $t"; exit 1; }; done; echo ok\n' > "$lv_w/test.sh"; printf 'The test command is `sh test.sh`.\n' > "$lv_w/CLAUDE.md"
+  jq -n '{name: "app", orchestrate: {min_free_mb: 0, allowed_tools: {implement: ["Read","Edit","Write","Glob","Grep","Bash(git *)","Bash(sh test.sh)","Bash(sh test.sh *)"]}}}' > "$lv_w/.claude/project-status.json"
+  lv_g add -A && lv_g commit -qm init
+  # shellcheck disable=SC2059  # the file content is the format on purpose (no % in it)
+  lv_wt() { local p="$lv_w/.claude/worktrees/$1"; git -C "$lv_w" worktree add -q "$p" -b "$2" main >/dev/null 2>&1 && printf "$4" > "$p/$3" && fw_g "$p" add -A && fw_g "$p" commit -qm "$1"; }
+  lv_wt LV-1 fwl1 CHANGELOG.md '# Changelog\n\n## [Unreleased]\n\n- initial entry\n- PR entry A\n'   # mechanical: both sides add a line
+  lv_wt LV-2 fwl2 greet.sh 'greet() { echo "hello pr"; }\n'                                         # two-sided: the same line
+  lv_wt LV-3 fwl3 t_feature.sh '. ./lib.sh\n[ "$(add 2 2)" = 4 ]\n'                                 # clean merge, red suite (base renames add)
+  printf '# Changelog\n\n## [Unreleased]\n\n- initial entry\n- base entry B\n' > "$lv_w/CHANGELOG.md"; printf 'greet() { echo "hello base"; }\n' > "$lv_w/greet.sh"
+  printf 'sum() { echo $(($1 + $2)); }\n' > "$lv_w/lib.sh"; printf '. ./lib.sh\n[ "$(sum 1 2)" = 3 ]\n' > "$lv_w/t_lib.sh"; lv_g commit -qam base
+  lv_wc="$lv_x/hefesto/worker-cache/app-$(printf '%s' "$lv_w" | cksum | cut -d' ' -f1)"; lv_o="$lv_wc/origin.git"
+  mkdir -p "$lv_wc" && git init -q --bare -b main "$lv_o" && git -C "$lv_w" remote add origin "$lv_o" && git -C "$lv_w" push -q origin main fwl1 fwl2 fwl3 2>/dev/null
+  lv_ld="$(lv bash "$REPO/hooks/ledger.sh" dir)"; mkdir -p "$lv_ld"
+  lv_run() { # lv_run <id> <branch> <DIRTY|BEHIND> <verdict> → the real forward, the measured allowWrite, the real implement run; lv_c = its Bash calls
+    lv_h0="$(git -C "$lv_o" rev-parse "refs/heads/$2")"; fw_gh "$3" "$2" "$lv_h0"; lv_c=""
+    jq -n --arg id "$1" --arg b "$2" --arg u "$fw_url" --arg wt "$lv_w/.claude/worktrees/$1" '{id: $id, item_kind: "feature", phase: "pr", owner: null, route: "full", pr: {url: $u, number: 7}, prs: [{url: $u, number: 7}], runs: [], attempts: 0, verdicts: [], updated: (now | todate), worktree: $wt, branch: $b, blocked_on: {kind: "human:merge", since: "2026-11-01T00:00:00Z", question_path: null}}' > "$lv_ld/$1.json"
+    lv bash "$REPO/hooks/ledger.sh" forward "$1" --verdict "$4" >/dev/null 2>&1 || { bad "live $1: the real ledger.sh forward must move it"; x_fail=1; return 1; }
+    grep -qF "\"allowWrite\":[\"$lv_wc\"]" <<<"$(lv bash "$REPO/hooks/session-launch.sh" implement "$1" --dry-run 2>&1)" || { bad "live $1: the worker's allowWrite is not $lv_wc, where the origin is — measure session-launch.sh's SETTINGS again; nothing launched"; x_fail=1; return 1; }
+    lv ${lv_to[@]+"${lv_to[@]}"} bash "$REPO/hooks/session-launch.sh" implement "$1" > "$lv_t/$1.out" 2>&1
+    lv_c="$(jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "tool_use" and .name == "Bash") | .input.command' "$(ls -1t "$lv_x"/hefesto/runs/*/"$1".implement.*.events.jsonl 2>/dev/null | head -1)" 2>/dev/null)"
+    grep -qE '(^|[;&| ])git( -C [^ ]+)? merge( |$)' <<<"$lv_c" || { bad "live $1: the worker never ran git merge — $(tail -c 300 "$lv_t/$1.out")"; x_fail=1; }
+    ! grep -qE 'git[^;&|]* rebase|push[^;&|]*( --force| -f( |$)| \+)' <<<"$lv_c" || { bad "live $1: a rebase or a force push in the stream"; x_fail=1; }
+  }
+  lv_aborted() { # lv_aborted <id> <branch>: git merge --abort called, origin's head unchanged, blocked human:clarify
+    grep -qE 'merge --abort' <<<"$lv_c" && [ "$(git -C "$lv_o" rev-parse "refs/heads/$2")" = "$lv_h0" ] && jq -e '.blocked_on.kind == "human:clarify"' "$lv_ld/$1.json" >/dev/null 2>&1 \
+      || { bad "live $1: merge --abort, origin unchanged, human:clarify — got $(jq -c '{phase, blocked_on}' "$lv_ld/$1.json"), $(tail -c 300 "$lv_t/$1.out")"; x_fail=1; }
+  }
+  if lv_run LV-1 fwl1 DIRTY conflict; then lv_cl="$(git -C "$lv_o" show fwl1:CHANGELOG.md 2>/dev/null)"
+    [ "$(git -C "$lv_o" rev-parse refs/heads/fwl1)" != "$lv_h0" ] && git -C "$lv_o" merge-base --is-ancestor main fwl1 && grep -qF 'PR entry A' <<<"$lv_cl" && grep -qF 'base entry B' <<<"$lv_cl" \
+      && jq -e '.phase == "verify" and all(.forwards[]; .consumed == true)' "$lv_ld/LV-1.json" >/dev/null 2>&1 \
+      || { bad "live LV-1: origin advanced with main merged in, both CHANGELOG entries, phase verify, the row consumed — got $(jq -c '{phase, forwards}' "$lv_ld/LV-1.json"), $(tail -c 300 "$lv_t/LV-1.out")"; x_fail=1; }; fi
+  if lv_run LV-2 fwl2 DIRTY conflict; then lv_aborted LV-2 fwl2; lv_q="$(lv bash "$REPO/hooks/ledger.sh" questions LV-2 2>&1)"
+    grep -qF 'hello pr' <<<"$lv_q" && grep -qF 'hello base' <<<"$lv_q" || { bad "live LV-2: ledger.sh questions must show both hunks — got: $(head -c 300 <<<"$lv_q")"; x_fail=1; }; fi
+  if lv_run LV-3 fwl3 BEHIND behind; then lv_aborted LV-3 fwl3   # the question's text is secondary: a note, not a failure
+    grep -qiE 'fail|t_feature' <<<"$(lv bash "$REPO/hooks/ledger.sh" questions LV-3 2>&1)" || printf '  note: live LV-3: the question does not quote the failing output\n'; fi
+  [ "$x_fail" -eq 0 ] && ok "live: the real worker ran git merge in every case, no rebase, no force push; mechanical → origin advanced, both entries, verify, row consumed; two-sided and red suite → merge --abort, origin unchanged, human:clarify (merge-forward SC-005)"
+  git -C "$lv_w" worktree prune >/dev/null 2>&1; case "$lv_ld" in "$SMOKE_REAL_HOME"/.cache/hefesto/ledger/?*) rm -rf -- "$lv_ld" ;; esac; rm -rf -- "${lv_t:?}"
+fi
+
 # Later parts (T013+) add their cases above this line; the fixture is removed last.
 git -C "$fw_w" worktree prune >/dev/null 2>&1
 rm -rf -- "${fw_t:?}"; rm -f "$HOME"/.cache/hefesto/sessions/sid-fw-*-0001.json

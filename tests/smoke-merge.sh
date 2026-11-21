@@ -213,7 +213,7 @@ for mg_w in 'merge_by: person' 'merge_by: lane' '**I merged it**' \
   'ledger.sh request <OP-n> --to <deployer> --recipe <env> --version <v>' \
   'ledger.sh request <OP-n> --to <deployer> --train <name> --env <env> --pr <repo>=<n>' \
   'ledger.sh deployed <id> --env <env> --commit <sha>' \
-  'ledger.sh action stop <aid> --step <n> --block conflict --reason-file <f>' 'the Retry form' \
+  'ledger.sh action stop <aid> --step <n> --block conflict --reason-file <f>' 'the Merge forward form' 'ledger.sh forward <id> --verdict <it> --past-cap --by "<name>"' \
   'ledger.sh action step <aid> 1 --evidence-file <f>' 'the merge action it took' \
   'Write those files with the Write tool in your session scratchpad' 'the builder'"'"'s worker gets it'; do
   grep -qF -- "$mg_w" "$mg_oc" || { bad "commands/hef.orchestrate.md must say: $mg_w (T023, US9 FR-020 FR-024)"; x_fail=1; }

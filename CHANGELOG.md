@@ -52,6 +52,24 @@ it is what caught the hand-bumped era:
   symlink-resolved path, or `done` for a DONE item — and writes nothing; `--mark` now prints that path as a second
   `path:` line. Both live in the sourced `hooks/board-mark.sh`, which must sit beside `status-board.sh`.
 - **`/hefesto:hef.implement` accepts the light path** (HEF-17). With `spec.md` and a `tasks.md` that carries the light-path header `/hefesto:hef.tasks` writes, and no `plan.md`, it runs the tasks from the spec and the tasks' own target files; before, it said all three files were required, so the `/hefesto:hef.agent` Light route stopped there. The full path is unchanged. A `tasks.md` without the header and no plan is still refused. `speckit-helper.sh check-implement-inputs` answers `FULL_PATH`, `LIGHT_PATH`, `NO_SPEC_FOR_BRANCH`, `NO_TASKS_FOR_BRANCH` or `NO_PLAN_FOR_BRANCH`. `hefesto:workflow` still reads `plan.md` on the light path (deferred).
+- **A PR behind or conflicting with its base merges forward by itself** (HEF-31; `docs/hooks.md`, `docs/install.md`,
+  `docs/quickstart.md`). `ledger.sh forward <id> --verdict conflict|behind` moves a `pr` entry back to `implement`
+  when the live `pr-watch.sh state` agrees, with a generated, hashed brief and an open `.forwards[]` row; the
+  babysitter's step 4, the deploy launcher, a lane merge action's step 1 and `action stop --block conflict` call it.
+  The next implement launch is a merge forward of the same PR (the sourced `hooks/session-launch-forward.sh`): `git
+  merge`, never a rebase or a force push; mechanical conflicts resolved, a two-sided conflict or a red suite aborted
+  and returned as `human:clarify` with a question (`ledger.sh questions <id>`); an outcome `pr` on the same URL marks
+  the row consumed and the verifier re-checks the new head. A 4th forward on one PR, or no worktree on its head
+  branch, blocks `conflict` instead; the orchestrator's `conflict` form offers **Merge forward**
+  (`--past-cap --by <name>`, a person's signature) or **Retry** when the PR is no longer behind or conflicting.
+  `hefesto-setup.sh` allows `ledger.sh forward` and asks on `forward … --past-cap`; `--check` reports an allowlist
+  written before it.
+
+### Changed
+
+- **`pr-watch.sh state` reports `behind`** (GitHub's `BEHIND`) as its own verdict, where it read `mergeable` before;
+  `ledger-automerge.sh` treats `behind` as a conflict, and the deploy launcher no longer blocks a `conflict` PR —
+  it sends it back to the build stage (HEF-31).
 
 ## [9.4.3] - 2026-11-18
 

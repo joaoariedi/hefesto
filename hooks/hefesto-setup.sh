@@ -368,7 +368,8 @@ if [ "$MODE" = check ]; then
   mh=""; for i in "${!roots[@]}"; do [ "${roots[$i]}" = "$me" ] && { mh="$(hooks_of "$me" "${kinds[$i]}")"; break; }; done
   miss="$(jq -r --arg h "$mh" --arg me "$me" --argjson sig "$(if [ -n "$mh" ]; then jarr_lines < <(sign_asks "$mh"); else echo '[]'; fi)" '[
       (if $h == "" then "the hefesto folder this session runs from (\($me)) is not one setup trusts" else
-      (if ((.permissions.allow // []) | index(["Bash(\($h)/ledger.sh board:*)"])) then empty else "the helper allowlist" end),
+      # forward is the newest allow rule (merge-forward FR-018): an allowlist written before it would ask on every forward
+      (if ((.permissions.allow // []) | index(["Bash(\($h)/ledger.sh board:*)"]) and index(["Bash(\($h)/ledger.sh forward:*)"])) then empty else "the helper allowlist" end),
       ($sig[] as $r | if ((.permissions.ask // []) | index([$r])) then empty else "the ask rule \($r | ltrimstr("Bash(\($h)/") | rtrimstr(")"))" end),
       (if ((.sandbox.excludedCommands // []) | index(["\($h)/session-launch.sh *"])) then empty else "the launcher sandbox exclusion" end),
       (if ((.sandbox.excludedCommands // []) | index(["\($h)/ledger.sh *"])) then empty else "the ledger.sh sandbox exclusion (hefesto 9 keeps the ledger outside the project)" end) end),
