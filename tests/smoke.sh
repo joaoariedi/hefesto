@@ -588,6 +588,48 @@ tc_usage="$("$HELPER" no-such-subcommand 2>&1)"
 grep -qF 'check-tasks-inputs' <<<"$tc_usage" || { bad "speckit-helper.sh usage text must name check-tasks-inputs (FR-006)"; tc_fail=1; }
 [ "$tc_fail" -eq 0 ] && ok "hef.tasks pre-flight accepts the light path: predicate, header line, no plan fetch in Pre-Flight (FR-002, FR-003, SC-003)"
 
+# implement-light-path/FR-001 implement-light-path/FR-005 (HEF-17): /hefesto:hef.implement must accept
+# spec.md + a light-path tasks.md without plan.md. Exact strings AND exit codes for all five answers.
+# The header literal is HARDCODED (byte-identical to the hef.tasks check above), never read from the
+# helper: a mutated LIGHT_PATH_HEADER must turn this red, not drift along with it.
+ti="$(mktemp -d)"
+( cd "$ti" && git init -q . && git checkout -q -b feature/lite && mkdir -p .specify/specs/lite ) >/dev/null 2>&1
+ti_q() { (cd "$ti" && "$HELPER" check-implement-inputs 2>/dev/null); }
+ti_fail=0
+ti_expect() { # $1 expected stdout, $2 expected exit (0|1), $3 state described
+  local o rc; o="$(ti_q)"; rc=$?
+  if [ "$2" -eq 0 ]; then { [ "$rc" -eq 0 ] && [ "$o" = "$1" ]; } || { bad "check-implement-inputs with $3 must print '$1' at exit 0; got '$o' at exit $rc (FR-001)"; ti_fail=1; }
+  else { [ "$rc" -eq 1 ] && [ "$o" = "$1" ]; } || { bad "check-implement-inputs with $3 must print '$1' and exit 1; got '$o' at exit $rc (FR-001)"; ti_fail=1; }; fi
+}
+ti_expect "NO_SPEC_FOR_BRANCH: lite" 1 "no spec.md"
+: > "$ti/.specify/specs/lite/spec.md"
+ti_expect "NO_TASKS_FOR_BRANCH: lite" 1 "spec.md only"
+printf '# Tasks: lite\n<!-- Date: 2026-11-09 -->\n- [ ] T001 a task\n' > "$ti/.specify/specs/lite/tasks.md"
+ti_expect "NO_PLAN_FOR_BRANCH: lite" 1 "tasks.md without the light-path header and no plan.md"
+printf '%s\n' '<!-- Light path: generated from spec.md alone — no plan.md -->' >> "$ti/.specify/specs/lite/tasks.md"
+ti_expect "LIGHT_PATH: lite" 0 "spec.md + light-path tasks.md (header not on line 4) and no plan.md"
+: > "$ti/.specify/specs/lite/plan.md"
+ti_expect "FULL_PATH: lite" 0 "spec.md + tasks.md + plan.md"
+[ "$ti_fail" -eq 0 ] && ok "check-implement-inputs answers no-spec / no-tasks / no-plan / light / full by string and exit code (FR-001, FR-005)"
+rm -rf "$ti"
+
+# implement-light-path/FR-002 implement-light-path/FR-003 implement-light-path/FR-006
+# implement-light-path/SC-003 implement-light-path/FR-008 (HEF-17): the
+# command uses the predicate, names the light-path header, no longer requires plan.md, and keeps the
+# `plan` fetch OUT of Pre-Flight; the helper's usage text and docs/hooks.md name the new subcommand.
+ic="$REPO/commands/hef.implement.md"
+ic_pre="$(sed -n '/^## Pre-Flight/,/^## Instructions/p' "$ic")"
+ic_fail=0
+grep -qF 'speckit-helper.sh check-implement-inputs' <<<"$ic_pre" || { bad "commands/hef.implement.md Pre-Flight must run check-implement-inputs (FR-006)"; ic_fail=1; }
+grep -qE 'speckit-helper\.sh (plan|check-plan)`' <<<"$ic_pre" && { bad "commands/hef.implement.md Pre-Flight must not run 'plan' or 'check-plan' — the plan loads only on FULL_PATH (FR-006)"; ic_fail=1; }
+grep -qF '<!-- Light path: generated from spec.md alone — no plan.md -->' "$ic" || { bad "commands/hef.implement.md must name the light-path header line (FR-006)"; ic_fail=1; }
+grep -qF 'must all exist' "$ic" && { bad "commands/hef.implement.md still says tasks.md, plan.md and spec.md must all exist (SC-003)"; ic_fail=1; }
+grep -qF '`check-implement-inputs`' "$REPO/docs/hooks.md" || { bad "docs/hooks.md must list check-implement-inputs (FR-008)"; ic_fail=1; }
+# Captured first: the helper exits 1 on an unknown command, and under pipefail a pipe would read that as no match
+ic_usage="$("$HELPER" no-such-subcommand 2>&1)"
+grep -qF 'check-implement-inputs' <<<"$ic_usage" || { bad "speckit-helper.sh usage text must name check-implement-inputs (FR-008)"; ic_fail=1; }
+[ "$ic_fail" -eq 0 ] && ok "hef.implement pre-flight accepts the light path: predicate, header line, no plan fetch in Pre-Flight, docs name it (FR-006, SC-003, FR-008)"
+
 head_ "Workflow resilience"
 
 # These guard shape invariants that tests/workflow.test.js CANNOT reach. A behaviour test proves the
