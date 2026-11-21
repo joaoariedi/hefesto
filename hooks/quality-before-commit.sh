@@ -128,15 +128,20 @@ if [ -n "$SH_FILES" ]; then
   if command -v shellcheck &>/dev/null; then
     # Findings below `error` severity are advisory; only errors block a commit.
     # (This comment must not begin with "shellcheck": that spelling is a directive and fails to parse.)
+    # run-survival FR-010 (HEF-25): one bounded process per file (hooks/host-limits.sh) — under `ulimit -v`, and a
+    # file over 3000 lines is skipped with an advisory: no limit fits a shellcheck of tests/smoke.sh (measured)
+    # shellcheck source=hooks/host-limits.sh
+    . "$HOOK_DIR/host-limits.sh"
     while IFS= read -r f; do
       [ -f "$CWD/$f" ] || continue
       # exit 1 is a finding; anything else is shellcheck failing to run (killed for memory on a large file, exit
       # 137 — seen 2026-10-23 on tests/smoke.sh), which says nothing about the file and must not read as an error
-      SC_RC=0; shellcheck -S error "$CWD/$f" >/dev/null 2>&1 || SC_RC=$?
+      SC_RC=0; SC_MSG="$(hl_shellcheck_bounded "$CWD/$f" error 3000 2>&1)" || SC_RC=$?
       case "$SC_RC" in
         0) ;;
         1) ERRORS="${ERRORS}shellcheck errors in $f. " ;;
-        *) ADVISORY="${ADVISORY:+$ADVISORY; }quality gate: shellcheck could not check $f (exit $SC_RC — out of memory?); run it yourself" ;;
+        2) ADVISORY="${ADVISORY:+$ADVISORY; }quality gate: $(tail -1 <<<"$SC_MSG" | sed "s|$CWD/||")" ;;
+        *) ADVISORY="${ADVISORY:+$ADVISORY; }quality gate: shellcheck could not check $f ($(tail -1 <<<"$SC_MSG" | sed -n 's/.*(\(exit [0-9]*\).*/\1/p') — out of memory?); run it yourself" ;;
       esac
     done <<< "$SH_FILES"
   fi

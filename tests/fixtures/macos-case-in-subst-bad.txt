@@ -1,0 +1,23 @@
+# HEF-55 guard fixture (tests/smoke.sh, "macOS portability" rule 1b): every tagged line below holds a
+# `case` read while a $( … ) is still open — macOS /bin/bash 3.2 ends that substitution at the pattern's ")".
+# The tagged lines are the exact list the guard must report: one missed or one extra fails the suite.
+# A .txt, not a .sh: on bash 3.2 this file is a syntax error by construction, and the commit gate runs bash -n.
+
+# The pre-8365d75 hooks/hefesto-setup.sh shape (HEF-22, PR #212), jq/git calls stubbed to plain words.
+fg_pushrw="$(
+  printf '%s\n' a b | while IFS= read -r o; do
+    v="$(printf '%s' "$o")"
+    case $'\n'"$v"$'\n' in *$'\n'"$o"$'\n'*) echo "$o" ;; esac   # HEF55-flag
+  done
+)"
+
+# One line.
+y="$(case "$1" in x) echo 1 ;; esac)"   # HEF55-flag
+
+# Nested: the case sits in an inner $( that is itself inside an outer one.
+z="$(echo a "$(
+  case "$2" in b) echo b ;; esac   # HEF55-flag
+)")"
+
+# A leading-paren pattern.
+w="$(case "$3" in (c) echo c ;; esac)"   # HEF55-flag

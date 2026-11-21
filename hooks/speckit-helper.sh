@@ -39,6 +39,8 @@ die() {
 }
 
 BRANCH=$(git branch --show-current 2>/dev/null | sed 's|^feature/||')
+# The light-path header /hefesto:hef.tasks writes into tasks.md (commands/hef.tasks.md, HEF-1); one literal (HEF-17)
+LIGHT_PATH_HEADER='<!-- Light path: generated from spec.md alone — no plan.md -->'
 
 # monorepo-spec-roots (#172): the spec subcommands run from the SPEC ROOT — the nearest folder holding .specify/,
 # found the way git finds .git (hooks/spec-root-lib.sh) — so one cd covers every relative .specify/ lookup below.
@@ -48,8 +50,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # req-coverage --all re
 # shellcheck source=hooks/spec-root-lib.sh
 . "$(dirname "$SELF")/spec-root-lib.sh"
 case "${1:-}" in
-  spec|plan|check-spec|check-plan|check-tasks-inputs|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
-  constitution|list-specs|list-specs-dir|check-plan-review|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
+  spec|plan|check-spec|check-plan|check-tasks-inputs|check-implement-inputs|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
+  constitution|list-specs|list-specs-dir|check-plan-review|plan-review-round|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
   detect-stack|detect-test-framework|mutation-*)   # a glob ends the list: the docs' subcommand count reads simple arms only
     SPEC_ROOT="$(spec_root_find "$PWD")" && cd "$SPEC_ROOT" || { echo "speckit-helper: cannot enter the spec root of $PWD" >&2; exit 1; } ;;
 esac
@@ -125,6 +127,49 @@ pr_base() {
   done
   git rev-parse --verify -q 'HEAD~1' >/dev/null 2>&1 && { echo 'HEAD~1'; return; }
   echo ""   # root commit: the caller diffs against the commit itself
+}
+
+# The subcommands shellcheck-changed / shellcheck-files — run-survival FR-009/FR-014 (HEF-25). (This comment must not
+# begin with "shellcheck": that spelling is a directive and fails to parse.) Shellcheck one bounded process per file
+# (hooks/host-limits.sh), never one process over a tree or a glob, which ran a 24 GB host out of memory. Exit 0 = every
+# file checked and clean (or no changed shell file), 1 = a finding, 2 = incomplete: a file skipped or not checked, or
+# no shellcheck installed — each listed, never read as clean (constitution 5). The files subcommand checks the files
+# it is given, with no line skip.
+shellcheck_each() { # severity max-lines top-or-"" ← one file per line on stdin → exit 0 clean, 1 a finding, 2 incomplete
+  local found=0 incomplete=0 n=0 f rc
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    n=$((n + 1)); rc=0; hl_shellcheck_bounded "${3:+$3/}$f" "$1" "$2" </dev/null || rc=$?   # stdin is the file list
+    case "$rc" in 0) ;; 1) found=1 ;; *) incomplete=1 ;; esac
+  done
+  [ "$found" = 0 ] || exit 1
+  [ "$incomplete" = 0 ] || { echo "shellcheck: shell check incomplete — the files above were not checked"; exit 2; }
+  echo "shellcheck: clean ($n file(s), severity $1)"
+}
+shellcheck_bounded_cmd() { # $1 the subcommand, then its options and files
+  local sub="$1" sev=warning base="" hasbase=0 files top max
+  shift
+  # shellcheck source=hooks/host-limits.sh
+  . "$(dirname "$SELF")/host-limits.sh"
+  while [ $# -gt 0 ]; do case "$1" in
+    --severity) sev="${2:-}"; shift ;;
+    --base) [ "$sub" = shellcheck-changed ] || break; base="${2:-}"; hasbase=1; shift ;;
+    --) shift; break ;;
+    *) break ;; esac; shift; done
+  case "$sev" in error|warning|info|style) ;; *) echo "$sub: --severity must be error, warning, info or style (got '$sev')" >&2; exit 2 ;; esac
+  command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck: not installed — skipped"; exit 2; }
+  if [ "$sub" = shellcheck-changed ]; then
+    [ $# -eq 0 ] || { echo "shellcheck-changed: unexpected argument '$1' (usage: shellcheck-changed [--base <ref>] [--severity <s>])" >&2; exit 2; }
+    if [ "$hasbase" = 0 ]; then base=$(pr_base) || { echo "shellcheck-changed: .branches in .claude/project-status.json is malformed — run ledger.sh branches for the reason; shell check incomplete" >&2; exit 2; }; fi
+    files=$(hl_changed_shell_files --base "$base") || { echo "shellcheck-changed: shell check incomplete — the changed files could not be listed" >&2; exit 2; }
+    top=$(git rev-parse --show-toplevel)
+    [ -n "$files" ] || { echo "shellcheck: no changed shell files"; exit 0; }
+    max=3000
+  else
+    [ $# -gt 0 ] || { echo "usage: shellcheck-files [--severity <s>] <file>…" >&2; exit 2; }
+    files=$(printf '%s\n' "$@"); top=""; max=0
+  fi
+  shellcheck_each "$sev" "$max" "$top" <<<"$files"
 }
 
 # --- dependency parsers (feature dependency-audit FR-001): manifest text on stdin → name<TAB>spec ---
@@ -335,6 +380,16 @@ case "$1" in
     [ -f "$d/spec.md" ] || { echo "NO_SPEC_FOR_BRANCH: $BRANCH"; exit 1; }
     if [ -f "$d/plan.md" ]; then echo "FULL_PATH: $BRANCH"; else echo "LIGHT_PATH: $BRANCH"; fi
     ;;
+  check-implement-inputs)
+    # /hefesto:hef.implement: no plan.md only when tasks.md says it came from the light path (HEF-17).
+    # The header, not plan absence alone: tasks built from a plan that later vanished are refused.
+    d=".specify/specs/$BRANCH"
+    [ -f "$d/spec.md" ] || { echo "NO_SPEC_FOR_BRANCH: $BRANCH"; exit 1; }
+    [ -f "$d/tasks.md" ] || { echo "NO_TASKS_FOR_BRANCH: $BRANCH"; exit 1; }
+    if [ -f "$d/plan.md" ]; then echo "FULL_PATH: $BRANCH"
+    elif grep -qxF "$LIGHT_PATH_HEADER" "$d/tasks.md"; then echo "LIGHT_PATH: $BRANCH"   # on the file: no pipe (pipefail)
+    else echo "NO_PLAN_FOR_BRANCH: $BRANCH"; exit 1; fi
+    ;;
   check-artifacts)
     for f in tasks.md plan.md spec.md; do
       test -f ".specify/specs/$BRANCH/$f" && echo "$f: FOUND" || echo "$f: MISSING"
@@ -449,6 +504,12 @@ case "$1" in
   check-plan-review)
     test -f ".specify/specs/$BRANCH/plan.md" && echo "PLAN_EXISTS: $BRANCH" || echo "NO_PLAN"
     grep -q "^## Reviewed" ".specify/specs/$BRANCH/plan.md" 2>/dev/null && echo "PLAN_REVIEWED" || echo "PLAN_NOT_REVIEWED"
+    ;;
+  plan-review-round)   # HEF-21: record one plan-review round (or a person's input) in <spec dir>/plan-review.md, print the next action
+    shift
+    # shellcheck source=hooks/plan-review-lib.sh
+    . "$(dirname "$SELF")/plan-review-lib.sh" || die "speckit-helper: cannot source $(dirname "$SELF")/plan-review-lib.sh"
+    prr_main "$@"
     ;;
   detect-existing-code)
     SRC_COUNT=$(find . -maxdepth 4 -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.rs" -o -name "*.go" -o -name "*.java" -o -name "*.rb" -o -name "*.kt" -o -name "*.swift" -o -name "*.c" -o -name "*.cpp" \) ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/vendor/*" ! -path "*/target/*" 2>/dev/null | wc -l)
@@ -776,6 +837,13 @@ case "$1" in
     [ "$AUDIT_FOUND" = 0 ] || exit 1
     ;;
 
+  shellcheck-changed)
+    shellcheck_bounded_cmd "$@"
+    ;;
+  shellcheck-files)
+    shellcheck_bounded_cmd "$@"
+    ;;
+
   rtk-available)
     # PREDICATE. The answer is BOTH the string and the exit code.
     #
@@ -817,15 +885,17 @@ case "$1" in
     echo "Unknown command: $1"
     echo "Usage: speckit-helper.sh <command>"
     echo "Commands: branch, check-git-root, spec, plan, check-spec, check-plan,"
-    echo "  check-tasks-inputs, check-artifacts, all-artifacts, clarifications,"
+    echo "  check-tasks-inputs, check-implement-inputs, check-artifacts, all-artifacts, clarifications,"
     echo "  checklists, checklists-dir,"
     echo "  checklists-content, constitution, list-specs, list-specs-dir, check-specify-dir,"
     echo "  detect-stack, detect-test-framework, list-config-files, list-rules, readme-head,"
-    echo "  check-plan-review, detect-existing-code, trivial-change-check,"
+    echo "  check-plan-review, plan-review-round (--verdict <V> [--decision] [--findings-file f] | --person-input <kind>) [--spec-dir d] [--cap N],"
+    echo "  detect-existing-code, trivial-change-check,"
     echo "  plan-phase-start, plan-phase-end, plan-phase-status,"
     echo "  implement-phase-start, implement-phase-end, implement-phase-status, req-coverage [<spec>|--all],"
     echo "  mutation-score, mutation-ratchet <score>, mutation-raise <score>, doctor-copies,"
     echo "  arena-cite-check <digest-file>, arena-metrics [<spec-dir>], deps-diff [--staged] [<base>], deps-audit,"
+    echo "  shellcheck-changed [--base <ref>] [--severity <s>], shellcheck-files [--severity <s>] <file>…,"
     echo "  rtk-available, rtk-run"
     exit 1
     ;;

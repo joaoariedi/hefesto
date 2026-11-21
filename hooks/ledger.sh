@@ -33,10 +33,10 @@ usage: ledger.sh <subcommand> …
   claim <id> --session <name> --role <role> [--pid <launcher pid>]   exclusive; implement attempts > 2 → stall (a person's clear starts the count again); releases claims whose lease (<id>.lease, renewed by the launcher) is over 5 min old
   advance <id> <phase>                                  forward-only along the phase enum
   verdict <id> --gate <g> --verdict <PASS|FAIL|SKIPPED> --by <session> [--evidence <text>]
-  block <id> --kind <kind> [--question <path>]
+  block <id> --kind <kind> [--question <path>] [--cause push-refused|host-denied|credential-helper-missing [--host <h>]]   (--cause/--host: stall only; the reason is rendered from the plugin's fix table)
   unblock <id> [--reviewed-by-human --by <name>] [--merge-sha <sha>]   human:* kinds need artifact evidence (intake and plan-approval: a person's name; merge: the branch, or the PR's merge commit once the branch is deleted)
   run <id> --role <role> --exit <n> --usd <x> [--session-id <s>]   records the run, releases owner
-  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k] [--rfc] [--body-from-board] [--spec-root <app|.>]   (--spec-root: the owning app, or . for the top, until spec_dir is recorded; --body-file / --body-from-board re-hash the item; --rfc pins its RFC)
+  record <id> [--worktree w] [--branch b] [--route r] [--pr url] [--spec-dir d] [--body-file f] [--item-kind k [--reviewed-by-human --by <name>]] [--rfc] [--body-from-board] [--spec-root <app|.>]   (--spec-root: the owning app, or . for the top, until spec_dir is recorded; --body-file / --body-from-board re-hash the item; --rfc pins its RFC)
   register <id> --ref <column>#<id>                     route, detect the kind and init in one call; an existing entry is left untouched
   questions <id>                                        the planner's open questions (human:clarify, human:plan-review), delimited as data
   answer <id> --reviewed-by-human --by <name> [--file f]  the person's answers (stdin or --file) → copied, hashed; clears clarify / plan-review
@@ -56,10 +56,13 @@ usage: ledger.sh <subcommand> …
   reopen <id> --reason-file <f>                         a merged item back to implement for a follow-up PR (person-only)
   deployed <id> --env <env> --commit <sha>              record that the commit is in that environment; the final env releases a merged item
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
-  publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish)
+  publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish; external board: + publish_commit commits it)
   escalate [--record <id>]                              old human:* blocks as one-line pointers (opt-in: orchestrate.escalate_after_hours)
   branches [--configured] [--repo <name>]              the resolved branch model as JSON with .source (repo file | board | default; defaults = trunk on main)
   where <id>                                            per environment: does it contain the entry's branch (local, then origin/)
+  merge-by [--explain]                                  orchestrate.merge_by resolved: person | lane | auto (auto only with a matching grant)
+  merge-auto preview | merge-auto grant --sha <s> --reviewed-by-human --by <name> | merge-auto revoke --reviewed-by-human --by <name> | merge-auto show   the standing auto-merge grant a person gives
+  automerge <id> [--if-merged] [--before-babysit]       merge a green PR into the integration branch under the grant (0 merged, 2 skipped, 3 blocked, 4 pending, 5 open)
 EOF
   exit 2
 }
@@ -89,6 +92,10 @@ PUBLISH_MARKERS_DEFAULT='{"human_block":"⏸","block":"⛔","plan":"📐","build
 . "$HERE/spec-root-lib.sh"
 # shellcheck source=hooks/lane-lib.sh
 . "$HERE/lane-lib.sh"
+# the forge rules: the infra stall's cause enum, hostname check and fix table (forge-setup, HEF-22). A copy run without
+# it beside (the mutation fixtures) still works; block --cause then refuses, naming it (FORGE_CAUSES empty).
+# shellcheck source=hooks/forge-lib.sh
+[ ! -f "$HERE/forge-lib.sh" ] || . "$HERE/forge-lib.sh"
 # One gh resolution, at entry (FR-027; lane-lib.sh says why never inline). A copy run without lane-lib.sh beside it
 # (the mutation fixtures) keeps the 9.0 seam — unless the eval seam is set, which only gh_bin may resolve.
 if declare -F gh_bin >/dev/null; then GH=$(gh_bin) || exit 1
@@ -105,6 +112,14 @@ else die "ledger: EVAL_GH_BIN=$EVAL_GH_BIN is set but $HERE/lane-lib.sh is missi
 [ -f "$HERE/ledger-recipes.sh" ] || die "ledger: $HERE/ledger-recipes.sh not found — the plugin install is incomplete (reinstall it)"
 # shellcheck source=hooks/ledger-recipes.sh
 . "$HERE/ledger-recipes.sh"
+# merge_by auto: the person's standing grant, merge-by, automerge (HEF-30)
+[ -f "$HERE/ledger-automerge.sh" ] || die "ledger: $HERE/ledger-automerge.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/ledger-automerge.sh
+. "$HERE/ledger-automerge.sh"
+# publish_commit: publish commits the marked column on an external board (HEF-16)
+[ -f "$HERE/ledger-publish.sh" ] || die "ledger: $HERE/ledger-publish.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/ledger-publish.sh
+. "$HERE/ledger-publish.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -114,6 +129,7 @@ cfgp() { # jq over the project config; empty output when there is no config (cal
 # (session-launch, pr-watch, speckit-helper, merge-tree-probe, the commands) asks `ledger.sh branches`.
 # `jq -n … input?`: an absent config must still run the program — jq never runs one over EMPTY input
 # (plan review 2026-10-05: `jq -ce … /dev/null` printed nothing and exited 4).
+# shellcheck disable=SC2120  # the argument is passed by board-lib.sh and ledger-automerge.sh, which a per-file run does not follow
 branches_model() { # [$1 a branches_block line] → the model + .source; no argument = the repo we stand in NOW
   local blk="${1:-}" src lbl raw out   # the CURRENT repo's model: ops integrates on dev, ui on trunk (external-board)
   [ $# -gt 0 ] || { blk=$(branches_block); [ $? -ne 2 ] || return 1; }   # board-lib.sh: repo file → board → default
@@ -255,17 +271,31 @@ trusted_check() {
 # checks the caller itself. Claude Code sets CLAUDE_CODE_SESSION_ID in every Bash command (documented; lane-guard
 # denies a command line that sets it), and the session's record says which lane it is. No record (a terminal, a
 # project without --lanes) → 8.0's rule: the permission dialog of the ask rule is the gate.
-caller_gate() {
+in_lanes_session() { # 0 when the caller is a Claude session whose record says lanes (lifted from caller_gate, HEF-27)
   local sid="${CLAUDE_CODE_SESSION_ID:-}" f
-  valid_sid "$sid" || return 0; f=$(session_file "$sid"); [ -f "$f" ] || return 0
-  [ "$(jq -r '.lanes' "$f" 2>/dev/null)" = true ] || return 0
+  valid_sid "$sid" || return 1; f=$(session_file "$sid"); [ -f "$f" ] || return 1
+  [ "$(jq -r '.lanes' "$f" 2>/dev/null)" = true ]
+}
+caller_gate() {
+  local f
+  in_lanes_session || return 0; f=$(session_file "$CLAUDE_CODE_SESSION_ID")
   is_launcher_sub "$SUB" && die "ledger $SUB: the launcher's own record — a lane uses session-launch.sh --prepare/--finish, a person ledger.sh release"
   if is_person_sub "$SUB" "$@" && [ "$(jq -r '.role // empty' "$f")" != orchestrator ]; then
     die "ledger $SUB: this records a person's decision, so it runs only in the orchestrator lane (this session is '$(jq -r 'if .name != "" then .name else .title end' "$f")')"
   fi
   return 0
 }
-hef_git_neutral   # lane-lib.sh: the git config keys that run a program are pinned for every git call below
+# HEF-27 FR-010: claim and run are the launcher's own record in EVERY project, lanes or not — no permission rule is
+# written for them, so this refusal is the brake where lane-guard's lane rule stands down. session-launch.sh (and
+# handoff's own re-entry below) call them with HEFESTO_LAUNCHER=1 and no session id. A Claude session always carries
+# CLAUDE_CODE_SESSION_ID, and in a set-up project lane-guard.sh denies the `env -u …`/assignment that would drop it.
+# The marker is a brake against sessions, not a secret: a person in a terminal could type it — `release` is theirs.
+launcher_gate() {
+  is_launcher_sub "$SUB" || return 0
+  [ "${HEFESTO_LAUNCHER:-}" = 1 ] && [ -z "${CLAUDE_CODE_SESSION_ID:-}" ] && return 0
+  die "ledger $SUB: the launcher's own record — only session-launch.sh calls it (a lane: session-launch.sh --prepare/--finish); a person frees a claim with ledger.sh release <id> --reviewed-by-human --by <name>"
+}
+hef_git_neutral  # lane-lib.sh: the git config keys that run a program are pinned for every git call below
 
 phase_index() { # name → index, or die
   local i; for i in "${!PHASES[@]}"; do [ "${PHASES[$i]}" = "$1" ] && { echo "$i"; return; }; done
@@ -388,9 +418,11 @@ BCTX=$(board_ctx) || exit 1
 if [ "$SUB" = board ]; then [ $# -eq 0 ] || usage; echo "$BCTX"; exit 0; fi
 trusted_check
 caller_gate "$@"
+# after caller_gate: a lane session keeps its lane message; every other caller reaches the launcher check (FR-010)
+launcher_gate
 DIR=$(ledger_dir) || exit 1
 ledger_settle "$DIR" "$(jq -r '.git_common // empty' <<<"$BCTX")" || exit 1
-case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|park|-h|--help) ;; *) ledger_mkdir ;; esac
+case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|park|merge-by|-h|--help) ;; *) ledger_mkdir ;; esac
 
 case "$SUB" in
   dir) echo "$DIR" ;;
@@ -424,7 +456,7 @@ case "$SUB" in
     QP=""; if [ -n "$INTAKE" ]; then QP="$DIR/$ID.intake.md"; cp "$INTAKE" "$QP" 2>/dev/null || die "ledger init $ID: cannot write the intake reason to $QP"; fi
     jq -n --arg id "$ID" --arg kind "$KIND" --arg ref "$REF" --arg url "$URL" --argjson sha "$SHA" --arg ik "$IKIND" --arg repo "$RNAME" --arg qp "$QP" '{
       id: $id, source: {kind: $kind, ref: $ref, url: (if $url == "" then null else $url end), body_sha256: $sha},
-      item_kind: $ik, route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
+      item_kind: $ik, intake_kind: $ik, route: null, phase: "queued", owner: null, worktree: null, branch: null, spec_dir: null, pr: null,
       verdicts: [], blocked_on: (if $qp == "" then null else {kind: "human:intake", since: (now | todate), question_path: $qp} end),
       budget: {usd_cap: null, usd_spent: 0}, runs: [], attempts: 0,
       created: (now | todate), updated: (now | todate) } + (if $repo == "" then {} else {repo: $repo} end)' | write_entry "$ID" || exit 1
@@ -467,6 +499,16 @@ case "$SUB" in
     # verify is exempt: read-only, and the second half of the SAME build pass — refusing it would strand the
     # item in phase verify, which no stage picks up again (quickstart re-review 2026-10-19).
     [ -z "$BUSY" ] || [ "$ROLE" = verify ] || die "ledger claim $ID: the repository is busy with $BUSY — at most $LIM $ROLE session(s) at a time per repository; wait for it to finish"
+    # run-survival FR-004/FR-005 (HEF-25): at most max_concurrent_runs LAUNCHED runs (an owner with a pid) across the
+    # whole ledger — every repo and role, verify included (the orchestrator relaunches a phase-verify entry with no
+    # owner after its 10-minute window). A lane's interactive claim is no run: never counted, never refused.
+    if [ -n "$CPID" ]; then
+      RLIM="$(cfgp '.orchestrate.max_concurrent_runs // 2')"; RLIM="${RLIM:-2}"
+      [[ "$RLIM" =~ ^[1-8]$ ]] || die "ledger claim $ID: orchestrate.max_concurrent_runs must be a whole number from 1 to 8 (got '$RLIM')"
+      RUNS=$(jq -rs --arg id "$ID" --argjson lim "$RLIM" "$JQ_LIVE_OWNER"'[.[] | select(.id != $id and live_owner and .owner.pid != null)]
+        | if length >= $lim then "\(length) runs at once (orchestrate.max_concurrent_runs \($lim)): " + (map("\(.id) (owned by \(.owner.session_name))") | join(", ")) else empty end' "$DIR"/*.json)
+      [ -z "$RUNS" ] || die "ledger claim $ID: busy: $RUNS — retry on the next pass"
+    fi
     # An intake-blocked entry is never worked on: claim → run → claim would reach the stall below and
     # overwrite the block (security re-review 2026-10-06). human:merge stays claimable — the deploy stage
     # babysits exactly that wait.
@@ -543,14 +585,21 @@ case "$SUB" in
       AUTHORS=$(jq -r '[.owner.session_name // empty] + [.runs[] | select(.role == "implement") | .session_name] | .[]' <<<"$E")
       in_list "$BY" "$AUTHORS" && die "ledger verdict $ID: review by '$BY' refused — that session authored the change (reviewer must differ from: $(tr '\n' ' ' <<<"$AUTHORS"))"
     fi
+    # HEF-30 (code review 2026-11-13): a non-PASS verdict drops the verified head, so a later PASS any session writes
+    # over it never re-arms automerge — only the launcher's next all-PASS verify run records a head again
     jq --arg g "$GATE" --arg v "$V" --arg b "$BY" --arg e "$EV" \
-      '.verdicts += [{gate: $g, verdict: $v, by: $b, at: (now | todate), evidence: (if $e == "" then null else $e end)}]' <<<"$E" | write_entry "$ID" || exit 1
+      '.verdicts += [{gate: $g, verdict: $v, by: $b, at: (now | todate), evidence: (if $e == "" then null else $e end)}] | if $v == "PASS" then . else '"$(am_vh_clear_jq)"' end' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID $GATE $V by $BY" ;;
 
   block)
-    ID="${1:-}"; [ -n "$ID" ] || usage; shift; KIND=""; Q=""
-    while [ $# -gt 0 ]; do case "$1" in --kind) KIND="${2:-}"; shift ;; --question) Q="${2:-}"; shift ;; *) usage ;; esac; shift; done
+    ID="${1:-}"; [ -n "$ID" ] || usage; shift; KIND=""; Q=""; CAUSE=""; HOST=""
+    while [ $# -gt 0 ]; do case "$1" in --kind) KIND="${2:-}"; shift ;; --question) Q="${2:-}"; shift ;;
+      --cause) CAUSE="${2:-}"; shift ;; --host) HOST="${2:-}"; shift ;; *) usage ;; esac; shift; done
     in_list "$KIND" "$KINDS" || die "ledger block $ID: --kind must be one of: $KINDS (got '${KIND:-<none>}')"
+    # forge-setup FR-013/FR-014: an infrastructure stall carries a cause from a closed enum and a reason this ledger
+    # renders from forge-lib.sh's own table — no caller passes free text, so no worker summary becomes a command (D6)
+    [ -z "$CAUSE$HOST" ] || [ "$KIND" = stall ] || die "ledger block $ID: --cause and --host go with --kind stall only (got --kind $KIND)"
+    [ -z "$CAUSE" ] || in_list "$CAUSE" "${FORGE_CAUSES:-}" || die "ledger block $ID: --cause must be one of: ${FORGE_CAUSES:-<forge-lib.sh missing beside ledger.sh>} (got '$CAUSE')"
     E=$(entry "$ID") || exit 1; refuse_closed block "$ID" "$E"
     # A launched worker never REPLACES a person's block: blocking a human:intake entry with `ci` and then
     # clearing `ci` freely was a path around the gate open to any worker, whose allowlist carries the hooks
@@ -572,7 +621,10 @@ case "$SUB" in
     if [ -n "${HEFESTO_WORKER:-}" ] && [ "$HEFESTO_WORKER" != 0 ] && [[ "$CURK" == human:* ]] && [ "$KIND" != "$CURK" ]; then
       die "ledger block $ID: it is blocked on $CURK — a launched worker never replaces a person's block (only the person's own command clears it)"
     fi
-    jq --arg k "$KIND" --arg q "$Q" '.blocked_on = {kind: $k, since: (now | todate), question_path: (if $q == "" then null else $q end)}' <<<"$E" | write_entry "$ID" || exit 1
+    REASON=""; if [ -n "$CAUSE" ]; then forge_public_host "$HOST" || HOST=""   # a host that is not public is dropped (FR-014)
+      REASON="$(forge_infra_fix "$CAUSE" "$HERE" "$(project_config || echo .claude/project-status.json)" "$HOST")" || die "ledger block $ID: no fix line for cause '$CAUSE'"; fi
+    jq --arg k "$KIND" --arg q "$Q" --arg c "$CAUSE" --arg r "$REASON" '.blocked_on = ({kind: $k, since: (now | todate), question_path: (if $q == "" then null else $q end)}
+      + (if $c == "" then {} else {cause: $c, reason: $r} end))' <<<"$E" | write_entry "$ID" || exit 1
     echo "$ID blocked_on $KIND" ;;
 
   unblock)
@@ -606,8 +658,9 @@ case "$SUB" in
         # who had read the item in an interactive session still had to copy the line into a terminal
         # (field report, 2026-10-06). A terminal test proves nothing about who read the item, and anything a
         # session can run, the model that read the hostile text can run too — so the gate is the
-        # PERMISSION PROMPT: this command must never be allowlisted (docs/install.md), every clear is a
-        # dialog the person answers, and the name is recorded. A launched worker is refused outright.
+        # PERMISSION PROMPT: `unblock … --reviewed-by-human` is a signature ask rule (hefesto-setup.sh; plain
+        # `unblock` is allowlisted, the flag never is — HEF-27), lane-guard.sh denies the flag spelled so that no rule
+        # matches it, every clear is a dialog the person answers, and the name is recorded. A launched worker is refused outright.
         # That premise needs the pane in `default` permission mode: under auto, bypassPermissions or
         # dontAsk there is no dialog — session-start-context.sh warns when an intake block meets one.
         [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] \
@@ -615,7 +668,7 @@ case "$SUB" in
         # Compatibility: from a real terminal, --reviewed-by-human alone still works (as before 7.9.1), recording the login.
         [ -z "$RBY" ] && [ "$REVIEWED" = 1 ] && [ -t 0 ] && RBY="${USER:-$(id -un 2>/dev/null)}"
         [ "$REVIEWED" = 1 ] && [[ "$RBY" =~ ^[A-Za-z0-9]([A-Za-z0-9._@\ -]{0,62}[A-Za-z0-9._@-])?$ ]] \
-          || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist it" ;;
+          || die "ledger unblock $ID: $KIND needs --reviewed-by-human --by <your name> — a person read the item text (status-board.sh --item $ID) and answers the permission prompt for this command; never allowlist the --reviewed-by-human form" ;;
     esac
     if [ "$KIND" = human:merge ] && [ -n "${MERGED_VIA:-}" ]; then
       jq --arg m "$MERGED_VIA" --arg v "$MERGED_VER" '.blocked_on = null | .pr.merge_sha = $m
@@ -659,15 +712,18 @@ case "$SUB" in
   record)
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; E=$(entry "$ID") || exit 1; refuse_closed record "$ID" "$E"
     setf() { E=$(jq --arg v "$2" "$1" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot set $1 to '$2'"; }
+    NEWKIND=""; HAVE_KIND=0; REVIEWED=0; RBY=""; HAVE_SIG=0   # the kind is applied after the loop (HEF-54)
     while [ $# -gt 0 ]; do case "$1" in
       --body-file) [ -f "${2:-}" ] || die "ledger record $ID: body file not found: '${2:-}'"; setf '.source.body_sha256 = $v' "$({ sha256sum 2>/dev/null || shasum -a 256; } < "$2" | cut -c1-64)"; shift ;;
       --worktree) setf '.worktree = $v' "${2:-}"; shift ;;
       --branch)   setf '.branch = $v' "${2:-}"; shift ;;
       --route)    in_list "${2:-}" "fix light full" || die "ledger record $ID: --route must be fix, light or full (got '${2:-}')"; setf '.route = $v' "$2"; shift ;;
       --pr)       E=$(pr_append "${2:-}" <<<"$E") && [ -n "$E" ] || die "ledger record $ID: cannot record the PR '${2:-}'"; shift ;;   # .prs[]; ledger-lifecycle.sh
+      --verified-head) verified_head_set "${2:-}"; shift ;;   # the verify launcher's; ledger-automerge.sh
       --spec-dir) spec_dir_set "${2:-}"; shift ;;      # ledger-lanes.sh: relative to the worktree, no '..'
       --spec-root) spec_root_set "${2:-}"; shift ;;    # a declared app or . (the top), until spec_dir is recorded
-      --item-kind) in_list "${2:-}" "feature incident vulnerability" || die "ledger record $ID: --item-kind must be feature, incident or vulnerability (got '${2:-}')"; setf '.item_kind = $v' "$2"; shift ;;
+      --item-kind) NEWKIND="${2:-}"; HAVE_KIND=1; shift ;;   # item_kind_set below: the signature may come after it
+      --reviewed-by-human) REVIEWED=1; HAVE_SIG=1 ;; --by) RBY="${2:-}"; HAVE_SIG=1; shift ;;
       --body-from-board)   # the person's re-hash after reading the item: the board's raw text, no temp file
         BR=$("$HERE/status-board.sh" --item-raw "$ID" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64) && [ ${#BR} -eq 64 ] \
           || die "ledger record $ID: cannot read the item's raw text from the board"; setf '.source.body_sha256 = $v' "$BR" ;;
@@ -679,6 +735,7 @@ case "$SUB" in
       --rfc) rfc_pin ;;
       --rfc-snapshot) [ -f "${2:-}" ] || die "ledger record $ID: --rfc-snapshot needs the launcher's copy of the RFC"; rfc_pin "$2"; shift ;;
       *) usage ;; esac; shift; done
+    [ "$HAVE_KIND$HAVE_SIG" = 00 ] || item_kind_set "$HAVE_KIND" "$NEWKIND"   # ledger-automerge.sh: the signed downgrade
     write_entry "$ID" <<<"$E" || exit 1; echo "$ID recorded" ;;
 
   questions) ID="${1:-}"; [ -n "$ID" ] || usage; E=$(entry "$ID") || exit 1; questions_item ;;
@@ -708,6 +765,9 @@ case "$SUB" in
   actions) actions_list "$@" ;;
   drop|fold|supersede) terminal_cmd "$SUB" "$@" ;;   # US1 — person-only; ledger-lifecycle.sh
   reopen) reopen_cmd "$@" ;;   # US2 — person-only; ledger-lifecycle.sh
+  merge-by) merge_by_cmd "$@" ;;        # HEF-30; ledger-automerge.sh
+  merge-auto) merge_auto_cmd "$@" ;;    # grant/revoke person-only, in the ask rules
+  automerge) automerge_cmd "$@" ;;
   deployed) deployed_cmd "$@" ;;   # US3 — any lane, git decides; ledger-lifecycle.sh
   op) case "${1:-}" in close|drop) op_end "$@"; exit $? ;; new) ;; *) usage ;; esac; shift   # close|drop: US5, ledger-actions.sh
     # shellcheck disable=SC2034 # read by ledger-actions.sh
@@ -758,6 +818,9 @@ case "$SUB" in
   # an implement session) has something to compare. A blocked entry is refused: a handoff must never
   # clear a human:intake or stall block that only a person may clear.
   handoff)
+    # HEF-27: a hand command. A lane finishes with session-launch.sh --finish; refused up front, before the entry is
+    # read or written, because the inner `run` below is marked as the launcher's and would otherwise pass for a lane.
+    in_lanes_session && die "ledger handoff ${1:-}: a hand command — a lane finishes with session-launch.sh --finish"
     ID="${1:-}"; [ -n "$ID" ] || usage; shift; PR=""; BR=""
     while [ $# -gt 0 ]; do case "$1" in --pr) PR="${2:-}"; shift ;; --branch) BR="${2:-}"; shift ;; *) usage ;; esac; shift; done
     [[ "$PR" =~ /pull/[0-9]+$ ]] || die "ledger handoff $ID: --pr must be a pull-request URL ending in /pull/<n> (got '$PR')"
@@ -784,7 +847,9 @@ case "$SUB" in
     jq --arg r "$HREPO" '.owner = {session_name: "hand", role: "implement", pid: null, started: (now | todate)} | if $r == "" then . else .repo = $r end' <<<"$E" | write_entry "$ID" || exit 1
     # A failure after the owner write must not strand the entry under a session that does not exist.
     unhand() { local e; e=$(entry "$ID") && jq 'if .owner.session_name == "hand" then .owner = null else . end' <<<"$e" | write_entry "$ID"; die "ledger handoff $ID: $1 failed — the entry is released; fix the cause and run handoff again"; }
-    bash "$0" run "$ID" --role implement --exit 0 --usd 0 >/dev/null || unhand run
+    # the ledger's own record of a hand-run, so it is marked as the launcher's (FR-010); the session id is dropped
+    # only because the arm already refused a lanes session above
+    env -u CLAUDE_CODE_SESSION_ID HEFESTO_LAUNCHER=1 bash "$0" run "$ID" --role implement --exit 0 --usd 0 >/dev/null || unhand run
     bash "$0" record "$ID" --pr "$PR" --branch "$BR" --worktree "$PWD" >/dev/null || unhand record
     if [ "$CI" -lt "$PI" ]; then bash "$0" advance "$ID" pr >/dev/null || unhand advance; fi
     bash "$0" block "$ID" --kind human:merge >/dev/null || unhand block
@@ -817,10 +882,13 @@ case "$SUB" in
         STORED=$(jq -r '.source.body_sha256 // empty' <<<"$E"); NOW=$({ sha256sum 2>/dev/null || shasum -a 256; } < "$T" | cut -c1-64)
         if [ -n "$STORED" ] && [ "$NOW" != "$STORED" ]; then rm -f "$T"; die "ledger publish $ID: item text changed since claim (board sha256 ${NOW:0:12}…, ledger ${STORED:0:12}…) — a person re-reads it and re-hashes with ledger.sh record $ID --body-file <raw>; the board is untouched"; fi
         PREVM=$(jq -r '.published.state // empty' <<<"$E")
+        BT=""; CM=""; if publish_commit_on; then BT=$(jq -r .board_top <<<"$BCTX"); publish_before_mark "$ID" "$SB" "$BT" "$T"; fi   # ledger-publish.sh
         MARKED=$(bash "$SB" --mark "$ID" "${M:--}" ${PREVM:+--was "$PREVM"}) || { rm -f "$T"; exit 1; }
+        [ -z "$BT" ] || CM=$(publish_after_mark "$ID" "$M" "$BT" "$LOC" "$MARKED") || { rm -f "$T"; exit 1; }   # commit, then re-hash (D4)
         bash "$SB" --item-raw "$ID" > "$T" || { rm -f "$T"; die "ledger publish $ID: cannot re-read the item after marking"; }
         "$0" record "$ID" --body-file "$T" >/dev/null || { rm -f "$T"; exit 1; }
-        rm -f "$T"; WHERE="the board"; case "$MARKED" in *"not marked"*) WHERE="not marked — the item is in DONE" ;; esac ;;
+        rm -f "$T"; WHERE="the board"; case "$MARKED" in *"not marked"*) WHERE="not marked — the item is in DONE" ;; esac
+        [ -z "$BT" ] || WHERE=$(publish_where "$CM") ;;
       github-project)   # the card's Status, then one comment, through the board's one write path (FR-010)
         URL=$(jq -r '.source.url // empty' <<<"$E")
         [ -n "$URL" ] || die "ledger publish $ID: a github-project entry needs source.url (ledger.sh init … --url <issue-url>)"
@@ -833,7 +901,8 @@ case "$SUB" in
     esac
     E=$(entry "$ID") || exit 1
     jq --arg s "$ST" '.published = {state: (if $s == "" then null else $s end), at: (now | todate)}' <<<"$E" | write_entry "$ID" || exit 1
-    echo "$ID published ${ST:-no marker} ($WHERE)" ;;
+    echo "$ID published ${ST:-no marker} ($WHERE)"
+    [ "$SK" != tasks-repo ] || publish_inrepo_note "$ID" ;;
 
   # escalate: report 17's single message type. Lists human:* blocks older than the threshold that were
   # not yet escalated for THIS block, one `<session>\t<pointer>` line each; the command sends the

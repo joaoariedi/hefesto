@@ -107,8 +107,7 @@ Two things the plugin cannot ship, because they are machine-local by design:
   "permissions": {
     "allow": [
       // ← your REAL home dir, this profile, the installed version
-      "Bash(/home/you/.claude/plugins/cache/hefesto/hefesto/X.Y.Z//hooks/speckit-helper.sh:*)",
-      "Bash(/home/you/.claude/plugins/cache/hefesto/hefesto/X.Y.Z/hooks/speckit-helper.sh:*)"
+      "Bash(/home/you/.claude/plugins/cache/hefesto/hefesto/X.Y.Z//hooks/speckit-helper.sh:*)"
     ]
   }
 }
@@ -128,11 +127,13 @@ Two things the plugin cannot ship, because they are machine-local by design:
 > | `Bash(~/…)` | ❌ blocked — **`~` is not expanded** |
 > | leading wildcard | ❌ blocked |
 >
-> **Write your home directory out literally** (`echo $HOME`). The doubled slash is not a typo and is the entry that works: `${CLAUDE_PLUGIN_ROOT}` expands *with* a trailing slash, so the helper reaches the matcher as `…/X.Y.Z//hooks/…`. The single-slash entry is a hedge against a future release dropping that slash; it matches nothing today. Keep both.
+> **Write your home directory out literally** (`echo $HOME`). The doubled slash is not a typo and is the entry that works: `${CLAUDE_PLUGIN_ROOT}` expands *with* a trailing slash, so the helper reaches the matcher as `…/X.Y.Z//hooks/…`. **One spelling per root:** a profile's installed copy is written `<installPath>//hooks/…`; the clone loaded with `--plugin-dir` (or run from a terminal) is written `<clone>/hooks/…` — with or without a trailing `/` on `--plugin-dir`, the helper arrives with one slash. `hefesto-setup.sh` writes exactly that one form per root — for the rules and the sandbox exclusions — and takes out the other spellings (and the `bash <path>` form) an earlier version wrote. A call in a spelling with no rule fails closed: it is not excluded from the sandbox, so a ledger write fails loudly instead of running unasked, and `--check` at session start names the set that is missing under this session's root.
 >
 > **This is the single most common failure.** Without the rule, every helper call shows a permission prompt; a prompt you deny stops the command. If a hef command asks on every call, or stops at its first step, this rule is the first thing to check.
 >
 > The same applies to the other helpers the commands call — `status-board.sh` (`/hefesto:hef.status`), `ledger.sh` and `session-launch.sh` (`/hefesto:hef.orchestrate`), `pr-watch.sh` (`/hefesto:hef.babysit`), `arena-run.sh` (`--arena --via`, `--second-opinion`), `release.sh` (`/hefesto:hef.release`): they prompt on first use; allow them in the same form if you use those commands — never `ledger.sh` as a whole, and never `pr-watch.sh reply` or `comment`, which `hefesto-setup.sh` keeps in `ask`.
+>
+> **A dialog only where a person signs.** `hefesto-setup.sh` puts in `ask` exactly the `ledger.sh` forms that record a person's decision — `approve`, `answer`, `revise`, `drop`, `fold`, `supersede`, `reopen`, `op close`, `op drop`, `merge-auto grant`, `merge-auto revoke`, and `unblock … --reviewed-by-human`, `unblock … --merge-sha`, `record … --body-file`, `record … --body-from-board`, `record … --rfc`, `record … --reviewed-by-human` (a signed kind change away from incident or vulnerability), `release … --reviewed-by-human` (the flag anywhere after the id) — plus `pr-watch.sh reply` and `comment`. Every other `ledger.sh` subcommand gets its own `allow` rule, one by one (a new subcommand is neither allowed nor asked until it is classified). `claim` and `run` get no rule at all: they are the launcher's own record, and `ledger.sh` refuses them unless `session-launch.sh` calls them — a person frees a claim with `ledger.sh release <id> --reviewed-by-human --by <name>`. `hefesto-setup.sh --check` reports any `ask` rule on a hefesto helper outside that set, in `settings.local.json`, the project's `settings.json` or the profile's `settings.json`, as `no ask rule outside the signature set (<rule> in <file> …)`: every lane pass would stop on it.
 
 Export `GITHUB_TOKEN` if you want the bundled GitHub MCP server to connect.
 
@@ -392,10 +393,24 @@ For the short path — install, one lane or four, a new or a running project —
    Without it, build also takes queued items, as before.
    Other `orchestrate` keys: `max_builders` (default 1, at most 8) builders at once per repository, beside
    one planner and one deployer (the verifier does not count); `max_fixes` (default 3) the babysitter's fix
-   budget per PR; `merge_by` — `person` (the default: you merge on GitHub) or `lane` (the orchestrator drafts a
-   merge action for the deploy lane, approved by you as a form); `merge.checks`, the commands a lane merge runs
-   first (`{repo_path}` and `{base}` placeholders); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
-   deploy and release-train scopes a request is built from (8c).
+   budget per PR; `merge_by` — `person` (the default: you merge on GitHub), `lane` (the orchestrator drafts a
+   merge action for the deploy lane, approved by you as a form) or `auto` (the deploy stage merges a green PR into
+   the integration branch itself, through `ledger.sh automerge`, once you granted it: `ledger.sh merge-auto preview`
+   shows what a grant pins — per repo its path, `origin` and integration branch, and the merge checks — and
+   `ledger.sh merge-auto grant --sha <12> --reviewed-by-human --by <name>` records it outside every sandbox; any
+   pinned value that changes makes `ledger.sh merge-by` resolve `person` again until you re-grant, and
+   `ledger.sh merge-auto revoke --reviewed-by-human --by <name>` turns it off; `main`/`master`,
+   an environment or a protected integration branch is never eligible; any other value is refused, and stops the
+   launch); every PR waiting on you is asked in one merge form per pass; `merge.checks`, the commands a lane merge
+   or an auto-merge runs first (`{repo_path}` and `{base}` placeholders; split on whitespace and run without a
+   shell — under `auto` outside the sandbox, in the repo's path, so a check's program must be a bare name on PATH or
+   an absolute path, as written, in hefesto's hooks folder or a system bin folder; a shell or interpreter (`sh`,
+   `env`, `python` …) is refused by name wherever it lives, as are tabs and a leading blank; a bare `npm`/`make`
+   reads that repo's own files); `decider`, the name your decisions are recorded with (setup writes it from `git config user.name` when
+   absent, never over yours; the orchestrator then never asks your name); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
+   deploy and release-train scopes a request is built from (8c); `plan_review_rounds` (default 5, an integer
+   from 1 to 20) the plan-review rounds the planner works through on its own before it asks you — a product or
+   design question still stops it on the round it appears.
 
 8b. **RFCs, plan approval and the lanes** (lanes v2; [`quickstart.md`](quickstart.md) steps 5–8). An
    item names its RFC with a line `rfc: docs/rfcs/<ID>.md` (folder: `orchestrate.rfc_dir`); the plan stage
@@ -404,7 +419,9 @@ For the short path — install, one lane or four, a new or a running project —
    reviewer's verdict suffices; anything else is refused) a finished plan stops at phase `plan-review` on
    `human:plan-approval`: only `ledger.sh unblock <id> --reviewed-by-human --by <name>` clears it (refused in a
    launched worker; recorded with the RFC's hash), nothing replaces that block, and leaving `plan-review`
-   needs the approval on record. An RFC that changes after approval stops the build and re-blocks the item
+   needs the approval on record. Every plan-review round is logged in `plan-review.md` beside `plan.md` (round,
+   verdict, whether it needs a decision, the reviewer's suggested changes); a `human:plan-review` question
+   carries its round index and open findings, and your answer or revision notes restart the round count. An RFC that changes after approval stops the build and re-blocks the item
    until a person aligns the plan, re-pins (`ledger.sh record <id> --rfc`) and approves again. Set the
    project up once with `hooks/hefesto-setup.sh` (`--lanes` for four lanes), in a terminal. It writes
    `.claude/settings.local.json`:
@@ -422,6 +439,28 @@ For the short path — install, one lane or four, a new or a running project —
    - with `--lanes`: `crossSessionInbound: "accept"`, `HEFESTO_LANES` and the lane map (`HEFESTO_LANE_MAP`, from
      `orchestrate.lanes`, `orchestrate.lane_prefix` or the folder name).
 
+   **The forge, for the workers.** `hefesto-setup.sh` also sets the HTTPS push rewrite and the forge's hosts, for the
+   project and each repository of an external board's `repos` map — a terminal is the one place outside the sandbox
+   that can:
+   - `orchestrate.allowed_domains` in the board config gets the forge's hosts (`github.com` → `"github.com",
+     "api.github.com"`; `gitlab.com`, `codeberg.org` or a self-hosted forge → that host) — only when the key is
+     absent: a list you wrote is never touched (setup names the forge hosts it lacks), and a board config that is
+     not in `jq .` form is left byte-identical with the exact snippet printed. The board config is tracked: setup
+     says it changed it, and you commit it. A remote on an IP address, `localhost` or an internal name is refused.
+   - an SSH remote (`git@<host>:…` or `ssh://git@<host>/…`) gets `url."https://<host>/".pushInsteadOf <prefix>` in
+     the repository's own config, so a worker's push goes over HTTPS (the sandbox proxy carries nothing else); setup
+     prints `gh auth setup-git` when no credential helper applies to `https://<host>/`. An `ssh://` remote with a
+     port, or a user other than `git`, is noted and left for you. `--remove` unsets only the rewrites setup added.
+   - a zero-byte `.git/config.lock` older than a minute — what a sandboxed `git config` leaves, since the sandbox
+     mounts `/dev/null` over it — stops a due rewrite before anything is written, with the `rm` to run.
+     `hefesto-setup.sh --check` reports such a lock inside its one `setup: missing …` line; the lock check needs an
+     unsandboxed caller (a terminal, or the session-start hook) — a sandboxed shell cannot see the lock.
+
+   A worker that stops on infrastructure (`git push` refused, a host denied, no credential helper) reports a cause
+   from a closed list; the launcher turns it into a `stall` whose reason is one fix line from hefesto's own table
+   (never the worker's words), shown once as **Your move** in the orchestrator's brief — not asked as a form. Run the
+   fix in a terminal and say "retry".
+
    Its other flags: `--check` (read-only: `setup: ok`, or what is missing; exit 1), `--print` (show the merged file,
    write nothing), `--remove` (take out every entry it wrote, for any version), `--keep-statusline` (never touch
    `statusLine`), `--strict`, and the command lists below (`--allow-command`, `--unsandboxed-command`,
@@ -436,9 +475,25 @@ For the short path — install, one lane or four, a new or a running project —
    your own `~/.cache/go-build`, which your unsandboxed builds share). Go's module cache (`~/go/pkg/mod`) stays
    read-only: modules already there work, a task that adds one cannot download it. The network: only
    `orchestrate.allowed_domains` (public hostnames). A worker cannot push over SSH (the sandbox proxy carries
-   HTTPS only), so for workers that push, add `"github.com"` and `"api.github.com"` and, in the repository,
-   `git config url."https://github.com/".pushInsteadOf git@github.com:` — pushes then go over HTTPS with the
-   `gh` credential helper.
+   HTTPS only); `hefesto-setup.sh` writes the forge's hosts there and the HTTPS push rewrite into the repository
+   (above, "The forge, for the workers") — pushes then go over HTTPS with the `gh` credential helper. Add any other
+   host a build needs (a package registry) to the list yourself.
+
+   **What a worker reaches of the forge, and what fences it.** The lanes keep `api.github.com` in
+   `sandbox.network.deniedDomains` (they run `gh` unsandboxed, under the permission rules), and **that deny reaches
+   the workers too, by design** (owner's decision, 2026-11-14): a worker reaches the API only through `gh`, which runs
+   outside the sandbox under the rules, never through `curl` or another command inside it. Live check (HEF-22,
+   2026-11-14, a launched worker): a sandboxed `git ls-remote https://api.github.com/…` was refused ("host is on the
+   deny list"), `git ls-remote https://github.com/<o>/<r>` was reached, and `gh pr view` reached the API. So
+   `github.com` carries the push, `gh` carries the PR, and `api.github.com` in `allowed_domains` does not open the API
+   to a worker's sandboxed commands. What
+   fences a worker is not only the network: its tool allowlist (the default `allowed_tools.implement` — file tools, `Bash(git *)`,
+   `Bash(gh pr create *)`, `Bash(gh pr view *)` — with every other command denied; it fences tools, not code:
+   `git` can run a shell), lane-guard (it denies any command naming `gh` that is not a read or PR-opening form) and
+   the ledger (a worker cannot clear a stall or a person's block). A merge on GitHub is stopped by **branch
+   protection** — the same thing that stops a worker's `git push origin HEAD:main`. Protect the integration branch.
+   **Widening `orchestrate.allowed_tools.implement`** (say, with `Bash(curl *)`) widens what reaches the forge's API
+   through an unsandboxed or allowed tool.
 
 8c. **Lane actions, and what protects them** (hefesto 9; [`quickstart.md`](quickstart.md), "Lane actions"). Any
    action a stage lane carries out for you — a merge with its head SHA, a release cut, a deploy, a backfill, a
@@ -681,8 +736,27 @@ For the short path — install, one lane or four, a new or a running project —
       entry's repo (`<repo>/.claude/worktrees/<id>`); start the launcher from the board repo or any
       code repo it feeds. `ledger.sh handoff` records the repo you run it in, and `unblock`,
       `where` and `advance … released` check git in the entry's repo.
-    - **Publish** marks the item in the board repo's file. Commit it yourself; committing
-      automatically is board item HEF-16.
+    - **Publish** marks the item in the board repo's file. Commit it yourself, or set
+      `orchestrate.publish_commit: true` in the board config (the JSON boolean; the string `"true"` is off,
+      and it acts only with `orchestrate.publish` on) and `ledger.sh publish` commits that one file:
+      - **Where it lands.** One commit, `board: <id> <marker>`, on whatever branch the board repo has
+        checked out — commonly `main`. It never switches or creates a branch and never pushes; pushing
+        stays yours. The output names the branch (`committed <sha> on main, not pushed`).
+      - **Path-limited.** Only the column file is committed; anything else you have staged in the board
+        repo stays staged, and other dirty files are left alone.
+      - **Unsigned, hooks not run.** `ledger.sh` runs outside the lane sandbox and keeps the board repo's
+        program-running git config pinned off, so the board repo's hooks do not run and the commit is not
+        signed. A board repo that requires signed commits leaves `publish_commit` off.
+      - **A git identity is needed** for the process that runs `ledger.sh` (`user.name`/`user.email` in the
+        board repo or globally). Without one the commit fails; the mark is rolled back and nothing is
+        recorded, so the next pass retries once it is set.
+      - **Refusals** — non-zero, naming the file or state, nothing written: the column has uncommitted
+        changes (staged or not) or is untracked; it carries a git `filter` attribute (a filter runs a
+        program on commit — remove the attribute or leave `publish_commit` off; `-filter` is accepted); it
+        resolves outside the board repo (a column symlinked into another repository); a merge, rebase,
+        cherry-pick or revert is in progress; HEAD is detached.
+      - Needs git 2.31 or newer (stock macOS git qualifies). On an in-repo board the flag only marks, and
+        says it did not commit — there the column lives in the repo you work in.
 14. **A GitHub Project as the lane board** (optional, hefesto 9.2). The lanes can run from a GitHub Project (v2)
     instead of a `tasks/` folder. Each item is an issue of one repo on the Project, and its Status is the column:
 
@@ -818,8 +892,9 @@ holds everything the line points at.
 
 **Aligning a release across the panes** is a sequence the ledger makes visible, not a meeting:
 
-1. `project` dispatches or a person in `feature` claims an item (`hooks/ledger.sh claim HEF-7
-   --session <repo>-feature --role implement`) — the orchestrator then leaves it alone.
+1. `project` dispatches or the `feature` lane takes an item (`hooks/session-launch.sh implement HEF-7
+   --prepare --lane <repo>-feature`, which claims it — `ledger.sh claim` is the launcher's alone) —
+   the orchestrator then leaves it alone.
 2. The PR lands the item in `pr`, blocked on `human:merge`. That block is the release queue.
 3. `chore` merges (a person, with a merge commit), then `git pull --ff-only`,
    `hooks/ledger.sh unblock HEF-7`, `hooks/ledger.sh advance HEF-7 merged`, and removes the worktree.
