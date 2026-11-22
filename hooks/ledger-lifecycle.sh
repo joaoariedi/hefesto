@@ -181,6 +181,10 @@ forward_cmd() {   # forward <id> --verdict conflict|behind [--past-cap --by <nam
   e=$(entry "$id") || exit 1; forward_guards "$id" "$e"
   st=$(forward_live_state "$id" "$e" "$v") || exit 1
   hb=$(jq -r .headRefName <<<"$st")
+  # both refs reach the worker's `git fetch` / `git push` words unquoted: a name git accepts can still carry $( ; | `
+  # (HEF-31 verify, scan 2026-11-22) — only a plain ref is merged forward; anything else is a person's, by hand
+  for r in "$hb" "$(jq -r .baseRefName <<<"$st")"; do [[ "$r" =~ ^[A-Za-z0-9._/-]+$ && "$r" != -* ]] \
+    || { forward_block_reason "$id" "$e" "the pull request's branch '$r' is not a plain ref (letters, digits, . _ / -) — merge it forward by hand"; return 0; }; done
   # the implement launch's own path (session-launch.sh: <top>/.claude/worktrees/<id>), never .worktree, which a
   # handoff may record elsewhere — a launch there would make a fresh branch with `claude -w` (FR-005a)
   wt="$(entry_repo_top "$e")/.claude/worktrees/$id" || exit 1

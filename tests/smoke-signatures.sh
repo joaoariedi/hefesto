@@ -407,6 +407,9 @@ sg_gd_want orchestrator "$LGL unblock LT-2 '--reviewed-by-human' --by Ana" deny
 sg_gd_want orchestrator "$LGL unblock LT-2"$'\t'"--merge-sha abc123" deny
 sg_gd_want orchestrator "$LGL unblock LT-2 --reviewed-by-\"human\" --by Ana" deny
 sg_gd_want orchestrator "$LGL record LT-2 \\--rfc" deny
+# merge-forward/FR-018: forward is allowed, its --past-cap form is the signature — a quoted or tab spelling is denied
+sg_gd_want orchestrator "$LGL forward LT-2 --verdict behind \"--past-cap\" --by Ana" deny
+sg_gd_want orchestrator "$LGL forward LT-2 --verdict behind"$'\t'"--past-cap --by Ana" deny
 sg_gd_want orchestrator "$LGL release LT-2 --reviewed-by-'human' --by Ana" deny
 sg_gd_want orchestrator "$SG_PW \"reply\" 7 --body-file b.md" deny
 sg_gd_want orchestrator "$LGL unblock LT-2 --merge-sha abc123" none
