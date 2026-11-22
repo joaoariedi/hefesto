@@ -142,7 +142,11 @@ from the message, and launched workers cannot message at all.
 Blocks (`human:*`, `verdict`, `stall`, `budget`, `conflict`, `ci`) are announced at session start to
 the pane that owns them (`orchestrate.panes`); opt-in `orchestrate.publish` writes each item's state
 onto the board and `escalate_after_hours` sends one pointer for a stale human block. `/hefesto:hef.babysit`
-(`hooks/pr-watch.sh`) keeps a PR moving to the merge gate; `/hefesto:hef.status` reports AI-delivery metrics
+(`hooks/pr-watch.sh`) keeps a PR moving to the merge gate; a PR `behind` or in `conflict` with its base goes back
+to the build stage through `ledger.sh forward` (the one backward move, `pr → implement`), whose worker merges the
+base forward on the same branch — never a rebase — and the verifier re-checks the new head (`hooks/session-launch-forward.sh`;
+a two-sided conflict or a red suite comes back as `human:clarify`, a 4th forward on one PR as a `conflict` form);
+`/hefesto:hef.status` reports AI-delivery metrics
 from the ledger. A `branches` block names the integration branch (PR base, verifier diff base,
 `human:merge` check), the protected heads, and the promotion chain whose last branch is `released`.
 An **external board** (`ledger.sh board`) is a board repository that feeds several code repos: each

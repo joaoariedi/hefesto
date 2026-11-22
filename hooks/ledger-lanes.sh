@@ -108,10 +108,11 @@ rfc_pin() { # [$1 snapshot file]
 lanes_strip() { sed -E 's/<!--([^-]|-[^-])*-->//g' | sed '/<!--/,/-->/d'; }
 questions_item() {
   local k sd qp body="" nonce
-  k=$(jq -r '.blocked_on.kind // empty' <<<"$E")
-  case "$k" in human:clarify|human:plan-review) ;; *) die "ledger questions $ID: it waits on ${k:-nothing} — questions come with human:clarify or human:plan-review" ;; esac
-  sd=$(entry_spec_dir "$E"); qp=$(jq -r '.blocked_on.question_path // empty' <<<"$E")
-  [ -n "$sd" ] && [ -f "$sd/spec.md" ] && body="$(lanes_strip < "$sd/spec.md" | grep -n 'NEEDS CLARIFICATION' | head -40)"
+  k=$(jq -r '.blocked_on.kind // empty' <<<"$E"); qp=$(jq -r '.blocked_on.question_path // empty' <<<"$E")
+  # merge-forward FR-005a/FR-015: a conflict block `forward` wrote carries its reason as a question file; a legacy one has none
+  { [ "$k" = conflict ] && [ -n "$qp" ]; } || case "$k" in human:clarify|human:plan-review) ;; *) die "ledger questions $ID: it waits on ${k:-nothing} — questions come with human:clarify or human:plan-review" ;; esac
+  sd=$(entry_spec_dir "$E")
+  [ "$k" != conflict ] && [ -n "$sd" ] && [ -f "$sd/spec.md" ] && body="$(lanes_strip < "$sd/spec.md" | grep -n 'NEEDS CLARIFICATION' | head -40)"
   [ -n "$qp" ] && [ -f "$qp" ] && body="$body${body:+$'\n'}$(lanes_strip < "$qp" | head -c 8000)"
   [ -n "$body" ] || die "ledger questions $ID: no open question found (spec_dir '${sd:-none}', question file '${qp:-none}') — read the item's folder"
   nonce="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"

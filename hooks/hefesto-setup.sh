@@ -151,7 +151,7 @@ prefixes=("$CLONE"); for c in ${cfgs[@]+"${cfgs[@]}"}; do prefixes+=("$c/plugins
 # merge-auto grant/revoke: a person turns auto-merge on or off — the dialog is the signature (HEF-30 FR-015)
 LEDGER_SIGN_WHOLE=(approve answer revise drop fold supersede reopen "op close" "op drop" "merge-auto grant" "merge-auto revoke")
 LEDGER_SIGN_FLAG=("unblock --reviewed-by-human" "unblock --merge-sha" "record --body-file" "record --body-from-board" "record --rfc"
-  "release --reviewed-by-human" "record --reviewed-by-human")   # it records a person's name → a signature (spec Clarifications
+  "release --reviewed-by-human" "record --reviewed-by-human" "forward --past-cap")   # it records a person's name → a signature (spec Clarifications
 # 2026-11-09); record --item-kind … --reviewed-by-human: a person's kind change away from incident/vulnerability (HEF-54)
 # no rule at all: ledger.sh refuses claim and run unless session-launch.sh calls (FR-010); automerge is the deploy
 # launcher's, gated by itself on the person's grant and the verdicts at the verified head (HEF-30 FR-010)
@@ -159,7 +159,8 @@ LEDGER_SIGN_FLAG=("unblock --reviewed-by-human" "unblock --merge-sha" "record --
 LEDGER_LAUNCHER=(claim run automerge)
 LEDGER_ALLOW=(board list next show metrics register publish escalate questions request actions action "op new" direct
   directives directive note lanes deployed record advance handoff block release unblock verdict init where branches spec-roots
-  merge-by)   # read-only (HEF-30)
+  merge-by    # read-only (HEF-30)
+  forward)    # mechanical routing, git decides (merge-forward D3); its --past-cap form is a signature above
 LEDGER_ALLOW_EXACT=("park --all" dir "merge-auto preview" "merge-auto show")
 # The signature ask rules for one hooks folder (FR-001): written by setup, looked for by --check. ask outranks allow
 # (D7), so `record:*` in allow and `record * --body-file*` here coexist: the flag anywhere after the id asks.
@@ -367,7 +368,8 @@ if [ "$MODE" = check ]; then
   mh=""; for i in "${!roots[@]}"; do [ "${roots[$i]}" = "$me" ] && { mh="$(hooks_of "$me" "${kinds[$i]}")"; break; }; done
   miss="$(jq -r --arg h "$mh" --arg me "$me" --argjson sig "$(if [ -n "$mh" ]; then jarr_lines < <(sign_asks "$mh"); else echo '[]'; fi)" '[
       (if $h == "" then "the hefesto folder this session runs from (\($me)) is not one setup trusts" else
-      (if ((.permissions.allow // []) | index(["Bash(\($h)/ledger.sh board:*)"])) then empty else "the helper allowlist" end),
+      # forward is the newest allow rule (merge-forward FR-018): an allowlist written before it would ask on every forward
+      (if ((.permissions.allow // []) | index(["Bash(\($h)/ledger.sh board:*)"]) and index(["Bash(\($h)/ledger.sh forward:*)"])) then empty else "the helper allowlist" end),
       ($sig[] as $r | if ((.permissions.ask // []) | index([$r])) then empty else "the ask rule \($r | ltrimstr("Bash(\($h)/") | rtrimstr(")"))" end),
       (if ((.sandbox.excludedCommands // []) | index(["\($h)/session-launch.sh *"])) then empty else "the launcher sandbox exclusion" end),
       (if ((.sandbox.excludedCommands // []) | index(["\($h)/ledger.sh *"])) then empty else "the ledger.sh sandbox exclusion (hefesto 9 keeps the ledger outside the project)" end) end),

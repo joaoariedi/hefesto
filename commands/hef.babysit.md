@@ -135,8 +135,12 @@ means the ledger is unreadable — report it).
 4. **State.** Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/pr-watch.sh state <number>`
    - `mergeable` → `ledger-id <url>`; exit 0 → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh block <id> --kind human:merge`.
      Print the URL: the merge is the person's step. Step 6.
-   - `conflict` → `ledger-id`; exit 0 → `ledger.sh block <id> --kind conflict`. A rebase is not a
-     babysitter fix. Step 6.
+   - `conflict` | `behind` → `ledger-id`; exit 0 → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh forward <id> --verdict <conflict|behind>`
+     (the verdict `state` printed): the entry goes back to the build stage, whose worker merges the base forward
+     (git decides; a two-sided conflict comes back as a question). Report the line it prints — a move, a
+     `conflict` block (the forward cap, or no worktree on the head branch) or a refusal — and go on; never
+     retry it. A rebase is still not a babysitter fix. Headless, the launcher does the forward from this
+     pass's verdict, so a `ledger.sh` refusal inside a worker is expected (as for the blocks in step 5). Step 6.
    - `checks` → a check failed since step 1: back to step 1.
    - `review` | `pending` | `closed` → step 6.
 

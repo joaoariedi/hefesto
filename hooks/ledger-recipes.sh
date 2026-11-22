@@ -126,7 +126,7 @@ merge_scope() { # $1 entry JSON → the drafted scope as one JSON line: state, c
   out=$(jq -nc --arg n "$n" --arg r "$r" --arg s "$sha" --arg rp "$rp" --arg b "$base" --arg repo "$(jq -r '.repo // empty' <<<"$1")" --argjson ch "$ch" '
     ($ch | map(gsub("\\{repo_path\\}"; $rp) | gsub("\\{base\\}"; $b))) as $c
     | {kind: "merge", repo: (if $repo == "" then null else $repo end), pr: ($n | tonumber), title: "merge \($r)#\($n)", heads: {"\($r)#\($n)": $s},
-       steps: (["state: ledger.sh reads pr-watch.sh state \($n) — mergeable at \($s[0:12]), else the action stops (a conflict blocks the entry conflict)"]
+       steps: (["state: ledger.sh reads pr-watch.sh state \($n) — mergeable at \($s[0:12]), else the action stops (a conflict, or a branch behind its base, goes back to the build stage)"]
                + ($c | map("check: " + .)) + ["merge \($r)#\($n) with a merge commit pinned to \($s[0:12]), then ledger.sh action done"]),
        commands: (($c | map({cmd: ., after_step: 1})) + [{cmd: "gh pr merge \($n) -R \($r) --merge --match-head-commit \($s)", after_step: (($c | length) + 1)}]),
        expects: [], stop_checks: ["pr-watch.sh state is mergeable", "the head is still \($s)", "every check passes"],
@@ -205,16 +205,11 @@ merge_block_ok() { # $1 action JSON, $2 verb, $3 the --block value — only `act
   [ "$2" = stop ] && [ "$3" = conflict ] && [ "$(jq -r '.scope.kind // empty' <<<"$1")" = merge ] \
     || die "ledger action $2 $AID: --block takes only conflict, on action stop of a merge action (got '$3')"
 }
-merge_block_conflict() { # $1 action JSON — the entry's human:merge becomes conflict: the PR goes back to its builder
-  local id e; id=$(jq -r .entry <<<"$1"); e=$(entry "$id") || exit 1
-  jq '.blocked_on = {kind: "conflict", since: (now | todate), question_path: null}' <<<"$e" | write_entry "$id" || exit 1
-  echo "$id blocked_on conflict (was $(jq -r '.blocked_on.kind // "none"' <<<"$e"))"
-}
 # Step 1 of a merge action is not the lane's report: this reads `pr-watch.sh state` and records only `mergeable` at
 # the pinned head. `pending` (checks running) records nothing and leaves the action taken, for a later try.
 merge_state_step() { # $1 action JSON, $2 step, $3 the lane's file — sets the caller's f (dynamic scope) to the state read
   [ "$2" -eq 1 ] && [ "$(jq -r '.scope.kind // empty' <<<"$1")" = merge ] || return 0
-  local e url want st v head ms ck
+  local e url want st v head ms ck fw
   e=$(entry "$(jq -r .entry <<<"$1")") || exit 1; url=$(jq -r '.pr.url // empty' <<<"$e")
   want=$(jq -r '.scope.heads | to_entries[0].value // empty' <<<"$1")
   st=$(cd_entry_repo "$e" && bash "$HERE/pr-watch.sh" state "$url" 2>&1) || die "ledger action step $AID 1: pr-watch.sh state $url failed — nothing recorded: $(tail -1 <<<"$st")"
@@ -223,8 +218,9 @@ merge_state_step() { # $1 action JSON, $2 step, $3 the lane's file — sets the 
     merge_stop "$1" 1 "head moved from $want to ${head:-unknown}" "$st"
     die "ledger action step $AID 1: head moved from $want to ${head:-unknown} ($url) — the action is stopped before the merge"
   fi
-  # FR-023: CLEAN (or HAS_HOOKS, CLEAN with hooks) and green. pr-watch's verdict also calls BEHIND "mergeable" — right
-  # for a babysitter, wrong for a merge: behind its base is routed back to the builder like a conflict (T021 verifier).
+  # FR-023: CLEAN (or HAS_HOOKS, CLEAN with hooks) and green. pr-watch.sh now reports BEHIND as its own verdict
+  # `behind` (merge-forward FR-001); the BEHIND remap below stays for a mergeable read — behind its base is routed back
+  # to the builder like a conflict (T021 verifier).
   ms=$(jq -r '.mergeStateStatus // empty' <<<"$st" 2>/dev/null); ck=$(jq -r '.checks // empty' <<<"$st" 2>/dev/null)
   if [ "$v" = mergeable ]; then
     case "$ms" in BEHIND) v=behind ;; CLEAN|HAS_HOOKS) [ "$ck" = pass ] || v="checks $ck" ;; *) v="state ${ms:-unknown}" ;; esac
@@ -236,9 +232,11 @@ merge_state_step() { # $1 action JSON, $2 step, $3 the lane's file — sets the 
                # shellcheck disable=SC2034  # f is action_cmd's local: the step records this file, not the lane's
                f="$MERGE_STATE_TMP" ;;
     pending) die "ledger action step $AID 1: $url is pending (checks running) — nothing recorded; try step 1 again later" ;;
-    *) merge_stop "$1" 1 "pr-watch.sh state is ${v:-unreadable}, not mergeable" "$st"
-       case "$v" in conflict|behind) merge_block_conflict "$1" ;; esac
-       die "ledger action step $AID 1: $url is ${v:-unreadable}, not mergeable — the action is stopped before the merge" ;;
+    *) merge_stop "$1" 1 "pr-watch.sh state is ${v:-unreadable}, not mergeable" "$st"; fw=""
+       # merge-forward FR-007: back to the build stage — after merge_stop (the stopped action no longer refuses it), in a
+       # subshell so a refusal (forward_cmd dies) is a note in the stop message, never the verb's end (D14)
+       case "$v" in conflict|behind) if fw=$( (forward_cmd "$(jq -r .entry <<<"$1")" --verdict "$v") 2>&1 ); then fw="; $fw"; else fw="; forward refused: $fw"; fi ;; esac
+       die "ledger action step $AID 1: $url is ${v:-unreadable}, not mergeable — the action is stopped before the merge$fw" ;;
   esac
 }
 # FR-021, note 4: done records the merge through the ONE evidence check, with the PR's merge commit from gh, then

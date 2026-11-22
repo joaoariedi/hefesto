@@ -209,10 +209,17 @@ fase `verify` sem dono.
 - **Merges pela deployer.** Com `"merge_by": "lane"` em `orchestrate`, o formulário de merge ganha **Merge**: a
   deployer relê o PR (limpo, CI verde, head ainda o SHA que você viu), roda as suas `orchestrate.merge.checks` (por
   exemplo `changelog-check.sh -C {repo_path} placement --base origin/{base}`, por caminho absoluto) e faz o merge
-  com um merge commit exatamente nesse head e o registra. Um head que mudou, uma verificação vermelha ou um conflito
-  voltam para você como um formulário. Um merge por repositório de cada vez. O padrão, `"merge_by": "person"`, não
-  muda: o merge você faz no GitHub. Nos dois casos, todo PR esperando por você vem num **único** formulário de merge
-  por passada: marque os que vão para o merge (até 16, os mais antigos primeiro); o resto espera a próxima passada.
+  com um merge commit exatamente nesse head e o registra. Um head que mudou ou uma verificação vermelha voltam para
+  você como um formulário; um conflito volta para a builder (abaixo). Um merge por repositório de cada vez. O padrão,
+  `"merge_by": "person"`, não muda: o merge você faz no GitHub. Nos dois casos, todo PR esperando por você vem num
+  **único** formulário de merge por passada: marque os que vão para o merge (até 16, os mais antigos primeiro); o
+  resto espera a próxima passada.
+- **Um PR atrás da base faz o merge forward sozinho.** Quando a babysitter vê um PR `behind` ou em `conflict` com a
+  base, o item volta para o estágio de build (`ledger.sh forward`): a builder faz o merge da base na mesma branch
+  (nunca um rebase, nunca um force push), mantém os dois lados de um conflito mecânico, roda os testes, faz o push, e
+  a verifier confere o novo head antes do formulário de merge. Um conflito dos dois lados ou uma suíte vermelha é
+  abortado e chega a você como uma pergunta com os dois trechos ou a saída da falha. Depois de três merges forward no
+  mesmo PR, a orchestrator pergunta a você: **Merge forward** de novo ou **Later**.
 - **Merges sem formulário.** Com `"merge_by": "auto"`, um PR para a **branch de integração** entra sozinho quando os
   gates (verify, review, quality, scan) passaram no head que está aberto, o CI está verde e cada comando de
   `orchestrate.merge.checks` sai com 0. A configuração sozinha nunca liga isso: a orchestrator mostra uma vez o que

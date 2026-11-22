@@ -94,8 +94,8 @@ sg_reduced() { # → empty when $SG_F holds the reduced shape (SC-001), else the
     def ours: test("/hooks/(ledger|pr-watch|session-launch|status-board|speckit-helper|run-follow|hefesto-setup)[.]sh");
     def tail($h): ltrimstr("Bash(" + $h + "/") | rtrimstr(")");
     (.permissions.allow | map(select(ours))) as $al
-    | [ (if (.permissions.ask | sort) == $want then empty else "permissions.ask is not exactly the 20 signature forms × the two live roots + the rules of the person: extra \(.permissions.ask - $want), missing \($want - .permissions.ask)" end),
-        (if ($want | length) == 41 then empty else "the signature set is not 20 forms per root (HEF-30 adds merge-auto grant/revoke, HEF-54 record --reviewed-by-human) (\($want | length) rules for two roots + 1)" end),
+    | [ (if (.permissions.ask | sort) == $want then empty else "permissions.ask is not exactly the 21 signature forms × the two live roots + the rules of the person: extra \(.permissions.ask - $want), missing \($want - .permissions.ask)" end),
+        (if ($want | length) == 43 then empty else "the signature set is not 21 forms per root (HEF-30 adds merge-auto grant/revoke, HEF-54 record --reviewed-by-human, merge-forward forward --past-cap) (\($want | length) rules for two roots + 1)" end),
         (if (.permissions.allow | group_by(.) | all(length == 1)) then empty else "a duplicated allow rule" end),
         (if ($al | all(startswith("Bash(" + $c + "/") or startswith("Bash(" + $i + "/"))) then empty
          else "an allow rule in another spelling or version: \($al | map(select((startswith("Bash(" + $c + "/") or startswith("Bash(" + $i + "/")) | not)))" end),
@@ -111,7 +111,7 @@ sg_reduced() { # → empty when $SG_F holds the reduced shape (SC-001), else the
 sg_o="$(sg_su "$sg_p" "$sg_cfg" --lanes 2>&1)"
 sg_r="$(sg_reduced)"
 # SC-001 / FR-004: the 9.3 file → the signature set once per live root, in that root's canonical spelling
-[ -z "$sg_r" ] && ok "SC-001: the 9.3-shape file is reduced to 20 signature asks per live root, one spelling each, the person's rules kept" \
+[ -z "$sg_r" ] && ok "SC-001: the 9.3-shape file is reduced to 21 signature asks per live root, one spelling each, the person's rules kept" \
   || { bad "SC-001 (FR-004): setup --lanes on the 9.3-shape file: $sg_r — setup said: $(tail -3 <<<"$sg_o")"; sg_fail=1; }
 [ "$(jq -c '.permissions.ask | index(["Bash(rm -rf:*)"]) != null' "$SG_F")" = true ] || { bad "SC-001: the person's own ask rule Bash(rm -rf:*) must stay"; sg_fail=1; }
 sg_h="$(cksum < "$SG_F")"; sg_o="$(sg_su "$sg_p" "$sg_cfg" --lanes 2>&1)"
@@ -407,6 +407,9 @@ sg_gd_want orchestrator "$LGL unblock LT-2 '--reviewed-by-human' --by Ana" deny
 sg_gd_want orchestrator "$LGL unblock LT-2"$'\t'"--merge-sha abc123" deny
 sg_gd_want orchestrator "$LGL unblock LT-2 --reviewed-by-\"human\" --by Ana" deny
 sg_gd_want orchestrator "$LGL record LT-2 \\--rfc" deny
+# merge-forward/FR-018: forward is allowed, its --past-cap form is the signature — a quoted or tab spelling is denied
+sg_gd_want orchestrator "$LGL forward LT-2 --verdict behind \"--past-cap\" --by Ana" deny
+sg_gd_want orchestrator "$LGL forward LT-2 --verdict behind"$'\t'"--past-cap --by Ana" deny
 sg_gd_want orchestrator "$LGL release LT-2 --reviewed-by-'human' --by Ana" deny
 sg_gd_want orchestrator "$SG_PW \"reply\" 7 --body-file b.md" deny
 sg_gd_want orchestrator "$LGL unblock LT-2 --merge-sha abc123" none

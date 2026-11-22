@@ -119,7 +119,8 @@ fi
 # rule — and `unblock:*` / `record:*` / `release:*` / `pr-watch.sh:*` are allow rules, so the person would never see
 # the dialog. In every set-up project and every lane, the orchestrator included: a signature the shell reads (quotes,
 # escapes, line continuations removed) must also be written plain, after a space, or the call is denied.
-SIGN_FLAGS=(--reviewed-by-human --merge-sha --body-file --body-from-board --rfc)
+# --past-cap (merge-forward FR-018): the forward past the cap is a signature, while plain forward is an allow rule
+SIGN_FLAGS=(--reviewed-by-human --merge-sha --body-file --body-from-board --rfc --past-cap)
 shell_read() { # $1 text → its words roughly as the shell reads them: continuations joined, quotes and escapes gone, one space between
   local s="${1//$'\\\n'/}"
   s="${s//\$\'/\'}"; s="${s//\$\"/\"}"

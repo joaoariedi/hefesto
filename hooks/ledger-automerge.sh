@@ -297,6 +297,7 @@ am_state_step() { # $1 pr-watch state JSON — returns when mergeable; else bloc
   v=$(jq -r '.verdict // empty' <<<"$1"); ms=$(jq -r '.mergeStateStatus // empty' <<<"$1"); ck=$(jq -r '.checks // empty' <<<"$1")
   case "$v" in
     conflict) am_red conflict "the PR conflicts with its base" ;;
+    behind)   am_red conflict "the PR is behind its base" ;;   # pr-watch.sh's own verdict for BEHIND (merge-forward FR-001)
     pending)  echo "pending $ID — checks running; nothing recorded"; exit 4 ;;
     checks)   am_red ci "CI checks are red ($ck)" ;;
     mergeable) case "$ms" in BEHIND) am_red conflict "the PR is behind its base" ;; CLEAN|HAS_HOOKS) [ "$ck" = pass ] || am_red ci "checks are $ck" ;;

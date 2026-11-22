@@ -198,10 +198,16 @@ refused that way is relaunched once its build has waited 10 minutes in phase `ve
 - **Merges by the deployer.** With `"merge_by": "lane"` under `orchestrate`, the merge form gains **Merge**: the
   deployer re-reads the PR (clean, CI green, head still the SHA you saw), runs your `orchestrate.merge.checks` (for
   instance `changelog-check.sh -C {repo_path} placement --base origin/{base}`, by absolute path), then merges with a
-  merge commit at that exact head and records it. A head that moved, a red check or a conflict comes back to you as a
-  form. One merge per repository at a time. The default, `"merge_by": "person"`, is unchanged: you merge on GitHub.
-  Either way every PR waiting for you is in **one** merge form per pass: tick the ones to merge (up to 16, oldest
-  first), the rest wait for the next pass.
+  merge commit at that exact head and records it. A head that moved or a red check comes back to you as a form; a
+  conflict goes back to the builder (below). One merge per repository at a time. The default, `"merge_by": "person"`,
+  is unchanged: you merge on GitHub. Either way every PR waiting for you is in **one** merge form per pass: tick the
+  ones to merge (up to 16, oldest first), the rest wait for the next pass.
+- **A PR behind its base merges forward by itself.** When the babysitter sees a PR `behind` or in `conflict` with its
+  base, the item goes back to the build stage (`ledger.sh forward`): the builder merges the base into the same branch
+  (never a rebase, never a force push), keeps both sides of a mechanical conflict, runs the tests, pushes, and the
+  verifier checks the new head before the merge form. A two-sided conflict or a red suite is aborted and comes to you
+  as a question with both hunks or the failing output. After three forwards on one PR, the orchestrator asks you:
+  **Merge forward** again or **Later**.
 - **Merges with no form.** With `"merge_by": "auto"`, a PR into the **integration branch** merges itself when its
   gates (verify, review, quality, scan) passed at the head that is open, CI is green and every
   `orchestrate.merge.checks` command exits 0. Config alone never turns it on: the orchestrator shows you once what

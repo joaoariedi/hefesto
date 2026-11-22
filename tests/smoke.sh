@@ -2061,7 +2061,7 @@ jq -e '.blocked_on.kind == "human:clarify"' "$(sld "$lg_t")/HEF-60.json" >/dev/n
 # a worker may not replace any OTHER human:* block either
 lg block HEF-60 --kind human:merge >/dev/null 2>&1
 if (cd "$lg_t" && HEFESTO_WORKER=1 bash "$LG" block HEF-60 --kind ci) >/dev/null 2>&1; then bad "a launched worker must not replace a human:merge block with ci"; lg_fail=1; fi
-cp "$LG" "$lg_md2/ledger.sh" 2>/dev/null || { lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$lg_md2/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$lg_md2/host-limits.sh"; ln -s "$REPO/hooks/launch-item.sh" "$lg_md2/launch-item.sh"; ln -s "$REPO/hooks/board-setup.sh" "$lg_md2/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$lg_md2/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$lg_md2/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$lg_md2/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$lg_md2/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$lg_md2/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$lg_md2/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$lg_md2/ledger-publish.sh"; ln -s "$REPO/hooks/board-mark.sh" "$lg_md2/board-mark.sh"; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"; cp "$LG" "$lg_md2/ledger.sh"; }
+cp "$LG" "$lg_md2/ledger.sh" 2>/dev/null || { lg_md2="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$lg_md2/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$lg_md2/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$lg_md2/host-limits.sh"; ln -s "$REPO/hooks/launch-item.sh" "$lg_md2/launch-item.sh"; ln -s "$REPO/hooks/session-launch-forward.sh" "$lg_md2/session-launch-forward.sh"; ln -s "$REPO/hooks/board-setup.sh" "$lg_md2/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$lg_md2/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$lg_md2/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$lg_md2/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$lg_md2/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$lg_md2/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$lg_md2/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$lg_md2/ledger-publish.sh"; ln -s "$REPO/hooks/board-mark.sh" "$lg_md2/board-mark.sh"; ln -s "$REPO/hooks/status-board.sh" "$lg_md2/status-board.sh"; cp "$LG" "$lg_md2/ledger.sh"; }
 sed_i 's/\[\[ "\$CURK" == human:\* \]\] \&\& \[ "\$KIND" != "\$CURK" \]/false/' "$lg_md2/ledger.sh"
 cmp -s "$LG" "$lg_md2/ledger.sh" && { bad "intake mutation (worker block replacement) did not apply"; lg_fail=1; }
 (cd "$lg_t" && HEFESTO_WORKER=1 bash "$lg_md2/ledger.sh" block HEF-60 --kind ci) >/dev/null 2>&1 || { bad "mutation survived: the worker replacement guard removed, still refused"; lg_fail=1; }
@@ -2283,7 +2283,7 @@ chmod 555 "$sl_cfg"; sl_serr="$(sl implement HEF-1 --dry-run 2>&1 >/dev/null)"; 
 if sl bogus HEF-1 --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an unknown role"; sl_fail=1; fi
 if sl implement HEF-NOPE --dry-run >/dev/null 2>&1; then bad "session-launch must refuse an id without a ledger entry"; sl_fail=1; fi
 # provider-runners FR-003 — every launched session carries HEFESTO_WORKER=1. Mutation: the env pair removed → red.
-sl_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$sl_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$sl_md/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$sl_md/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$sl_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$sl_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$sl_md/launch-item.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$sl_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$sl_md/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$sl_md/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$sl_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$sl_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$sl_md/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$sl_md/ledger-publish.sh"; ln -s "$REPO/hooks/board-mark.sh" "$sl_md/board-mark.sh"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
+sl_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$sl_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$sl_md/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$sl_md/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$sl_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$sl_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$sl_md/launch-item.sh"; ln -s "$REPO/hooks/session-launch-forward.sh" "$sl_md/session-launch-forward.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$sl_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$sl_md/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$sl_md/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$sl_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$sl_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$sl_md/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$sl_md/ledger-publish.sh"; ln -s "$REPO/hooks/board-mark.sh" "$sl_md/board-mark.sh"; ln -s "$LG" "$sl_md/ledger.sh"; ln -s "$SB" "$sl_md/status-board.sh"; cp "$SL" "$sl_md/session-launch.sh"
 sed_i 's/ HEFESTO_WORKER=1 claude -p/ claude -p/' "$sl_md/session-launch.sh"; cmp -s "$SL" "$sl_md/session-launch.sh" && { bad "launcher env-pair mutation did not apply"; sl_fail=1; }
 printf '{"source":"tasks-repo","root":"tasks"}\n' > "$sl_t/.claude/project-status.json"
 sl_mo="$(cd "$sl_t" && CLAUDE_CONFIG_DIR="$sl_cfg" bash "$sl_md/session-launch.sh" implement HEF-1 --dry-run 2>&1)"
@@ -2466,8 +2466,31 @@ st_dep() { printf '{"session_id":"dx","total_cost_usd":0.1,"structured_output":{
 [ "$(st_dep pending 0 0)" = human:merge ] || { bad "deploy pending must leave the block untouched"; st_fail=1; }
 [ "$(st_dep checks 2 0)" = human:merge ] || { bad "deploy checks under the bound must leave the block untouched"; st_fail=1; }
 [ "$(st_dep checks 3 0)" = ci ] || { bad "deploy checks with fixes == max_fixes must block ci"; st_fail=1; }
-[ "$(st_dep conflict 0 0)" = conflict ] || { bad "deploy conflict must block conflict"; st_fail=1; }
-[ "$(st_dep refused 0 0)" = conflict ] || { bad "deploy refused must leave the block untouched"; st_fail=1; }
+# merge-forward FR-006: conflict and behind go back to the build stage through ledger.sh forward, which reads the PR
+# again (a FakeGh answering DIRTY/BEHIND on HEF-1's head branch) and needs the worktree on it — then the chain puts
+# the entry back in pr on human:merge (brief consumed) before the next verdict
+cat > "$sr_bin/gh" <<GHEOF
+#!/bin/bash
+case "\$1 \$2" in "auth status") exit 0 ;; "pr checks") echo '[]' ;; "pr view") cat "$sr_bin/pr.json" ;; *) exit 1 ;; esac
+GHEOF
+chmod +x "$sr_bin/gh"
+st_gh() { jq -n --arg ms "$1" --arg o "$(git -C "$sr_t/.claude/worktrees/HEF-1" rev-parse HEAD)" '{number: 12, url: "https://github.com/o/r/pull/12", state: "OPEN", isDraft: false,
+  mergeable: "MERGEABLE", mergeStateStatus: $ms, reviewDecision: "", headRefName: "HEF-1", baseRefName: "main", headRefOid: $o}' > "$sr_bin/pr.json"; }
+st_back() { lg2 record HEF-1 --forward-consumed >/dev/null 2>&1; lg2 advance HEF-1 pr >/dev/null 2>&1; lg2 block HEF-1 --kind human:merge >/dev/null 2>&1; }
+st_fwd() { # st_fwd <verdict> → the deploy run's stderr; the entry must be forwarded
+  printf '{"session_id":"dx","total_cost_usd":0.1,"structured_output":{"summary":"x","verdict":"%s","fixes":0,"questions":0}}\n' "$1" > "$sr_res"
+  HEFESTO_GH_BIN="$sr_bin/gh" sr2 deploy HEF-1 2>&1 >/dev/null
+}
+git init -q --bare "$sr_bin/origin.git" && git -C "$sr_t" remote add origin "$sr_bin/origin.git"   # pr-watch.sh needs a remote; removed below
+lg2_merge HEF-1; st_gh DIRTY; st_err="$(st_fwd conflict)"
+srj HEF-1 '.phase == "implement" and .blocked_on == null and .forwards[-1].verdict == "conflict"' \
+  || { bad "deploy conflict must forward the entry: phase implement, unblocked, a forward row (merge-forward/FR-006) — got $(jq -c '{phase, blocked_on, forwards}' "$(sld "$sr_t")/HEF-1.json" | head -c 300); stderr: $(head -c 400 <<<"$st_err")"; st_fail=1; }
+st_back; st_gh BEHIND; st_err="$(st_fwd behind)"
+srj HEF-1 '.phase == "implement" and .blocked_on == null and .forwards[-1].verdict == "behind"' \
+  || { bad "deploy behind must forward the entry: phase implement (merge-forward/FR-006) — got $(jq -c '{phase, blocked_on}' "$(sld "$sr_t")/HEF-1.json"); stderr: $(head -c 400 <<<"$st_err")"; st_fail=1; }
+st_back; git -C "$sr_t" remote remove origin
+srj HEF-1 '.phase == "pr" and all(.forwards[]; .consumed == true)' || { bad "the st_dep chain must return HEF-1 to pr with its briefs consumed"; st_fail=1; }
+[ "$(st_dep refused 0 0)" = human:merge ] || { bad "deploy refused must leave the block untouched"; st_fail=1; }
 [ "$(st_dep review 0 1)" = human:intake ] || { bad "deploy with questions must block human:intake whatever the verdict"; st_fail=1; }
 lg2_merge HEF-1
 [ "$(st_dep closed 0 0)" = human:intake ] || { bad "deploy closed must block human:intake (the PR leaves the deploy set)"; st_fail=1; }
@@ -2504,7 +2527,7 @@ grep -qE 'gh pr merge|gh pr review|gh api' <<<"$st_defaults" && { bad "a default
 [ "$st_fail" -eq 0 ] && ok "stage roles: next --stage (plan/build/deploy, ordering), plan run (tasks, blocked→unblock→next, failed→resume, mode default), implement on a planned entry, deploy verdicts + refusal, tiers, hooks rule after a config list, no merge verbs (stage-roles FR-001..FR-008, FR-011)"
 
 # Mutations on copies (SC-001). The launcher copy sits beside symlinks to the helpers it calls.
-st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$st_mutdir/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$st_mutdir/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$st_mutdir/host-limits.sh"; ln -s "$REPO/hooks/launch-item.sh" "$st_mutdir/launch-item.sh"; ln -s "$REPO/hooks/board-setup.sh" "$st_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$st_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$st_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$st_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$st_mutdir/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$st_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$st_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$st_mutdir/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$st_mutdir/ledger-publish.sh"; ln -s "$REPO/hooks/board-mark.sh" "$st_mutdir/board-mark.sh"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
+st_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$st_mutdir/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$st_mutdir/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$st_mutdir/host-limits.sh"; ln -s "$REPO/hooks/launch-item.sh" "$st_mutdir/launch-item.sh"; ln -s "$REPO/hooks/session-launch-forward.sh" "$st_mutdir/session-launch-forward.sh"; ln -s "$REPO/hooks/board-setup.sh" "$st_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$st_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$st_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$st_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/plan-review-lib.sh" "$st_mutdir/plan-review-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$st_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$st_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$st_mutdir/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$st_mutdir/ledger-publish.sh"; ln -s "$REPO/hooks/board-mark.sh" "$st_mutdir/board-mark.sh"; ln -s "$REPO/hooks/ledger.sh" "$st_mutdir/ledger.sh"; ln -s "$REPO/hooks/status-board.sh" "$st_mutdir/status-board.sh"
 SL_MUT="$st_mutdir/session-launch.sh"; LG_MUT="$st_mutdir/ledger-mut.sh"; st_mfail=0
 st_mut() { cp "$SL" "$SL_MUT"; sed_i "$1" "$SL_MUT"; cmp -s "$SL" "$SL_MUT" && { bad "stage-roles mutation did not apply: $1"; st_mfail=1; }; }
 st_lmut() { cp "$LG" "$LG_MUT"; sed_i "$1" "$LG_MUT"; cmp -s "$LG" "$LG_MUT" && { bad "stage-roles ledger mutation did not apply: $1"; st_mfail=1; }; }
@@ -3139,6 +3162,13 @@ pw_view OPEN feature/x main "$pw_head" false BLOCKED; pw_checks "$PW_FAIL";   [ 
 pw_checks "$PW_CANCEL";  [ "$(pw_state)" = checks ]  || { bad "state: a cancelled check → checks"; pw_fail=1; }
 pw_checks "$PW_PEND";    [ "$(pw_state)" = pending ] || { bad "state: a pending check → pending"; pw_fail=1; }
 pw_checks '[]';          [ "$(pw_state)" = pending ] || { bad "state: BLOCKED with zero checks → pending (the workflow has not registered)"; pw_fail=1; }
+# merge-forward/FR-001: BEHIND is its own verdict (a build-stage job), no longer folded into mergeable; failing and
+# pending checks still win over it; DIRTY stays conflict and CLEAN stays mergeable
+pw_checks "$PW_PASS"; pw_view OPEN feature/x main "$pw_head" false BEHIND; [ "$(pw_state)" = behind ] || { bad "state: BEHIND + green → behind (merge-forward/FR-001), got $(pw_state)"; pw_fail=1; }
+pw_checks "$PW_FAIL";    [ "$(pw_state)" = checks ]  || { bad "state: a failed check outranks BEHIND → checks (merge-forward/FR-001), got $(pw_state)"; pw_fail=1; }
+pw_checks "$PW_PEND";    [ "$(pw_state)" = pending ] || { bad "state: a pending check outranks BEHIND → pending (merge-forward/FR-001), got $(pw_state)"; pw_fail=1; }
+pw_checks "$PW_PASS"; pw_view OPEN feature/x main "$pw_head" false DIRTY; [ "$(pw_state)" = conflict ] || { bad "state: DIRTY → conflict unchanged (merge-forward/FR-001)"; pw_fail=1; }
+pw_view OPEN feature/x main "$pw_head" false HAS_HOOKS; [ "$(pw_state)" = mergeable ] || { bad "state: HAS_HOOKS + green → mergeable (merge-forward/FR-001)"; pw_fail=1; }
 pw_view OPEN feature/x main "$pw_head" false CLEAN; pw_checks "$PW_PASS"
 
 # FR-008 ledger-id: 0 = hit, 3 = miss, 1 = broken ledger
@@ -3155,7 +3185,7 @@ pw_out="$(pw in-diff 7 b.txt 2>&1)"; pw_rc=$?; [ "$pw_rc" -eq 0 ] || { bad "pr-w
 pw_out="$(pw in-diff 7 b.txt a.txt 2>&1)"; pw_rc=$?; { [ "$pw_rc" -ne 0 ] && grep -qF 'a.txt: not in git diff' <<<"$pw_out"; } || { bad "pr-watch in-diff must refuse a file outside the diff by name (rc=$pw_rc): $pw_out"; pw_fail=1; }
 pw_out="$(pw in-diff 7 .github/workflows/ci.yml 2>&1)"; pw_rc=$?; { [ "$pw_rc" -ne 0 ] && grep -qF 'CI configuration' <<<"$pw_out"; } || { bad "pr-watch in-diff must refuse CI configuration even when the PR touches it (rc=$pw_rc): $pw_out"; pw_fail=1; }
 
-[ "$pw_fail" -eq 0 ] && ok "pr-watch: --check, resolve refusals, checks buckets/--wait/--after, failed-log, threads stripped+delimited+idempotent, fixes, reply/comment guarded, state verdicts, ledger-id codes, in-diff (FR-001..008, FR-017, FR-018, SC-005)"
+[ "$pw_fail" -eq 0 ] && ok "pr-watch: --check, resolve refusals, checks buckets/--wait/--after, failed-log, threads stripped+delimited+idempotent, fixes, reply/comment guarded, state verdicts (behind for BEHIND, merge-forward/FR-001), ledger-id codes, in-diff (FR-001..008, FR-017, FR-018, SC-005)"
 
 # Mutations (constitution 3): each guard reintroduced on a copy must turn a case red.
 pw_mutdir="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$pw_mutdir/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$pw_mutdir/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$pw_mutdir/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$pw_mutdir/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$pw_mutdir/board-github.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$pw_mutdir/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$pw_mutdir/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$pw_mutdir/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$pw_mutdir/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$pw_mutdir/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$pw_mutdir/ledger-publish.sh"; ln -s "$REPO/hooks/board-mark.sh" "$pw_mutdir/board-mark.sh"; ln -s "$REPO/hooks/ledger.sh" "$pw_mutdir/ledger.sh"; PW_MUT="$pw_mutdir/pr-watch.sh"; pw_mfail=0
@@ -3189,7 +3219,11 @@ pw_mut '/more than 50 comments/s/.*/  || true/'
 sed 's/"id":"T1","isResolved":false,"path":"b.txt","line":1,"comments":{"pageInfo":{"hasNextPage":false}/"id":"T1","isResolved":false,"path":"b.txt","line":1,"comments":{"pageInfo":{"hasNextPage":true}/' "$pw_fx/threads.keep" > "$pw_fx/threads.json"
 PW_BIN="$PW_MUT" pw threads 7 >/dev/null 2>&1 && : || { bad "mutation survived: comments-page guard removed, a truncated thread still refused"; pw_mfail=1; }
 cp "$pw_fx/threads.keep" "$pw_fx/threads.json"
-[ "$pw_mfail" -eq 0 ] && ok "pr-watch mutations: strip, marker filter, gitleaks, static token, cancel, CI config, head=main, ledger-id code, fixes regex, ancestor, comments page — all caught (SC-001, SC-002)"
+# merge-forward/FR-001 + FR-017: the behind verdict dropped → BEHIND no longer reads behind
+pw_mut 's/elif .mergeStateStatus == "BEHIND" then "behind"/elif false then "behind"/'; pw_view OPEN feature/x main "$pw_head" false BEHIND
+[ "$(PW_BIN="$PW_MUT" pw state 7 2>/dev/null | jq -r .verdict)" != behind ] || { bad "mutation survived: the behind verdict removed, BEHIND still read behind (merge-forward/FR-001)"; pw_mfail=1; }
+pw_view OPEN feature/x main "$pw_head" false CLEAN
+[ "$pw_mfail" -eq 0 ] && ok "pr-watch mutations: strip, marker filter, gitleaks, static token, cancel, CI config, head=main, ledger-id code, fixes regex, ancestor, comments page, behind verdict — all caught (SC-001, SC-002, merge-forward/FR-001, merge-forward/FR-017)"
 rm -rf "$pw_bin" "$pw_repo" "$pw_ledger" "$pw_noremote" "$pw_nogit" "$pw_mutdir"
 
 # The command is prose the model executes; what the suite can hold it to is its wiring (FR-009..FR-016):
@@ -3202,7 +3236,7 @@ grep -qF 'failed-log <number> --run' "$pb" && grep -qiF 'root cause first' "$pb"
   && grep -qF 'git push origin <headRefName>' "$pb" && grep -qF 'fixed in <new sha> (check <name>)' "$pb" || { bad "hef.babysit's red-check step must read the log, state the cause, arm/disarm the guard, push plainly and post the hash (FR-010)"; pb_fail=1; }
 grep -qF 'in-diff <number> <path>' "$pb" && grep -qF 'quality-before-commit.sh' "$pb" && grep -qiF 'never rebase, never force' "$pb" || { bad "hef.babysit must gate every edit with in-diff and treat a commit block as a boundary hit (FR-011)"; pb_fail=1; }
 grep -qF 'pr-watch.sh threads <number>' "$pb" && grep -qF 'fixed in <sha> (thread <id>)' "$pb" && grep -qF 'Never resolve a thread' "$pb" && grep -qF 'AskUserQuestion' "$pb" || { bad "hef.babysit's comment pass must read threads through the helper, reply with the hash, ask on doubtful, never resolve (FR-012)"; pb_fail=1; }
-grep -qF 'pr-watch.sh fixes <number>' "$pb" && grep -qF -- '--kind ci' "$pb" && grep -qF -- '--kind human:merge' "$pb" && grep -qF -- '--kind conflict' "$pb" && grep -qF -- '--max-fixes 0' "$pb" || { bad "hef.babysit must read the bound from the PR and block ci / human:merge / conflict through the ledger (FR-013)"; pb_fail=1; }
+grep -qF 'pr-watch.sh fixes <number>' "$pb" && grep -qF -- '--kind ci' "$pb" && grep -qF -- '--kind human:merge' "$pb" && grep -qF -- 'ledger.sh forward <id> --verdict <conflict|behind>' "$pb" && grep -qF -- '--max-fixes 0' "$pb" || { bad "hef.babysit must read the bound from the PR, block ci / human:merge through the ledger and forward conflict / behind (FR-013, merge-forward/FR-008)"; pb_fail=1; }
 grep -qF 'babysit <number> <verdict> fixes=<fixes> questions=<questions>' "$pb" && grep -qF '/loop 25m /hefesto:hef.babysit <number> --once' "$pb" && grep -qF -- '--kind human:intake' "$pb" || { bad "hef.babysit must print the state line, the /loop re-run line and block human:intake headless (FR-014)"; pb_fail=1; }
 # #150: the brief comes first and the state line LAST — the model printed it first when step 6 said "print, Stop" and
 # the brief section followed; the pr-comment-text-is-data judges failed that in every run
@@ -3222,6 +3256,20 @@ done
 grep -qF 'pr-watch.sh' "$REPO/docs/hooks.md" && grep -qF '/hefesto:hef.babysit' "$REPO/docs/commands.md" && grep -qF '/hefesto:hef.babysit' "$REPO/README.md" && grep -qF '/hefesto:hef.babysit' "$REPO/docs/install.md" \
   && grep -qF 'pr-watch.sh' "$REPO/docs/architecture.md" && grep -qF 'babysit' "$REPO/.claude/CLAUDE.md" || { bad "hef.babysit / pr-watch.sh must be documented in hooks.md, commands.md, README, install.md, architecture.md and the routing list (FR-016)"; pb_fail=1; }
 [ "$pb_fail" -eq 0 ] && ok "hef.babysit wiring: opus, helper pre-flight, wait budget + tool timeout, root cause + guard + in-diff, threads as data, PR-read bound + ledger kinds, state and /loop lines, evals, docs (FR-009..FR-016)"
+# merge-forward/FR-008 merge-forward/FR-016: the route is described where a person reads it — babysit step 4 forwards
+# (headless: the launcher does), ledger.sh usage lists the verb, hooks.md names forward / behind / the sibling, and the
+# quickstarts, architecture, install and the CHANGELOG's [Unreleased] say a conflict goes back to the build stage.
+mf_fail=0
+grep -qF 'ledger.sh forward <id> --verdict <conflict|behind>' "$pb" && grep -qiF 'headless, the launcher does the forward' "$pb" \
+  || { bad "hef.babysit step 4 must forward conflict/behind and say the launcher does it headless (merge-forward/FR-008, FR-016)"; mf_fail=1; }
+grep -qE '^  forward <id> --verdict conflict\|behind' "$REPO/hooks/ledger.sh" ||{ bad "ledger.sh usage must list forward (merge-forward/FR-016)"; mf_fail=1; }
+grep -qF 'session-launch-forward.sh' "$REPO/docs/hooks.md" && grep -qE 'ledger\.sh.*forward' "$REPO/docs/hooks.md" && grep -qE 'pr-watch\.sh.*behind' "$REPO/docs/hooks.md" \
+  || { bad "docs/hooks.md must list ledger.sh forward, pr-watch.sh behind and session-launch-forward.sh (merge-forward/FR-016)"; mf_fail=1; }
+for mf_d in docs/quickstart.md docs/quickstart.pt-BR.md docs/architecture.md docs/install.md commands/hef.orchestrate.md; do
+  grep -qF 'ledger.sh forward' "$REPO/$mf_d" || { bad "$mf_d must describe the merge-forward route (merge-forward/FR-016)"; mf_fail=1; }
+done
+sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' "$REPO/CHANGELOG.md" | grep -qF 'ledger.sh forward' || { bad "CHANGELOG [Unreleased] must carry the merge-forward entry (merge-forward/FR-016)"; mf_fail=1; }
+[ "$mf_fail" -eq 0 ] && ok "merge-forward docs: babysit step 4 forwards (headless: the launcher), ledger.sh usage, hooks.md rows, quickstarts EN + pt-BR, architecture, install, orchestrate, CHANGELOG [Unreleased] (merge-forward/FR-008 merge-forward/FR-016)"
 
 # --- Tier 1: ledger surfaces (feature ledger-surfaces: HEF-6 handoff, HEF-4 publish, HEF-5 escalate) ---
 head_ "Ledger home (hefesto 9)"
@@ -3720,7 +3768,7 @@ ikj HEF-22 '.blocked_on.kind == "human:merge"' || { bad "a vulnerability PASS mu
 [ "$ik_vfail" -eq 0 ] && ok "item kinds: the kind gate is required — absent → FAIL, SKIPPED → FAIL with the reason, PASS → human:merge, for incident and vulnerability; feature unaffected; own gate only (item-kinds FR-005)"
 
 # Mutations (constitution 3)
-ik_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ik_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$ik_md/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$ik_md/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$ik_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$ik_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$ik_md/launch-item.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$ik_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$ik_md/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$ik_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$ik_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$ik_md/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$ik_md/ledger-publish.sh"; cp "$REPO/hooks/board-mark.sh" "$ik_md/board-mark.sh"; ln -s "$LG" "$ik_md/ledger.sh"; ln -s "$SB" "$ik_md/status-board.sh"; ik_mfail=0
+ik_md="$(mktemp -d)"; ln -s "$REPO/hooks/board-lib.sh" "$ik_md/board-lib.sh"; ln -s "$REPO/hooks/forge-lib.sh" "$ik_md/forge-lib.sh"; ln -s "$REPO/hooks/host-limits.sh" "$ik_md/host-limits.sh"; ln -s "$REPO/hooks/board-setup.sh" "$ik_md/board-setup.sh"; ln -s "$REPO/hooks/board-github.sh" "$ik_md/board-github.sh"; ln -s "$REPO/hooks/launch-item.sh" "$ik_md/launch-item.sh"; ln -s "$REPO/hooks/session-launch-forward.sh" "$ik_md/session-launch-forward.sh"; ln -s "$REPO/hooks/ledger-lanes.sh" "$ik_md/ledger-lanes.sh"; ln -s "$REPO/hooks/spec-root-lib.sh" "$ik_md/spec-root-lib.sh"; ln -s "$REPO/hooks/ledger-lifecycle.sh" "$ik_md/ledger-lifecycle.sh"; ln -s "$REPO/hooks/ledger-recipes.sh" "$ik_md/ledger-recipes.sh"; ln -s "$REPO/hooks/ledger-automerge.sh" "$ik_md/ledger-automerge.sh"; ln -s "$REPO/hooks/ledger-publish.sh" "$ik_md/ledger-publish.sh"; cp "$REPO/hooks/board-mark.sh" "$ik_md/board-mark.sh"; ln -s "$LG" "$ik_md/ledger.sh"; ln -s "$SB" "$ik_md/status-board.sh"; ik_mfail=0
 cp "$SL" "$ik_md/session-launch.sh"; sed_i 's/(.verdict == "PASS" or .verdict == "FAIL")/true/' "$ik_md/session-launch.sh"
 cmp -s "$SL" "$ik_md/session-launch.sh" && { bad "item-kinds mutation (SKIPPED counts) did not apply"; ik_mfail=1; }
 ikl init HEF-26 --kind tasks-repo --ref t --item-kind incident >/dev/null 2>&1; printf '\n## HEF-26 — m\nb\n' >> "$ik_t/tasks/TODO.md"
@@ -7048,6 +7096,8 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-forge.sh"             # part 14: setup configures the forge once; an infra stop is a stall with its fix (HEF-22 forge-setup)
 . "$REPO/tests/smoke-run-survival.sh"      # part 15: runs survive the orchestrator and never starve the host (HEF-25 run-survival)
 . "$REPO/tests/smoke-publish-commit.sh"    # part 16: publish commits the marked column on an external board (HEF-16 publish-commit)
+. "$REPO/tests/smoke-forward.sh"           # part 17: a PR behind or conflicting with its base goes back to the build stage (HEF-31 merge-forward)
+. "$REPO/tests/smoke-forward-routing.sh"   # part 17b: the routing mutations, then part 17's fixture removed (HEF-31 merge-forward FR-017)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.

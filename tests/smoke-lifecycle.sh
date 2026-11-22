@@ -395,6 +395,12 @@ done
 jq --arg r "Bash($REPO/hooks/ledger.sh fold:*)" '.permissions.ask -= [$r]' "$lc_sf" > "$lc_t/s.json" && mv "$lc_t/s.json" "$lc_sf"
 lc_o="$(lc_su --check)" && { bad "--check must fail when the fold ask rule is missing"; x_fail=1; }
 grep -qF 'ledger.sh fold' <<<"$lc_o" || { bad "--check must name the missing fold ask rule — got: $(head -c 300 <<<"$lc_o")"; x_fail=1; }
+# merge-forward/FR-018: forward is mechanical (an allow rule, one spelling), its --past-cap form a person's signature
+# (an ask rule) — never a whole-verb ask, which the HEF-27 signature check would call a mechanic that stops a lane.
+# (Three long lines on purpose: this file sits at the 500-code-line limit.)
+jq -e --arg h "$REPO/hooks" '(.permissions.allow | index(["Bash(\($h)/ledger.sh forward:*)"])) and (.permissions.allow | index(["Bash(bash \($h)/ledger.sh forward:*)"]) | not) and (.permissions.ask | index(["Bash(\($h)/ledger.sh forward * --past-cap*)"])) and (.permissions.ask | map(select(test("ledger[.]sh forward:"))) | length == 0)' "$lc_sf" >/dev/null 2>&1 || { bad "setup must allow ledger.sh forward (one spelling) and ask only on forward --past-cap, never a whole-verb ask (merge-forward/FR-018)"; x_fail=1; }
+cp "$lc_sf" "$lc_t/s.keep"; jq --arg r "Bash($REPO/hooks/ledger.sh forward * --past-cap*)" '.permissions.ask -= [$r]' "$lc_t/s.keep" > "$lc_sf"; lc_o="$(lc_su --check)" && { bad "--check must fail when the forward --past-cap ask rule is missing (merge-forward/FR-018)"; x_fail=1; }; grep -qF 'ledger.sh forward * --past-cap*' <<<"$lc_o" || { bad "--check must name the missing forward --past-cap ask rule (merge-forward/FR-018) — got: $(head -c 300 <<<"$lc_o")"; x_fail=1; }
+jq --arg r "Bash($REPO/hooks/ledger.sh forward:*)" '.permissions.allow -= [$r]' "$lc_t/s.keep" > "$lc_sf"; lc_o="$(lc_su --check)" && { bad "--check must fail when the forward allow rule is missing (merge-forward/FR-018)"; x_fail=1; }; grep -qF 'the helper allowlist' <<<"$lc_o" || { bad "--check must name the helper allowlist when forward's allow rule is missing (merge-forward/FR-018) — got: $(head -c 300 <<<"$lc_o")"; x_fail=1; }
 rm -rf -- "${lc_t:?}" "${lc_sh:?}"
 [ "$x_fail" -eq 0 ] && ok "drop / fold --into / supersede --by reach a terminal phase with the reason's hash, keep history, clear owner and block; every refusal names its cause; terminal entries leave next/claim/advance and metrics counts each; person-only through lane-guard, caller_gate and setup's ask rules (FR-001 FR-002 FR-003 NR-001)"
 
