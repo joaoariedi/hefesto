@@ -37,6 +37,8 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+## [9.4.4] - 2026-11-22
+
 ### Added
 
 - **`ledger.sh publish` can commit the marked column on an external board** (HEF-16; `docs/install.md` §7 step 13,
