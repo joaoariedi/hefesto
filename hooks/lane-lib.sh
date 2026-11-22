@@ -44,7 +44,16 @@ first_word() { # $1 command → its first word, unquoted
 
 # The claim and the run record are written by hefesto's launcher only (its own calls are not tool calls); a lane that
 # ran them could free or take another lane's interactive claim (code review of PR B, B3).
-is_launcher_sub() { case "${1:-}" in run|claim) return 0 ;; esac; return 1; }
+# rework (HEF-57 FR-003/FR-007, P2): the verify launcher's own move, except its person form past the cap — so the callers
+# pass the arguments, as they do to is_person_sub.
+is_launcher_sub() { # $1 subcommand, then its arguments
+  local a
+  case "${1:-}" in
+    run|claim) return 0 ;;
+    rework) shift; for a in "$@"; do [ "$a" = --past-cap ] && return 1; done; return 0 ;;
+  esac
+  return 1
+}
 
 # Which ledger subcommands record a person's decision — one list, read by lane-guard.sh (the hook) and by ledger.sh
 # itself (the second gate, in case a hook fails open). With --lanes they run only from the orchestrator lane.
@@ -54,7 +63,7 @@ is_person_sub() { # $1 subcommand, then its arguments → 0 when it records a pe
     approve|answer|revise|request|direct|op|unblock|drop|fold|supersede|reopen) return 0 ;;
     merge-auto) case "${2:-}" in grant|revoke) return 0 ;; esac ;;   # HEF-30 FR-015; ledger-automerge.sh gates it too
     release|record) shift; for a in "$@"; do case "$a" in --reviewed-by-human|--body-file|--body-from-board|--rfc) return 0 ;; esac; done ;;
-    forward) shift; for a in "$@"; do [ "$a" = --past-cap ] && return 0; done ;;   # merge-forward FR-005: past the cap, a person
+    forward|rework) shift; for a in "$@"; do [ "$a" = --past-cap ] && return 0; done ;;   # merge-forward FR-005, verify-fix-loop FR-007: past the cap, a person
   esac
   return 1
 }

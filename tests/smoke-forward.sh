@@ -280,11 +280,11 @@ fw_mut ledger-lifecycle.sh 's/| (if .answers then .answers |= map(.consumed = tr
 fw_entry HEF-12 human:merge "$(fw_rows "$fw_url" 3)"; fw_gh DIRTY feat12 "$fw_h12"
 fw_mut ledger-lifecycle.sh 's/if \[ "\$past" = 0 \] && forward_cap_reached "\$e"; then/if false; then/' && { fw forward HEF-12 --verdict conflict >/dev/null 2>&1; fw_j HEF-12 '.phase == "implement"' || fw_survived "the cap dropped, yet a 4th forward was blocked"; }
 fw_entry HEF-14 conflict "$(fw_rows "$fw_url" 3)"; fw_gh DIRTY feat14 "$fw_h14"; fw_snap HEF-14
-fw_mut lane-lib.sh '/^    forward) shift; for a in/d' && { fw_lane sid-fw-deployer-0001 forward HEF-14 --verdict conflict --past-cap --by p >/dev/null 2>&1; fw_same HEF-14 && fw_survived "the forward case dropped from is_person_sub, yet --past-cap from the deployer lane was refused"; }
+fw_mut lane-lib.sh 's/^    forward|rework) shift; for a in/    rework) shift; for a in/' && { fw_lane sid-fw-deployer-0001 forward HEF-14 --verdict conflict --past-cap --by p >/dev/null 2>&1; fw_same HEF-14 && fw_survived "the forward case dropped from is_person_sub, yet --past-cap from the deployer lane was refused"; }
 # questions_item admitting a conflict block that has a question_path (ledger-lanes.sh): HEF-12 blocked at the cap again
 unset FW_LG; fw_entry HEF-12 human:merge "$(fw_rows "$fw_url" 3)"; fw_gh DIRTY feat12 "$fw_h12"; fw_o="$(fw forward HEF-12 --verdict conflict 2>&1)"
 grep -qF 'cap 3 reached' <<<"$(fw questions HEF-12 2>&1)" || { bad "control: the real questions_item must serve HEF-12's cap reason before the mutation — forward said: $fw_o; questions said: $(fw questions HEF-12 2>&1 | head -c 300)"; x_fail=1; }
-fw_mut ledger-lanes.sh 's/{ \[ "\$k" = conflict \] && \[ -n "\$qp" \]; } || //' && { grep -qF 'cap 3 reached' <<<"$(fw questions HEF-12 2>&1)" && fw_survived "the conflict admission dropped from questions_item, yet the cap reason was still served"; }
+fw_mut ledger-lanes.sh 's/{ \[ "\$k" = conflict \] || \[ "\$k" = verdict \]; }/[ "$k" = verdict ]/' && { grep -qF 'cap 3 reached' <<<"$(fw questions HEF-12 2>&1)" && fw_survived "the conflict admission dropped from questions_item, yet the cap reason was still served"; }
 # record --forward-consumed (ledger.sh): the flag gone, and an empty array written where there were none
 fw_entry HEF-17 none "$(fw_rows "$fw_url" 1) | .forwards[0].consumed = false"
 fw_mut ledger.sh 's/      --forward-consumed)/      --forward-consumed-gone)/' && { fw record HEF-17 --forward-consumed >/dev/null 2>&1; fw_j HEF-17 '.forwards[0].consumed == true' && fw_survived "the --forward-consumed flag removed, yet the row was consumed"; }
