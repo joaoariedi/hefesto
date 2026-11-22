@@ -180,20 +180,6 @@ mkdir -p "$fw_w/.claude/worktrees/HEF-9"; fw_entry HEF-9; fw_gh BEHIND main; fw_
 fw_h10="$(fw_wt HEF-10 feat10 "$fw_t/elsewhere10")"; fw_entry HEF-10
 jq --arg p "$fw_t/elsewhere10" '.worktree = $p' "$fw_ld/HEF-10.json" > "$fw_t/e10" && mv "$fw_t/e10" "$fw_ld/HEF-10.json"
 fw_gh BEHIND feat10 "$fw_h10"; fw_no_wt "a handed-off entry whose .worktree is elsewhere" HEF-10 feat10
-# a branch name git accepts but the shell would read (it reaches the worker's git fetch/push): blocked, never moved
-# (HEF-31 verify, scan 2026-11-22) — head and base both
-fw_bad_ref() { # fw_bad_ref <label> <id> <ref shown>
-  local o; o="$(fw forward "$2" --verdict behind 2>&1)" || { bad "$1: forward must exit 0 with a conflict block — got: $(head -c 300 <<<"$o")"; x_fail=1; return; }
-  { grep -qF "is not a plain ref" <<<"$o" && grep -qF "$3" <<<"$o" && fw_j "$2" '.phase == "pr" and .blocked_on.kind == "conflict" and (.forwards // []) == []'; } \
-    || { bad "$1: a branch that is no plain ref must block conflict, naming it, with no forward row — got: $o / $(jq -c '{phase, blocked_on, forwards}' "$fw_ld/$2.json")"; x_fail=1; }
-}
-fw_entry HEF-12; fw_gh BEHIND 'a$(id);b'; fw_bad_ref "a head branch with \$( and ;" HEF-12 'a$(id);b'
-fw_entry HEF-13; fw_gh BEHIND feat13 "" 'main|x'; fw_bad_ref "a base branch with |" HEF-13 'main|x'
-if fw_mut ledger-lifecycle.sh 's/do \[\[ "\$r" =~/do true || [[ "$r" =~/'; then
-  fw_entry HEF-14; fw_gh BEHIND 'a$(id);b'; o14="$(fw forward HEF-14 --verdict behind 2>&1)" || fw_survived "the plain-ref mutant must still run (exit 0): $(head -c 200 <<<"$o14")"
-  grep -qF "is not a plain ref" <<<"$o14" && fw_survived "the plain-ref check bypassed, yet the branch was still refused as no plain ref"
-  FW_LG=""
-fi
 # a legacy conflict block (no question_path) keeps the "waits on" refusal; human:merge is no question either
 fw_entry HEF-11 conflict; fw_o="$(fw questions HEF-11 2>&1)" && { bad "questions on a legacy conflict block (no question_path) must be refused (merge-forward/FR-015)"; x_fail=1; }
 grep -qF 'it waits on conflict' <<<"$fw_o" || { bad "a legacy conflict keeps the 'waits on' message — got: $(head -c 300 <<<"$fw_o")"; x_fail=1; }

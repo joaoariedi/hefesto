@@ -38,6 +38,30 @@ fw_take HEF-73 feat73 && { fw_gh DIRTY feat73 "$fw_hh"
 printf '{"name":"app"}\n' > "$fw_w/.claude/project-status.json"
 [ "$x_fail" -eq 0 ] && ok "routing mutations caught: the deploy transcription blocking conflict again or dropping behind, merge_state_step and action stop --block conflict no longer forwarding (merge-forward/FR-017 merge-forward/FR-006 merge-forward/FR-007 SC-004)"
 
+# HEF-31 verify (2026-11-22): a branch git accepts but the shell would read is blocked, never moved (scan, round 1);
+# the cap counts per PR, so a URL with a tail is the same PR (review, round 2)
+head_ "Merge forward: only a plain ref is merged forward; the cap of 3 counts per PR, whatever the URL's tail (merge-forward FR-005)"
+x_fail=0
+fw_bad_ref() { # fw_bad_ref <label> <id> <ref shown>
+  local o; o="$(fw forward "$2" --verdict behind 2>&1)" || { bad "$1: forward must exit 0 with a conflict block — got: $(head -c 300 <<<"$o")"; x_fail=1; return; }
+  { grep -qF "is not a plain ref" <<<"$o" && grep -qF "$3" <<<"$o" && fw_j "$2" '.phase == "pr" and .blocked_on.kind == "conflict" and (.forwards // []) == []'; } \
+    || { bad "$1: a branch that is no plain ref must block conflict, naming it, with no forward row — got: $o / $(jq -c '{phase, blocked_on, forwards}' "$fw_ld/$2.json")"; x_fail=1; }
+}
+fw_entry HEF-80; fw_gh BEHIND 'a$(id);b'; fw_bad_ref "a head branch with \$( and ;" HEF-80 'a$(id);b'
+fw_entry HEF-81; fw_gh BEHIND feat81 "" 'main|x'; fw_bad_ref "a base branch with |" HEF-81 'main|x'
+fw_mut ledger-lifecycle.sh 's/do \[\[ "\$r" =~/do true || [[ "$r" =~/' && { fw_entry HEF-82; fw_gh BEHIND 'a$(id);b'
+  fw_o="$(fw forward HEF-82 --verdict behind 2>&1)" || fw_survived "the plain-ref mutant must still run (exit 0): $(head -c 200 <<<"$fw_o")"
+  grep -qF "is not a plain ref" <<<"$fw_o" && fw_survived "the plain-ref check bypassed, yet the branch was still refused"; }; fw_unmut
+fw_cap_tail() { # fw_cap_tail <id> → 3 rows on …/pull/7, the entry's PR recorded as …/pull/7/files; the forward's output in fw_o
+  local h; h="$(fw_wt "$1" "feat${1#HEF-}")"; fw_entry "$1" human:merge "$(fw_rows "$fw_url" 3) | .pr.url = \"$fw_url/files\""
+  fw_gh DIRTY "feat${1#HEF-}" "$h"; fw_o="$(fw forward "$1" --verdict conflict 2>&1)"
+}
+fw_cap_tail HEF-83; { grep -qF "merge forward cap 3 reached" <<<"$fw_o" && fw_j HEF-83 '.phase == "pr" and (.forwards | length) == 3'; } \
+  || { bad "the PR URL with a tail (…/pull/7/files) is the same PR: the 4th forward must hit the cap — got: $(head -c 300 <<<"$fw_o")"; x_fail=1; }
+fw_mut ledger-lifecycle.sh 's/(.pr.url | pr) as \$u/.pr.url as $u/; s/select((.pr_url | pr) == \$u)/select(.pr_url == $u)/' && { fw_cap_tail HEF-84
+  grep -qF "merge forward cap 3 reached" <<<"$fw_o" && fw_survived "the cap compares raw URLs again, yet the URL with a tail still hit the cap"; }; fw_unmut
+[ "$x_fail" -eq 0 ] && ok "a branch that is no plain ref (head or base) blocks conflict, never moves; the cap of 3 counts per PR, a URL tail does not reset it; both mutants caught (merge-forward/FR-005 merge-forward/FR-017)"
+
 # The fixture of parts 17 and 17b is removed last.
 git -C "$fw_w" worktree prune >/dev/null 2>&1
 rm -rf -- "${fw_t:?}"; rm -f "$HOME"/.cache/hefesto/sessions/sid-fw-*-0001.json

@@ -259,8 +259,10 @@ forward_worktree_ok() { # $1 the launch's worktree path, $2 the PR's head branch
   [ "$(git -C "$1" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$2" ]
 }
 
-forward_cap_reached() { # $1 entry JSON → 0 when FORWARD_CAP forwards already went to its current PR URL (FR-005)
-  [ "$(jq --argjson c "$FORWARD_CAP" '.pr.url as $u | [(.forwards // [])[] | select(.pr_url == $u)] | length >= $c' <<<"$1")" = true ]
+forward_cap_reached() { # $1 entry JSON → 0 when FORWARD_CAP forwards already went to its current PR (FR-005)
+  # one PR, whatever the URL's tail: …/pull/7 and …/pull/7/files count together (HEF-31 verify round 2, review)
+  [ "$(jq --argjson c "$FORWARD_CAP" 'def pr: (. // "") | sub("^(?<p>.*/pull/[0-9]+).*$"; "\(.p)");
+    (.pr.url | pr) as $u | [(.forwards // [])[] | select((.pr_url | pr) == $u)] | length >= $c' <<<"$1")" = true ]
 }
 
 forward_block_reason() { # $1 id, $2 entry JSON, $3 reason → one conflict block whose question file holds the reason
