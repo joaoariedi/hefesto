@@ -207,6 +207,10 @@ forward_guards() { # $1 id, $2 entry JSON — the refusals the entry alone decid
   ph=$(jq -r '.phase // ""' <<<"$2")
   [ "$ph" = pr ] || die "ledger forward $1: phase is '$ph', not pr — only an entry waiting on its PR is merged forward"
   [ -n "$(jq -r '.pr.url // empty' <<<"$2")" ] || die "ledger forward $1: no PR URL is recorded — nothing to merge forward"
+  # the URL reaches the worker's merge-forward instruction: only the shape a forge gives, a plain path tail at most
+  # (HEF-31 verify r3, scan) — the cap counts …/pull/7/files as …/pull/7 (forward_cap_reached)
+  [[ "$(jq -r .pr.url <<<"$2")" =~ ^https://[A-Za-z0-9.-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+(/[A-Za-z0-9._-]+)*$ ]] \
+    || die "ledger forward $1: the recorded PR URL is not https://<host>/<owner>/<repo>/pull/<n>[/<path>] — nothing to merge forward"
   # D12: what a merge forward may clear — no block, the merge gate (re-earned through the verifier) or conflict
   bk=$(jq -r '.blocked_on.kind // empty' <<<"$2")
   case "$bk" in ""|human:merge|conflict) ;;

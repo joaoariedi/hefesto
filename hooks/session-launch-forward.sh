@@ -76,6 +76,7 @@ forward_transcribe_guard() { # rewrites SO before the implement transcription; s
   SO="$(jq -c --arg r "$(jq -r '.route // empty' <<<"$E")" --arg u "$u" '(if $r == "" then del(.route) else .route = $r end)
     | if .outcome == "pr" and (.pr_url // "") != $u
       then .summary = "merge forward: the worker reported pull request \(.pr_url // "none"), not \($u) — " + (.summary // "") | .outcome = "failed" | .pr_url = null
+      elif .outcome != "pr" then .pr_url = null   # a merge forward never changes the PR, whatever it ends with (verify r3)
       else . end' <<<"$SO")" || die "session-launch implement $ID: cannot read the merge-forward outcome"
 }
 
