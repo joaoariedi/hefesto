@@ -17,7 +17,10 @@ forward_route() { # $1 the babysitter's verdict (conflict|behind) → the forwar
 }
 
 forward_open_row() { # → the entry's open (unconsumed) forward row as JSON, or nothing
-  jq -c '[(.forwards // [])[] | select(.consumed != true)] | last // empty' <<<"$E"
+  # a row older than the last reopen is closed: forwarded, then merged by hand and reopened, the item is new work
+  # with its follow-up, not a merge forward of the old PR (HEF-31 verify r4, review)
+  jq -c '([(.events // [])[] | select(.kind == "reopen") | .at] | max // "") as $r
+    | [(.forwards // [])[] | select(.consumed != true and (.at // "") > $r)] | last // empty' <<<"$E"
 }
 
 # D13: the lane's babysit ran `ledger.sh forward` itself (step 4), which released the lane's claim and moved the entry
