@@ -1953,13 +1953,13 @@ head_ "Session orchestration"
 
 # FR-016 — the dogfood board: this repository's own tasks/ kanban and config parse through the
 # status helper: as many todo items as TODO.md has `## HEF-` headings (counted here, not pinned — the
-# board moves as work ships); the config carries the orchestrate block.
+# board moves as work ships); the config carries the orchestrate block (no caps pinned: spend is open unless set, HEF-19).
 # Mutation: one `## HEF-` heading removed from the parse → the counts disagree → red.
 so_n="$(grep -c '^## HEF-' "$REPO/tasks/TODO.md")"
 so_out="$(cd "$REPO" && bash "$SB" --detailed 2>&1)"; so_rc=$?
 if [ "$so_rc" -eq 0 ] && grep -qE "todo[^0-9]*$so_n item" <<<"$so_out" && grep -qF 'HEF-1' <<<"$so_out" && grep -qF 'HEF-3' <<<"$so_out" \
-   && jq -e '.source=="tasks-repo" and .root=="tasks" and .orchestrate.usd_cap==5 and .orchestrate.daily_usd_cap==25' "$REPO/.claude/project-status.json" >/dev/null 2>&1; then
-  ok "dogfood board: tasks/ kanban parses to its $so_n todo items and the config carries the orchestrate caps (FR-016)"
+   && jq -e '.source=="tasks-repo" and .root=="tasks" and (.orchestrate | type) == "object" and (.orchestrate | has("plan_first"))' "$REPO/.claude/project-status.json" >/dev/null 2>&1; then
+  ok "dogfood board: tasks/ kanban parses to its $so_n todo items and the config carries the orchestrate block (FR-016)"
 else bad "dogfood board: rc=$so_rc, config or counts wrong — $(grep -iE 'todo|error' <<<"$so_out" | head -2 | tr '\n' '|')"; fi
 
 # The ledger (FR-001..FR-008): one JSON file per board item in the git COMMON dir, written only by
