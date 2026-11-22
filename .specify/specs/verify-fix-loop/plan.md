@@ -29,8 +29,9 @@ Decisions beyond the spec's D1–D10, taken here:
   `is_launcher_sub rework --past-cap …` returns 1. The three callers (`ledger.sh:283`, `:295`, `lane-guard.sh:166`)
   pass the arguments, as they already do for `is_person_sub`. `run|claim` are unchanged.
 - **P3 — the person's ruling is tagged on the row, not on the answer.** On a rework run's `pr`,
-  `record --rework-consumed` copies the indices of the unconsumed answers into the open row's `ruling` field, then
-  marks the row and (with `--person-text-consumed`) the answers consumed. The verify launch adds one ruling block
+  `record --rework-consumed` stamps the open row's `ruling[]` with one self-describing entry per ruling — `{answer,
+  answer_sha256, question_path, question_sha256}` (round 6, change 1), the pairs computed by the shared
+  `rework_pairs` jq definition (P14) — then marks the row and the unconsumed answers consumed in the same jq step. The verify launch adds one ruling block
   from the union of `ruling` over **every consumed rework row dated after the last `reopen` event** (review round 1,
   changes 1–2): a waiver holds for the life of the PR, so a later FAIL on an unrelated finding does not bring the
   waived one back; a reopened item's follow-up PR starts with none. `answer_item` is untouched.
@@ -40,11 +41,23 @@ Decisions beyond the spec's D1–D10, taken here:
   prompt and a missing old file never kills the launch.
 - **P8 — the guards forward learned (review round 2, changes 2–3).** `rework_guards` refuses a missing or
   non-forge-shaped PR URL and an empty or non-plain `.branch`, with the same two regexes `forward` uses
-  (`ledger-lifecycle.sh:186,212`) written in `ledger-rework.sh` — `forward`'s own lines are not touched (no refactor
-  in this item; the duplication is two regex literals, each mutation-tested where it lives). The implement launch checks the rework worktree with
-  `rework_wt_check`, which calls a generalized body of `forward_wt_check` (`session-launch-forward.sh:35`): the
-  question's first words become a parameter ("Merge forward of" / "Rework of"), the forward call site passes its
-  words, so forward's behaviour and message are byte-identical.
+  (`ledger-lifecycle.sh:186,212`) written in `ledger-rework.sh` — `forward_guards`' lines are not touched (the
+  duplication is two regex literals, each mutation-tested where it lives). **What of forward does move (round 6,
+  change 6), each byte-identical in behaviour:** (a) `forward_wt_check` (`session-launch-forward.sh:35-49`) becomes a
+  thin caller of `wt_on_branch_or_ask`, which stays in `session-launch-forward.sh`; (b) the implement `pr)` consume
+  call (`session-launch.sh:370`) moves into `implement_pr_consume`; (c) the implement `blocked)` block tail
+  (`session-launch.sh:373`) moves into `implement_block_question`. (b) and (c) are neutrally named because they
+  serve both forward and rework runs, and live in `session-launch-forward.sh` beside `implement_question_file` (the
+  existing shared implement-run helper), not in the rework arm. **`wt_on_branch_or_ask <want-branch> <title>
+  <resume> [<after-block>]`** (round 6, change 5): the function still reads the current branch itself (`:38`), and
+  builds the message from fixed text with three slots — `msg="the worktree $WT is not on the pull request's head
+  branch ${1:-<none>} (missing, or on ${br:-no branch}) — restore it (git worktree add $WT $1), then answer this to
+  $3"` and the question line `printf '%s of %s cannot start: %s\n' "$2" "$ID" "$msg"`. Forward passes `"Merge
+  forward"` and `"merge forward again"` — the two strings its message has today, so its question file and die line
+  are byte-identical (asserted by `tests/smoke-forward.sh`'s existing message checks); rework passes `"Rework"`,
+  `"resume the rework"` and `rework_asked_other` as `<after-block>`. The whole `[ "$DRY" != 1 ]` branch (question
+  file, block, and the after-block hook) is skipped together under `--dry-run`, so a dry run records no `asked[]`
+  entry either.
 - **P9 — the current round only (review round 2, change 5).** `rework_findings` filters `.verdicts[]` to those with
   `at` ≥ the max `.runs[] | select(.role == "implement") | .at` (`ledger.sh:704` stamps `at` on every run) before the
   per-gate reduce.
@@ -52,19 +65,66 @@ Decisions beyond the spec's D1–D10, taken here:
   left alone; when nothing is left to change, report `pr` with the same URL and no new commit. `--rework-consumed`
   stamps the ruling and consumes the answers in one jq step, so the transcription passes it alone (no
   `--person-text-consumed` beside it; no flag-order dependency — change 6).
-- **P11 — round 3's changes, applied ahead of the person's decision on change 2.** (1) The ruling's referent and
-  origin: the launcher's dispute block runs `record --rework-dispute <question file>` (path, sha256, `at` on the open
-  row); `--rework-consumed` stamps as `ruling` only answers with `at` after the row's last dispute; the verify and
+- **P11 — round 3's changes other than change 2 (the person's decision, P12).** (1) The ruling's referent and
+  origin (amended by round 4, changes 1–2 — P13): after every block of an open rework row the launcher runs
+  `record --rework-asked dispute|other`, appending the block's own question to the row's ordered `asked[]`;
+  `--rework-consumed` stamps as `ruling` each answer `rework_pairs` pairs with a dispute (P14); the verify and
   rework prompts hand each dispute question beside its answer (both re-hashed). (3) "Open forward row" in
   `rework_guards` is `forward_open_row`'s definition (unconsumed, newer than the last reopen). (4)
-  `wt_on_branch_or_ask <branch> <sentence>` takes the whole person-facing sentence; forward passes its current text
-  verbatim. (5) `rework_route` has no early return (Sketch 4). (6) `ledger.sh:423` becomes `launcher_gate "$@"`; the
+  `wt_on_branch_or_ask` parameterizes every forward-specific fragment of the sentence (the signature in P8);
+  forward passes today's fragments, so its text is byte-identical. (5) `rework_route` has no early return (Sketch 4). (6) `ledger.sh:423` becomes `launcher_gate "$@"`; the
   orchestrator's interactive-lane build bullets (`hef.orchestrate.md:390-395`) gain the rework prompt and the verify
   `--finish` that returns the entry to `implement`. (7) "report `pr` with a fix unpushed" is an instruction-level rule
   (spec US2), not a launcher check. (8) The move line and the brief print the round as the count since the last
   reopen, the number the cap compares.
-- **P7 — a refusal never strands the entry (review round 1, change 4).** `rework_route` returns 0 always: on a
-  non-zero `rework` it prints the refusal on stderr and runs today's `block --kind verdict` (FR-013b). Verify claims
+- **P12 — a ruled verify never records a verified head (round 3, change 2: decided by the owner, 2026-11-22; spec
+  D10).** One predicate, `verify_ruled` (in `session-launch-rework.sh`), is true when the entry holds a ruling since
+  the last reopen — the same jq `verify_ruling_block` reads, so the prompt and the transcription cannot disagree; the
+  entry is owned between `--prepare` and `--finish`, so a lane reads the same state twice. The transcription at
+  `session-launch.sh:418` appends `; verify_ruled && VH=none` (same line, +0), and the PASS branch at `:422` reads
+  `[ "$MBY" = auto ] && ! verify_ruled` (same line, +0): a ruled PASS reaches `pr` + `human:merge` even under
+  `merge_by: auto`, never the auto path. "Handed a ruling" stands in for "passed only because of a waiver" —
+  conservative by design (a ruled run whose gates would pass anyway also goes to the person). FR-016 mutation: drop
+  either override and a ruled all-PASS run under `merge_by: auto` advances unblocked — red; tested headless and
+  through a lane `--finish`.
+- **P13 — the rework `record` flags are launcher-only, and the ruling's referent is the block's own question (review
+  round 4, changes 1–3).** `record --rework-consumed` and `record --rework-asked <dispute|other>` are one-line arms
+  in `ledger.sh`'s `record` parser calling `rework_consumed_set` / `rework_asked_add` in `ledger-rework.sh` (the
+  `--verified-head` → `verified_head_set` pattern, `ledger.sh:723`, `ledger-automerge.sh:41`), each opening with the
+  same gate `verified_head_set` uses (`ledger-automerge.sh:44-49`: `HEFESTO_LAUNCHER=1`, no session id, not a
+  worker) — so a session cannot close the open row (which would turn a rework run into an ordinary implement
+  transcription) or plant a "dispute". `--rework-asked` takes no file: it reads `blocked_on.question_path` from the
+  entry (refused when the entry is not blocked or has none), hashes that file, and appends
+  `{path, sha256, at, dispute, answers_before}` to the open row's `asked[]`, where `answers_before` is
+  `.answers | length` at record time. Ruling rule (ordinal, round 5 change 3 — `at` has 1-second resolution and
+  ties): the rule is P14's `rework_pairs` (answer `kind` `human:clarify` and the last `asked[]` entry with
+  `answers_before == i` a dispute); `ruling[]` holds P14's self-describing entries, so two disputes in one row yield
+  two rulings and a worktree question after a dispute shields its own answer. Call sites: the dispute record runs
+  inside `implement_block_question` (a neutrally named helper the `blocked)` transcription calls in place of its
+  `block --question` line, `session-launch.sh:373`, +0); the worktree record runs inside `wt_on_branch_or_ask`'s
+  optional after-block hook (P8). `session-launch.sh` stays at +4.
+- **P14 — one pairing, two readers (review round 6, changes 1–3).** The rule "which answer rules on which dispute"
+  lives once, as the text `def rework_pairs: …;` in a shell variable `REWORK_PAIRS_JQ` in a small new
+  `hooks/rework-pairs.sh` (round 7, change 3 — the repo's pattern for shared jq: `$ENTRY_PRS`,
+  `ledger-automerge.sh:55`; `$JQ_LIVE_OWNER`, `ledger.sh:509`), sourced by both `ledger-rework.sh`
+  (`--rework-consumed`, stamping) and `session-launch-rework.sh` (`rework_prompt`, before anything is stamped), each
+  with a presence check that dies with a hefesto message as at `ledger.sh:110`; the glob-built harness copies
+  (`hooks/*.sh`) carry it, and the explicit-list harnesses are edited in place (the `tests/smoke.sh` row, round 8). The two readers cannot disagree, and a smoke case runs both against one fixture entry and
+  compares. Over the open row: an unconsumed answer at index i is a ruling iff its `kind` is `human:clarify` **and**
+  the last `asked[]` entry with `answers_before == i` exists and has `dispute: true` (round 7, change 2: an exact
+  match, not `≤` — the block an answer clears is the one recorded with that answer's own index, since a blocked
+  entry is never relaunched before it is answered; so a block whose `asked[]` record was lost leaves its answer
+  unpaired, never paired with an earlier dispute); it is paired with that entry. The `kind` test closes the unrecorded-block hole: an answer to a `human:plan-review` block a rework run
+  reports (allowed by the implement schema, `session-launch.sh:499`; cleared by `answer_item`,
+  `ledger-lanes.sh:134`, which records `kind`, `:139`) is never a ruling, even after a dispute. `rework_prompt`
+  hands each answer in as `person_text_as_data` does, and each ruling's dispute question beside it (re-hashed
+  against `asked[].sha256`, delimited, under D7's "author's claim" rule) via `rework_rulings_as_data`; the verify
+  block (`verify_ruling_block`) reads the stamped, self-describing `ruling[]` entries of every consumed row since
+  the last reopen, re-hashing both files — no index into another row is ever resolved.
+- **P7 — a refusal never strands the entry (review round 1, change 4).** on a non-zero `rework`, `rework_route`
+  prints the refusal on stderr and runs today's `block --kind verdict` (FR-013b); it returns 0 when either the move or
+  the fallback block landed, and non-zero only when both failed (round 4, change 5), so the call site's `|| exit 1`
+  exits as today's line does — a mutation returning 0 there goes red. Verify claims
   count no attempts (`ledger.sh:518-520`), so an entry left in `verify` unblocked would be relaunched without bound.
 - **P4 — `rework` consumes earlier answers when it moves**, as `forward_write:300` does: an answer to a plan question
   never steers a fix.
@@ -74,29 +134,37 @@ Decisions beyond the spec's D1–D10, taken here:
 ## Affected Files
 | File | Change Type | Description |
 |------|------------|-------------|
-| `hooks/ledger-rework.sh` | create | `rework_cmd`, its guards, the cap block, the brief template, the write (sourced by `ledger.sh`) |
-| `hooks/ledger.sh` | modify | source `ledger-rework.sh` (presence check, as `:110`); dispatch `rework`; usage line; `record --rework-consumed` and `--rework-dispute <file>`; pass args to `is_launcher_sub` in `caller_gate` (`:283`) and `launcher_gate` (`:295`), whose call site `:423` becomes `launcher_gate "$@"` |
+| `hooks/ledger-rework.sh` | create | `rework_cmd`, its guards, the cap block, the brief template, the write; `rework_consumed_set`, `rework_asked_add` (P13) (sourced by `ledger.sh`) |
+| `hooks/rework-pairs.sh` | create | `REWORK_PAIRS_JQ` — the `def rework_pairs: …;` text, the one answer-to-dispute pairing rule (P14), sourced (presence-checked) by `ledger-rework.sh` and `session-launch-rework.sh` |
+| `hooks/ledger.sh` | modify | source `ledger-rework.sh` (presence check, as `:110`); dispatch `rework`; usage line; `record --rework-consumed` and `--rework-asked <dispute|other>` as one-line arms calling `ledger-rework.sh` (P13); pass args to `is_launcher_sub` in `caller_gate` (`:283`) and `launcher_gate` (`:295`), whose call site `:423` becomes `launcher_gate "$@"` |
 | `hooks/ledger-lanes.sh` | modify | `questions_item:113` admits `verdict` with a `question_path` |
 | `hooks/lane-lib.sh` | modify | `is_launcher_sub` gains `rework` (not with `--past-cap`); `is_person_sub` gains `rework --past-cap` |
 | `hooks/lane-guard.sh` | modify | `:166` passes the words to `is_launcher_sub` |
 | `hooks/hefesto-setup.sh` | modify | `LEDGER_LAUNCHER += rework`; `LEDGER_SIGN_FLAG += "rework --past-cap"` |
-| `hooks/session-launch-rework.sh` | create | the launcher arm: `rework_route`, `rework_open_row`, `rework_prompt`, `rework_transcribe_guard`, `verify_ruling_block`, `verify_rounds_check` |
-| `hooks/session-launch.sh` | modify | source the arm; verify FAIL → `rework_route`; implement prompt picks the rework prompt after the forward one; implement transcription runs the rework guard and consumes on `pr`; `implement_question_file` honours a rework run; verify prompt appends the ruling block; verify launch validates `verify_rounds` |
-| `hooks/session-launch-forward.sh` | modify | `implement_question_file:89` fires on `FWR` **or** `RWR` (the shared question writer); `forward_wt_check:35` becomes a thin caller of a generalized `wt_on_branch_or_ask <branch> <words>` (P8), its message byte-identical — `tests/smoke-forward.sh` stays green unchanged |
+| `hooks/session-launch-rework.sh` | create | the launcher arm: `rework_route`, `rework_open_row`, `rework_prompt`, `rework_transcribe_guard`, `rework_rulings_as_data`, `rulings_as_data`, `rework_asked_other`, `verify_ruling_block`, `verify_ruled` (P12), `verify_rounds_check` |
+| `hooks/session-launch.sh` | modify | source the arm; verify FAIL → `rework_route`; implement prompt picks the rework prompt after the forward one; implement transcription runs the rework guard and consumes on `pr`; `implement_question_file` honours a rework run; verify prompt appends the ruling block; a ruled verify records head `none` and blocks `human:merge` even under `merge_by: auto` (P12, `:418`/`:422`, same lines); verify launch validates `verify_rounds` |
+| `hooks/session-launch-forward.sh` | modify | `implement_question_file:89` fires on `FWR` **or** `RWR` (the shared question writer); `forward_wt_check:35` becomes a thin caller of a generalized `wt_on_branch_or_ask <want-branch> <title> <resume> [<after-block>]` (P8), its message byte-identical; gains the shared `implement_pr_consume` and `implement_block_question` (moved from `session-launch.sh:370,373`, P8) — forward's behavioural assertions in `tests/smoke-forward.sh` are unchanged; five of its mutation patterns are retargeted (row below) |
 | `commands/hef.orchestrate.md` | modify | `verdict` row split: with a `question_path` → Another round / Re-verify / Later; without → Retry / Later. Interactive-lane build bullets (`:390-395`): an open rework row's prompt, and a verify `--finish` that prints `→ phase implement` (the build lane picks it up again) |
-| `docs/quickstart.md`, `docs/quickstart.pt-BR.md`, `docs/install.md`, `docs/architecture.md`, `docs/hooks.md` | modify | the loop, the `verify_rounds` key, the new verb and files |
+| `docs/quickstart.md`, `docs/quickstart.pt-BR.md`, `docs/install.md`, `docs/architecture.md`, `docs/hooks.md` | modify | the loop, the `verify_rounds` key, the new verb and files (`docs/hooks.md`: a row each for `ledger-rework.sh`, `session-launch-rework.sh`, `rework-pairs.sh`) |
 | `CHANGELOG.md` | modify | `[Unreleased]` entry |
-| `tests/smoke-rework.sh` | create | fixtures (fake claude, fake gh) for SC-001..SC-004, every FR-016 mutation |
-| `tests/smoke.sh` | modify | run `smoke-rework.sh` beside `smoke-forward.sh`; payload/structure lists name the new hook files |
+| `tests/smoke-rework.sh` | create | **the move** (round 7, change 1 — split up front, each file budgeted under 500 code lines, shared fixture builders in neither: each file builds its own hooks copy and fake `claude`/`gh` as `smoke-forward.sh` does): SC-001, SC-002, SC-004 for the move, the cap, `verify_rounds` and its validation, every FR-003 refusal, the brief and its hash, `--head`, the `attempts` reset, the reopen cutoffs, FR-013b and `rework_route`'s non-zero, the lane `--finish`/`--prepare` paths, the classification (signatures pattern, `--past-cap` person gate, `hefesto-setup.sh --check` ask rule, the lane-guard cases moved from `smoke-lifecycle.sh`), and the worktree check. Target ≈ 420 code lines; the task that writes it counts with the gate's rule before commit |
+| `tests/smoke-rework-ruling.sh` | create | **the ruling**: SC-003 and its FR-016 mutations — the dispute path, `record --rework-asked`/`--rework-consumed` and their gates, `rework_pairs` (both loaders agree), the rework prompt's paired questions, the verify ruling block and its persistence/reopen cutoff, P12 (ruled verify records `none`, blocks `human:merge` under `merge_by: auto`, headless and lane), `implement_block_question`'s rework branch. Target ≈ 380 code lines. Its case list — including (round 4) `record --rework-consumed`/`--rework-asked` refused from a session and from a worker (gate removed → red), two disputes in one row → both rulings in the verify prompt, a worktree question after a dispute → its answer not a ruling, and `rework_route` non-zero when the fallback block fails too; (round 6) a dispute, then a `human:plan-review` block on the same row — its answer is not a ruling (mutation: drop the `kind` test in `rework_pairs` → red); `rework_pairs` read by both loaders on one fixture gives the same pairs; the rework prompt carries each ruling's dispute question beside its answer; a ruling entry whose question file was changed → die at the verify launch; a `--dry-run` rework launch on a worktree on another branch records no `asked[]` entry (this one in `smoke-rework.sh`, beside the worktree check); (round 7) a rework run's `human:clarify` whose question file cannot be written → the launcher dies naming the file, nothing blocked, no `asked[]` entry (mutation: fall back to a block without `--question` → red); a block whose `--rework-asked` record failed → its later answer is not paired with the earlier dispute (mutation: `answers_before ≤ i` in place of `== i` → red) |
+| `tests/smoke.sh` (runner) | modify | runs `smoke-rework.sh` and `smoke-rework-ruling.sh` beside `smoke-forward.sh` (see the row below for its assertion changes) |
+| `tests/smoke.sh` | modify | payload/structure lists name the three new hook files. **Explicit-list harnesses (round 8, change 1), each edited in place:** add `ledger-rework.sh` and `rework-pairs.sh` to the ledger lists at `:2783` and `:3321`; add `session-launch-rework.sh`, `rework-pairs.sh` and (where `ledger.sh` is linked) `ledger-rework.sh` to the `ln -s` chains at `:2064`, `:2286`, `:2530`, `:3773`; the same check, before the first commit that sources a new file, of `tests/smoke-spec-roots.sh:443-450`, `tests/smoke-run-survival.sh:410` and `tests/smoke-forward-routing.sh:71,83`. **Intended assertion changes (planned, declared for `implement-phase-test-guard.sh`; round 5, change 2):** the five assertions that pin today's FAIL → `verdict` block through the real launcher — `:2348` (verify FAIL), `:3746`, `:3751`, `:3764` (kind-gate synthesis), `:6484` (lane `--finish`) — keep their `verdict` assertion by setting `orchestrate.verify_rounds: 0` in their fixture's `project-status.json` (they test the FAIL synthesis, not the loop); `:6484`'s fixture `im_vf` (`:6481`) also gives LT-4 a forge-shaped `.pr`/`.prs` (it has a branch, `:6432`, but no PR today, so `rework` would refuse at FR-003 and the block would come from the fallback) — the other four already record one (`:2346`, `:3742`, `:3760`); and each additionally asserts `.blocked_on.question_path != null` (the cap's findings file), so none can pass through the FR-013b fallback (a fallback block carries no question path). No assertion is removed or loosened. |
+| `tests/smoke-forward.sh` | modify | **Intended mutation retargets (round 5, change 1)** — the plan rewrites the lines five `fw_mut` patterns match, and `fw_mut` reports "mutation did not apply" (`:84`): `:283` (`lane-lib.sh` `forward) shift; for a in` → match the `forward\|rework)` arm and mutate the `forward` alternative out); `:287` (`ledger-lanes.sh` conflict guard → match the rewritten `{ [ "$k" = conflict ] \|\| [ "$k" = verdict ]; }` and drop the `conflict` test); `:449` (`[ -z "$FWP" ] \|\| SCHEMA=` → `[ -z "$FWP$RWP" ] \|\| SCHEMA=`); `:504` (the `--forward-consumed --person-text-consumed` call → its new home, `implement_pr_consume` in `session-launch-forward.sh`); `:533` (the `${QF:+--question "$QF"}` tail → the tail inside `implement_block_question` (`session-launch-forward.sh`), so it still mutates the implement `blocked)` path and not the plan arm at `:392`). Each retarget keeps the mutation's meaning; the suite is run after each to confirm it still goes red. **Every retarget is in place, one line each** (round 7, change 1): the file has 498 code lines and gains none. |
 | `tests/smoke-signatures.sh` | modify | `:104`'s launcher-only pattern `ledger[.]sh (claim\|run)` becomes `(claim\|run\|rework)`; a mutation adds `rework` to `LEDGER_ALLOW` and must go red (review round 1, change 6). `:159-160` (every `LEDGER_SIGN_FLAG` base must be in `LEDGER_ALLOW`) accepts a base in `LEDGER_ALLOW` **or** `LEDGER_LAUNCHER`, with a mutation proving a base in neither still goes red; the form/rule counts at `:97`, `:98`, `:114` move from 21 forms / 43 rules to 22 / 45 (review round 2, change 1) |
-| `tests/smoke-lifecycle.sh` | modify | beside the `forward --past-cap` assertion (`:402`): `hefesto-setup.sh --check` fails when the `rework * --past-cap*` ask rule is missing (review round 2, change 6) |
+| `tests/smoke-lifecycle.sh` | modify (in place) | `ledger-rework.sh` joins the two `for` lists at `:159` and `:164` (each sourced part sits behind `[ -f ] \|\| die`, and removing it kills `ledger.sh` — round 8, change 2), in place so the file stays at 499 code lines. Nothing else (round 7, change 1): the `rework` cases first planned here — the `hefesto-setup.sh --check` failing without the `rework * --past-cap*` ask rule (modelled on `:402`), and the lane-guard cases (modelled on `:350-365`: plain `ledger.sh rework <id>` denied in every lane, `rework <id> --past-cap --by x` admitted in the orchestrator lane and denied in a stage lane; mutation `lane-guard.sh:166` reverted to `is_launcher_sub "$SUB"` → red) — live in `tests/smoke-rework.sh`, which builds its own hooks copy |
 
 **Line budget (review round 1, change 8).** `session-launch.sh` has 493 code lines (the delta gate's count,
 `quality-before-commit.sh:215`) — 7 free. Planned net growth: +1 the source line; +1 the `elif` rework prompt
 (`:481`); +0 the schema line (`[ -z "$FWP$RWP" ]` replaces `[ -z "$FWP" ]`); +0 the `pr)` arm (the `--rework-consumed`
 call joins the existing line through a helper `implement_pr_consume`); +0 in `person_text_as_data` (P6: the arm reads
 its own row, so no `reworks` case arm is added); +1 the ruling block in the verify prompt; +1 the
-`verify_rounds` launch check; +0 the FAIL branch (`rework_route` replaces the `block` call). Total **+4 → 497**.
+`verify_rounds` launch check; +0 the FAIL branch (`rework_route` replaces the `block` call); +0 the P12 overrides
+(both join existing lines `:418`, `:422`). Total **+4 → 497**.
+`hooks/ledger.sh` is already over the limit (768 code lines, brownfield) and grows by about 6 (the source line, the
+dispatch arm, the usage line, two one-line `record` arms, the `launcher_gate "$@"` edit is +0): the delta gate's
+advisory for a file already over 500, not a block — SC-006's "crosses 500" applies to files under it today.
 Anything more moves into `session-launch-rework.sh`; the task that touches `session-launch.sh` re-counts before commit.
 
 ## Data Model
@@ -105,8 +173,14 @@ Ledger entry (JSON, beside `.forwards[]`):
 
 ```json
 "reworks": [{ "n": 1, "pr_url": "https://…/pull/7", "head_sha": "<40 hex | null>", "sha256": "<brief hash>",
-              "at": "2026-11-22T10:00:00Z", "by": null, "consumed": false, "ruling": [] }]
+              "at": "2026-11-22T10:00:00Z", "by": null, "consumed": false,
+              "asked": [{ "path": "<ledger dir>/<id>.question-<ts>.md", "sha256": "<hash>", "at": "…", "dispute": true, "answers_before": 0 }],
+              "ruling": [{ "answer": "<ledger dir>/<id>.answers-1.md", "answer_sha256": "<hash>",
+                           "question_path": "<ledger dir>/<id>.question-<ts>.md", "question_sha256": "<hash>" }] }]
 ```
+`asked[]` is appended only by `record --rework-asked` (launcher-only, P13), in block order; `ruling[]` is stamped
+only by `record --rework-consumed`, from `rework_pairs` (P14): each entry names its own answer file and dispute
+question with their hashes, so a reader never resolves an index into another row.
 Events: `{kind: "rework", at, n, head_sha, by}` and, at the cap, `{kind: "rework-blocked", at, by: "ledger", note}`.
 Files beside the entry: `<id>.rework-<n>.md` (the brief), `<id>.question-<ts>.md` (cap and dispute questions).
 Config: `orchestrate.verify_rounds` (integer 0–10, default 3).
@@ -119,7 +193,16 @@ verifier saw, a full 40/64-hex sha, or empty → `null`) goes into the row's `he
 - exit 0 + `"<id> blocked_on verdict (verify_rounds <cap> reached — …)"` — the cap;
 - non-zero + the reason — every FR-003 refusal, entry unchanged.
 
-`ledger.sh record <id> --rework-consumed` — launcher; stamps `ruling` and `consumed` on the open row.
+`ledger.sh record <id> --rework-consumed` — launcher-only (`HEFESTO_LAUNCHER=1`, no session id, not a worker;
+refused otherwise, entry unchanged); in one jq step stamps `ruling[]` (P13), marks the open row and the unconsumed
+answers consumed. Called from `implement_pr_consume` (arm).
+
+`ledger.sh record <id> --rework-asked <dispute|other>` — launcher-only (same gate); no file argument: reads
+`blocked_on.question_path`, refuses when the entry is not blocked, has no question path, the file is missing or a
+link, or there is no open rework row; appends `{path, sha256, at, dispute, answers_before}` to the open row's
+`asked[]` (`answers_before` = `.answers | length` now — the ordinal the ruling pairing uses). Called from
+`implement_block_question` (`dispute`, on a rework run) and `wt_on_branch_or_ask`'s after-block hook
+`rework_asked_other` (`other`) — P8, P13.
 
 ## Implementation Approach
 
@@ -134,7 +217,10 @@ verifier saw, a full 40/64-hex sha, or empty → `null`) goes into the row's `he
    holds a FAIL reworks the entry under the launcher gate (no session id reaches `ledger.sh`); an implement
    `--prepare` on a reworked entry writes a prompt with the brief and a schema carrying `question`, and its
    `--finish` with outcome `pr` consumes the row and advances to `verify` — the `tests/smoke-forward.sh` lane
-   fixtures are the model.
+   fixtures are the model. **Timestamps (round 5, change 3):** cases that depend on order across `at` values (P9's
+   current-round filter, the reopen cutoffs) build their entries with explicit, distinct `at` stamps, as
+   `smoke-forward.sh:59` does — never two launcher calls inside one second relying on `>=`; the ruling pairing is
+   ordinal (`answers_before`), so the two-disputes and worktree-after-dispute cases need no stamps.
 5. **Docs and the orchestrator table** last; CHANGELOG `[Unreleased]`.
 
 Trade-off: a dispute stops the whole round (no partial push). That keeps one head per verify run and one question per
@@ -154,7 +240,7 @@ rework_cmd() {   # rework <id> [--summary-file f] [--past-cap --by <name>]
   [ -z "${HEFESTO_WORKER:-}" ] || [ "$HEFESTO_WORKER" = 0 ] || die "ledger rework $id: never from inside a launched worker"
   [ "$past" = 1 ] || { [ "${HEFESTO_LAUNCHER:-}" = 1 ] && [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; } \
     || die "ledger rework $id: the verify launcher's own move — a person past the cap uses --past-cap --by <name>"
-  e=$(entry "$id") || exit 1; rework_guards "$id" "$e" "$past"       # phase verify, unowned, block none|verdict(past), no open forward
+  e=$(entry "$id") || exit 1; rework_guards "$id" "$e" "$past"       # phase verify, unowned; plain: no block; --past-cap: blocked verdict required (FR-007); no open forward
   open=$(rework_findings "$e"); [ "$open" != "[]" ] || die "ledger rework $id: no gate's latest verdict is FAIL — nothing to fix"
   cap=$(verify_rounds_value) || exit 1
   if [ "$past" = 0 ] && [ "$(rework_rows_since_reopen "$e")" -ge "$cap" ]; then rework_cap_block "$id" "$e" "$open" "$cap"; return 0; fi
@@ -211,13 +297,14 @@ record's `head` on `--finish`, the HEAD read before the headless run) — never 
 ```
 ```bash
 rework_route() { # session-launch-rework.sh — no early return (P7, P11.5): every failure ends in today's verdict block
-  local sf="" args=(--head "${VH0:-}")
+  local sf="" rc=0 args=(--head "${VH0:-}")
   sf="$("$LEDGER" dir 2>/dev/null)/$ID.verify-summary.md" && rm -f -- "$sf" && jq -r '.summary // ""' <<<"$SO" > "$sf" \
-    && args+=(--summary-file "$sf") || sf=""                        # no summary file → the brief goes without it
+    && args+=(--summary-file "$sf") \
+    || { echo "session-launch verify $ID: cannot write the verifier's summary file — the brief goes without it" >&2; sf=""; }   # round 6, change 6: never silent
   if ! HEFESTO_LAUNCHER=1 "$LEDGER" rework "$ID" "${args[@]}" >&2; then   # FR-013b
     echo "session-launch verify $ID: rework refused (above) — blocked on verdict as before" >&2
-    "$LEDGER" block "$ID" --kind verdict >/dev/null || echo "session-launch verify $ID: the verdict block failed too — a person reads ledger.sh show $ID" >&2
-  fi; [ -z "$sf" ] || rm -f -- "$sf"; return 0
+    "$LEDGER" block "$ID" --kind verdict >/dev/null || { echo "session-launch verify $ID: the verdict block failed too — a person reads ledger.sh show $ID" >&2; rc=1; }
+  fi; [ -z "$sf" ] || rm -f -- "$sf"; return "$rc"      # round 4, change 5: both failed → non-zero, the call site's `|| exit 1` is live (constitution 5)
 }
 ```
 (`--head` carries the verified-at commit into the row; validated as a 40/64-hex sha or empty.)
@@ -236,22 +323,52 @@ rework_route() { # session-launch-rework.sh — no early return (P7, P11.5): eve
       pr) implement_pr_consume || exit 1   # FWR → --forward-consumed --person-text-consumed (as today); RWR → --rework-consumed (P10)
 ```
 `rework_prompt` = `rework_brief_as_data` (the open row's `<id>.rework-<n>.md` only, re-hashed against its `sha256`,
-not a link, delimited with a nonce — P6) + `person_text_as_data answers …` + `$REWORK_RULE`. `person_text_as_data`
+not a link, delimited with a nonce — P6) + `person_text_as_data answers …` (every unconsumed answer, as today) +
+`rework_rulings_as_data` (each ruling's dispute question beside its answer, from `rework_pairs` — P14) +
+`$REWORK_RULE` + `$FORGE_INFRA_RULE`
++ `$KIND_RULE`, as `forward_prompt` (`session-launch-forward.sh:65`) and the other implement prompts
+(`session-launch.sh:487`) carry them, so a refused push in a rework run is the infra stall with its fix line (round 5,
+change 4). `person_text_as_data`
 is unchanged. `implement_question_file` (`session-launch-forward.sh:89`) fires on `FWR` or `RWR`.
+
+### Sketch 5a: `implement_block_question` (round 7, change 2)
+**File:** `hooks/session-launch-forward.sh` (beside `implement_question_file`), called from `session-launch.sh:373`
+**Intent:** forward's behaviour byte-identical; on a rework run a dispute is blocked only with its question, and
+recorded on the row, or the launcher dies — a later answer is never paired with an earlier dispute.
+
+```bash
+implement_block_question() { # $1 the blocked kind — the implement `blocked)` tail for every implement run
+  local qf; qf="$(implement_question_file "$1")"                # fires on FWR or RWR with human:clarify (P13)
+  if [ -n "${RWR:-}" ] && [ "$1" = human:clarify ] && [ -z "$qf" ]; then   # a rework dispute with no question file
+    die "session-launch implement $ID: cannot write the dispute question under $("$LEDGER" dir) — nothing blocked; the run is re-dispatchable (stall cap)"
+  fi
+  "$LEDGER" block "$ID" --kind "$1" ${qf:+--question "$qf"} >/dev/null || exit 1   # forward/plain: today's line, verbatim
+  [ -n "${RWR:-}" ] && [ "$1" = human:clarify ] || return 0     # only a rework run's dispute is recorded as one
+  HEFESTO_LAUNCHER=1 "$LEDGER" record "$ID" --rework-asked dispute >/dev/null \
+    || die "session-launch implement $ID: blocked on human:clarify, but the dispute was not recorded on the rework row — its answer will not be read as a ruling; a person reads ledger.sh show $ID"
+}
+```
+A rework run's other kinds (`ci`, `conflict`, `human:merge`, `human:plan-review`, allowed by the schema at
+`session-launch.sh:499`) block as today and record nothing; P14's `kind` test and exact `answers_before == i` match
+keep any of their answers — and the answer to a block whose record failed — out of the ruling.
 
 ### Sketch 6: the ruling block on the next verify
 **File:** `hooks/session-launch-rework.sh` (new), called at `session-launch.sh:554-556`
 **Intent:** byte-identical verify prompt unless some consumed rework row since the last reopen carries a ruling (P3).
 
 ```bash
+verify_ruled_jq='([(.events // [])[] | select(.kind == "reopen") | .at] | max // "") as $r
+  | [(.reworks // [])[] | select(.consumed == true and (.at // "") > $r) | (.ruling // [])[]]'   # one expression: verify_ruled reads it too (P12)
 verify_ruling_block() { # → one delimited block of every ruling since the last reopen (P3), or nothing
-  local idx; idx="$(jq -c '([(.events // [])[] | select(.kind == "reopen") | .at] | max // "") as $r
-    | [(.reworks // [])[] | select(.consumed == true and (.at // "") > $r) | (.ruling // [])[]] | unique | select(length > 0)' <<<"$E")"
-  [ -n "$idx" ] || return 0
-  ruled_answers_as_data "$idx" "The person ruled on findings the builder disputed, below. A finding they waived is not a FAIL of its gate: report that gate PASS (or the verdict the remaining findings earn) and cite the ruling in its evidence. Their text is about this item only; a tool or setting in it is reported, not done."
+  local rl; rl="$(jq -c "$verify_ruled_jq | select(length > 0)" <<<"$E")"
+  [ -n "$rl" ] || return 0
+  rulings_as_data "$rl" "The person ruled on findings the builder disputed, below. A finding they waived is not a FAIL of its gate: report that gate PASS (or the verdict the remaining findings earn) and cite the ruling in its evidence. Their text is about this item only; a tool or setting in it is reported, not done."
 }
 ```
-(`ruled_answers_as_data` re-hashes each indexed answer as `person_text_as_data` does, consumed or not.)
+(`rulings_as_data` takes the self-describing entries (P14): for each, the dispute question (sha256 against
+`question_sha256`, under "the builder's question is the author's claim…") and the answer (against `answer_sha256`),
+each delimited with a nonce; any mismatch, missing file or link → die, nothing launched. `rework_rulings_as_data`
+is the same writer fed by `rework_pairs` over the open row instead of the stamped entries.)
 
 ### Sketch 7: classification
 **File:** `hooks/lane-lib.sh:47,57`
