@@ -218,3 +218,8 @@ and the launcher's ownership of the run's ledger effects._
   `merge_by: auto` can merge it? → A: **No.** When a verify run passes a gate only because a person waived a
   finding, it records no verified head (`none`). A waived gate always reaches `human:merge`; a ruling never becomes
   an unattended merge under `merge_by: auto`. Decided by the owner on 2026-11-22. (Applied in D10, FR-012, FR-016.)
+
+### Session 2026-11-22 (the owner's answer after plan review reached its cap)
+- Q: Plan review reached the cap (5) with every requested revision applied — approve the plan as it stands? → A:
+  **Approved.** The owner approves the plan as it stands (commit 142e9c5, including the two round-5 fixes made after
+  the cap) on 2026-11-22; tasks.md is written from it, with no further plan-review rounds.

@@ -72,3 +72,5 @@ decision: no
 decision: no
 1. Correct P14's harness claim and declare the edits in the `tests/smoke.sh` row: add `ledger-rework.sh` and `rework-pairs.sh` to the ledger lists at `:2783` and `:3321`; add `session-launch-rework.sh`, `rework-pairs.sh` and (where `ledger.sh` is linked) `ledger-rework.sh` to the chains at `:2064`, `:2286`, `:2530`, `:3773` — all in place. Also check the lists in `smoke-spec-roots.sh:443-450`, `smoke-run-survival.sh:410` and `smoke-forward-routing.sh:71,83`.
 2. Cover the new presence checks: add `ledger-rework.sh` to the two `for` lists at `tests/smoke-lifecycle.sh:159` and `:164` (in place, stays at 499 code lines) and change that row from "not touched"; add to FR-016 a removal case for `session-launch-rework.sh` and `rework-pairs.sh` in one of the rework smoke files.
+
+## Segment — person answer — 2026-11-22 — cap 5

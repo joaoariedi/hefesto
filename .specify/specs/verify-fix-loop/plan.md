@@ -410,3 +410,5 @@ Trivial: one extra kind in an existing guard; the spec-marker read at `:115` alr
 2. Classification (Sketch 7) + `hefesto-setup.sh` lists; run `tests/smoke-signatures.sh`.
 3. `hooks/session-launch-rework.sh` + the four call sites (Sketches 4–6); confirm `launch-920.txt` unchanged.
 4. `tests/smoke-rework.sh` SC-001 first (FAIL → fix → PASS), then the cap, the dispute, the mutations.
+
+## Reviewed 2026-11-22 — approved by the person
