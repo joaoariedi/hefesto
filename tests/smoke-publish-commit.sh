@@ -216,7 +216,9 @@ done
 for pc_w in 'orchestrate.publish_commit' 'never pushed' 'hooks not run' 'git identity' '`filter` attribute' '--locate <id>' 'path: <absolute path>'; do
   grep -qF -- "$pc_w" "$REPO/docs/hooks.md" || { bad "docs/hooks.md must state '$pc_w' (FR-008)"; x_fail=1; }
 done
-sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' "$REPO/CHANGELOG.md" | grep -qF 'publish_commit' || { bad "CHANGELOG.md [Unreleased] must carry the publish_commit entry (FR-008)"; x_fail=1; }
+# [Unreleased] down to [9.4.4], the release that shipped it: a release cut must not fail its own suite
+pc_un="$(awk -v r='## [9.4.4]' '/^## \[/{if (f) exit; if (index($0, r) == 1) f=1} !/^## \[/' "$REPO/CHANGELOG.md")"   # captured: `awk | grep -q` races under pipefail
+grep -qF 'publish_commit' <<<"$pc_un" || { bad "CHANGELOG.md's [Unreleased]..[9.4.4] must carry the publish_commit entry (FR-008)"; x_fail=1; }
 # publish-commit/FR-009: the logic is a sourced helper ledger.sh loads behind [ -f ] || die (tests/smoke-lifecycle.sh
 # removes it and asserts the named stop)
 grep -qF '[ -f "$HERE/ledger-publish.sh" ] || die' "$REPO/hooks/ledger.sh" || { bad "ledger.sh must source ledger-publish.sh behind [ -f ] || die (FR-009)"; x_fail=1; }

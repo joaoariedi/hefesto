@@ -3268,7 +3268,9 @@ grep -qF 'session-launch-forward.sh' "$REPO/docs/hooks.md" && grep -qE 'ledger\.
 for mf_d in docs/quickstart.md docs/quickstart.pt-BR.md docs/architecture.md docs/install.md commands/hef.orchestrate.md; do
   grep -qF 'ledger.sh forward' "$REPO/$mf_d" || { bad "$mf_d must describe the merge-forward route (merge-forward/FR-016)"; mf_fail=1; }
 done
-sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' "$REPO/CHANGELOG.md" | grep -qF 'ledger.sh forward' || { bad "CHANGELOG [Unreleased] must carry the merge-forward entry (merge-forward/FR-016)"; mf_fail=1; }
+# [Unreleased] down to [9.4.4], the release that shipped it: a release cut must not fail its own suite
+mf_un="$(awk -v r='## [9.4.4]' '/^## \[/{if (f) exit; if (index($0, r) == 1) f=1} !/^## \[/' "$REPO/CHANGELOG.md")"   # captured: `awk | grep -q` races under pipefail
+grep -qF 'ledger.sh forward' <<<"$mf_un" || { bad "CHANGELOG's [Unreleased]..[9.4.4] must carry the merge-forward entry (merge-forward/FR-016)"; mf_fail=1; }
 [ "$mf_fail" -eq 0 ] && ok "merge-forward docs: babysit step 4 forwards (headless: the launcher), ledger.sh usage, hooks.md rows, quickstarts EN + pt-BR, architecture, install, orchestrate, CHANGELOG [Unreleased] (merge-forward/FR-008 merge-forward/FR-016)"
 
 # --- Tier 1: ledger surfaces (feature ledger-surfaces: HEF-6 handoff, HEF-4 publish, HEF-5 escalate) ---
