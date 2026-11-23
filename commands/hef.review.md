@@ -1,12 +1,12 @@
 ---
 model: fable
-description: "Review — the plan before tasks exist (a gate that logs every round in plan-review.md), or the code before the PR (two stages, via code-reviewer)"
+description: "Review — the plan before tasks exist (a gate that logs every round in plan-review.md), or the code before the PR (light/full items: five finders by lens and a verifier that reproduces each blocker, one computed verdict; otherwise one two-stage code-reviewer)"
 argument-hint: "[plan | code] [--cap <N>] [--spec-dir <d>] [--inline] [--second-opinion <provider>] [focus: file, module, or FR id]"
 ---
 
 # Review
 
-One command, two moments, one reviewer. Before tasks exist it reviews the **plan** — a read-only
+One command, two moments. Before tasks exist it reviews the **plan** — a read-only
 gate between `/hefesto:hef.plan` and `/hefesto:hef.tasks`. Once code exists it reviews the **code** — spec
 compliance, then quality. Both go through the `code-reviewer` agent in a fresh context: the session
 that wrote the thing never grades it.
@@ -115,6 +115,101 @@ pass the gate."* Never append `## Reviewed` from this path.
 
 ## Code mode — via `code-reviewer`
 
+**Route first.** Run with the Bash tool:
+`${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh review-route` — add `--inline` when **$ARGUMENTS** has it. It prints
+one line, `exhaustive <route> <source> spec:<abs dir>` or `single <route> <source>`:
+
+- `single …` → the **Single reviewer** below, unchanged.
+- `exhaustive …` → the **preflight**, then the **Exhaustive round** below. An item routed `light` or `full` (or a
+  branch with no ledger entry whose spec folder holds `spec.md`) gets the round; the route is read, never passed.
+- **Exit ≠ 0** → the review is `INCOMPLETE`: print `## Verdict: INCOMPLETE` and the helper's message. Never fall
+  back to the single reviewer because the route could not be read — a `light`/`full` item would lose its round.
+
+**Preflight** (after `exhaustive`, before any spawn). Run with the Bash tool, as one plain command:
+
+```
+${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh <<'HEF_REPRO_RECIPE_END'
+true
+HEF_REPRO_RECIPE_END
+```
+
+- Exit 0 → the exhaustive round.
+- Exit 2 (not inside the OS sandbox, or `~/.cache/hefesto` missing — no recipe could run anywhere in this round):
+  - the route's source is **not** `ledger:<ID>` (a person's own branch, an eval scaffold) → the **Single reviewer**,
+    and its relayed report opens with one line:
+    `exhaustive round unavailable: <the helper's message> — fix: <run inside the sandbox | run hefesto-setup.sh>`;
+  - the source is `ledger:<ID>` → the review is `INCOMPLETE`: `## Verdict: INCOMPLETE`, then
+    `exhaustive round unavailable: <the helper's message>`. Never a fall-back to one reviewer for a ledger item.
+
+### Exhaustive round — five finders by lens, a verifier, one verdict
+
+The spec folder is the route line's `spec:<abs dir>`; write it into every brief below as `<spec dir>`. The helper
+path in the briefs is written here already resolved — subagents get no substitution.
+
+**1. Five finders, ONE message, foreground** (`run_in_background: false`). Use the Task tool to spawn
+`code-reviewer` five times in the same message: four with the brief below and `lens: <name>` for
+`input-and-security`, `state-and-lifecycle`, `spec-deviation`, `test-integrity` (the agent's pinned tier — no model
+override), and the fifth, the **cross-tier finder**, with `model: opus` and `lens: all four`. Each brief, verbatim
+plus the pre-flight output:
+
+> Role: **finder**, lens `<name>` (see "Lenses" and "Finder role" in your instructions).
+> The spec is in `<spec dir>`: read `spec.md` and `plan.md` there. Review the current branch against its base (the pre-flight
+> `pr-files` output; when git is unavailable, `.git/hef-review.diff` holds the change). Report every candidate defect
+> in your lens that you can back with a `file:line` and a recipe — the verifier filters, you do not. Recipes run via
+> `${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh` in a scratch copy of the worktree, cwd-relative. Nothing found →
+> `none — checked: <what>`. No verdict, no status. Do not edit files. Focus, if given: **$ARGUMENTS**.
+
+**2. Silent finder.** A finder that returned nothing usable (an error, empty, no lens section) is re-spawned **once**
+with the same brief, in this turn. Still nothing → it is `silent: <why>` on the `Finders:` line, and the round will
+be `INCOMPLETE` — the round never approves on a reduced quorum.
+
+**3. Merge.** Number the candidates F1…Fn. The same `file:line` with the same failure is one candidate, every lens
+that raised it kept in `raised by:` (the cross-tier finder is credited as `cross-tier`), and **`BLOCKING` if any
+lens said so**. A candidate sits under the section of the first lens that raised it. A `SUGGESTION` is listed with
+`not verified — never blocks` and is never sent to a verifier.
+
+**4. Verifiers.** The blocking candidates, at most 8 per verifier, go to fresh `code-reviewer` spawns — never one of
+this round's finders — all in ONE message, foreground. Each brief, verbatim, then its candidates (line + recipe):
+
+> Role: **verifier** (see "Verifier role" in your instructions). The spec is in `<spec dir>`. For each candidate
+> below, run its recipe as one Bash call with `timeout: 300000`, exactly:
+> `${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh <<'HEF_REPRO_RECIPE_END'`, the recipe, then the line
+> `HEF_REPRO_RECIPE_END`. Give each exactly one status — `REPRODUCED`, `REFUTED` or `UNREPRODUCED` — with the exit
+> line and output (or the reason) quoted. Never edit a file, never add a finding, never write a verdict.
+
+A verifier that returned nothing usable is re-spawned once; a candidate still without a status stays without one,
+and the check below makes the round `INCOMPLETE`.
+
+**5. Write the report and check it.** Write the merged report in the shape "Exhaustive round report" in
+`agents/code-reviewer.md` gives (the `Finders:` line with the tier each was asked for, the four `## Lens:` sections,
+`## Open questions` listing every `UNREPRODUCED` blocker with its reason) — **without** a verdict or a `BLOCKING`
+line. Then run with the Bash tool, as one plain command (no `Write`, no pipe):
+
+```
+${CLAUDE_PLUGIN_ROOT}/hooks/speckit-helper.sh code-review-check <<'HEF_CRC_REPORT_END'
+<the merged report>
+HEF_CRC_REPORT_END
+```
+
+It prints `## Verdict: APPROVE|REQUEST_CHANGES|INCOMPLETE` and the `BLOCKING <n>:` line; exit 1 names each violation
+on stderr as `[shape]` or `[content]`. When **every** violation is `[shape]`, re-write the report once from the same
+agent outputs and re-check. Any remaining exit ≠ 0 → the verdict is `INCOMPLETE`, with the check's stderr.
+
+**6. Relay.** The merged report, then the helper's stdout appended unchanged — the verdict is the helper's, never
+yours or an agent's. Then:
+
+- `APPROVE` → `/hefesto:hef.quality` if not yet run, then `/hefesto:hef.pr`.
+- `REQUEST_CHANGES` → the `BLOCKING` line is the next task list; `/hefesto:hef.implement` or `/hefesto:hef.fix`.
+  An `UNREPRODUCED` blocker a builder contests goes to the person (the open questions), not around the gate.
+- `INCOMPLETE` → surface the cause; never treat it as a pass.
+
+**In a verify run** (a launched worker reporting gate verdicts): `INCOMPLETE` is gate `review` `FAIL`, with the
+reason. The gate's evidence (≤ 500) **leads with the `BLOCKING` line** — on `INCOMPLETE` followed by
+` ; INCOMPLETE: <first violation>`, cut at 500. The run summary carries `Review recipes:` —
+`F<n>: <the recipe's first line, ≤ 150 chars>` per blocker, cut with `… +<k> more` when the summary runs out.
+
+### Single reviewer
+
 Use the Task tool to spawn the `code-reviewer` agent with this brief, verbatim plus the pre-flight
 output:
 
@@ -145,8 +240,10 @@ its `code-reviewer` gate is the only verdict that counts. Start the second opini
 the gate, so the two run side by side:
 
 1. Write `.specify/specs/<branch>/second-opinion.prompt.md`: the same brief the mode gave
-   `code-reviewer`, then **plan mode** — the spec, the plan and the constitution; **code mode** — the
-   spec and `git diff <base>...HEAD`, capped at 2,000 lines AND 96 KiB (say where it was cut).
+   `code-reviewer` — in an exhaustive round, the cross-tier finder's brief (all four lenses, a recipe per
+   candidate); on the single path, the single reviewer's — then **plan mode** — the spec, the plan and the
+   constitution; **code mode** — the spec and `git diff <base>...HEAD`, capped at 2,000 lines AND 96 KiB (say
+   where it was cut).
 2. Run with the Bash tool (`run_in_background`, timeout 600000), **from an
    unsandboxed pane** — the runner refuses inside a launched worker and from a sandboxed shell:
    `${CLAUDE_PLUGIN_ROOT}/hooks/arena-run.sh <provider> .specify/specs/<branch>/second-opinion.prompt.md --purpose review`

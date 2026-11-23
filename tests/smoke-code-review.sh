@@ -219,3 +219,101 @@ cr_rmut "FR-021 a detached HEAD accepted" '/detached HEAD/s/return 1/return 0/' 
 cr_rmut "FR-021 a light entry's spec.md not checked" 's/\[ -r "\$dir\/spec.md" \]/true/' cr_t_route_ledger
 [ "$x_fail" -eq 0 ] && ok "review-route: 5 mutants killed (exhaustive-review/FR-021)"
 rm -rf "$cr_rh"
+
+# --- structure of the command and the agent (FR-019, FR-015, FR-021, A1; SC-002) ------------------------------------------
+head_ "hef.review code mode and code-reviewer: lenses, cross-tier finder, verifier, preflight, documented calls (exhaustive-review FR-019)"
+x_fail=0
+CR_LENS_NAMES="input-and-security state-and-lifecycle spec-deviation test-integrity"
+cr_sno() { bad "$1"; x_fail=1; }
+cr_brief() { # cr_brief <file> <role> → the blockquote brief that opens `> Role: **<role>**`
+  sed -n "/^> Role: \*\*$2\*\*/,/^[^>]/p" "$1" | grep '^>'
+}
+cr_section() { # cr_section <file> <heading line> → from that exact heading up to (not including) the next heading of its level
+  local lvl="${2%% *}" line in=0
+  while IFS= read -r line; do
+    if [ "$in" = 0 ]; then [ "$line" = "$2" ] && { in=1; printf '%s\n' "$line"; }; continue; fi
+    [[ "$line" == "$lvl "* ]] && break
+    printf '%s\n' "$line"
+  done <"$1"
+}
+# exhaustive-review/FR-019 FR-015: the four lenses, the cross-tier spawn and the verifier step are documented
+cr_t_struct_round() {
+  local c="${1:-$REPO/commands/hef.review.md}" a="${2:-$REPO/agents/code-reviewer.md}" lens
+  for lens in $CR_LENS_NAMES; do
+    grep -qF "\`$lens\`" "$c" || cr_sno "hef.review.md must name the lens $lens"
+    grep -qF -- "- **$lens**" "$a" || cr_sno "code-reviewer.md must document the lens $lens"
+  done
+  grep -qF 'cross-tier finder**, with `model: opus`' "$c" || cr_sno "hef.review.md must spawn the cross-tier finder with model: opus"
+  [ "$(sed -n 2p "$a")" = "model: fable" ] || cr_sno "code-reviewer.md:2 must stay 'model: fable' — the cross-tier pair (fable + opus) is revisited, never silently equal"
+  [ -n "$(cr_brief "$c" verifier)" ] && grep -qx '## Verifier role' "$a" && grep -qx '## Finder role' "$a" \
+    || cr_sno "the verifier step (hef.review.md) and the finder/verifier roles (code-reviewer.md) must be documented"
+}
+# exhaustive-review/FR-015 FR-003 FR-019: no "fewer findings" wording reaches a finder or a verifier; the other paths keep theirs
+cr_t_struct_volume() {
+  local c="${1:-$REPO/commands/hef.review.md}" a="${2:-$REPO/agents/code-reviewer.md}" role t
+  for role in finder verifier; do
+    t="$(cr_brief "$c" "$role")"
+    [ -n "$t" ] || { cr_sno "no $role brief in hef.review.md"; continue; }
+    t="$t"$'\n'"$(cr_section "$a" "## $([ "$role" = finder ] && echo Finder || echo Verifier) role")"
+    ! grep -qiE 'prefer fewer|scope over volume|scope discipline|flag only' <<<"$t" || cr_sno "the $role brief or role must not ask for fewer findings"
+    grep -qF 'The spec is in `<spec dir>`' <<<"$t" || cr_sno "the $role brief must name the route's spec folder (FR-021)"
+  done
+  grep -qF 'Scope discipline: flag only findings that affect correctness' "$c" || cr_sno "the single reviewer keeps its scope-discipline brief"
+  grep -qF 'Outside the finder and verifier roles: **Evidence over assertion, and scope over volume.**' "$a" || cr_sno "Rule 0 keeps 'scope over volume' outside the two roles"
+}
+# exhaustive-review/FR-019 FR-022: every documented helper heredoc is one plain command from the plugin's hooks
+cr_t_struct_calls() {
+  local c="${1:-$REPO/commands/hef.review.md}" line h n=0
+  while IFS= read -r line; do
+    h="${line%%<<*}"; h="${h#> }"; h="${h#\`}"
+    [[ "$h" =~ ^\$\{CLAUDE_PLUGIN_ROOT\}/hooks/(speckit-helper\.sh\ code-review-check|review-repro\.sh)\ $ ]] \
+      || cr_sno "a documented helper heredoc must start with \${CLAUDE_PLUGIN_ROOT}/hooks/ and hold nothing else before << (no | ; &&): $line"
+    n=$((n + 1))
+  done < <(grep -E "<<'HEF_(CRC_REPORT|REPRO_RECIPE)_END'" "$c")
+  [ "$n" -ge 3 ] || cr_sno "hef.review.md must document the preflight, the verifier's and the check's heredoc calls (found $n)"
+}
+# exhaustive-review/FR-021 (A1): the preflight and both of its outcomes
+cr_t_struct_preflight() {
+  local c="${1:-$REPO/commands/hef.review.md}"
+  grep -A1 -F "review-repro.sh <<'HEF_REPRO_RECIPE_END'" "$c" | grep -qx 'true' || cr_sno "the preflight runs review-repro.sh with 'true'"
+  grep -qF 'is **not** `ledger:<ID>`' "$c" && grep -qF "exhaustive round unavailable: <the helper's message> — fix:" "$c" \
+    || cr_sno "the preflight's exit 2 on a no-ledger branch: the single reviewer with a cause-and-fix line"
+  grep -qF 'the source is `ledger:<ID>` → the review is `INCOMPLETE`' "$c" || cr_sno "the preflight's exit 2 on a ledger item: INCOMPLETE naming the cause"
+}
+for cr_fn in cr_t_struct_round cr_t_struct_volume cr_t_struct_calls cr_t_struct_preflight; do "$cr_fn"; done
+[ "$x_fail" -eq 0 ] && ok "hef.review.md and code-reviewer.md: four lenses, a cross-tier finder at model: opus beside the fable pin, a verifier step, no fewer-findings wording in the finder/verifier briefs (kept by the single reviewer and Rule 0), both briefs name the spec folder, every documented heredoc is a plain CLAUDE_PLUGIN_ROOT/hooks call, the A1 preflight with both outcomes (exhaustive-review/FR-019, FR-015, FR-021)"
+x_fail=0
+cr_smut() { # label file(commands/…|agents/…) sed-expr test-fn — a mutant copy of the file must turn test-fn red
+  local d red; d="$(mktemp -d)"
+  cp "$REPO/commands/hef.review.md" "$d/c.md"; cp "$REPO/agents/code-reviewer.md" "$d/a.md"; sed "$3" "$REPO/$2" >"$d/m.md"
+  if cmp -s "$REPO/$2" "$d/m.md"; then bad "structural mutant did not apply: $1"; x_fail=1; rm -rf "$d"; return; fi
+  case "$2" in commands/*) mv "$d/m.md" "$d/c.md" ;; *) mv "$d/m.md" "$d/a.md" ;; esac
+  red="$(x_fail=0; "$4" "$d/c.md" "$d/a.md" >/dev/null 2>&1; echo "$x_fail")"; rm -rf "$d"
+  [ "$red" = 1 ] && ok "mutant killed: $1" || { bad "mutant survived: $1"; x_fail=1; }
+}
+cr_smut "FR-002 the cross-tier finder at the pinned tier" commands/hef.review.md 's/with `model: opus`/with no override/' cr_t_struct_round
+cr_smut "FR-002 the pin moved off fable" agents/code-reviewer.md '2s/model: fable/model: opus/' cr_t_struct_round
+cr_smut "FR-015 a lens dropped from the agent" agents/code-reviewer.md 's/^- \*\*test-integrity\*\*/- test-integrity/' cr_t_struct_round
+cr_smut "FR-003 the finder brief asks for fewer findings" commands/hef.review.md 's/^> Role: \*\*finder\*\*, lens/> Role: **finder**, prefer fewer findings, lens/' cr_t_struct_volume
+cr_smut "FR-003 the verifier role keeps scope over volume" agents/code-reviewer.md '/^You did not find anything this round/s/$/ Scope over volume./' cr_t_struct_volume
+cr_smut "FR-021 the verifier brief loses the spec folder" commands/hef.review.md '/^> Role: \*\*verifier\*\*/s/The spec is in/The spec lives in/' cr_t_struct_volume
+cr_smut "FR-019 a pipe before the check's heredoc" commands/hef.review.md "s/code-review-check <<'HEF_CRC/code-review-check | cat <<'HEF_CRC/" cr_t_struct_calls
+cr_smut "FR-021 (A1) the preflight dropped" commands/hef.review.md '/^\*\*Preflight\*\*/,/^HEF_REPRO_RECIPE_END$/d' cr_t_struct_preflight
+[ "$x_fail" -eq 0 ] && ok "structure: 8 mutants killed (exhaustive-review/FR-019)"
+
+# exhaustive-review SC-002: while this feature is unmerged (its lib absent at the merge base), the launcher, its fixture
+# and plan mode stay byte-unchanged. Scoped so that a later item may change them: once merged, the base has the lib.
+x_fail=0
+CR_PLAN_HEAD='## Plan mode — via `code-reviewer`, in a fresh context'
+cr_base="$(git -C "$REPO" merge-base HEAD main 2>/dev/null || git -C "$REPO" merge-base HEAD origin/main 2>/dev/null || true)"
+if [ -z "$cr_base" ]; then ok "SC-002 not checked — no main or origin/main ref here (a shallow or detached checkout)"
+elif git -C "$REPO" cat-file -e "$cr_base:hooks/code-review-lib.sh" 2>/dev/null; then ok "SC-002 not checked — the exhaustive round is already on main"
+else
+  [ -z "$(git -C "$REPO" diff --stat "$cr_base" -- hooks/session-launch.sh tests/fixtures/launch-920.txt)" ] \
+    || cr_sno "SC-002: hooks/session-launch.sh and tests/fixtures/launch-920.txt must stay unchanged"
+  git -C "$REPO" show "$cr_base:commands/hef.review.md" >"$cr_t/base-review.md"
+  cr_pm_base="$(cr_section "$cr_t/base-review.md" "$CR_PLAN_HEAD")"
+  [ -n "$cr_pm_base" ] && [ "$cr_pm_base" = "$(cr_section "$REPO/commands/hef.review.md" "$CR_PLAN_HEAD")" ] \
+    || cr_sno "SC-002: plan mode of hef.review.md must stay byte-unchanged"
+  [ "$x_fail" -eq 0 ] && ok "SC-002: the launcher, launch-920.txt and plan mode are unchanged against the merge base (exhaustive-review/SC-002)"
+fi
