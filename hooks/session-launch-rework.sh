@@ -112,6 +112,9 @@ rework_prompt() { # → the rework prompt on stdout, or nothing when no rework r
   local row br u rt bl ans rul
   row="$(rework_open_row)"; [ -n "$row" ] || return 0
   br="$(jq -r '.branch // empty' <<<"$E")"   # FR-008: the worktree must be on the entry's branch — never `claude -w` on a fresh one
+  # FR-008: a plain ref, as rework_guards checks at the move — record_worktree rewrites .branch from the worktree on
+  # every attempt, so a later attempt re-checks it here; anything else is the worktree question, never a push target
+  [[ "$br" =~ ^[A-Za-z0-9._/-]+$ ]] && [ "${br#-}" = "$br" ] || br=""
   wt_on_branch_or_ask "$br" Rework "resume the rework" rework_asked_other
   u="$(jq -r .pr_url <<<"$row")"; rework_rule "$u" "$br"; rt="$(jq -r '.route // "fix"' <<<"$E")"
   bl="$(rework_brief_as_data "$row" "$REWORK_RULE")" || exit 1

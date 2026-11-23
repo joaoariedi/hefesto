@@ -339,6 +339,14 @@ rw_moved RW-4; rw_snap RW-4; rw_mut session-launch-forward.sh '/^wt_on_branch_or
   && { rw_sl implement RW-4 --dry-run >/dev/null 2>&1; rw_same RW-4 && rw_survived "the dry-run guard dropped, yet the dry run wrote nothing"; }; rw_unmut
 rw_moved RW-4; rw_ires failed null; rw_c0="$(rw_calls)"; rw_mut session-launch-rework.sh 's/^  wt_on_branch_or_ask "\$br" Rework.*$/  true/' \
   && { rw_sl implement RW-4 >/dev/null 2>&1; [ "$(rw_calls)" = "$rw_c0" ] && rw_survived "the worktree check dropped, yet the launch on another branch started nothing"; }; rw_unmut
+# FR-008: the branch re-checked as a plain ref at launch — a failed attempt's record_worktree may have rewritten .branch
+# to the worktree's own non-plain name (code review 2026-11-23): equal, yet never a push target
+rw_wt RW-7 'fix;x' >/dev/null; rw_moved RW-7; rw_put RW-7 '.branch = "fix;x"'; rw_ires failed null; rw_c0="$(rw_calls)"
+rw_o="$(rw_sl implement RW-7 2>&1)" && { bad "a rework launch on a non-plain branch must be refused (verify-fix-loop/FR-008)"; x_fail=1; }
+grep -qF 'head branch <none> (missing, or on fix;x)' <<<"$rw_o" && rw_j RW-7 '.blocked_on.kind == "human:clarify"' && [ "$(rw_calls)" = "$rw_c0" ] \
+  || { bad "a non-plain .branch must give the worktree question, blocked human:clarify, nothing launched (verify-fix-loop/FR-008) — got: $(tail -c 300 <<<"$rw_o")"; x_fail=1; }
+rw_moved RW-7; rw_put RW-7 '.branch = "fix;x"'; rw_c0="$(rw_calls)"; rw_mut session-launch-rework.sh '/^  \[\[ "\$br" =~ /d' \
+  && { rw_sl implement RW-7 >/dev/null 2>&1; [ "$(rw_calls)" = "$rw_c0" ] && rw_survived "the launch's plain-ref check dropped, yet a non-plain branch launched nothing"; }; rw_unmut
 # a row older than the last reopen is closed: the implement launch builds its planned prompt, not a rework (FR-013)
 rw_wt RW-5 >/dev/null; mkdir -p "$rw_w/.claude/worktrees/RW-5/.specify/specs/x"; printf '# Tasks\n- [ ] T001 x\n' > "$rw_w/.claude/worktrees/RW-5/.specify/specs/x/tasks.md"
 rw_moved RW-5 '.spec_dir = ".specify/specs/x"'; rw_put RW-5 '.reworks[0].at = "2026-11-01T00:00:00Z" | .events += [{kind: "reopen", at: "2026-11-05T00:00:00Z"}]'
