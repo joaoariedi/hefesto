@@ -20,6 +20,9 @@
 #   the block an answer clears is the one recorded with that answer's own index. A block whose asked[] record was lost
 #   leaves its answer unpaired — never paired with an earlier dispute.
 # - Ordinal, never by time: `at` has 1-second resolution and ties.
+# - And by question (HEF-57 verify, review): the answer must name the dispute's own question file (`.question`, which
+#   `ledger.sh answer` records from the block it clears). A same-kind block swapped in after the dispute, or an
+#   answerless unblock that shifts the count, leaves the answer unpaired. An answer recorded before this field: none.
 # - The kind test (round 6): an answer to a human:plan-review block a rework run reported is never a ruling, even
 #   after a dispute; a worktree question (dispute: false) shields its own answer.
 REWORK_PAIRS_JQ='
@@ -33,7 +36,7 @@ def rework_pairs: rework_open_key as $k
          | select(.value.consumed != true and .value.kind == "human:clarify")
          | .key as $i | .value as $a
          | ([$asked[] | select(.answers_before == $i)] | last) as $q
-         | select($q != null and $q.dispute == true)
+         | select($q != null and $q.dispute == true and ($a.question // "") == $q.path)
          | {answer: $a.path, answer_sha256: $a.sha256, question_path: $q.path, question_sha256: $q.sha256}]
     end;
 '

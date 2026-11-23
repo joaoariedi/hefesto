@@ -137,8 +137,10 @@ answer_item() { # $1 file|-
   person_gate "$k" answer
   n=$(( $(jq '.answers // [] | length' <<<"$E") + 1 )); dst="$DIR/$ID.answers-$n.md"
   lanes_take_text "$1" "$dst" answer
+  # question: the file of the block this answer clears — a ruling pairs on it (HEF-57 verify: pairing by count alone
+  # let an answer to a swapped-in question rule on a dispute)
   jq --arg p "$dst" --arg s "$(lanes_sha256 "$dst")" --arg by "$RBY" --arg k "$k" \
-    '.blocked_on = null | .attempts = 0 | .answers = ((.answers // []) + [{path: $p, sha256: $s, by: $by, kind: $k, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
+    '(.blocked_on.question_path // null) as $q | .blocked_on = null | .attempts = 0 | .answers = ((.answers // []) + [{path: $p, sha256: $s, by: $by, kind: $k, question: $q, at: (now | todate)}])' <<<"$E" | write_entry "$ID" || exit 1
   echo "$ID answered by $RBY ($k cleared) — the planner resumes with the answers on its next pass"
   lanes_echo_text "$dst"
 }

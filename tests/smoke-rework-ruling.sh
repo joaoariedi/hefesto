@@ -78,7 +78,9 @@ rr_ask() { # rr_ask <id> <dispute|other|none|plan-review> <question text> <answe
   local q="$rr_ld/$1.question-$rr_qn.md" r=0; rr_qn=$((rr_qn + 1)); printf '%s\n' "$3" > "$q"; printf '%s\n' "$4" > "$rr_t/ans.md"
   rrl block "$1" --kind human:clarify --question "$q" >/dev/null 2>&1 || r=1
   case "$2" in dispute|other) rrl record "$1" --rework-asked "$2" >/dev/null 2>&1 || r=1 ;;
-    plan-review) { rrl record "$1" --rework-asked dispute && rrl block "$1" --kind human:plan-review; } >/dev/null 2>&1 || r=1 ;; esac
+    plan-review) { rrl record "$1" --rework-asked dispute && rrl block "$1" --kind human:plan-review; } >/dev/null 2>&1 || r=1 ;;
+    swap) printf 'Q-SWAPPED\n' > "$q.swap.md"
+      { rrl record "$1" --rework-asked dispute && rrl block "$1" --kind human:clarify --question "$q.swap.md"; } >/dev/null 2>&1 || r=1 ;; esac
   rrn answer "$1" --file "$rr_t/ans.md" --reviewed-by-human --by Ana </dev/null >/dev/null 2>&1 || r=1
   [ "$r" = 0 ] || { bad "fixture: rr_ask $1 $2 must block, record and answer (verify-fix-loop/FR-010) — got: $(jq -c '{blocked_on, reworks}' "$rr_ld/$1.json" | head -c 300)"; x_fail=1; }
 }
@@ -197,11 +199,22 @@ rr_pmut() { # rr_pmut <hook> <sed> <label> <jq test the correct stamp passes>: R
   rrl record RR-M --rework-consumed >/dev/null 2>&1; rr_j RR-M "$4" && rr_survived "$3"; rr_unmut
 }
 rr_two='(.reworks[0].ruling | length) == 2'
-rr_pmut rework-pairs.sh 's/ and \.value\.kind == "human:clarify")/)/' "the kind test dropped, yet the human:plan-review answer after a dispute was no ruling" "$rr_two"
-rr_pmut rework-pairs.sh 's/select(\.answers_before == \$i)/select(.answers_before <= $i)/' "answers_before <= i, yet the answer to the unrecorded block stayed unpaired" "$rr_two"
-rr_pmut rework-pairs.sh 's/select(\$q != null and \$q\.dispute == true)/select($q != null)/' "the dispute test dropped, yet the worktree question's answer was no ruling" "$rr_two"
+# the kind and ordinal tests each guard a case the question match also catches: each mutant drops the match too, so
+# the test proves the older test alone holds the pre-match rule (HEF-57 verify)
+rr_qx='s/ and (\$a\.question \/\/ "") == \$q\.path)/)/'
+rr_pmut rework-pairs.sh "s/ and \\.value\\.kind == \"human:clarify\")/)/; $rr_qx" "the kind test (and the question match) dropped, yet the human:plan-review answer after a dispute was no ruling" "$rr_two"
+rr_pmut rework-pairs.sh "s/select(\\.answers_before == \\\$i)/select(.answers_before <= \$i)/; $rr_qx" "answers_before <= i (and the question match dropped), yet the answer to the unrecorded block stayed unpaired" "$rr_two"
+rr_pmut rework-pairs.sh 's/select(\$q != null and \$q\.dispute == true and /select($q != null and /' "the dispute test dropped, yet the worktree question's answer was no ruling" "$rr_two"
 rr_pmut ledger-rework.sh 's/| \.reworks\[\$k\]\.ruling = ((\.reworks\[\$k\]\.ruling \/\/ \[\]) + \$p) |/|/' "the stamp dropped, yet the row carried two rulings" "$rr_two"
 rr_pmut ledger-rework.sh 's/(if \.answers then \.answers |= map(\.consumed = true) else \. end) end/. end/' "the answers left open by --rework-consumed, yet they were consumed" 'all(.answers[]; .consumed == true)'
+# HEF-57 verify (review): a dispute, then a same-kind question swapped in and answered — that answer is no ruling
+rr_entry RR-S '.phase = "implement" | .verdicts = [] | .reworks = [$row]' --argjson row "$rr_row"; rr_ask RR-S swap Q-DISPUTE-S RULE-OTHER
+rr_j RR-S '.answers[0].question != null and .answers[0].question != .reworks[0].asked[0].path' \
+  || { bad "the answer must record the swapped-in question it cleared — got: $(jq -c '{answers, asked: .reworks[0].asked}' "$rr_ld/RR-S.json" | head -c 300)"; x_fail=1; }
+[ "$(rr_pl RR-S)" = "[]" ] || { bad "an answer to a swapped-in question must not rule on the dispute (verify-fix-loop/FR-010) — got: $(rr_pl RR-S | head -c 300)"; x_fail=1; }
+rr_mut rework-pairs.sh 's/ and (\$a\.question \/\/ "") == \$q\.path)/)/' && {
+  [ "$(bash -c 'die() { echo "$*" >&2; exit 1; }; HERE="$1"; . "$HERE/session-launch-rework.sh"; jq -c "$REWORK_PAIRS_JQ rework_pairs" "$2"' _ "$rr_t/mut" "$rr_ld/RR-S.json")" = "[]" ] \
+    && rr_survived "the question match dropped, yet the swapped-in answer was still no ruling"; }; rr_unmut
 rr_mfix; rrl record RR-M --rework-consumed >/dev/null 2>&1; rr_put RR-M '.phase = "verify"'; cp "$rr_ld/RR-M.json" "$rr_t/m.json"
 rr_d="$(rr_dry verify RR-M)"
 for rr_k in 'person-ruling-begin RR-M' 'ruling 1 on it' 'ruling 2 on it' Q-DISPUTE-A RULE-A Q-DISPUTE-C RULE-C; do
