@@ -55,6 +55,8 @@ usage() { echo "usage: session-launch.sh <plan|implement|verify|deploy> <id> [--
 . "$HERE/forge-lib.sh"     # forge_public_host, forge_infra_stall, FORGE_INFRA_RULE (forge-setup, HEF-22)
 # shellcheck source=hooks/session-launch-forward.sh
 . "$HERE/session-launch-forward.sh" || exit 1   # the merge-forward arm: prompt, schema, routing, transcription (HEF-31)
+# shellcheck source=hooks/session-launch-rework.sh
+[ -f "$HERE/session-launch-rework.sh" ] && . "$HERE/session-launch-rework.sh" || die "session-launch: $HERE/session-launch-rework.sh not found — the plugin install is incomplete (reinstall it)"   # the verify-fix arm (HEF-57)
 # shellcheck source=hooks/host-limits.sh
 # hl_detacher, hl_run_detached, hl_memory_gate (run-survival, HEF-25); LAUNCH_CWD before any cd: the detached copy
 # starts where the caller did (lane mode checks the folder)
@@ -357,7 +359,7 @@ schema_errors() { # $1 schema JSON, $2 value JSON → the first violation, or no
 transcribe() { # the ledger after a stage: from SO (the structured outcome), RC, WT, NAME, PR_MODE — a run's, or a lane's
 case "$ROLE" in
   implement)
-    forward_transcribe_guard; R="$(jq -r '.route // empty' <<<"$SO")"; record_worktree "$R"   # merge-forward FR-010a: first
+    forward_transcribe_guard; rework_transcribe_guard; R="$(jq -r '.route // empty' <<<"$SO")"; record_worktree "$R"   # merge-forward FR-010a, HEF-57 FR-010: first
     # HEF-22 FR-012/016: an infrastructure stop is a stall with the plugin's fix line — before the outcome switch, so
     # blocked + null never becomes human:intake and failed never dies; infra_cause wins over blocked_on
     forge_infra_stall "$LEDGER" "$ID" "$SO" && return 0
@@ -367,10 +369,10 @@ case "$ROLE" in
     case "$(jq -r '.outcome + " " + (.blocked_on // "")' <<<"$SO")" in
       "pr "*|"blocked human:"*) "$LEDGER" record "$ID" --followups-consumed >/dev/null || exit 1 ;; esac
     case "$(jq -r '.outcome' <<<"$SO")" in
-      pr)      [ -z "$FWR" ] || "$LEDGER" record "$ID" --forward-consumed --person-text-consumed >/dev/null || exit 1   # FR-010: on pr only
+      pr)      implement_pr_consume || exit 1   # merge-forward FR-010, HEF-57 FR-010: on pr only (session-launch-forward.sh)
                "$LEDGER" advance "$ID" verify >/dev/null || exit 1 ;;
-      blocked) K="$(jq -r '.blocked_on // empty' <<<"$SO")"; [ -n "$K" ] || K="human:intake"; QF="$(implement_question_file "$K")"   # FR-012
-               "$LEDGER" block "$ID" --kind "$K" ${QF:+--question "$QF"} >/dev/null || exit 1 ;;
+      blocked) K="$(jq -r '.blocked_on // empty' <<<"$SO")"; [ -n "$K" ] || K="human:intake"   # merge-forward FR-012
+               implement_block_question "$K" ;;   # the question file on a forward/rework clarify; a rework dispute recorded (HEF-57 FR-010)
       *)       "$LEDGER" show "$ID"; die "session-launch implement $ID: the worker reported outcome 'failed' (exit $RC) — phase stays implement, re-dispatchable until stall" ;;
     esac ;;
   plan)
@@ -415,11 +417,11 @@ case "$ROLE" in
     # HEF-30 FR-004: the head the gates saw, on the PR — only when THIS run passed every gate automerge reads. A SKIPPED
     # gate records `none` (clearing an earlier head), so a session's later PASS verdict over it is never merged (verify
     # gate 2026-11-13, F1: the head comes from the launcher's verify run, never from verdicts written beside it)
-    VH=none; [ "$FAIL" = 0 ] && jq -e --arg k "$ITEM_KIND" '(reduce .verdicts[] as $v ({}; .[$v.gate] = $v.verdict)) as $last | ["verify", "review", "quality", "scan"] + (if $k == "incident" or $k == "vulnerability" then [$k] else [] end) | all(.[]; $last[.] == "PASS")' <<<"$SO" >/dev/null && VH="$(git -C "$WT" rev-parse HEAD 2>/dev/null)"; [ "$VH" = "${VH0:-}" ] || VH=none   # moved during the run
+    VH=none; [ "$FAIL" = 0 ] && jq -e --arg k "$ITEM_KIND" '(reduce .verdicts[] as $v ({}; .[$v.gate] = $v.verdict)) as $last | ["verify", "review", "quality", "scan"] + (if $k == "incident" or $k == "vulnerability" then [$k] else [] end) | all(.[]; $last[.] == "PASS")' <<<"$SO" >/dev/null && VH="$(git -C "$WT" rev-parse HEAD 2>/dev/null)"; [ "$VH" = "${VH0:-}" ] || VH=none; verify_ruled && VH=none   # moved during the run; HEF-57 D10/FR-012: a ruled verify records none
     HEFESTO_LAUNCHER=1 HEFESTO_VERIFIED_IN="$MODE" "$LEDGER" record "$ID" --verified-head "${VH:-none}" >/dev/null || exit 1   # run | finish
-    if [ "$FAIL" = 1 ]; then "$LEDGER" block "$ID" --kind verdict >/dev/null || exit 1
-    # under resolved auto no merge wait — the deploy stage merges it
-    else "$LEDGER" advance "$ID" pr >/dev/null || exit 1; [ "$MBY" = auto ] || "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
+    if [ "$FAIL" = 1 ]; then rework_route || exit 1   # HEF-57 FR-001: back to the builder, or the cap's one block (FR-013b: else verdict)
+    # under resolved auto no merge wait — the deploy stage merges it; a ruled PASS always waits on a person (HEF-57 D10)
+    else "$LEDGER" advance "$ID" pr >/dev/null || exit 1; { [ "$MBY" = auto ] && ! verify_ruled; } || "$LEDGER" block "$ID" --kind human:merge >/dev/null || exit 1; fi ;;
   deploy)
     # stage-roles FR-008: questions outrank the verdict — a person must read before anything moves; a
     # mergeable PR already at the gate keeps its block (and its `since`); closed leaves the deploy set.
@@ -477,8 +479,10 @@ case "$ROLE" in
       [ "$DRY" = 1 ] || "$LEDGER" block "$ID" --kind human:plan-approval >/dev/null || exit 1
       die "session-launch implement $ID: its RFC ($(jq -r .source.rfc.path <<<"$E")) changed since the plan was made from it — blocked on human:plan-approval: bring spec, plan and tasks in line with it, re-pin (ledger.sh record $ID --rfc) and approve again"
     fi
-    FWP="$(forward_prompt)" || exit 1   # merge-forward FR-009: an open forward row → the merge-forward prompt instead
+    # merge-forward FR-009: an open forward row → the merge-forward prompt instead; HEF-57 FR-008: else an open rework row → the rework prompt (D8: forward wins)
+    FWP="$(forward_prompt)" || exit 1; RWP=""; [ -n "$FWP" ] || { RWP="$(rework_prompt)" || exit 1; }
     if [ -n "$FWP" ]; then PROMPT="$FWP"
+    elif [ -n "$RWP" ]; then PROMPT="$RWP"
     elif [ -n "$SPEC_DIR" ] && [ -f "$SPEC_DIR/tasks.md" ]; then
       # stage-roles FR-006: a plan stage ran first; the artifacts are on this branch already. Keyed on the
       # artifact, not the phase: a retry after a failed run sits in `implement` and must not go back to
@@ -497,7 +501,7 @@ $FUBLK
 EOF
     fi
     SCHEMA='{"type":"object","required":["summary","route","outcome"],"properties":{"summary":{"type":"string","maxLength":2000},"route":{"enum":["fix","light","full"]},"outcome":{"enum":["pr","blocked","failed"]},"pr_url":{"type":["string","null"]},"blocked_on":{"enum":["human:clarify","human:plan-review","human:merge","ci","conflict",null]},"spec_dir":{"type":["string","null"]},"infra_cause":{"enum":["push-refused","host-denied","credential-helper-missing",null]},"infra_host":{"type":["string","null"],"maxLength":253}}}'
-    [ -z "$FWP" ] || SCHEMA="$(forward_schema "$SCHEMA")" ;;   # merge-forward FR-012: no forward → the 9.2.0 schema, byte for byte
+    [ -z "$FWP$RWP" ] || SCHEMA="$(forward_schema "$SCHEMA")" ;;   # merge-forward FR-012, HEF-57 FR-009: neither → the 9.2.0 schema, byte for byte
   plan)
     # A plan run never reopens a planned item, nor runs over a person's block — and both refusals come BEFORE
     # the RFC pin below, which would otherwise re-take an approved pin with no dialog (code review 2026-10-19).
@@ -548,12 +552,14 @@ EOF
     ROUTE="$(jq -r '.route // "fix"' <<<"$E")"
     [ -n "$WORKTREE" ] || die "session-launch verify $ID: no worktree recorded on the entry — run 'session-launch.sh implement $ID' first"
     [ -d "$WORKTREE" ] || die "session-launch verify $ID: recorded worktree missing: $WORKTREE"
+    verify_rounds_check   # HEF-57 FR-005: the transcription's rework reads it; a bad value dies here, before anything runs
     CHAIN="/hefesto:hef.review (code mode), then /hefesto:hef.quality, then /hefesto:hef.scan"
     [ "$ROUTE" != fix ] && [ -n "$SPEC_DIR" ] && CHAIN="/hefesto:hef.verify (spec at $SPEC_DIR), then $CHAIN"
     [ -n "$KIND_GATE" ] && CHAIN="$CHAIN, then $KIND_GATE (report it as gate \"$ITEM_KIND\")"
     read -r -d '' PROMPT <<EOF || true
 Verify the change for board item $ID on branch ${BRANCH:-<unknown>} in this worktree (diff base: $INTEG). You are a separate reviewer: you have not seen how the change was made and must not look for its transcript. Read-only — do not edit, approve, merge, or push. Run in order: $CHAIN. Report one verdict per gate (PASS, FAIL, or SKIPPED with the reason) with the command output as evidence, and a summary ≤2000 chars.
 EOF
+    RB="$(verify_ruling_block)" || exit 1; [ -z "$RB" ] || PROMPT="$PROMPT"$'\n\n'"$RB"   # HEF-57 FR-012: only with a ruling since the last reopen
     GATE_ENUM='"verify","review","quality","scan","mutate"'; [ -n "$KIND_GATE" ] && GATE_ENUM="$GATE_ENUM,\"$ITEM_KIND\""   # only the entry's OWN kind gate
     SCHEMA='{"type":"object","required":["summary","verdicts"],"properties":{"summary":{"type":"string","maxLength":2000},"verdicts":{"type":"array","items":{"type":"object","required":["gate","verdict"],"properties":{"gate":{"enum":['"$GATE_ENUM"']},"verdict":{"enum":["PASS","FAIL","SKIPPED"]},"evidence":{"type":"string","maxLength":500}}}}}}' ;;
   deploy)

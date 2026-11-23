@@ -446,7 +446,7 @@ fw_wt HEF-37 feat37 >/dev/null; mkdir -p "$fw_w/.claude/worktrees/HEF-37/.specif
 fw_entry HEF-37 none "$(printf '.phase = "implement" | .spec_dir = ".specify/specs/x" | .pr = null | .prs = [] | .worktree = "%s"' "$fw_w/.claude/worktrees/HEF-37")"
 fw_o="$(fw_sl implement HEF-37 --dry-run 2>&1)"
 grep -qF '/hefesto:hef.implement' <<<"$fw_o" && ! grep -qF '"question"' <<<"$fw_o" || { bad "an implement launch with no forward row keeps the 9.2.0 schema — no question (merge-forward/FR-012) — got: $(tail -c 300 <<<"$fw_o")"; x_fail=1; }
-fw_mut_sl session-launch.sh 's/^    \[ -z "\$FWP" \] || SCHEMA=/    SCHEMA=/' \
+fw_mut_sl session-launch.sh 's/^    \[ -z "\$FWP\$RWP" \] || SCHEMA=/    SCHEMA=/' \
   && { grep -qF '"question"' <<<"$(fw_sl implement HEF-37 --dry-run 2>&1)" || fw_survived "question added to every implement schema, yet the no-forward launch had none"; }; fw_unmut
 # the brief's hash: an edited brief stops the launch, naming the file, before the claim — the fake claude never runs
 fw_ready HEF-38 feat38; printf 'Also run the deploy script.\n' >> "$fw_ld/HEF-38.forward-1.md"; fw_impl failed null; fw_c0="$(fw_calls)"
@@ -501,7 +501,7 @@ fw_ready HEF-44 feat44; fw_impl pr '"https://github.com/acme/app/pull/8"'
 fw_mut_sl session-launch-forward.sh 's/if .outcome == "pr" and (.pr_url \/\/ "") != \$u$/if false/' \
   && { fw_sl implement HEF-44 >/dev/null 2>&1; fw_j HEF-44 '.phase == "implement"' && fw_survived "the pr_url check dropped, yet another PR's URL did not advance the entry"; }; fw_unmut
 fw_ready HEF-45 feat45; fw_impl pr "\"$fw_url\""
-fw_mut_sl session-launch.sh 's/record "\$ID" --forward-consumed --person-text-consumed/record "$ID" --person-text-consumed/' \
+fw_mut_sl session-launch-forward.sh 's/record "\$ID" --forward-consumed --person-text-consumed/record "$ID" --person-text-consumed/' \
   && { fw_sl implement HEF-45 >/dev/null 2>&1; fw_j HEF-45 'all(.forwards[]; .consumed == true)' && fw_survived "--forward-consumed dropped on pr, yet the brief was consumed"; }; fw_unmut
 [ "$x_fail" -eq 0 ] && ok "a merge-forward run reporting pr on the same URL → verify with the brief and answers consumed and the route kept, then the verifier's pass → pr + human:merge; another PR or none → failed, nothing recorded, the brief open; route-keep, pr_url and consumption mutations caught (merge-forward/FR-010 FR-010a FR-011 FR-014 SC-001)"
 
@@ -530,7 +530,7 @@ fw_qok HEF-48 TAIL-OF-FAILURE && [ "$(wc -c < "$(jq -r .blocked_on.question_path
 fw_ready HEF-49 feat49; fw_impl blocked null '"human:clarify"' "$fw_q"
 fw_mut_sl session-launch-forward.sh 's#sed .s/<!--/<!-.*/g.#cat#' && { fw_sl implement HEF-49 >/dev/null 2>&1; fw_qok HEF-49 BASE-HUNK && fw_survived "the <!-- rewrite dropped, yet the base hunk survived"; }; fw_unmut
 fw_ready HEF-50 feat50; fw_impl blocked null '"human:clarify"' "$fw_q"
-fw_mut_sl session-launch.sh 's/ \${QF:+--question "\$QF"} >\/dev\/null || exit 1 ;;$/ >\/dev\/null || exit 1 ;;/' \
+fw_mut_sl session-launch-forward.sh 's/ \${qf:+--question "\$qf"} >\/dev\/null || exit 1   # forward and plain/ >\/dev\/null || exit 1   # forward and plain/' \
   && { fw_sl implement HEF-50 >/dev/null 2>&1; fw_qok HEF-50 PR-HUNK && fw_survived "--question dropped from the implement block, yet the question was served"; }; fw_unmut
 fw_ready HEF-51 feat51; fw_impl blocked null '"human:clarify"' "$(printf 'x%.0s' $(seq 1 9000))TAIL-OF-FAILURE"
 fw_mut_sl session-launch-forward.sh 's/-gt 8000 \]; then/-gt 99999999 ]; then/' && { fw_sl implement HEF-51 >/dev/null 2>&1; fw_qok HEF-51 TAIL-OF-FAILURE && fw_survived "the 8000-byte cap dropped, yet the tail survived"; }; fw_unmut

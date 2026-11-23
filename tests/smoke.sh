@@ -2324,7 +2324,7 @@ chmod +x "$sr_bin/claude"
 ( cd "$sr_t" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && mkdir -p tasks .claude \
   && printf '# TODO\n\n## HEF-1 — one\nb\n\n## HEF-2 — two\nb\n\n## HEF-3 — three\nb\n\n## HEF-4 — four\nb\n\n## HEF-5 — five\nb\n' > tasks/TODO.md \
   && printf '# D\n' > tasks/DOING.md && printf '# D\n' > tasks/DONE.md && printf '# B\n' > tasks/BACKLOG.md \
-  && printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":25}}\n' > .claude/project-status.json \
+  && printf '{"source":"tasks-repo","root":"tasks","orchestrate":{"usd_cap":5,"daily_usd_cap":25,"verify_rounds":0}}\n' > .claude/project-status.json \
   && for i in 1 2 3 4 5; do bash "$LG" init HEF-$i --kind tasks-repo --ref t >/dev/null; done ) >/dev/null 2>&1
 sr() { (cd "$sr_t" && PATH="$sr_bin:$PATH" CLAUDE_CONFIG_DIR="$sr_cfg" bash "$SL" "$@"); }
 srj() { jq -e "$2" "$(sld "$sr_t")/$1.json" >/dev/null 2>&1; }
@@ -2341,11 +2341,12 @@ printf '{"session_id":"s2","total_cost_usd":0.5,"structured_output":{"summary":"
 srj HEF-1 '.phase=="pr" and .blocked_on.kind=="human:merge" and (.verdicts|length)==2 and .verdicts[0].by=="verify-HEF-1" and .budget.usd_spent==1.75 and .owner==null' \
   || { bad "session-launch verify must record verdicts, advance to pr and block on human:merge — got $(jq -c '{p:.phase,b:.blocked_on,v:(.verdicts|length),u:.budget.usd_spent}' "$(sld "$sr_t")/HEF-1.json")"; sr_fail=1; }
 grep -qE -- '--disallowedTools Edit,Write' "$sr_log" && ! grep -qE -- ' -w ' "$sr_log" || { bad "verify call must deny Edit/Write and not create a worktree"; sr_fail=1; }
-# verify with a FAIL → blocked_on verdict, phase stays verify
+# verify with a FAIL → blocked_on verdict, phase stays verify (verify_rounds 0 in the fixture: the FAIL synthesis, not the
+# loop — the cap's block carries its findings question, so a fallback block without one is red: verify-fix-loop/FR-001)
 # Mutation: the FAIL branch removed → human:merge set after a FAIL → red.
 printf '{"session_id":"s3","total_cost_usd":1,"structured_output":{"summary":"x","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/13"}}\n' > "$sr_res"; sr implement HEF-2 >/dev/null 2>&1
 printf '{"session_id":"s4","total_cost_usd":0.5,"structured_output":{"summary":"bad","verdicts":[{"gate":"review","verdict":"FAIL","evidence":"REQUEST_CHANGES"}]}}\n' > "$sr_res"; sr verify HEF-2 >/dev/null 2>&1
-srj HEF-2 '.phase=="verify" and .blocked_on.kind=="verdict"' || { bad "a FAIL verdict must block on 'verdict' and keep phase verify — got $(jq -c '{p:.phase,b:.blocked_on}' "$(sld "$sr_t")/HEF-2.json")"; sr_fail=1; }
+srj HEF-2 '.phase=="verify" and .blocked_on.kind=="verdict" and .blocked_on.question_path != null' || { bad "a FAIL verdict must block on 'verdict' and keep phase verify — got $(jq -c '{p:.phase,b:.blocked_on}' "$(sld "$sr_t")/HEF-2.json")"; sr_fail=1; }
 # outcome failed twice → phase stays implement, owner released each time, worktree reused (one -w), third launch stalls
 # Mutation: the worktree-exists branch removed → -w appears twice → red.
 printf '{"session_id":"s5","total_cost_usd":0.2,"structured_output":{"summary":"could not","route":"fix","outcome":"failed"}}\n' > "$sr_res"
@@ -3738,17 +3739,19 @@ ik_pl="$(iks implement HEF-32 --dry-run 2>&1)"
 [ "$ik_fail" -eq 0 ] && ok "item kinds: --item-kind (first, behind a state marker, both 🛡 forms, VS15/VS16, after-the-id, config override, bad map, github-project, missing), --was keeps kinds, init/record + refusals, prompt per kind on both implement branches (item-kinds FR-001 FR-002 FR-004); init records intake_kind, an unsigned upgrade leaves it (item-kind-downgrade/FR-001 item-kind-downgrade/FR-005)"
 
 # FR-005 the verify gate is required: absent → FAIL, SKIPPED → FAIL, PASS → human:merge; only the entry's own gate enters the schema
-ik_vfail=0
+# verify_rounds 0: these test the FAIL synthesis, not the loop — each FAIL is the cap's verdict block, with its findings
+# question (a fallback block carries none, so it cannot pass for one: verify-fix-loop/FR-001)
+ik_vfail=0; jq '.orchestrate.verify_rounds = 0' "$ik_cfgf" > "$ik_cfgf.tmp" && mv "$ik_cfgf.tmp" "$ik_cfgf"
 printf '{"session_id":"i1","total_cost_usd":0.5,"structured_output":{"summary":"done","route":"fix","outcome":"pr","pr_url":"https://github.com/o/r/pull/21"}}\n' > "$ik_res"
 iks implement HEF-21 >/dev/null 2>&1 || { bad "implement HEF-21 (fake claude) failed"; ik_vfail=1; }
 : > "$ik_log"; printf '{"session_id":"v1","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"},{"gate":"quality","verdict":"PASS"}]}}\n' > "$ik_res"
 iks verify HEF-21 >/dev/null 2>&1
-ikj HEF-21 '.blocked_on.kind == "verdict" and any(.verdicts[]; .gate == "incident" and .verdict == "FAIL")' || { bad "a missing incident gate must be synthesized as FAIL and block on verdict — got $(jq -c '{b:.blocked_on,v:[.verdicts[]|.gate+":"+.verdict]}' "$(sld "$ik_t")/HEF-21.json")"; ik_vfail=1; }
+ikj HEF-21 '.blocked_on.kind == "verdict" and .blocked_on.question_path != null and any(.verdicts[]; .gate == "incident" and .verdict == "FAIL")' || { bad "a missing incident gate must be synthesized as FAIL and block on verdict — got $(jq -c '{b:.blocked_on,v:[.verdicts[]|.gate+":"+.verdict]}' "$(sld "$ik_t")/HEF-21.json")"; ik_vfail=1; }
 { grep -qF 'the incident gate: a test in the diff cites HEF-21' "$ik_log" && grep -qF '"incident"' "$ik_log" && ! grep -qF '"vulnerability"' "$ik_log"; } || { bad "the verify chain and schema must carry the incident gate only"; ik_vfail=1; }
 ikl unblock HEF-21 >/dev/null 2>&1
 printf '{"session_id":"v2","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"},{"gate":"incident","verdict":"SKIPPED","evidence":"no test cites HEF-21"}]}}\n' > "$ik_res"
 iks verify HEF-21 >/dev/null 2>&1
-ikj HEF-21 '.blocked_on.kind == "verdict" and any(.verdicts[]; .gate == "incident" and .verdict == "FAIL" and (.evidence | test("no test cites HEF-21")))' || { bad "a SKIPPED incident gate must become FAIL with the verifier's reason"; ik_vfail=1; }
+ikj HEF-21 '.blocked_on.kind == "verdict" and .blocked_on.question_path != null and any(.verdicts[]; .gate == "incident" and .verdict == "FAIL" and (.evidence | test("no test cites HEF-21")))' || { bad "a SKIPPED incident gate must become FAIL with the verifier's reason"; ik_vfail=1; }
 ikl unblock HEF-21 >/dev/null 2>&1
 printf '{"session_id":"v3","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"},{"gate":"incident","verdict":"PASS","evidence":"test_hef21 PASS"}]}}\n' > "$ik_res"
 iks verify HEF-21 >/dev/null 2>&1
@@ -3761,7 +3764,7 @@ printf '{"session_id":"i3","total_cost_usd":0.5,"structured_output":{"summary":"
 iks implement HEF-22 >/dev/null 2>&1 || { bad "implement HEF-22 (fake claude) failed"; ik_vfail=1; }
 : > "$ik_log"; printf '{"session_id":"v5","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"}]}}\n' > "$ik_res"
 iks verify HEF-22 >/dev/null 2>&1
-ikj HEF-22 '.blocked_on.kind == "verdict" and any(.verdicts[]; .gate == "vulnerability" and .verdict == "FAIL")' || { bad "a missing vulnerability gate must be synthesized as FAIL — got $(jq -c '{b:.blocked_on,v:[.verdicts[]?|.gate+":"+.verdict]}' "$(sld "$ik_t")/HEF-22.json")"; ik_vfail=1; }
+ikj HEF-22 '.blocked_on.kind == "verdict" and .blocked_on.question_path != null and any(.verdicts[]; .gate == "vulnerability" and .verdict == "FAIL")' || { bad "a missing vulnerability gate must be synthesized as FAIL — got $(jq -c '{b:.blocked_on,v:[.verdicts[]?|.gate+":"+.verdict]}' "$(sld "$ik_t")/HEF-22.json")"; ik_vfail=1; }
 { grep -qF '"vulnerability"' "$ik_log" && ! grep -qF '"incident"' "$ik_log"; } || { bad "the verify schema for a vulnerability must name its own gate only"; ik_vfail=1; }
 ikl unblock HEF-22 >/dev/null 2>&1
 printf '{"session_id":"v6","total_cost_usd":0.5,"structured_output":{"summary":"ok","verdicts":[{"gate":"review","verdict":"PASS"},{"gate":"vulnerability","verdict":"PASS","evidence":"scan clean"}]}}\n' > "$ik_res"
@@ -6477,11 +6480,15 @@ l3set LT-4 '.owner = {session_name: "repo-planner", role: "plan", mode: "interac
 l3_mut ledger-lanes.sh 's/\[ "$(jq -r .\.owner != null and \.owner\.mode != "interactive". "$f" 2>\/dev\/null)" = true \]/[ "$(jq -r ".owner != null" "$f" 2>\/dev\/null)" = true ]/'
 (cd "$l3_t" && launcher bash "$l3_md/ledger.sh" claim LT-1 --session x --role verify) >/dev/null 2>&1; (cd "$l3_t" && launcher bash "$LGL" run LT-1 --role verify --exit 0 --usd 0) >/dev/null 2>&1
 l3j LT-4 '.owner == null' || { bad "mutation survived: the reaper's interactive exemption removed, yet the old interactive claim survived"; im_fail=1; }; l3_restore ledger-lanes.sh
-# B4: a verify that reports no review verdict fails — an in-lane verify (and a run's) cannot skip the reviewer
-im_vf() { l3set LT-4 '.phase = "verify" | .blocked_on = null | .owner = {session_name: "repo-builder", role: "verify", mode: "interactive", started: "2026-01-01T00:00:00Z"}'
+# B4: a verify that reports no review verdict fails — an in-lane verify (and a run's) cannot skip the reviewer.
+# verify_rounds 0 and a forge-shaped PR: the FAIL is the cap's verdict block with its findings question, never the
+# fallback block a refused rework (no PR recorded) would leave (verify-fix-loop/FR-001)
+im_vf() { jq '.orchestrate.verify_rounds = 0' "$l3_t/.claude/project-status.json" > "$l3_t/x.json" && cp "$l3_t/x.json" "$l3_t/.claude/project-status.json"
+  l3set LT-4 '.phase = "verify" | .blocked_on = null | .owner = {session_name: "repo-builder", role: "verify", mode: "interactive", started: "2026-01-01T00:00:00Z"}
+    | .pr = {url: "https://github.com/acme/app/pull/4", number: 4} | .prs = [{url: "https://github.com/acme/app/pull/4", number: 4}]'
   jq -n '{role: "verify", lane: "repo-builder", schema: {"type":"object","required":["summary","verdicts"]}, pr_mode: ""}' > "$(sld "$l3_t")/LT-4.prepare"
   printf '{"summary":"looked fine","verdicts":[]}\n' > "$l3_t/ov.json"; im builder verify LT-4 --finish --lane repo-builder --outcome-file "$l3_t/ov.json" >/dev/null 2>&1; }
-im_vf; l3j LT-4 '.phase == "verify" and .blocked_on.kind == "verdict" and any(.verdicts[]; .gate == "review" and .verdict == "FAIL" and .by == "repo-builder:code-reviewer")' \
+im_vf; l3j LT-4 '.phase == "verify" and .blocked_on.kind == "verdict" and .blocked_on.question_path != null and any(.verdicts[]; .gate == "review" and .verdict == "FAIL" and .by == "repo-builder:code-reviewer")' \
   || { bad "a verify with no review verdict must record a review FAIL by <lane>:code-reviewer and block: $(jq -c '{phase,blocked_on,verdicts}' "$(sld "$l3_t")/LT-4.json")"; im_fail=1; }
 l3_mut session-launch.sh 's/^    if ! jq -e .\[.verdicts\[\]? | select(.gate == "review"/    if false \&\& jq -e '"'"'[.verdicts[]? | select(.gate == "review"/'; IM_SL="$l3_md/session-launch.sh"
 l3set LT-4 '.verdicts = []'; im_vf; l3j LT-4 '.phase == "pr"' || { bad "mutation survived: the review requirement removed, yet the empty verify did not reach pr"; im_fail=1; }; l3_restore session-launch.sh; IM_SL=""
@@ -7100,6 +7107,8 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-publish-commit.sh"    # part 16: publish commits the marked column on an external board (HEF-16 publish-commit)
 . "$REPO/tests/smoke-forward.sh"           # part 17: a PR behind or conflicting with its base goes back to the build stage (HEF-31 merge-forward)
 . "$REPO/tests/smoke-forward-routing.sh"   # part 17b: the routing mutations, then part 17's fixture removed (HEF-31 merge-forward FR-017)
+. "$REPO/tests/smoke-rework.sh"            # part 18: a verify FAIL goes back to the build stage, up to verify_rounds (HEF-57 verify-fix-loop)
+. "$REPO/tests/smoke-rework-ruling.sh"     # part 18b: a disputed finding, the person's ruling, and the verify it reaches (HEF-57 verify-fix-loop)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.
