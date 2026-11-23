@@ -74,45 +74,74 @@ found one by one — measures it, with each replay round's cost recorded beside 
   the requirement a test cites against what it exercises). The lens text lives once, in `agents/code-reviewer.md`;
   `workflows/workflow.js` keeps its own task-level lenses (it cannot import — `.claude/rules/code-quality.md`).
 - **D3 — five finders, one verifier, all spawned by the command.** Four finders are `code-reviewer` agents, one per
-  lens, at the agent's own tier. The fifth, the **cross-tier finder**, is a `code-reviewer` spawned with a model
-  override to a different tier alias — `opus` when the reviewer's tier is `fable`, otherwise `fable` — asked to look
-  through all four lenses (report 19: a second reviewer from another tier found more planted errors than a
+  lens, at the agent's own tier — the tier pinned in `agents/code-reviewer.md:2` (`fable`). The fifth, the
+  **cross-tier finder**, is a `code-reviewer` spawned with the model override `opus` — the tier below the pin, never
+  the pin itself (a smoke check fails if the pin stops being `fable`, so the pair is revisited, not silently equal) —
+  asked to look through all four lenses (report 19: a second reviewer from another tier found more planted errors than a
   same-tier one). Aliases only, never a model id. All five spawn in one message, in the foreground.
 - **D4 — finders are exhaustive; precision moves to the verifier.** A finder reports every candidate defect it can
   back with a `file:line` and a reproduction recipe (a command, a fixture, an input), not only the likeliest.
   "Prefer fewer findings" leaves the code-review path; the filter against invented gaps is the verifier.
 - **D5 — the verifier.** A fresh `code-reviewer` that did not find anything this round receives the merged,
-  de-duplicated candidate list (duplicates: the same `file:line` and the same failure, merged with every lens that
-  raised them) and, for each, tries to reproduce it — runs the recipe or builds its own in a scratch directory
-  under `$TMPDIR`, never editing the worktree. Each candidate gets exactly one status: `REPRODUCED` (command and
-  output quoted), `REFUTED` (the command that ran and why it shows no defect), or `UNREPRODUCED` (why no
-  reproduction was possible within the round). Only `REPRODUCED` blocking findings decide the verdict; `UNREPRODUCED`
-  ones are listed as open questions, never dropped. A list over 8 candidates is split across verifiers of at most 8,
-  spawned together.
-- **D6 — one verdict.** `REQUEST_CHANGES` when at least one blocking finding is `REPRODUCED`; `APPROVE` only when
-  none is AND every lens reported (findings or `none — checked: …`) AND the verifier returned a status for every
-  candidate; otherwise (a finder or the verifier silent or failed, a lens section missing) `INCOMPLETE`, which the
+  de-duplicated list of **blocking** candidates (a `SUGGESTION` never changes the verdict, so it is listed without a
+  status, marked `not verified — never blocks`; plan review 5, change 4) (duplicates: the same `file:line` and the same failure, merged with every lens that
+  raised them) and, for each, tries to reproduce it — runs the recipe through the `review-repro` helper (D12), which
+  runs it in a scratch copy under `$TMPDIR`, never in the worktree. Each candidate gets exactly one status:
+  `REPRODUCED` (command and output quoted), `REFUTED` (the command that ran and why it shows no defect), or
+  `UNREPRODUCED` (why no reproduction was possible within the round). A blocking candidate that is `REPRODUCED` **or
+  `UNREPRODUCED`** blocks (the owner, 2026-11-23): only `REFUTED` clears it. `UNREPRODUCED` blockers are also listed
+  as open questions, so a builder who contests one takes HEF-57's dispute path to the person. A list over 8
+  candidates is split across verifiers of at most 8, spawned together.
+- **D6 — one verdict.** `REQUEST_CHANGES` when at least one blocking finding is `REPRODUCED` or `UNREPRODUCED`;
+  `APPROVE` only when every blocking finding is `REFUTED` (or there is none) AND every lens reported (findings or `none — checked: …`) AND the verifier returned a status for every
+  blocking candidate; otherwise (a finder or the verifier silent or failed, a lens section missing) `INCOMPLETE`, which the
   verify run reports as gate `review` `FAIL` — uncertainty is never a pass (workflow.js `:743-760`).
-- **D7 — a mechanical check, not prose.** A new helper subcommand, `speckit-helper.sh code-review-check`, reads the
-  merged report on stdin and exits non-zero (naming what is missing, constitution 5) when a lens section is absent
-  or empty, a lens with no finding lacks `none — checked:`, a blocking finding has no verifier status, or the verdict
-  line contradicts the statuses. The command runs it before relaying the verdict; a non-zero exit makes the verdict
-  `INCOMPLETE`.
-- **D8 — the verdict fits the ledger.** The report ends with one line `BLOCKING <n>: <file:line> (<lens>); …` of at
-  most 500 characters, listing every reproduced blocker (truncated with `… +<k> more` only past 500) — so the
-  verify run's `review` evidence (≤ 500, `session-launch.sh:564`) and the HEF-57 rework brief carry every blocker.
+- **D7 — a mechanical check decides, not prose.** A new helper subcommand, `speckit-helper.sh code-review-check`,
+  reads the merged report (findings and statuses, no verdict) on stdin, and **prints the verdict and the `BLOCKING`
+  line itself** (plan review 2, change 13): exit 0 with `## Verdict: APPROVE|REQUEST_CHANGES` by the D6 rule; exit 1
+  with `## Verdict: INCOMPLETE` and the `BLOCKING` line of every blocker known so far on stdout, and each violation on
+  stderr (naming what is missing, constitution 5) when a lens section is absent or empty, a lens with no finding lacks
+  `none — checked:`, a finder is silent, a blocking finding has no verifier status, or the report carries a verdict
+  line of its own. The command relays the helper's verdict, never an agent's.
+- **D8 — the verdict fits the ledger.** The report ends with one line
+  `BLOCKING <n>: <file:line> (<lens>) <defect in a few words>[ unreproduced]; …` of at most 500 characters, listing
+  every blocker that blocks (D5; truncated with `… +<k> more` only past 500) — so the verify run's `review` evidence
+  (≤ 500, `session-launch.sh:564`) and the HEF-57 rework brief carry every blocker. Each blocker's reproduction
+  command goes in the run summary (`Review recipes:`), as much as the summary's shared 2000 characters hold.
 - **D9 — the replay corpus is eval cases, one per defect.** `evals/review-replay-<id>/` for each row of the corpus
-  table; the scaffold rebuilds the rejected commit's relevant files as a small git repo with a base commit and the
-  rejected change on a branch (the eval workspace is empty and has no network); the prompt is
+  table; the scaffold rebuilds the whole tree of the diff base and of the rejected commit (the project config under
+  `.claude/` included, as the original review saw it) as a small git repo with a base commit and the rejected change
+  on a branch (the eval workspace is empty and has no network); the prompt is
   `/hefesto:hef.review code`; graders: `tool_used Agent min 6` (five finders and a verifier — tool-call level,
-  constitution 3) and an `llm` grader that passes only when the final verdict is `REQUEST_CHANGES` and lists the
-  case's defect as a reproduced blocker. Plus one **item replay** case per item at its first rejected commit, graded
+  constitution 3), `tool_used Bash input_match review-repro.sh min 1`, and an `llm` grader that passes only when the
+  final verdict is `REQUEST_CHANGES` and lists the case's defect as a blocker (FR-016). Plus one **item replay** case per item at its first rejected commit, graded
   on every corpus defect already present at that commit (presence is established by the plan from history, and
   recorded in the case).
 - **D10 — cost beside the result.** The replay is run by a person (evals spend tokens and need an unsandboxed shell).
   A committed results table in `evals/README.md` holds, per replay case and run date: defects found / expected,
   agents spawned, input and output tokens and USD cost of the round (from `claude plugin eval --json`), and wall
   time. Before a person runs it the rows read `not yet measured` — never an invented number.
+- **D11 — when the round runs (the owner, 2026-11-23).** Code mode runs the five-finder round for an item routed
+  `light` or `full`; a `fix`-route item and a person's `/hefesto:hef.review --inline` keep today's single reviewer.
+  The route is read, not passed (the launcher is unchanged, D1): a helper subcommand `review-route` reads the
+  ledger entry of the branch's item (`worktree-<ID>` → `ledger.sh show <ID>` `.route`, default `fix` as the launcher
+  does, `session-launch.sh:552`); a branch with no ledger entry (a person's own branch, an eval scaffold) is `full`
+  when its spec folder holds `spec.md`, else `fix`.
+- **D12 — how the verifier runs a recipe.** The headless verify run allows `Read`, `Glob`, `Grep`, `Skill`, `Agent`,
+  `Bash(git diff*)`, `Bash(git log*)`, the project's configured commands and `Bash(<hooks>/*)`, and disallows
+  `Edit`/`Write`, with prompts off (`session-launch.sh:211-215, 662, 675`); a lane is told to call every helper as
+  one plain command (`:635`). So an ad-hoc recipe (`bash -c …`, a fixture file) is refused, and the one channel both modes allow is a
+  plugin helper: `hooks/review-repro.sh` takes the recipe on stdin (a quoted heredoc), copies the worktree's tracked
+  and unignored files — never `.git` — into a fresh `mktemp -d` under `$TMPDIR` with a repository of its own, runs the
+  recipe there with `bash` (stdin from `/dev/null`), prints its exit code and output (capped by lines and bytes), and
+  exits non-zero, loudly, when the worktree changed while it ran (a file created, modified or deleted) — and refuses
+  to run at all outside the OS sandbox (the probe-write technique of `lane-build.sh:31-34`). No launcher or allowed-tools change (SC-002 holds): the
+  rule `Bash(<hooks>/*)` already exists. In a lane, `hooks/lane-guard.sh:66-114` denies a heredoc whose body names an
+  excluded command (`gh`), so it gains one narrow exception: a quoted heredoc whose head is exactly the plugin's
+  `speckit-helper.sh code-review-check` or `review-repro.sh` — a helper that is not excluded, so the command runs
+  inside the sandbox and the excluded word is only data. The exception ends the guard for that call (no later rule
+  of the guard reads the body), and setup's lane allow list gains `review-repro.sh` beside `speckit-helper.sh`
+  (`hefesto-setup.sh:194-196`), so a `--strict` lane does not ask per recipe.
 
 ## User Scenarios
 
@@ -148,11 +177,20 @@ found one by one — measures it, with each replay round's cost recorded beside 
 - **Given** a candidate finding with a recipe
 - **When** the verifier runs it
 - **Then** the finding carries `REPRODUCED` with the command and its output quoted, or `REFUTED` with the command that
-  showed no defect, or `UNREPRODUCED` with the reason; only `REPRODUCED` blocking findings decide the verdict, and
-  `UNREPRODUCED` ones are listed as open questions
-- *Must not:* the verifier must NOT edit the worktree (scratch work under `$TMPDIR` only), and must NOT be one of
-  the finders of the round
-- Files: `agents/code-reviewer.md`, `commands/hef.review.md`
+  showed no defect, or `UNREPRODUCED` with the reason; a blocking finding that is `REPRODUCED` or `UNREPRODUCED`
+  blocks (only `REFUTED` clears it), and `UNREPRODUCED` ones are also listed as open questions
+- *Must not:* the verifier must NOT edit the worktree (recipes run through `review-repro.sh` in a scratch copy under
+  `$TMPDIR`), and must NOT be one of the finders of the round
+- Files: `agents/code-reviewer.md`, `commands/hef.review.md`, `hooks/review-repro.sh`
+
+### US7: The exhaustive round runs where the owner placed it [P1]
+- **Given** a code-mode review
+- **When** the branch's item is routed `light` or `full` (or, with no ledger entry, its spec folder holds `spec.md`)
+- **Then** the five-finder round runs; for a `fix`-route item, a branch with no spec, or `--inline`, today's single
+  reviewer runs with today's brief
+- *Must not:* a `light`/`full` item must NOT fall back to the single reviewer because the route could not be read — an
+  unreadable ledger entry is a loud helper failure, and the review is `INCOMPLETE`
+- Files: `hooks/code-review-lib.sh` (`review-route`), `commands/hef.review.md`
 
 ### US5: The replay measures the round against the corpus, with its cost [P1]
 - **Given** the fifteen corpus defects and the three items' first rejected commits
@@ -165,8 +203,9 @@ found one by one — measures it, with each replay round's cost recorded beside 
 
 ### US6: The reviewer's text no longer asks for fewer findings [P2]
 - **Given** `agents/code-reviewer.md` and `commands/hef.review.md`
-- **Then** neither tells a code-review finder to prefer fewer findings; Critical Rule 0 keeps "evidence over
-  assertion" and assigns precision to the verifier; the four lenses and the verifier role are documented; the docs
+- **Then** neither tells a code-review finder to prefer fewer findings; in the finder and verifier roles the rules
+  keep "evidence over assertion" and assign precision to the verifier, while plan mode, the single reviewer and the
+  Stage-1-only spawn keep today's "scope over volume"; the four lenses and the verifier role are documented; the docs
   that describe the review (`docs/agents.md`, `docs/commands.md`) say five finders and a verifier
 - Files: `agents/code-reviewer.md`, `commands/hef.review.md`, `docs/agents.md`, `docs/commands.md`, `CHANGELOG.md`
 
@@ -175,37 +214,48 @@ found one by one — measures it, with each replay round's cost recorded beside 
 | ID | Requirement | Priority | Scenario |
 |----|-------------|----------|----------|
 | FR-001 | `/hefesto:hef.review` code mode spawns, in one message and in the foreground, four `code-reviewer` finders — one per lens `input-and-security`, `state-and-lifecycle`, `spec-deviation`, `test-integrity` — and one cross-tier finder (D3) | P1 | US1 |
-| FR-002 | The cross-tier finder is spawned with a tier alias different from the reviewer's (`opus` when the reviewer is `fable`, else `fable`), through all four lenses; no concrete model id appears anywhere | P1 | US1 |
-| FR-003 | Each finder's brief asks for every candidate defect backed by a `file:line` and a reproduction recipe, classified blocking or not; no "prefer fewer findings" wording reaches a code-review finder | P1 | US1, US6 |
+| FR-002 | The cross-tier finder is spawned with the model override `opus` — a tier different from the reviewer's, which is the tier pinned in `agents/code-reviewer.md:2` (`fable`) — through all four lenses; the report's `Finders:` line records the tier each finder was asked for; no concrete model id appears anywhere | P1 | US1 |
+| FR-003 | Each finder's brief asks for every candidate defect backed by a `file:line` and a reproduction recipe, classified `BLOCKING` only when it breaks correctness, security or a stated requirement (else `SUGGESTION`); lenses that disagree on the class merge as `BLOCKING`; the verifier marks `REFUTED` a blocking candidate whose recipe runs but shows no defect of that class; no "prefer fewer findings" wording reaches a code-review finder | P1 | US1, US6 |
 | FR-004 | The command merges the finders' candidates, de-duplicating the same `file:line` and failure and keeping every lens that raised it | P1 | US1 |
-| FR-005 | A verifier `code-reviewer`, fresh and not a finder of the round, gives every candidate exactly one status `REPRODUCED` / `REFUTED` / `UNREPRODUCED` with the command and output (or reason) quoted; lists over 8 candidates are split over verifiers of ≤ 8 spawned together | P1 | US4 |
-| FR-006 | The verifier works read-only on the worktree; any fixture or scratch file goes under `$TMPDIR` | P1 | US4 |
-| FR-007 | The verdict is `REQUEST_CHANGES` iff ≥ 1 blocking finding is `REPRODUCED`; `APPROVE` iff none is and FR-008 and FR-009 hold; otherwise `INCOMPLETE` | P1 | US1, US3 |
+| FR-005 | A verifier `code-reviewer`, fresh and not a finder of the round, gives every blocking candidate (suggestions are not sent; they are listed `not verified — never blocks`) exactly one status `REPRODUCED` / `REFUTED` / `UNREPRODUCED` with the command and output (or reason) quoted; lists over 8 blocking candidates are split over verifiers of ≤ 8 spawned together | P1 | US4 |
+| FR-006 | The verifier works read-only on the worktree: every recipe runs through `hooks/review-repro.sh` (D12) — recipe on stdin, refused (non-zero, loudly) outside the OS sandbox, run with stdin from `/dev/null` in a fresh copy of the worktree's tracked and unignored files under `$TMPDIR` with its own repository (never the worktree's `.git`), exit code and output capped by lines and bytes printed, a non-zero exit naming each path when a worktree file was created, modified or deleted during the run; such a candidate is `UNREPRODUCED` with that reason; the scratch copy is removed on every exit path | P1 | US4 |
+| FR-007 | The verdict is `REQUEST_CHANGES` iff ≥ 1 blocking finding is `REPRODUCED` or `UNREPRODUCED`; `APPROVE` iff every blocking finding is `REFUTED` (or there is none) and FR-008 and FR-009 hold; otherwise `INCOMPLETE` | P1 | US1, US3, US4 |
 | FR-008 | Every lens section in the report holds either findings or one line `none — checked: <what>`; a missing, empty or bare-`none` section makes the round `INCOMPLETE` | P1 | US2 |
-| FR-009 | A finder or verifier that returned nothing usable makes the round `INCOMPLETE`, naming it; the round never approves on a reduced quorum | P1 | US3 |
-| FR-010 | `speckit-helper.sh code-review-check` reads a report on stdin and exits 0 only when FR-007/FR-008 hold and every blocking finding has a verifier status; otherwise exits non-zero naming each violation (constitution 5) | P1 | US2, US3 |
-| FR-011 | The command runs `code-review-check` on the merged report before relaying it; a non-zero exit turns the verdict into `INCOMPLETE` with the check's output | P1 | US2 |
-| FR-012 | The report ends with `BLOCKING <n>: <file:line> (<lens>); …` ≤ 500 characters listing every reproduced blocker, truncated only past 500 with `… +<k> more` | P1 | US1 |
-| FR-013 | `UNREPRODUCED` blocking candidates are listed under "Open questions" in the report and never counted toward or dropped from the verdict silently | P2 | US4 |
+| FR-009 | A finder or verifier that returned nothing usable is re-spawned once, with the same brief, in the same turn; still nothing usable → the round is `INCOMPLETE`, naming it; the round never approves on a reduced quorum | P1 | US3 |
+| FR-010 | `speckit-helper.sh code-review-check` reads a report (no verdict) on stdin and prints the verdict and the `BLOCKING` line (D7): exit 0 with `APPROVE`/`REQUEST_CHANGES` by FR-007 only when FR-008 holds, all five finders reported and every blocking finding has a verifier status; otherwise exit 1 with `INCOMPLETE` and the `BLOCKING` line of the blockers known so far on stdout, each violation on stderr (constitution 5); exit 2 on empty input | P1 | US2, US3 |
+| FR-011 | The command runs `code-review-check` on the merged report — one plain command starting with the helper path, the report in a quoted heredoc, no `Write` — before relaying it; when it fails on shape only (format, not content), the command re-writes the report from the same agent outputs once and re-checks; a remaining non-zero exit turns the verdict into `INCOMPLETE` with the check's output | P1 | US2 |
+| FR-012 | The report ends with `BLOCKING <n>: <file:line> (<lens>) <defect in a few words>[ unreproduced]; …` ≤ 500 characters listing every blocker that blocks (FR-007), truncated only past 500 with `… +<k> more`; the verify run's summary carries each blocker's reproduction command under `Review recipes:` as far as it fits | P1 | US1 |
+| FR-013 | `UNREPRODUCED` blocking candidates block (FR-007) and are also listed under "Open questions" with the reason no reproduction was possible, so a contested one reaches the person through HEF-57's dispute path | P1 | US4 |
 | FR-014 | In the verify run, `INCOMPLETE` is reported as gate `review` `FAIL` with the reason; this is stated in the command's relay instructions, the launcher unchanged | P1 | US3 |
-| FR-015 | `agents/code-reviewer.md` documents the four lenses (D2), the finder role and the verifier role; Critical Rule 0 no longer says to prefer fewer findings and names the verifier as the precision step | P1 | US6 |
-| FR-016 | One eval case per corpus defect (`evals/review-replay-<id>/`, 15 cases), each scaffolding the rejected change as a local git repo and grading `tool_used Agent min 6` plus an `llm` grader on that defect as a reproduced blocker | P1 | US5 |
-| FR-017 | One item-replay eval case per item (HEF-22, HEF-25, HEF-31) at its first rejected commit, grading every corpus defect present there; the case records which defects those are | P1 | US5 |
-| FR-018 | `evals/README.md` carries a results table per replay case: run date, found/expected, agents spawned, input/output tokens, USD, wall time — `not yet measured` until a person runs it | P1 | US5 |
-| FR-019 | The smoke suite checks structurally that the four lens names, the cross-tier spawn and the verifier step are in `commands/hef.review.md`/`agents/code-reviewer.md`, that the "prefer fewer" wording is gone from the code-review path, and that every replay case parses with its two graders | P1 | US6 |
-| FR-020 | `docs/agents.md`, `docs/commands.md` and `CHANGELOG.md` `[Unreleased]` describe the exhaustive round | P2 | US6 |
+| FR-015 | `agents/code-reviewer.md` documents the four lenses (D2), the finder role and the verifier role; in those two roles Critical Rule 0's "scope over volume", Rule 1 ("both stages") and the Verdict Criteria are replaced by the role's own rule (finders exhaustive, the verifier the precision step, the verdict the command's); plan mode, the single reviewer and `/hefesto:hef.verify`'s Stage-1-only spawn keep today's wording | P1 | US6 |
+| FR-016 | One eval case per corpus defect (`evals/review-replay-<id>/`, 15 cases), each scaffolding the rejected change as a local git repo (plus the diff as a file, since the eval sandbox denies the `git` binary — `evals/README.md:27`) and grading `tool_used Agent min 6`, `tool_used Bash input_match review-repro.sh min 1` (the verifier ran something — a report cannot fake it), plus an `llm` grader on that defect as a blocker — `REPRODUCED`, or either status for the cases the plan names as needing git or host state to reproduce | P1 | US5 |
+| FR-017 | One item-replay eval case per item (HEF-22, HEF-25, HEF-31) at its first rejected commit, grading every corpus defect present there; the case records which defects those are. Plus one control case per item at its merged head (the head the last verify passed), measuring — no pass/fail claim — the verdict and the number of blockers the round reports there | P1 | US5 |
+| FR-018 | `evals/README.md` carries a results table per replay case: run date, found/expected, agents spawned, input/output tokens, USD, wall time, and for the control cases the blockers reported on the merged head — `not yet measured` until a person runs it | P1 | US5 |
+| FR-019 | The smoke suite checks structurally that the four lens names, the cross-tier spawn and the verifier step are in `commands/hef.review.md`/`agents/code-reviewer.md`, that the "prefer fewer" wording is gone from the finder and verifier briefs while the plan-mode brief and the single-reviewer path keep theirs, that the documented `code-review-check` and `review-repro.sh` calls match `Bash(<hooks>/*)`, and that every replay case parses with its graders (three on a per-defect case — FR-016; two on an item or control case — `tool_used Agent min 6` and the `llm` grader) | P1 | US6 |
+| FR-020 | `docs/agents.md`, `docs/commands.md`, `docs/architecture.md` (subcommand count), `README.md`, `evals/README.md` (case count), the `hef.review.md` frontmatter description and `CHANGELOG.md` `[Unreleased]` describe the exhaustive round | P2 | US6 |
+| FR-021 | `speckit-helper.sh review-route` prints `exhaustive` or `single` with the route and its source (D11): the ledger entry of the branch's item (its file present under `ledger.sh dir`, which is asked only for a `worktree-<ID>` branch — a failure there exits 1), else the spec folder resolved from the spec root (#172); the branch is read from git, else from `.git/HEAD`'s `ref:` line; an empty or detached branch, or an entry file that exists but cannot be read, exits non-zero naming the cause — never a `single` answer at exit 0. On the ledger path an `exhaustive` answer also names the entry's spec folder (`spec_dir_abs`, as the launcher resolves it, `session-launch.sh:242`), and a `light`/`full` entry whose spec folder holds no readable `spec.md` exits non-zero; the command writes that folder into every finder and verifier brief, so the `spec-deviation` lens reads the spec on a `worktree-<ID>` branch. Code mode runs the five-finder round on `exhaustive` and today's single reviewer, with today's brief, on `single` or `--inline` | P1 | US7 |
+| FR-022 | `hooks/lane-guard.sh` admits, in a lane, a quoted heredoc whose head is exactly the plugin's absolute `speckit-helper.sh code-review-check` or `review-repro.sh` path — the head's word list is exactly those one or two words, the first an absolute path ending in `/hooks/<helper>` (no word before it, no leading assignment) and whose last line is its delimiter and the only line equal to it (an earlier delimiter line would end the heredoc and run what follows), even when the body names an excluded command (`gh`, a custom one) or the lane build cache — the exception ends the guard for that call; any other heredoc, a head with more words, a pipe or chain, or `dangerouslyDisableSandbox` is denied as today | P1 | US4 |
 
 ## Success Criteria
 
 | ID | Criterion | Validation Method |
 |----|-----------|-------------------|
-| SC-001 | `code-review-check` accepts a complete report and rejects each of: missing lens, empty lens, bare `none`, blocking finding without status, `APPROVE` beside a `REPRODUCED` blocker, missing `BLOCKING` line — each rejection mutation-tested (the guard goes red when its check is removed) | smoke tests with fixture reports |
+| SC-001 | `code-review-check` accepts a complete report and rejects each of: missing lens, empty lens, bare `none`, blocking finding without status, a silent finder, a report carrying its own verdict line; it prints `REQUEST_CHANGES` (never `APPROVE`) beside a `REPRODUCED` or `UNREPRODUCED` blocker, and an `INCOMPLETE` that still carries the `BLOCKING` line — each rule mutation-tested (the guard goes red when its check is removed); `review-repro.sh` runs a recipe in a scratch copy, leaves a real linked worktree's config, index and HEAD unchanged when the recipe runs `git config`/`git commit`, and refuses (non-zero, naming the path) a recipe that creates, modifies or deletes a worktree file; `review-route` returns `single` for a `fix` entry and `exhaustive` for `light`/`full`, and exits 1 on an empty or detached branch; `lane-guard.sh` admits the two documented heredocs with `gh` in the body and still denies the near misses | smoke tests with fixture reports, a fake ledger, a temp linked worktree and lane-guard JSON fixtures (repro and guard cases in a dedicated `tests/smoke-code-review-security.sh`) |
 | SC-002 | Plan mode of `/hefesto:hef.review`, the launcher (`hooks/session-launch.sh`) and `tests/fixtures/launch-920.txt` are byte-unchanged | `git diff --stat` on those paths is empty |
-| SC-003 | 15 per-defect + 3 item replay cases exist and parse; smoke's eval structure check passes | `tests/smoke.sh` tier 1 |
+| SC-003 | 15 per-defect + 3 item replay + 3 merged-head control cases (plus the plan's probe case) exist and parse; smoke's eval structure check passes | `tests/smoke.sh` tier 1 |
 | SC-004 | A person-run replay: each per-defect case reports its defect in one round, and each item case reports every defect present at its first rejected commit, with the cost recorded beside it | `claude plugin eval` from a plain shell; results table filled |
 | SC-005 | The full smoke suite and `node --test` stay green | `tests/smoke.sh`, `node --test tests/` |
 
 ## Clarifications
-_None yet._ Every open point was decidable from the code and the item; the decisions are D1–D10 above. SC-004 is a
-person-run measurement (evals spend tokens and cannot reach the API from the sandbox), like the live checks of
-earlier features.
+
+### Session 2026-11-23 (the owner's answers to plan review round 1)
+
+- Q: What does a blocking `UNREPRODUCED` candidate do to the verdict (plan review 1, decision 3)? → A: It blocks.
+  The review fails on it — uncertainty is never a pass (D6); if the builder contests it, HEF-57's dispute path turns
+  it into the person's question. Applied in D5, D6, FR-007, FR-012, FR-013 and US4.
+- Q: When does the five-finder round run (plan review 1, decision 11)? → A: On code-mode reviews of items routed
+  `light` or `full`. A `fix`-route item, and a person's own `/hefesto:hef.review --inline`, keep the single reviewer.
+  Applied in D11, FR-021 and US7.
+
+Every other point was decidable from the code and the item (D1–D12). SC-004 is a person-run measurement (evals spend
+tokens and cannot reach the API from the sandbox), like the live checks of earlier features.
