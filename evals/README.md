@@ -82,6 +82,18 @@ Person-run permission checks the exhaustive review (HEF-58, `exhaustive-review`)
   naming the forge CLI (exit 1, lens sections missing — the check ran), `review-repro.sh` with a heredoc recipe
   (`exit: 0`, the recipe's echo printed), `speckit-helper.sh review-route` (exit 1, the scratch board refused as
   untrusted — the call ran). Cost $0.22.
+- **Probe 2, eval sandbox — FAIL on the recipe channel (2026-11-23, Claude Code 2.1.330).** Run from the HEF-58
+  worktree with `claude plugin eval evals/review-replay-probe --allow-tools Bash --scaffold --ablation none` (the
+  scaffolds read first; `--scaffold` is needed, without it the case runs against an empty workspace). 3 runs, $0.66.
+  Every call was made (each `tool_used` grader passed in 3/3) and the llm grader failed 3/3:
+  `git --version` refused (exit 126 — git is denied to the model here); `review-route` printed the right line
+  (`exhaustive full spec:…/forge-setup`) and exited 1 only because zsh could not write its cwd-tracking file in the
+  read-only temp folder; `branch` → `NO_GIT`, `pr-files` → not a git repository; **`review-repro.sh` never started:
+  the shell could not create the heredoc's temporary file (read-only file system), so no `exit:` line**; the plugin's
+  `hooks/review-repro.sh` was readable with Read. Whether `tool_used` sees a subagent's Bash calls was not shown
+  (the probe has no subagent). Per amendment A2 the build stays blocked until the channel works here: the recipe goes
+  as an argument, not a heredoc. The replay case (`review-replay-d22-3`) did not run: the command evaluated only the
+  first case given — run it alone.
 - **Probe 1, lane mode — open.** The same three calls in a verify lane of a `--lanes` project were not run: the only
   four-lane projects were busy. The owner accepted the headless pass on 2026-11-23; the lane mode is checked the first
   time a `--lanes` project runs a verify with this review.
