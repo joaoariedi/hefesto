@@ -146,6 +146,12 @@ onto the board and `escalate_after_hours` sends one pointer for a stale human bl
 to the build stage through `ledger.sh forward` (the one backward move, `pr → implement`), whose worker merges the
 base forward on the same branch — never a rebase — and the verifier re-checks the new head (`hooks/session-launch-forward.sh`;
 a two-sided conflict or a red suite comes back as `human:clarify`, a 4th forward on one PR as a `conflict` form);
+a verify FAIL goes back the same way through `ledger.sh rework` (`verify → implement`, launcher-only), with a
+generated, hashed brief of the failed gates' evidence, up to `orchestrate.verify_rounds` (default 3, 0–10; 0 = today's
+block) — past it one `verdict` block whose findings `ledger.sh questions` serves (`hooks/ledger-rework.sh`,
+`hooks/session-launch-rework.sh`); a disputed finding or a spec deviation is a `human:clarify` question whose answer,
+the person's ruling, is handed to the next rework and verify runs (`hooks/rework-pairs.sh` pairs them), and a ruled
+verify records verified head `none`, so it never takes the `merge_by: auto` path;
 `/hefesto:hef.status` reports AI-delivery metrics
 from the ledger. A `branches` block names the integration branch (PR base, verifier diff base,
 `human:merge` check), the protected heads, and the promotion chain whose last branch is `released`.

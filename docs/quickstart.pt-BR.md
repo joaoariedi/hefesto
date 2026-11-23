@@ -220,6 +220,14 @@ fase `verify` sem dono.
   a verifier confere o novo head antes do formulário de merge. Um conflito dos dois lados ou uma suíte vermelha é
   abortado e chega a você como uma pergunta com os dois trechos ou a saída da falha. Depois de três merges forward no
   mesmo PR, a orchestrator pergunta a você: **Merge forward** de novo ou **Later**.
+- **Um FAIL do verify volta sozinho para a builder.** O item volta para o estágio de build (`ledger.sh rework`) com
+  um brief de rework com hash, com as evidências dos gates que falharam; a builder corrige na mesma branch, faz o push
+  no mesmo PR, e a verifier confere o novo head. São até `orchestrate.verify_rounds` rodadas (padrão 3; `0` = todo
+  FAIL para em você, como antes). Passado o limite, um único bloqueio `verdict` cujas pendências o
+  `ledger.sh questions <id>` mostra, e a orchestrator pergunta: **Another round**, **Re-verify** (o mesmo head) ou
+  **Later**. Uma pendência que a builder contesta, ou cuja correção mudaria a spec, chega a você como uma pergunta; a
+  sua resposta é a decisão, entregue às próximas execuções de rework e de verify. Um verify que recebeu uma decisão
+  sua nunca faz o merge sozinho com `merge_by: auto`.
 - **Merges sem formulário.** Com `"merge_by": "auto"`, um PR para a **branch de integração** entra sozinho quando os
   gates (verify, review, quality, scan) passaram no head que está aberto, o CI está verde e cada comando de
   `orchestrate.merge.checks` sai com 0. A configuração sozinha nunca liga isso: a orchestrator mostra uma vez o que

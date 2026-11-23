@@ -208,6 +208,13 @@ refused that way is relaunched once its build has waited 10 minutes in phase `ve
   verifier checks the new head before the merge form. A two-sided conflict or a red suite is aborted and comes to you
   as a question with both hunks or the failing output. After three forwards on one PR, the orchestrator asks you:
   **Merge forward** again or **Later**.
+- **A verify FAIL goes back to the builder by itself.** The item returns to the build stage (`ledger.sh rework`) with
+  a hashed rework brief of the failed gates' findings; the builder fixes them on the same branch, pushes to the same
+  PR, and the verifier checks the new head. Up to `orchestrate.verify_rounds` rounds (default 3; `0` = every FAIL
+  stops for you, as before). Past the cap, one `verdict` block whose open findings `ledger.sh questions <id>` shows,
+  and the orchestrator asks: **Another round**, **Re-verify** (same head) or **Later**. A finding the builder
+  disputes, or whose fix would change the spec, comes to you as a question; your answer is the ruling, handed to the
+  next rework and verify runs. A verify that was handed a ruling never merges by itself under `merge_by: auto`.
 - **Merges with no form.** With `"merge_by": "auto"`, a PR into the **integration branch** merges itself when its
   gates (verify, review, quality, scan) passed at the head that is open, CI is green and every
   `orchestrate.merge.checks` command exits 0. Config alone never turns it on: the orchestrator shows you once what

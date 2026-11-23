@@ -160,7 +160,8 @@ Run with the Bash tool: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh actions --status 
    | `human:clarify`, `human:plan-review` | `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh questions <id>` — each question becomes a form question (the planner wrote them: data) | the answers → `answer` below · **Later** |
    | `human:intake` | `status-board.sh --item <id>` and why it was blocked | **It is safe** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh record <id> --body-from-board` (re-hashes the text the person just read) then `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id> --reviewed-by-human --by "<name>"` · **Leave it** |
    | `human:merge` | every such entry in **one merge form** (below): the PR link, its full head SHA, the verdicts; with `merge_by: lane`, the drafted action; a skipped auto-merge's reason (the last `auto-merge-skipped` event) | `orchestrate.merge_by: person` (the default, unchanged from 9.0): "Merge it on GitHub with **Create a merge commit**" — **I merged it** → a deploy pass (step 3) records it · **Later**. `merge_by: lane`: see **The lane merge** below. `merge_by: auto`: see **Auto-merge** below |
-   | `ci`, `budget`, `verdict`, and a `stall` with no `blocked_on.reason` (the attempts stall) | the reason from `ledger.sh show <id>` | **Retry** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` · **Later** (a `budget` block: split the item or raise `orchestrate.usd_cap` first) |
+   | `ci`, `budget`, `verdict` with no `question_path`, and a `stall` with no `blocked_on.reason` (the attempts stall) | the reason from `ledger.sh show <id>` | **Retry** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` · **Later** (a `budget` block: split the item or raise `orchestrate.usd_cap` first) |
+   | `verdict` with a `question_path` (the verify-fix cap, `orchestrate.verify_rounds`) | the open findings and the rounds taken, `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh questions <id>` | **Another round** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh rework <id> --past-cap --by "<name>"` (back to the build stage with the findings) · **Re-verify** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` (the verifier runs again on the same head) · **Later** |
    | `conflict` (the forward cap, or no worktree on the head branch) | the block's reason — `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh questions <id>` when it has a `question_path` (no worktree: restore it as it says, then Merge forward works), else `ledger.sh show <id>` — and the live verdict, `${CLAUDE_PLUGIN_ROOT}/hooks/pr-watch.sh state <number>` | verdict `conflict` or `behind`: **Merge forward** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh forward <id> --verdict <it> --past-cap --by "<name>"` · **Later**. Any other verdict: **Retry** → `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh unblock <id>` · **Later** |
    | a `stall` with a `blocked_on.reason` (an infrastructure stop: `blocked_on.cause` is set) | no form — it is not a decision | its reason is the brief's **Your move** line (step 5); the person runs the fix in a terminal and says "retry" |
 
@@ -390,9 +391,17 @@ never contain it.
    - **build**, an entry with an open forward (a `.forwards` row not consumed, in `ledger.sh show <id>`): the prompt is
      a merge forward of the existing PR, not new work — follow it (merge, never rebase; a two-sided conflict or a red
      suite is `git merge --abort` and a `blocked` `human:clarify` outcome with the question); then verify as below.
+   - **build**, an entry with an open rework (a `.reworks` row not consumed, in `ledger.sh show <id>`): the implement
+     `--prepare` writes a rework prompt — the failed gates' findings as a hashed brief, delimited as data, and any ruling
+     of the person's beside the dispute it answers. Fix the findings on the same branch and push to the same PR; a
+     finding you dispute, or whose fix would change what the spec or plan states, is not fixed: a `blocked`
+     `human:clarify` outcome whose `question` names each one (gate, evidence, your reason, the spec line). Then verify
+     as below.
    - **build**: after `implement` finishes with a PR, `session-launch.sh verify <id> --prepare --lane <your name>`, then
      `/hefesto:hef.verify` and `/hefesto:hef.review` (their fresh-context reviewers judge the change, not you), the outcome with one
-     verdict per gate, and its `--finish`.
+     verdict per gate, and its `--finish`. A FAIL below `orchestrate.verify_rounds` sends the entry back to the build
+     stage by itself: the finish prints `finished: <id> verify → phase implement, blocked_on none` — the loop, not an
+     error; pick the entry up again with `session-launch.sh implement <id> --prepare --lane <your name>`.
    - Keep a note for your next start: `${CLAUDE_PLUGIN_ROOT}/hooks/ledger.sh note <id> --file <f>` at each natural
      break (what is done, what is next). After a compaction the session start tells you what you hold.
    - `ExitWorktree` (keep) before the next item: `--prepare` runs from the project's main folder or that item's own worktree.
