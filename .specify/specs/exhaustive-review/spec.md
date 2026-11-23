@@ -126,7 +126,11 @@ found one by one — measures it, with each replay round's cost recorded beside 
   The route is read, not passed (the launcher is unchanged, D1): a helper subcommand `review-route` reads the
   ledger entry of the branch's item (`worktree-<ID>` → `ledger.sh show <ID>` `.route`, default `fix` as the launcher
   does, `session-launch.sh:552`); a branch with no ledger entry (a person's own branch, an eval scaffold) is `full`
-  when its spec folder holds `spec.md`, else `fix`.
+  when its spec folder holds `spec.md`, else `fix`. After an `exhaustive` answer the command runs one trivial
+  `review-repro.sh` preflight call; when it refuses for the whole environment (exit 2: not sandboxed, or
+  `~/.cache/hefesto` missing), a branch with no ledger entry (a person's own run) falls back to the single reviewer
+  with one opening line naming the cause and the fix, and a ledger item's review is `INCOMPLETE` naming the cause
+  (the owner, 2026-11-23).
 - **D12 — how the verifier runs a recipe.** The headless verify run allows `Read`, `Glob`, `Grep`, `Skill`, `Agent`,
   `Bash(git diff*)`, `Bash(git log*)`, the project's configured commands and `Bash(<hooks>/*)`, and disallows
   `Edit`/`Write`, with prompts off (`session-launch.sh:211-215, 662, 675`); a lane is told to call every helper as
@@ -189,7 +193,9 @@ found one by one — measures it, with each replay round's cost recorded beside 
 - **Then** the five-finder round runs; for a `fix`-route item, a branch with no spec, or `--inline`, today's single
   reviewer runs with today's brief
 - *Must not:* a `light`/`full` item must NOT fall back to the single reviewer because the route could not be read — an
-  unreadable ledger entry is a loud helper failure, and the review is `INCOMPLETE`
+  unreadable ledger entry is a loud helper failure, and the review is `INCOMPLETE`; nor because `review-repro.sh`
+  refuses for the whole environment (the preflight's exit 2) — that is `INCOMPLETE` too; only a branch with no ledger
+  entry falls back to the single reviewer then, saying why in the report's first line
 - Files: `hooks/code-review-lib.sh` (`review-route`), `commands/hef.review.md`
 
 ### US5: The replay measures the round against the corpus, with its cost [P1]
@@ -233,7 +239,7 @@ found one by one — measures it, with each replay round's cost recorded beside 
 | FR-018 | `evals/README.md` carries a results table per replay case: run date, found/expected, agents spawned, input/output tokens, USD, wall time, and for the control cases the blockers reported on the merged head — `not yet measured` until a person runs it | P1 | US5 |
 | FR-019 | The smoke suite checks structurally that the four lens names, the cross-tier spawn and the verifier step are in `commands/hef.review.md`/`agents/code-reviewer.md`, that the "prefer fewer" wording is gone from the finder and verifier briefs while the plan-mode brief and the single-reviewer path keep theirs, that the documented `code-review-check` and `review-repro.sh` calls match `Bash(<hooks>/*)`, and that every replay case parses with its graders (three on a per-defect case — FR-016; two on an item or control case — `tool_used Agent min 6` and the `llm` grader) | P1 | US6 |
 | FR-020 | `docs/agents.md`, `docs/commands.md`, `docs/architecture.md` (subcommand count), `README.md`, `evals/README.md` (case count), the `hef.review.md` frontmatter description and `CHANGELOG.md` `[Unreleased]` describe the exhaustive round | P2 | US6 |
-| FR-021 | `speckit-helper.sh review-route` prints `exhaustive` or `single` with the route and its source (D11): the ledger entry of the branch's item (its file present under `ledger.sh dir`, which is asked only for a `worktree-<ID>` branch — a failure there exits 1), else the spec folder resolved from the spec root (#172); the branch is read from git, else from `.git/HEAD`'s `ref:` line; an empty or detached branch, or an entry file that exists but cannot be read, exits non-zero naming the cause — never a `single` answer at exit 0. On the ledger path an `exhaustive` answer also names the entry's spec folder (`spec_dir_abs`, as the launcher resolves it, `session-launch.sh:242`), and a `light`/`full` entry whose spec folder holds no readable `spec.md` exits non-zero; the command writes that folder into every finder and verifier brief, so the `spec-deviation` lens reads the spec on a `worktree-<ID>` branch. Code mode runs the five-finder round on `exhaustive` and today's single reviewer, with today's brief, on `single` or `--inline` | P1 | US7 |
+| FR-021 | `speckit-helper.sh review-route` prints `exhaustive` or `single` with the route and its source (D11): the ledger entry of the branch's item (its file present under `ledger.sh dir`, which is asked only for a `worktree-<ID>` branch — a failure there exits 1), else the spec folder resolved from the spec root (#172); the branch is read from git, else from `.git/HEAD`'s `ref:` line; an empty or detached branch, or an entry file that exists but cannot be read, exits non-zero naming the cause — never a `single` answer at exit 0. On the ledger path an `exhaustive` answer also names the entry's spec folder (`spec_dir_abs`, as the launcher resolves it, `session-launch.sh:242`), and a `light`/`full` entry whose spec folder holds no readable `spec.md` exits non-zero; the command writes that folder into every finder and verifier brief, so the `spec-deviation` lens reads the spec on a `worktree-<ID>` branch. On the spec-folder path the `exhaustive` answer names the folder as an absolute path (the spec root joined with `.specify/specs/<branch>`). Code mode runs the five-finder round on `exhaustive` and today's single reviewer, with today's brief, on `single` or `--inline`; after `exhaustive` it runs one `review-repro.sh` preflight call, and on its exit 2 (no sandbox, or `~/.cache/hefesto` missing) a no-ledger branch runs the single reviewer with a first report line naming the cause and the fix, while a ledger item's review is `INCOMPLETE` naming the cause | P1 | US7 |
 | FR-022 | `hooks/lane-guard.sh` admits, in a lane, a quoted heredoc whose head is exactly the plugin's absolute `speckit-helper.sh code-review-check` or `review-repro.sh` path — the head's word list is exactly those one or two words, the first an absolute path ending in `/hooks/<helper>` (no word before it, no leading assignment) and whose last line is its delimiter and the only line equal to it (an earlier delimiter line would end the heredoc and run what follows), even when the body names an excluded command (`gh`, a custom one) or the lane build cache — the exception ends the guard for that call; any other heredoc, a head with more words, a pipe or chain, or `dangerouslyDisableSandbox` is denied as today | P1 | US4 |
 
 ## Success Criteria
@@ -256,6 +262,16 @@ found one by one — measures it, with each replay round's cost recorded beside 
 - Q: When does the five-finder round run (plan review 1, decision 11)? → A: On code-mode reviews of items routed
   `light` or `full`. A `fix`-route item, and a person's own `/hefesto:hef.review --inline`, keep the single reviewer.
   Applied in D11, FR-021 and US7.
+
+### Session 2026-11-23 (the owner's approval of the plan, after plan review round 6)
+
+- Q: Is the plan (commit 805045b) approved, and what of the last review round's three changes? → A: Approved as it
+  stands on 2026-11-23, with round 6's three changes applied in plan.md as amendments and carried as tasks; no further
+  plan-review rounds. (1) When `review-repro.sh` refuses for the whole environment (no sandbox, or `~/.cache/hefesto`
+  missing), a preflight call decides it: on a person's own branch the round falls back to the single reviewer, on a
+  ledger item the review is `INCOMPLETE`. (2) Probe 2 must show a recipe actually ran in the eval sandbox and stop the
+  build if not; the eval cases carry `execution.allowed_tools`. (3) `review-route` prints an absolute spec path when
+  there is no ledger entry. Applied in D11, FR-021, US7 and plan.md.
 
 Every other point was decidable from the code and the item (D1–D12). SC-004 is a person-run measurement (evals spend
 tokens and cannot reach the API from the sandbox), like the live checks of earlier features.
