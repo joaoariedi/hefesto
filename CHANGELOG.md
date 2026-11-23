@@ -37,6 +37,8 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+## [9.5.0] - 2026-11-23
+
 ### Added
 
 - **A verify FAIL goes back to the builder by itself** (HEF-57; `commands/hef.orchestrate.md`, `docs/hooks.md`,
