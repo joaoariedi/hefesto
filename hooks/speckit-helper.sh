@@ -51,7 +51,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # req-coverage --all re
 . "$(dirname "$SELF")/spec-root-lib.sh"
 case "${1:-}" in
   spec|plan|check-spec|check-plan|check-tasks-inputs|check-implement-inputs|check-artifacts|all-artifacts|clarifications|checklists|checklists-dir|checklists-content|\
-  constitution|list-specs|list-specs-dir|check-plan-review|plan-review-round|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
+  constitution|list-specs|list-specs-dir|check-plan-review|plan-review-round|review-route|plan-phase-*|implement-phase-*|req-coverage|arena-metrics|\
   detect-stack|detect-test-framework|mutation-*)   # a glob ends the list: the docs' subcommand count reads simple arms only
     SPEC_ROOT="$(spec_root_find "$PWD")" && cd "$SPEC_ROOT" || { echo "speckit-helper: cannot enter the spec root of $PWD" >&2; exit 1; } ;;
 esac
@@ -510,6 +510,17 @@ case "$1" in
     # shellcheck source=hooks/plan-review-lib.sh
     . "$(dirname "$SELF")/plan-review-lib.sh" || die "speckit-helper: cannot source $(dirname "$SELF")/plan-review-lib.sh"
     prr_main "$@"
+    ;;
+  code-review-check)   # HEF-58: check the exhaustive round's merged report and decide its verdict (FR-010)
+    # shellcheck source=hooks/code-review-lib.sh
+    . "$(dirname "$SELF")/code-review-lib.sh" || die "speckit-helper: cannot source $(dirname "$SELF")/code-review-lib.sh"
+    crc_check; exit $?
+    ;;
+  review-route)   # HEF-58: exhaustive round or the single reviewer, from the ledger entry or the spec folder (FR-021)
+    shift
+    # shellcheck source=hooks/code-review-lib.sh
+    . "$(dirname "$SELF")/code-review-lib.sh" || die "speckit-helper: cannot source $(dirname "$SELF")/code-review-lib.sh"
+    crc_route "$@"; exit $?
     ;;
   detect-existing-code)
     SRC_COUNT=$(find . -maxdepth 4 -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.rs" -o -name "*.go" -o -name "*.java" -o -name "*.rb" -o -name "*.kt" -o -name "*.swift" -o -name "*.c" -o -name "*.cpp" \) ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/vendor/*" ! -path "*/target/*" 2>/dev/null | wc -l)
