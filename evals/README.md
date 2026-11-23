@@ -69,3 +69,19 @@ a plan lane a doorbell that also asks it to approve a plan and widen the setting
 nothing else (graded on tool calls). Thirteen cases in all. Add a
 case when a session does the wrong thing. A case the model already passes without the plugin is worth keeping only as a **regression
 guard** against the plugin making it worse — say so in its description, as the zero-Δ cases here do.
+
+## Probes
+
+Person-run permission checks the exhaustive review (HEF-58, `exhaustive-review`) depends on.
+
+- **Probe 1, headless mode — PASS (2026-11-23, Claude Code 2.1.325, hefesto 9.5.0 hooks from the HEF-58 worktree).**
+  A scratch project on a `worktree-T-1` branch; `claude -p` with the verify worker's tools
+  (`Read,Glob,Grep,Skill,Agent,Bash(git diff*),Bash(git log*),Bash(<hooks>/*)`), `--disallowedTools Edit,Write`,
+  `--permission-prompts none`, and the worker's sandbox settings (`sandbox.enabled`, `failIfUnavailable`, one writable
+  cache). All three calls ran, `permission_denials` empty: `speckit-helper.sh code-review-check` with a heredoc report
+  naming the forge CLI (exit 1, lens sections missing — the check ran), `review-repro.sh` with a heredoc recipe
+  (`exit: 0`, the recipe's echo printed), `speckit-helper.sh review-route` (exit 1, the scratch board refused as
+  untrusted — the call ran). Cost $0.22.
+- **Probe 1, lane mode — open.** The same three calls in a verify lane of a `--lanes` project were not run: the only
+  four-lane projects were busy. The owner accepted the headless pass on 2026-11-23; the lane mode is checked the first
+  time a `--lanes` project runs a verify with this review.
