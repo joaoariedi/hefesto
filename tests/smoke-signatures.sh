@@ -94,14 +94,14 @@ sg_reduced() { # → empty when $SG_F holds the reduced shape (SC-001), else the
     def ours: test("/hooks/(ledger|pr-watch|session-launch|status-board|speckit-helper|run-follow|hefesto-setup)[.]sh");
     def tail($h): ltrimstr("Bash(" + $h + "/") | rtrimstr(")");
     (.permissions.allow | map(select(ours))) as $al
-    | [ (if (.permissions.ask | sort) == $want then empty else "permissions.ask is not exactly the 21 signature forms × the two live roots + the rules of the person: extra \(.permissions.ask - $want), missing \($want - .permissions.ask)" end),
-        (if ($want | length) == 43 then empty else "the signature set is not 21 forms per root (HEF-30 adds merge-auto grant/revoke, HEF-54 record --reviewed-by-human, merge-forward forward --past-cap) (\($want | length) rules for two roots + 1)" end),
+    | [ (if (.permissions.ask | sort) == $want then empty else "permissions.ask is not exactly the 22 signature forms × the two live roots + the rules of the person: extra \(.permissions.ask - $want), missing \($want - .permissions.ask)" end),
+        (if ($want | length) == 45 then empty else "the signature set is not 22 forms per root (HEF-30 adds merge-auto grant/revoke, HEF-54 record --reviewed-by-human, merge-forward forward --past-cap, verify-fix-loop rework --past-cap) (\($want | length) rules for two roots + 1)" end),
         (if (.permissions.allow | group_by(.) | all(length == 1)) then empty else "a duplicated allow rule" end),
         (if ($al | all(startswith("Bash(" + $c + "/") or startswith("Bash(" + $i + "/"))) then empty
          else "an allow rule in another spelling or version: \($al | map(select((startswith("Bash(" + $c + "/") or startswith("Bash(" + $i + "/")) | not)))" end),
         (if ([$al[] | select(startswith("Bash(" + $c + "/")) | tail($c)] | sort) == ([$al[] | select(startswith("Bash(" + $i + "/")) | tail($i)] | sort) then empty
          else "the two roots do not hold the same allow set" end),
-        (if ($al | map(select(test("ledger[.]sh (claim|run)[ :)]"))) | length) == 0 then empty else "an allow rule for the launcher-only claim/run" end),
+        (if ($al | map(select(test("ledger[.]sh (claim|run|rework)[ :)]"))) | length) == 0 then empty else "an allow rule for the launcher-only claim/run/rework" end),
         (if (.sandbox.excludedCommands | sort) == ((["docker *", "gh *"] + ([$c, $i] | map(. + "/session-launch.sh *", . + "/ledger.sh *", . + "/pr-watch.sh *", . + "/status-board.sh *"))) | sort)
          then empty else "sandbox.excludedCommands is not one spelling per root: \(.sandbox.excludedCommands)" end),
         (if (tostring | contains($v2) or contains($rd) or contains("Bash(bash ") or contains($i1 + "/")) then "a stale version, the // spelling of the clone, a bash spelling or the installed single-slash spelling is left" else empty end),
@@ -111,7 +111,7 @@ sg_reduced() { # → empty when $SG_F holds the reduced shape (SC-001), else the
 sg_o="$(sg_su "$sg_p" "$sg_cfg" --lanes 2>&1)"
 sg_r="$(sg_reduced)"
 # SC-001 / FR-004: the 9.3 file → the signature set once per live root, in that root's canonical spelling
-[ -z "$sg_r" ] && ok "SC-001: the 9.3-shape file is reduced to 21 signature asks per live root, one spelling each, the person's rules kept" \
+[ -z "$sg_r" ] && ok "SC-001: the 9.3-shape file is reduced to 22 signature asks per live root, one spelling each, the person's rules kept" \
   || { bad "SC-001 (FR-004): setup --lanes on the 9.3-shape file: $sg_r — setup said: $(tail -3 <<<"$sg_o")"; sg_fail=1; }
 [ "$(jq -c '.permissions.ask | index(["Bash(rm -rf:*)"]) != null' "$SG_F")" = true ] || { bad "SC-001: the person's own ask rule Bash(rm -rf:*) must stay"; sg_fail=1; }
 sg_h="$(cksum < "$SG_F")"; sg_o="$(sg_su "$sg_p" "$sg_cfg" --lanes 2>&1)"
@@ -129,6 +129,10 @@ for sg_m in "s|printf '%s/hooks' \"\$1\"|printf '%s//hooks' \"\$1\"|" \
   sg_fixture; sg_su_mut "$sg_m"; sg_su "$sg_p" "$sg_cfg" --lanes >/dev/null 2>&1
   [ -n "$(sg_reduced)" ] || { bad "mutation survived (SC-001): $sg_m — the reduced shape still held"; sg_fail=1; }; sg_su_restore
 done
+# verify-fix-loop/FR-016: rework is the verify launcher's own move — an allow rule for it would let a lane bounce an
+# entry between stages, so rework added to LEDGER_ALLOW must turn the launcher-only check red
+sg_fixture; sg_su_mut 's/^  merge-by    # read-only (HEF-30)$/  merge-by rework    # read-only (HEF-30)/'; sg_su "$sg_p" "$sg_cfg" --lanes >/dev/null 2>&1
+grep -qF 'launcher-only claim/run/rework' <<<"$(sg_reduced)" || { bad "mutation survived (verify-fix-loop/FR-016): rework in LEDGER_ALLOW, yet no allow rule for the launcher-only rework was flagged"; sg_fail=1; }; sg_su_restore
 
 # --- SC-004 / FR-006: every ledger.sh subcommand is classified exactly once, every classified entry exists ------------
 # signature-dialogs/FR-006
@@ -157,7 +161,8 @@ sg_class_diff() { # $1 a ledger.sh → empty when the lists classify its dispatc
   [ -z "$d" ] || echo "classified twice: $(tr '\n' ' ' <<<"$d")"
   [ "$s" = "$(sort -u <<<"$c")" ] || echo "unclassified: $(comm -23 <(echo "$s") <(sort -u <<<"$c") | tr '\n' ' ')— classified but not in the dispatch: $(comm -13 <(echo "$s") <(sort -u <<<"$c") | tr '\n' ' ')"
   for c in "${LEDGER_SIGN_FLAG[@]}"; do
-    printf '%s\n' "${LEDGER_ALLOW[@]}" | grep -qx -- "${c% *}" || echo "the flagged signature '$c' names no allowed subcommand"
+    # a base in LEDGER_LAUNCHER: its plain form has no rule at all, its person form asks (rework --past-cap, HEF-57)
+    printf '%s\n' "${LEDGER_ALLOW[@]}" "${LEDGER_LAUNCHER[@]}" | grep -qx -- "${c% *}" || echo "the flagged signature '$c' names no allowed or launcher subcommand"
     grep -qF -- "${c#* }" "$1" || echo "the flag of '$c' is not in $1"
   done
 }
@@ -176,6 +181,9 @@ sed 's/^\[ "\$SUB" = branches \]/[ "$SUB" = zop ] \&\& exit 0\n[ "$SUB" = branch
 grep -qF '"$SUB" = zop' "$sg_lm" || { bad "SC-004 mutation did not apply (pre-case dispatch)"; sg_fail=1; }
 [ -n "$(sg_class_diff "$sg_lm")" ] || { bad "mutation survived (SC-004): a new pre-case dispatch 'zop' went unclassified"; sg_fail=1; }
 [ -n "$( LEDGER_ALLOW=("${LEDGER_ALLOW[@]/verdict}"); sg_class_diff "$REPO/hooks/ledger.sh")" ] || { bad "mutation survived (SC-004): verdict removed from LEDGER_ALLOW"; sg_fail=1; }
+# verify-fix-loop/FR-016: a flagged signature whose base is in neither LEDGER_ALLOW nor LEDGER_LAUNCHER is still red
+grep -qF "the flagged signature 'zap --past-cap' names no allowed or launcher subcommand" <<<"$( LEDGER_SIGN_FLAG+=("zap --past-cap"); sg_class_diff "$REPO/hooks/ledger.sh")" \
+  || { bad "mutation survived (SC-004, verify-fix-loop/FR-016): the signature 'zap --past-cap' names a subcommand in neither list, yet it passed"; sg_fail=1; }
 
 # --- SC-006 / FR-007: every signature setup asks for is also refused from a lane (is_person_sub) ---------------------
 # signature-dialogs/FR-007
@@ -389,7 +397,7 @@ sg_handoff_refused && ok "FR-010: a lane session's handoff is refused up front n
 # mutants on a mirror of the hooks: the launcher_gate call removed; the handoff arm's lanes refusal removed → each red
 sg_md="$sg_base/hooks"; mkdir -p "$sg_md"; for sg_f in "$REPO"/hooks/*.sh; do ln -s "$sg_f" "$sg_md/$(basename "$sg_f")"; done
 sg_lg_mut() { rm -f "$sg_md/ledger.sh"; sed "$1" "$REPO/hooks/ledger.sh" > "$sg_md/ledger.sh"; cmp -s "$REPO/hooks/ledger.sh" "$sg_md/ledger.sh" && { bad "FR-010 mutation did not apply: $1"; sg_fail=1; }; SG_LG="$sg_md/ledger.sh"; }
-sg_lg_mut 's/^launcher_gate$/:/'
+sg_lg_mut 's/^launcher_gate "\$@"$/:/'   # HEF-57: the call site passes the arguments (P11.6)
 [ -n "$(sg_launcher_gate_ok)" ] || { bad "mutation survived (SC-007): the launcher_gate call removed, yet claim/run were still refused"; sg_fail=1; }
 sg_lg_mut 's/^    in_lanes_session \&\& die "ledger handoff/    false \&\& die "ledger handoff/'
 sg_handoff_refused && { bad "mutation survived (FR-010): the handoff lanes refusal removed, yet the lane's handoff was refused"; sg_fail=1; }

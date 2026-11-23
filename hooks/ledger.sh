@@ -55,6 +55,7 @@ usage: ledger.sh <subcommand> …
   drop <id> --reason-file <f> | fold <id> --into <id2> --reason-file <f> | supersede <id> --by <id2> --reason-file <f>   a terminal phase (person-only)
   reopen <id> --reason-file <f>                         a merged item back to implement for a follow-up PR (person-only)
   forward <id> --verdict conflict|behind [--past-cap --by <name>]   a pr entry whose PR is behind or conflicting back to implement, with a merge-forward brief (--past-cap: person-only)
+  rework <id> [--summary-file <f>] [--head <sha>] [--past-cap --by <name>]   a verify entry whose latest verdicts FAIL back to implement with a rework brief, or at orchestrate.verify_rounds one verdict block (the plain form: the verify launcher's; --past-cap: person-only)
   deployed <id> --env <env> --commit <sha>              record that the commit is in that environment; the final env releases a merged item
   handoff <id> --pr <url> [--branch <b>]                a hand-run item into the release queue (run, record, pr, human:merge)
   publish <id>                                          mirror the entry's state to the board (opt-in: orchestrate.publish; external board: + publish_commit commits it)
@@ -121,6 +122,11 @@ else die "ledger: EVAL_GH_BIN=$EVAL_GH_BIN is set but $HERE/lane-lib.sh is missi
 [ -f "$HERE/ledger-publish.sh" ] || die "ledger: $HERE/ledger-publish.sh not found — the plugin install is incomplete (reinstall it)"
 # shellcheck source=hooks/ledger-publish.sh
 . "$HERE/ledger-publish.sh"
+# rework: a verify FAIL back to the build stage with its findings (verify-fix-loop, HEF-57); after ledger-automerge.sh,
+# whose launcher gate its record arms reuse
+[ -f "$HERE/ledger-rework.sh" ] || die "ledger: $HERE/ledger-rework.sh not found — the plugin install is incomplete (reinstall it)"
+# shellcheck source=hooks/ledger-rework.sh
+. "$HERE/ledger-rework.sh"
 cfgp() { # jq over the project config; empty output when there is no config (callers decide what absent means)
   local c; c=$(project_config) || return 0
   jq -r "$@" "$c" 2>/dev/null
@@ -280,7 +286,7 @@ in_lanes_session() { # 0 when the caller is a Claude session whose record says l
 caller_gate() {
   local f
   in_lanes_session || return 0; f=$(session_file "$CLAUDE_CODE_SESSION_ID")
-  is_launcher_sub "$SUB" && die "ledger $SUB: the launcher's own record — a lane uses session-launch.sh --prepare/--finish, a person ledger.sh release"
+  is_launcher_sub "$SUB" "$@" && die "ledger $SUB: the launcher's own record — a lane uses session-launch.sh --prepare/--finish, a person ledger.sh release"
   if is_person_sub "$SUB" "$@" && [ "$(jq -r '.role // empty' "$f")" != orchestrator ]; then
     die "ledger $SUB: this records a person's decision, so it runs only in the orchestrator lane (this session is '$(jq -r 'if .name != "" then .name else .title end' "$f")')"
   fi
@@ -291,8 +297,8 @@ caller_gate() {
 # handoff's own re-entry below) call them with HEFESTO_LAUNCHER=1 and no session id. A Claude session always carries
 # CLAUDE_CODE_SESSION_ID, and in a set-up project lane-guard.sh denies the `env -u …`/assignment that would drop it.
 # The marker is a brake against sessions, not a secret: a person in a terminal could type it — `release` is theirs.
-launcher_gate() {
-  is_launcher_sub "$SUB" || return 0
+launcher_gate() { # the arguments too: rework is the launcher's except its person form, --past-cap (HEF-57 FR-007, P2)
+  is_launcher_sub "$SUB" "$@" || return 0
   [ "${HEFESTO_LAUNCHER:-}" = 1 ] && [ -z "${CLAUDE_CODE_SESSION_ID:-}" ] && return 0
   die "ledger $SUB: the launcher's own record — only session-launch.sh calls it (a lane: session-launch.sh --prepare/--finish); a person frees a claim with ledger.sh release <id> --reviewed-by-human --by <name>"
 }
@@ -420,7 +426,7 @@ if [ "$SUB" = board ]; then [ $# -eq 0 ] || usage; echo "$BCTX"; exit 0; fi
 trusted_check
 caller_gate "$@"
 # after caller_gate: a lane session keeps its lane message; every other caller reaches the launcher check (FR-010)
-launcher_gate
+launcher_gate "$@"
 DIR=$(ledger_dir) || exit 1
 ledger_settle "$DIR" "$(jq -r '.git_common // empty' <<<"$BCTX")" || exit 1
 case "$SUB" in dir|show|where|list|next|metrics|questions|lanes|actions|directives|park|merge-by|-h|--help) ;; *) ledger_mkdir ;; esac
@@ -735,6 +741,8 @@ case "$SUB" in
         E=$(jq 'if .followups then .followups |= map(.consumed = true) else . end' <<<"$E") || die "ledger record $ID: cannot mark the follow-ups consumed" ;;
       --forward-consumed)       # the launcher, after a merge-forward run reported pr: its brief is done (merge-forward FR-010)
         E=$(jq 'if .forwards then .forwards |= map(.consumed = true) else . end' <<<"$E") || die "ledger record $ID: cannot mark the forwards consumed" ;;
+      --rework-consumed) rework_consumed_set ;;   # the implement launcher's, on a rework run's pr: rulings stamped, row closed (HEF-57 FR-010); ledger-rework.sh
+      --rework-asked) rework_asked_add "${2:-}"; shift ;;   # the launcher's, after it blocks an open rework row (HEF-57 FR-010); ledger-rework.sh
       --rfc) rfc_pin ;;
       --rfc-snapshot) [ -f "${2:-}" ] || die "ledger record $ID: --rfc-snapshot needs the launcher's copy of the RFC"; rfc_pin "$2"; shift ;;
       *) usage ;; esac; shift; done
@@ -769,6 +777,7 @@ case "$SUB" in
   drop|fold|supersede) terminal_cmd "$SUB" "$@" ;;   # US1 — person-only; ledger-lifecycle.sh
   reopen) reopen_cmd "$@" ;;   # US2 — person-only; ledger-lifecycle.sh
   forward) forward_cmd "$@" ;;   # merge-forward — git decides; --past-cap person-only; ledger-lifecycle.sh
+  rework) rework_cmd "$@" ;;     # verify-fix-loop (HEF-57) — the verify launcher's; --past-cap person-only; ledger-rework.sh
   merge-by) merge_by_cmd "$@" ;;        # HEF-30; ledger-automerge.sh
   merge-auto) merge_auto_cmd "$@" ;;    # grant/revoke person-only, in the ask rules
   automerge) automerge_cmd "$@" ;;

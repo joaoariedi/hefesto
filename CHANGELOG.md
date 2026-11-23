@@ -37,6 +37,23 @@ it is what caught the hand-bumped era:
 
 ## [Unreleased]
 
+### Added
+
+- **A verify FAIL goes back to the builder by itself** (HEF-57; `commands/hef.orchestrate.md`, `docs/hooks.md`,
+  `docs/install.md`, `docs/quickstart.md`, `docs/architecture.md`). `ledger.sh rework <id>` — the verify launcher's
+  own move, no allow rule — sends a `verify` entry whose latest verdicts FAIL back to `implement` with a generated,
+  hashed rework brief of the failed gates' evidence and an open `.reworks[]` row; a refusal falls back to today's
+  `verdict` block. The next implement launch is a rework of the same PR (the sourced `hooks/session-launch-rework.sh`):
+  the builder fixes the findings on the same branch and the verifier checks the new head. A finding the builder
+  disputes, or whose fix would change the spec or plan, is not fixed: it comes back as `human:clarify` with a
+  question, and the person's answer is a ruling handed to the next rework and verify runs as data
+  (`hooks/rework-pairs.sh` pairs them); a verify handed a ruling records verified head `none`, so it never takes the
+  `merge_by: auto` path. `orchestrate.verify_rounds` (default 3, an integer 0–10; `0` = every FAIL blocks, as before)
+  caps the rounds since the last reopen; past it, one `verdict` block whose open findings `ledger.sh questions <id>`
+  prints, and the orchestrator's form offers **Another round** (`rework <id> --past-cap --by <name>`, a person's
+  signature) · **Re-verify** · **Later**. The move lives in the sourced `hooks/ledger-rework.sh`; `hefesto-setup.sh`
+  asks on `rework … --past-cap`.
+
 ## [9.4.4] - 2026-11-22
 
 ### Added

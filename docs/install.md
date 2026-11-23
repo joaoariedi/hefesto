@@ -414,7 +414,12 @@ For the short path — install, one lane or four, a new or a running project —
    absent, never over yours; the orchestrator then never asks your name); `deploy.recipes.<env>` and `deploy.trains.<name>`, the
    deploy and release-train scopes a request is built from (8c); `plan_review_rounds` (default 5, an integer
    from 1 to 20) the plan-review rounds the planner works through on its own before it asks you — a product or
-   design question still stops it on the round it appears.
+   design question still stops it on the round it appears; `verify_rounds` (default 3, an integer from 0 to 10)
+   the rework rounds a verify FAIL gets on its own — the item goes back to the builder with a hashed brief of the
+   failed gates' findings (`ledger.sh rework`), and past the cap one `verdict` block whose findings
+   `ledger.sh questions <id>` shows, with **Another round** (`--past-cap --by <name>`, a signature) · **Re-verify** ·
+   **Later**; `0` blocks every FAIL as before. A disputed finding comes to you as a question; your answer is the
+   ruling the next rework and verify runs are handed, and a ruled verify never merges under `merge_by: auto`.
 
 8b. **RFCs, plan approval and the lanes** (lanes v2; [`quickstart.md`](quickstart.md) steps 5–8). An
    item names its RFC with a line `rfc: docs/rfcs/<ID>.md` (folder: `orchestrate.rfc_dir`); the plan stage

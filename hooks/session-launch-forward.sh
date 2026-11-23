@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# shellcheck disable=SC2154  # ROLE, ID, E, SO, WT, DRY, LANE_MODE, LEDGER, HERE, PROT, FORGE_INFRA_RULE are session-launch.sh's
+# shellcheck disable=SC2154  # ROLE, ID, E, SO, WT, DRY, LANE_MODE, LEDGER, HERE, PROT, FORGE_INFRA_RULE are session-launch.sh's; RWR is session-launch-rework.sh's
 # session-launch-forward.sh — the merge-forward arm of session-launch.sh, sourced by it (HEF-31 merge-forward;
 # session-launch.sh sits at its 500-code-line limit). Functions only; they read the launcher's ROLE, ID, E, SO, WT,
 # DRY, LANE_MODE, LEDGER, HERE and PROT, and its die, person_text_as_data and wt_branch.
@@ -33,17 +33,26 @@ forwarded_since_prepare() { # $1 entry JSON, $2 the --prepare record → 0 when 
 }
 
 forward_wt_check() { # $1 the row's head branch → 0 when $WT is a worktree on it; else (FR-005a) a question, a block, die
+  wt_on_branch_or_ask "$1" "Merge forward" "merge forward again"
+}
+
+# Shared by the merge-forward and the rework runs (verify-fix-loop P8, HEF-57 FR-008): forward passes the two fragments its
+# message always had, so its question file and its die line are byte-identical; rework passes its own and an after-block
+# hook that records the question on the open rework row. The whole non-dry branch — file, block, hook — is skipped
+# together under --dry-run, so a dry run writes nothing and records no asked[] entry.
+wt_on_branch_or_ask() { # $1 want-branch, $2 title, $3 resume, [$4 after-block hook] → 0 when $WT is a worktree on $1; else a question, a block, the hook, die
   local br="" q msg
   if [ -d "$WT" ] && [ ! -L "$WT" ] && [ -e "$WT/.git" ]; then
     if [ "$LANE_MODE" = 1 ]; then br="$(wt_branch "$WT")"; else br="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)"; fi
   fi
   [ -z "$1" ] || [ "$br" != "$1" ] || return 0
-  # without the worktree, `claude -w` would make a fresh branch and merge forward the wrong thing
-  msg="the worktree $WT is not on the pull request's head branch ${1:-<none>} (missing, or on ${br:-no branch}) — restore it (git worktree add $WT $1), then answer this to merge forward again"
+  # without the worktree, `claude -w` would make a fresh branch and merge forward (or rework) the wrong thing
+  msg="the worktree $WT is not on the pull request's head branch ${1:-<none>} (missing, or on ${br:-no branch}) — restore it (git worktree add $WT $1), then answer this to $3"
   if [ "$DRY" != 1 ]; then
     q="$("$LEDGER" dir)/$ID.question-$(date +%s).md" || exit 1
-    rm -f -- "$q"; printf 'Merge forward of %s cannot start: %s\n' "$ID" "$msg" > "$q" || die "session-launch implement $ID: cannot write $q"
+    rm -f -- "$q"; printf '%s of %s cannot start: %s\n' "$2" "$ID" "$msg" > "$q" || die "session-launch implement $ID: cannot write $q"
     "$LEDGER" block "$ID" --kind human:clarify --question "$q" >/dev/null || exit 1
+    [ -z "${4:-}" ] || "$4"
   fi
   die "session-launch implement $ID: $msg — blocked on human:clarify; nothing launched"
 }
@@ -85,8 +94,9 @@ forward_transcribe_guard() { # rewrites SO before the implement transcription; s
 
 # FR-012 / FR-013 / FR-013a: a merge-forward question reaches the person through `ledger.sh questions`, which strips
 # comments (an unclosed <!-- would drop the base side of an HTML/Markdown hunk) and keeps the first 8000 bytes.
-implement_question_file() { # $1 the blocked kind → a question file path on a merge-forward run's human:clarify, else nothing
-  [ -n "${FWR:-}" ] && [ "$1" = human:clarify ] || return 0
+# verify-fix-loop (HEF-57 FR-010): a rework run's dispute is written the same way (RWR, session-launch-rework.sh).
+implement_question_file() { # $1 the blocked kind → a question file path on a merge-forward or rework run's human:clarify, else nothing
+  [ -n "${FWR:-}${RWR:-}" ] && [ "$1" = human:clarify ] || return 0
   local f t
   f="$("$LEDGER" dir)/$ID.question-$(date +%s).md" || return 0; t="$f.tmp"; rm -f -- "$f" "$t"
   jq -r 'if (.question // "") != "" then .question else (.summary // "") end' <<<"$SO" | sed 's/<!--/<!-\\-/g' > "$t" || { rm -f "$t"; return 0; }
@@ -94,4 +104,26 @@ implement_question_file() { # $1 the blocked kind → a question file path on a 
   if [ "$(wc -c < "$t" | tr -d ' ')" -gt 8000 ]; then { head -c 3900 "$t"; printf '\n[… cut to fit 8000 bytes …]\n'; tail -c 4000 "$t"; } > "$f"; rm -f "$t"
   else mv "$t" "$f"; fi
   printf '%s\n' "$f"
+}
+
+# The implement transcription's two shared tails (verify-fix-loop P8, moved out of session-launch.sh at its 500-code-line
+# limit; neutrally named: they serve a plain, a merge-forward and a rework run alike).
+implement_pr_consume() { # the `pr)` consume before advance verify — FWR: the brief and the answers (merge-forward FR-010);
+  # RWR: the rework row, its rulings and the answers in ONE step (HEF-57 FR-010, plan P10); a plain run: nothing
+  if [ -n "${FWR:-}" ]; then "$LEDGER" record "$ID" --forward-consumed --person-text-consumed >/dev/null || return 1
+  elif [ -n "${RWR:-}" ]; then HEFESTO_LAUNCHER=1 "$LEDGER" record "$ID" --rework-consumed >/dev/null || return 1; fi
+  return 0
+}
+
+implement_block_question() { # $1 the blocked kind — the implement `blocked)` tail for every implement run (plan Sketch 5a)
+  local qf; qf="$(implement_question_file "$1")"   # fires on FWR or RWR with human:clarify
+  # HEF-57 FR-010: a rework dispute is blocked only with its question — or not at all: an answer to a block with no
+  # question could never be paired with the dispute, and the person would rule on nothing they can read
+  if [ -n "${RWR:-}" ] && [ "$1" = human:clarify ] && [ -z "$qf" ]; then
+    die "session-launch implement $ID: cannot write the dispute question under $("$LEDGER" dir) — nothing blocked; the run is re-dispatchable (stall cap)"
+  fi
+  "$LEDGER" block "$ID" --kind "$1" ${qf:+--question "$qf"} >/dev/null || exit 1   # forward and plain runs: the line as it was
+  [ -n "${RWR:-}" ] && [ "$1" = human:clarify ] || return 0   # only a rework run's dispute is recorded as one (P13)
+  HEFESTO_LAUNCHER=1 "$LEDGER" record "$ID" --rework-asked dispute >/dev/null \
+    || die "session-launch implement $ID: blocked on human:clarify, but the dispute was not recorded on the rework row — its answer will not be read as a ruling; a person reads ledger.sh show $ID"
 }

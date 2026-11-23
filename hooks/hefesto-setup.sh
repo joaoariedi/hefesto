@@ -151,12 +151,14 @@ prefixes=("$CLONE"); for c in ${cfgs[@]+"${cfgs[@]}"}; do prefixes+=("$c/plugins
 # merge-auto grant/revoke: a person turns auto-merge on or off — the dialog is the signature (HEF-30 FR-015)
 LEDGER_SIGN_WHOLE=(approve answer revise drop fold supersede reopen "op close" "op drop" "merge-auto grant" "merge-auto revoke")
 LEDGER_SIGN_FLAG=("unblock --reviewed-by-human" "unblock --merge-sha" "record --body-file" "record --body-from-board" "record --rfc"
-  "release --reviewed-by-human" "record --reviewed-by-human" "forward --past-cap")   # it records a person's name → a signature (spec Clarifications
-# 2026-11-09); record --item-kind … --reviewed-by-human: a person's kind change away from incident/vulnerability (HEF-54)
+  "release --reviewed-by-human" "record --reviewed-by-human" "forward --past-cap" "rework --past-cap")   # it records a person's name → a signature (spec Clarifications
+# 2026-11-09); record --item-kind … --reviewed-by-human: a person's kind change away from incident/vulnerability (HEF-54);
+# rework --past-cap: another verify-fix round past orchestrate.verify_rounds, a person's (HEF-57 FR-007) — its base is
+# in LEDGER_LAUNCHER, not LEDGER_ALLOW: the plain form has no rule at all (the verify launcher's own move)
 # no rule at all: ledger.sh refuses claim and run unless session-launch.sh calls (FR-010); automerge is the deploy
 # launcher's, gated by itself on the person's grant and the verdicts at the verified head (HEF-30 FR-010)
 # shellcheck disable=SC2034  # written nowhere on purpose; tests/smoke-signatures.sh reads it (FR-006)
-LEDGER_LAUNCHER=(claim run automerge)
+LEDGER_LAUNCHER=(claim run automerge rework)
 LEDGER_ALLOW=(board list next show metrics register publish escalate questions request actions action "op new" direct
   directives directive note lanes deployed record advance handoff block release unblock verdict init where branches spec-roots
   merge-by    # read-only (HEF-30)
