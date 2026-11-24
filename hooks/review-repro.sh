@@ -11,7 +11,8 @@
 #
 # The verifier works read-only on the worktree, and a verify worker may not `bash -c`, write a fixture or mkdir a
 # scratch folder (plan, truth map): this helper is its one channel. The recipe runs with stdin from /dev/null, in a
-# fresh copy of the worktree's tracked and unignored files under $TMPDIR with its OWN repository — a recipe's
+# fresh copy of the worktree's tracked and unignored files under $TMPDIR (or, when it is read-only, a writable folder
+# under the cache — amendment A4) with its OWN repository — a recipe's
 # `git config`/`git commit` act on the copy, never the worktree's .git — and is never told where the real worktree is.
 #
 # Stdout: `exit: <n>` then the output, capped at 60 lines and 8 KiB. Exit 0 after a run, whatever the recipe's status
@@ -37,8 +38,21 @@ if ( : >"$PROBE" ) 2>/dev/null; then rm -f "$PROBE"; refuse "not running inside 
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 TOP="$(git rev-parse --show-toplevel 2>/dev/null)" && USE_GIT=1 || { TOP="$(pwd -P)"; USE_GIT=0; }
 [ -d "$TOP" ] || refuse "no worktree to copy (cwd: $PWD)"
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/hef-repro.XXXXXXXX")" || refuse "cannot make a scratch folder under ${TMPDIR:-/tmp}"
+# Amendment A4 (HEF-58, the second eval probe 2): the eval sandbox's temp folder is read-only, so the scratch copy falls
+# back to a writable folder under the cache — after the probe, $CACHE itself is not writable, but a worker's
+# worker-cache/<repo> or a lane's lane-cache/<key> is. Neither writable → refused, naming both.
+rr_scratch() {
+  local d
+  for d in "${TMPDIR:-/tmp}" "$CACHE" "$CACHE"/*/ "$CACHE"/*/*/; do
+    [ -d "$d" ] || continue
+    mktemp -d "${d%/}/hef-repro.XXXXXXXX" 2>/dev/null && return 0
+  done
+  return 1
+}
+SCRATCH="$(rr_scratch)" || refuse "cannot make a scratch folder — neither ${TMPDIR:-/tmp} nor any folder under $CACHE is writable here"
 trap 'chmod -R u+w "$SCRATCH" 2>/dev/null; rm -rf "$SCRATCH"' EXIT
+# The recipe's own heredocs and mktemp need a writable temp folder too: when $TMPDIR was not, it gets one in the copy.
+case "$SCRATCH" in "${TMPDIR:-/tmp}"/*) ;; *) mkdir "$SCRATCH/tmp" && export TMPDIR="$SCRATCH/tmp" ;; esac
 case $# in
   0) cat >"$SCRATCH/.hef-recipe.sh" ;;
   1) printf '%s\n' "$1" >"$SCRATCH/.hef-recipe.sh" ;;

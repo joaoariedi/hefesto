@@ -15,6 +15,9 @@ for c in "$base" "$head"; do
   git -C "$R" cat-file -e "$c^{commit}" 2>/dev/null \
     || { echo "review-replay: commit $c is not in $R — a shallow clone? fetch main's full history" >&2; exit 1; }
 done
+# Amendment A4: the eval home is fresh, and review-repro.sh refuses without $HOME/.cache/hefesto to probe the sandbox
+# with — the scaffold runs as the person (--scaffold), so it can make it.
+mkdir -p "$HOME/.cache/hefesto"
 export GIT_AUTHOR_NAME=hefesto-eval GIT_AUTHOR_EMAIL=eval@example.invalid \
        GIT_COMMITTER_NAME=hefesto-eval GIT_COMMITTER_EMAIL=eval@example.invalid
 git init -q -b main .

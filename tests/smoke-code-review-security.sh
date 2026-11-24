@@ -93,8 +93,25 @@ rs_t_arg() {
   RS_ARG=1 RS_RECIPE=' ' rs_run x; [ "$(cat "$rs_t/rc")" = 2 ] || rs_no "a blank argument recipe → exit 2"
   rs_left "after an argument recipe"
 }
-for rs_fn in rs_t_git rs_t_guard rs_t_refuse rs_t_cap rs_t_arg; do "$rs_fn"; done
-[ "$x_fail" -eq 0 ] && ok "review-repro.sh: git config/commit act on the copy's own repository (real config, index, HEAD unchanged); created/modified/deleted/same-size-rewritten worktree files → exit 3 naming them; an ignored build output passes; a writable or missing cache → exit 2; output capped at 60 lines and 8 KiB; a timed-out recipe reported; the recipe as one argument runs (amendment A3), two arguments refused; no scratch copy left on any path (exhaustive-review/FR-006)"
+# exhaustive-review/FR-006 (amendment A4): a read-only temp folder → the scratch copy goes under a writable folder of the
+# cache (here worker-cache/r below a read-only cache, as in a worker's sandbox), the recipe runs, its own heredoc too;
+# neither writable → refused (exit 2) naming both, nothing run
+mkdir -p "$rs_t/home-a4/.cache/hefesto/worker-cache/r" "$rs_t/tmp-ro"; chmod 555 "$rs_t/home-a4/.cache/hefesto/worker-cache" "$rs_t/home-a4/.cache/hefesto" "$rs_t/tmp-ro"
+rs_t_rotmp() {
+  local before; before="$(rs_state)"
+  RS_ARG=1 RS_RECIPE='cat a.txt; pwd; echo "tmp=$TMPDIR"; cat <<HD'$'\n''heredoc ran'$'\n''HD' rs_run "$rs_t/home-a4" TMPDIR="$rs_t/tmp-ro"
+  [ "$(cat "$rs_t/rc")" = 0 ] && grep -qx 'exit: 0' "$rs_t/out" && grep -qx 'aaaa' "$rs_t/out" || rs_no "a read-only temp folder: the recipe still runs (exit: 0, its output)"
+  grep -q "^$rs_t/home-a4/.cache/hefesto/worker-cache/r/hef-repro\." "$rs_t/out" || rs_no "a read-only temp folder: the scratch copy is under the cache's writable folder"
+  grep -qx 'heredoc ran' "$rs_t/out" && grep -q "^tmp=$rs_t/home-a4/.cache/hefesto/worker-cache/r/hef-repro\.[^/]*/tmp\$" "$rs_t/out" \
+    || rs_no "a read-only temp folder: the recipe's TMPDIR is a writable folder in the copy, its heredoc runs"
+  [ "$(rs_state)" = "$before" ] || rs_no "a read-only temp folder: the real worktree is unchanged"
+  [ -z "$(find "$rs_t/home-a4/.cache/hefesto" -name 'hef-repro.*' 2>/dev/null)" ] || rs_no "a read-only temp folder: no hef-repro.* left under the cache"
+  RS_ARG=1 RS_RECIPE='echo ran' rs_run x TMPDIR="$rs_t/tmp-ro"
+  [ "$(cat "$rs_t/rc")" = 2 ] && grep -q "neither $rs_t/tmp-ro nor any folder under $rs_t/home-sbx/.cache/hefesto is writable" "$rs_t/err" \
+    && ! grep -q ran "$rs_t/out" || rs_no "neither the temp folder nor the cache writable → exit 2 naming both, nothing run"
+}
+for rs_fn in rs_t_git rs_t_guard rs_t_refuse rs_t_cap rs_t_arg rs_t_rotmp; do "$rs_fn"; done
+[ "$x_fail" -eq 0 ] && ok "review-repro.sh: git config/commit act on the copy's own repository (real config, index, HEAD unchanged); created/modified/deleted/same-size-rewritten worktree files → exit 3 naming them; an ignored build output passes; a writable or missing cache → exit 2; output capped at 60 lines and 8 KiB; a timed-out recipe reported; the recipe as one argument runs (amendment A3), two arguments refused; a read-only temp folder → the copy under the cache's writable folder, the recipe and its heredoc run, and neither writable → exit 2 naming both (amendment A4); no scratch copy left on any path (exhaustive-review/FR-006)"
 x_fail=0
 rs_mut() { # label sed-expr test-fn — a mutant of review-repro.sh must turn test-fn red
   local md red; md="$(mktemp -d)"; ln -s "$REPO/hooks/lane-lib.sh" "$md/lane-lib.sh"; sed "$2" "$REPO/hooks/review-repro.sh" >"$md/review-repro.sh"
@@ -109,7 +126,10 @@ rs_mut "FR-006 the copy keeps no repository of its own" 's/git init -q \. \&\&/f
 rs_mut "FR-006 the scratch copy is not removed" "s/^trap .*EXIT\$/:/" rs_t_git
 rs_mut "FR-006 A3 the argument is ignored (stdin read instead)" "s/^  1) printf '%s\\\\n' \"\$1\" >/  1) cat >/" rs_t_arg
 rs_mut "FR-006 A3 extra arguments accepted" 's/^  \*) refuse "\$# arguments/  *) printf "%s\\n" "$1" >"$SCRATCH\/.hef-recipe.sh"; : "/' rs_t_arg
-[ "$x_fail" -eq 0 ] && ok "review-repro.sh: 7 mutants killed (exhaustive-review/FR-006)"
+rs_mut "FR-006 A4 no fallback under the cache" 's/^  for d in "\${TMPDIR:-\/tmp}" .*; do$/  for d in "${TMPDIR:-\/tmp}"; do/' rs_t_rotmp
+rs_mut "FR-006 A4 the recipe keeps the read-only temp folder" 's/mkdir "\$SCRATCH\/tmp" && export TMPDIR="\$SCRATCH\/tmp"/:/' rs_t_rotmp
+rs_mut "FR-006 A4 the refusal stops naming the cache" 's/ nor any folder under \$CACHE is writable here/ is writable/' rs_t_rotmp
+[ "$x_fail" -eq 0 ] && ok "review-repro.sh: 10 mutants killed (exhaustive-review/FR-006)"
 chmod -R u+w "$rs_t" 2>/dev/null
 
 # --- lane-guard.sh: the review round's heredoc exception (FR-022) ---------------------------------------------------------
