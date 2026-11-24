@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: review-replay-d22-3
-description: "Replay of HEF-22 round 2: one exhaustive /hefesto:hef.review code round over the rejected forge-setup change must report D22-3 — hooks/forge-lib.sh's internal-host deny list is case-sensitive — as a reproduced blocker (exhaustive-review FR-016, SC-004)"
+description: "Replay of HEF-22 round 2: one exhaustive /hefesto:hef.review code round over the rejected forge-setup change must report D22-3 — hooks/forge-lib.sh's internal-host deny list is case-sensitive — as a blocker, reproduced or not (exhaustive-review FR-016, SC-004, amendment A5)"
 tags: [review, replay, exhaustive-review]
 plugins: ["../.."]
 context:
@@ -11,22 +11,20 @@ execution:
   timeout_seconds: 2400
   # amendment A2: every replay and probe case names its tools; the operator grants Bash with --allow-tools Bash
   allowed_tools: [Agent, Bash, Read, Glob, Grep, Skill]
-# Graded on tool calls first (constitution 3): the round ran (five finders and a verifier) and a recipe ran through
-# review-repro.sh — a report cannot fake either. The llm grader reads only the report.
+# Graded on tool calls first (constitution 3): the round ran (five finders and a verifier) — a report cannot fake
+# that. Amendment A5: the eval sandbox has no writable scratch folder, so review-repro.sh refuses there and no recipe
+# runs; reproduction is measured by real verify runs (probe 1), not here. The defect counts as found when a BLOCKING
+# finding names it, REPRODUCED or UNREPRODUCED. The llm grader reads only the report.
 graders:
   - name: five-finders-and-a-verifier
     type: tool_used
     tool: Agent
     min: 6
-  - name: verifier-ran-a-recipe
-    type: tool_used
-    tool: Bash
-    input_match: "review-repro\\.sh"
-    min: 1
   - name: finds-d22-3
     type: llm
     criteria: |
-      PASS only if the final verdict is REQUEST_CHANGES and a BLOCKING finding marked REPRODUCED says that
-      hooks/forge-lib.sh's internal-host deny list (forge_public_host) is case-sensitive — an upper-case spelling such as
-      metadata.google.INTERNAL is accepted as a public host. FAIL if the verdict is APPROVE or INCOMPLETE, or the defect
-      is missing, only a suggestion, or not REPRODUCED.
+      PASS only if the final verdict is REQUEST_CHANGES and a BLOCKING finding, marked REPRODUCED or UNREPRODUCED,
+      says that hooks/forge-lib.sh's internal-host deny list (forge_public_host) is case-sensitive — an upper-case
+      spelling such as metadata.google.INTERNAL is accepted as a public host. Reproduction is not required: in the eval
+      sandbox review-repro.sh refuses (no writable scratch folder), so UNREPRODUCED counts the same (amendment A5).
+      FAIL if the verdict is APPROVE or INCOMPLETE, or the defect is missing or only a suggestion.

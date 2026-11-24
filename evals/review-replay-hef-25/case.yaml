@@ -1,0 +1,32 @@
+schema_version: "1.1"
+name: review-replay-hef-25
+description: "Item replay of HEF-25 at its first rejected commit: one exhaustive /hefesto:hef.review code round must report every corpus defect present there (D25-1, D25-2) as a blocker, reproduced or not (exhaustive-review FR-017, amendment A5)"
+tags: [review, replay, exhaustive-review]
+plugins: ["../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/hefesto:hef.review code — git may be unavailable here: the change under review (base main) is .git/hef-review.diff"
+  max_turns: 80
+  timeout_seconds: 2400
+  # amendment A2: every replay and probe case names its tools; the operator grants Bash with --allow-tools Bash
+  allowed_tools: [Agent, Bash, Read, Glob, Grep, Skill]
+# Defects present at ddc4130, established from the history: D25-1 and D25-2 (round 1's own). Absent: D25-3 and D25-4,
+# added by later fixes (b615d3f's OOMPolicy=continue; fe2e3cb moved the RFC pin past the --prepare exit). Graded on
+# tool calls first (constitution 3); a defect counts as found when a BLOCKING finding names it, REPRODUCED or
+# UNREPRODUCED (amendment A5).
+graders:
+  - name: five-finders-and-a-verifier
+    type: tool_used
+    tool: Agent
+    min: 6
+  - name: finds-every-present-defect
+    type: llm
+    criteria: |
+      PASS only if the final verdict is REQUEST_CHANGES and each of these is named by a BLOCKING finding, marked
+      REPRODUCED or UNREPRODUCED (reproduction is not required in the eval sandbox, amendment A5):
+      - D25-1: a plan launch refused because the host is busy (exit 75) still writes source.rfc;
+      - D25-2: hooks/host-limits.sh misreads the byte value systemctl prints for the 60 % oomd limit, so the oomd
+        note prints nothing.
+      FAIL if the verdict is APPROVE or INCOMPLETE, or any listed defect is missing or only a suggestion. Say how
+      many of the two were found.

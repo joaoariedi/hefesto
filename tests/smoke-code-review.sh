@@ -3,7 +3,7 @@
 #
 # exhaustive-review smoke checks, part 19: the exhaustive code-review round's check (speckit-helper.sh
 # code-review-check, FR-010 with FR-007/FR-008/FR-009/FR-012) and its route (speckit-helper.sh review-route, FR-021);
-# the structural checks over the command and the agent (FR-019) and the replay cases' shape join this part later.
+# the structural checks over the command and the agent (FR-019) and the replay cases' shape (FR-016, FR-017).
 #
 # SOURCED by tests/smoke.sh after part 18b, never run on its own. Self-contained: reports written here, temp
 # repositories, and a fake ledger.sh in a mirror of hooks/ (constitution 3: the assertions sit on the helper's exit code,
@@ -289,7 +289,28 @@ cr_t_struct_preflight() {
     || cr_sno "the preflight's exit 2 on a no-ledger branch: the single reviewer with a cause-and-fix line"
   grep -qF 'the source is `ledger:<ID>` → the review is `INCOMPLETE`' "$c" || cr_sno "the preflight's exit 2 on a ledger item: INCOMPLETE naming the cause"
 }
-for cr_fn in cr_t_struct_round cr_t_struct_volume cr_t_struct_calls cr_t_struct_preflight; do "$cr_fn"; done
+# exhaustive-review/FR-001 exhaustive-review/FR-002 exhaustive-review/FR-003 exhaustive-review/FR-004
+# exhaustive-review/FR-005: the round's steps — five finders in one foreground message, every candidate with a recipe,
+# the merge (one candidate per file:line, lenses kept, BLOCKING wins), fresh verifiers of at most 8, three statuses
+cr_t_struct_steps() {
+  local c="${1:-$REPO/commands/hef.review.md}"
+  grep -qF '**1. Five finders, ONE message, foreground** (`run_in_background: false`)' "$c" || cr_sno "FR-001: the five finders are spawned in one foreground message"
+  grep -qF 'Report every candidate defect' "$c" && grep -qF 'back with a `file:line` and a recipe' "$c" || cr_sno "FR-003: the finder brief asks for every candidate with file:line and a recipe"
+  grep -qF 'The same `file:line` with the same failure is one candidate, every lens' "$c" && grep -qF '**`BLOCKING` if any' "$c" \
+    || cr_sno "FR-004: the merge de-duplicates by file:line, keeps every lens and lets BLOCKING win"
+  grep -qF 'at most 8 per verifier, go to fresh `code-reviewer` spawns — never one of' "$c" && grep -qF '`not verified — never blocks`' "$c" \
+    && grep -qF '`REPRODUCED`, `REFUTED` or `UNREPRODUCED`' "$c" || cr_sno "FR-005: fresh verifiers of at most 8 blockers, suggestions never verified, three statuses"
+}
+# exhaustive-review/FR-011 exhaustive-review/FR-013 exhaustive-review/FR-014: one shape-only re-write then INCOMPLETE;
+# UNREPRODUCED blockers listed under Open questions; INCOMPLETE is gate review FAIL in a verify run
+cr_t_struct_relay() {
+  local c="${1:-$REPO/commands/hef.review.md}"
+  grep -qF 'When **every** violation is `[shape]`, re-write the report once' "$c" && grep -qF 'Any remaining exit ≠ 0 → the verdict is `INCOMPLETE`' "$c" \
+    || cr_sno "FR-011: one shape-only re-write, then INCOMPLETE"
+  grep -qF '`## Open questions` listing every `UNREPRODUCED` blocker with its reason' "$c" || cr_sno "FR-013: UNREPRODUCED blockers are listed under Open questions"
+  grep -qF '`INCOMPLETE` is gate `review` `FAIL`, with the' "$c" || cr_sno "FR-014: INCOMPLETE is gate review FAIL in a verify run"
+}
+for cr_fn in cr_t_struct_round cr_t_struct_volume cr_t_struct_calls cr_t_struct_preflight cr_t_struct_steps cr_t_struct_relay; do "$cr_fn"; done
 [ "$x_fail" -eq 0 ] && ok "hef.review.md and code-reviewer.md: four lenses, a cross-tier finder at model: opus beside the fable pin, a verifier step, no fewer-findings wording in the finder/verifier briefs (kept by the single reviewer and Rule 0), both briefs name the spec folder, every documented heredoc is a plain CLAUDE_PLUGIN_ROOT/hooks call, the A1 preflight with both outcomes (exhaustive-review/FR-019, FR-015, FR-021)"
 x_fail=0
 cr_smut() { # label file(commands/…|agents/…) sed-expr test-fn — a mutant copy of the file must turn test-fn red
@@ -311,7 +332,96 @@ cr_smut "FR-021 (A1) the preflight dropped" commands/hef.review.md '/^\*\*Prefli
 cr_smut "FR-022 (A3) the verifier brief back to a heredoc" commands/hef.review.md "s/review-repro.sh '<the recipe>'/review-repro.sh <<'HEF_REPRO_RECIPE_END'/" cr_t_struct_calls
 cr_smut "FR-022 (A3) the verifier role back to a heredoc" agents/code-reviewer.md "s/review-repro.sh '<the recipe>'/review-repro.sh <<'HEF_REPRO_RECIPE_END'/" cr_t_struct_calls
 cr_smut "FR-022 (A3) a command after the preflight's argument" commands/hef.review.md "s/review-repro.sh 'true'\$/review-repro.sh 'true'; true/" cr_t_struct_calls
-[ "$x_fail" -eq 0 ] && ok "structure: 11 mutants killed (exhaustive-review/FR-019)"
+cr_smut "FR-001 the finders spawned in the background" commands/hef.review.md 's/ONE message, foreground\*\* (`run_in_background: false`)/ONE message** (`run_in_background: true`)/' cr_t_struct_steps
+cr_smut "FR-003 the finder brief asks for its best findings only" commands/hef.review.md 's/Report every candidate defect/Report the most important defects/' cr_t_struct_steps
+cr_smut "FR-004 a SUGGESTION wins the merge" commands/hef.review.md 's/\*\*`BLOCKING` if any/**`SUGGESTION` if any/' cr_t_struct_steps
+cr_smut "FR-005 verifiers take any number of blockers" commands/hef.review.md 's/at most 8 per verifier/all in one verifier/' cr_t_struct_steps
+cr_smut "FR-011 the re-write allowed on content violations" commands/hef.review.md 's/When \*\*every\*\* violation is `\[shape\]`/When any violation remains/' cr_t_struct_relay
+cr_smut "FR-013 UNREPRODUCED blockers left out of Open questions" commands/hef.review.md 's/`## Open questions` listing every `UNREPRODUCED` blocker with its reason/`## Open questions`/' cr_t_struct_relay
+cr_smut "FR-014 INCOMPLETE reported as a pass in a verify run" commands/hef.review.md 's/`INCOMPLETE` is gate `review` `FAIL`/`INCOMPLETE` is gate `review` `PASS`/' cr_t_struct_relay
+[ "$x_fail" -eq 0 ] && ok "structure: 18 mutants killed (exhaustive-review/FR-019)"
+
+# --- the replay cases' shape (T019) ----------------------------------------------------------------------------------
+# exhaustive-review/FR-016 exhaustive-review/FR-017 exhaustive-review/FR-019: 15 per-defect, 3 item and 3 control
+# cases; each carries execution.allowed_tools
+# (A2) and exactly two graders — tool_used Agent min 6 plus one llm (A5 dropped the review-repro.sh grader: the eval
+# sandbox has no writable scratch folder, so no recipe runs there); each scaffold execs the shared one with two full SHAs
+CR_REPLAY_N=21
+cr_case_ok() { # cr_case_ok <case dir> → 0 when its case.yaml and scaffold.sh have the replay shape
+  local c="$1/case.yaml" s="$1/scaffold.sh"
+  [ -f "$c" ] && [ -x "$s" ] || return 1
+  grep -qE '^schema_version: "1\.[0-9]+"$' "$c" && grep -qxF "name: $(basename "$1")" "$c" || return 1
+  grep -qxF '  allowed_tools: [Agent, Bash, Read, Glob, Grep, Skill]' "$c" || return 1
+  [ "$(grep -cE '^    type: ' "$c")" = 2 ] && [ "$(grep -cxF '    type: llm' "$c")" = 1 ] || return 1
+  grep -qxF '    tool: Agent' "$c" && grep -qxF '    min: 6' "$c" && ! grep -qF 'input_match' "$c" || return 1
+  grep -qF 'tests/fixtures/review-replay.sh' "$s" && grep -qE '^  [0-9a-f]{40} [0-9a-f]{40} [a-z][a-z-]*$' "$s"
+}
+cr_t_replay_cases() { # cr_t_replay_cases [evals dir]
+  local ev="${1:-$REPO/evals}" d n=0
+  for d in "$ev"/review-replay-d[0-9]* "$ev"/review-replay-hef-* "$ev"/review-control-hef-*; do
+    [ -d "$d" ] || continue
+    n=$((n + 1))
+    cr_case_ok "$d" || cr_sno "replay case $(basename "$d"): needs allowed_tools (A2), two graders (tool_used Agent min 6 + llm, no review-repro.sh grader — A5) and a scaffold with two 40-char SHAs"
+  done
+  [ "$n" = "$CR_REPLAY_N" ] || cr_sno "expected $CR_REPLAY_N replay/control cases (15 per-defect, 3 item, 3 control), found $n"
+}
+x_fail=0
+cr_t_replay_cases
+[ "$x_fail" -eq 0 ] && ok "$CR_REPLAY_N replay and control cases: allowed_tools, tool_used Agent min 6 + one llm grader, full-SHA scaffolds (exhaustive-review/FR-016, FR-017, FR-019)"
+cr_rmut() { # label case sed-expr file(case.yaml|scaffold.sh) — a mutant copy of evals/ must turn cr_t_replay_cases red
+  local d red; d="$(mktemp -d)"
+  cp -R "$REPO"/evals/review-replay-d[0-9]* "$REPO"/evals/review-replay-hef-* "$REPO"/evals/review-control-hef-* "$d/"
+  if [ -n "$3" ]; then sed "$3" "$REPO/evals/$2/$4" >"$d/$2/$4"; chmod +x "$d/$2/scaffold.sh"
+  else rm -rf "${d:?}/$2"; fi
+  red="$(x_fail=0; cr_t_replay_cases "$d" >/dev/null 2>&1; echo "$x_fail")"; rm -rf "$d"
+  [ "$red" = 1 ] && ok "mutant killed: $1" || { bad "mutant survived: $1"; x_fail=1; }
+}
+x_fail=0
+cr_rmut "FR-016 A2 allowed_tools dropped" review-replay-d31-2 '/allowed_tools:/d' case.yaml
+cr_rmut "FR-016 A5 a review-repro.sh match back on a grader" review-replay-d22-3 's/^    tool: Agent$/    tool: Agent\
+    input_match: "review-repro"/' case.yaml
+cr_rmut "FR-016 the llm grader dropped" review-replay-d25-1 '/type: llm/,$d' case.yaml
+cr_rmut "FR-017 a control's Agent minimum lowered" review-control-hef-25 's/min: 6/min: 1/' case.yaml
+cr_rmut "FR-016 a short SHA in a scaffold" review-replay-d22-1 's/ad63db844a79aeb2c94c0f7a3046cda55f416af2/ad63db8/' scaffold.sh
+cr_rmut "FR-017 an item case missing" review-replay-hef-31 '' ''
+[ "$x_fail" -eq 0 ] && ok "replay case shape: 6 mutants killed (exhaustive-review/FR-019)"
+
+# exhaustive-review/FR-018: evals/README.md has a results row for every replay and control case, `not yet measured`
+# until a person runs it, and the controls' table records the blockers on the merged head
+cr_t_results_table() { # cr_t_results_table [README] [evals dir]
+  local r="${1:-$REPO/evals/README.md}" ev="${2:-$REPO/evals}" d
+  grep -qF '| Case | Run date | Found / expected | Agents | Input / output tokens | USD | Wall time |' "$r" \
+    && grep -qF '| Control | Run date | Verdict | Blockers on the merged head |' "$r" || cr_sno "FR-018: evals/README.md must carry both results tables"
+  for d in "$ev"/review-replay-d[0-9]* "$ev"/review-replay-hef-* "$ev"/review-control-hef-*; do
+    [ -d "$d" ] || continue
+    grep -qE "^\| $(basename "$d")( \(| \|)" "$r" || cr_sno "FR-018: no results row for $(basename "$d") in evals/README.md"
+  done
+}
+# exhaustive-review/FR-020: the docs describe the round — agents.md (lenses, roles, review-repro.sh limits), commands.md
+# (the round and the preflight), the 53-subcommand count, the README's eval count, the command's description, CHANGELOG
+cr_t_docs() {
+  local a="${1:-$REPO/docs/agents.md}"
+  grep -qF '**Lenses and roles (the exhaustive round' "$a" && grep -qF 'Known limits of `review-repro.sh`' "$a" || cr_sno "FR-020: docs/agents.md describes the lenses, the roles and review-repro.sh's limits"
+  grep -qF 'gets the **exhaustive round**' "$REPO/docs/commands.md" && grep -qF 'A **preflight** `review-repro.sh '"'true'"'`' "$REPO/docs/commands.md" \
+    || cr_sno "FR-020: docs/commands.md describes the exhaustive round and its preflight"
+  grep -qF 'speckit-helper.sh (53 subcommands)' "$REPO/docs/architecture.md" && grep -qF '`speckit-helper.sh` (53 subcommands)' "$REPO/README.md" \
+    || cr_sno "FR-020: the subcommand count is 53 in docs/architecture.md and README.md"
+  grep -qF '22 review-replay cases below — 37 in' "$REPO/evals/README.md" || cr_sno "FR-020: evals/README.md counts 37 cases"
+  sed -n 3p "$REPO/commands/hef.review.md" | grep -qF 'five finders by lens and a verifier' || cr_sno "FR-020: hef.review.md's description names the exhaustive round"
+  sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' "$REPO/CHANGELOG.md" | grep -qF 'The code review is exhaustive' || cr_sno "FR-020: CHANGELOG [Unreleased] describes the exhaustive round"
+}
+x_fail=0
+cr_t_results_table; cr_t_docs
+[ "$x_fail" -eq 0 ] && ok "evals/README.md results tables cover every replay and control case; the docs, the description and the CHANGELOG describe the round (exhaustive-review/FR-018, exhaustive-review/FR-020)"
+x_fail=0
+cr_tmp_rt="$(mktemp -d)"
+grep -vF '| review-control-hef-31 |' "$REPO/evals/README.md" >"$cr_tmp_rt/r.md"
+cr_red="$(x_fail=0; cr_t_results_table "$cr_tmp_rt/r.md" >/dev/null 2>&1; echo "$x_fail")"
+[ "$cr_red" = 1 ] && ok "mutant killed: FR-018 a control's results row dropped" || { bad "mutant survived: FR-018 a control's results row dropped"; x_fail=1; }
+sed 's/Known limits of `review-repro.sh`/Notes on review-repro.sh/' "$REPO/docs/agents.md" >"$cr_tmp_rt/a.md"
+cr_red="$(x_fail=0; cr_t_docs "$cr_tmp_rt/a.md" >/dev/null 2>&1; echo "$x_fail")"
+[ "$cr_red" = 1 ] && ok "mutant killed: FR-020 agents.md loses review-repro.sh's limits" || { bad "mutant survived: FR-020 agents.md loses review-repro.sh's limits"; x_fail=1; }
+rm -rf "$cr_tmp_rt"
 
 # exhaustive-review SC-002: while this feature is unmerged (its lib absent at the merge base), the launcher, its fixture
 # and plan mode stay byte-unchanged. Scoped so that a later item may change them: once merged, the base has the lib.

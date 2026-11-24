@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: review-replay-probe
-description: "Eval probe 2 for the review replay (exhaustive-review plan, 'Probes first'): what the eval sandbox allows — git, review-route through .git/HEAD, the review pre-flight, one review-repro.sh recipe that must actually run (amendment A2), and a read of the plugin's hooks"
+description: "Eval probe 2 for the review replay (exhaustive-review plan, 'Probes first'): what the eval sandbox allows — git, review-route through .git/HEAD, the review pre-flight, one review-repro.sh call whose refusal is the expected eval-sandbox result (amendment A5), and a read of the plugin's hooks"
 tags: [review, replay, probe, exhaustive-review]
 plugins: ["../.."]
 context:
@@ -12,7 +12,7 @@ execution:
   # amendment A2: every replay and probe case names its tools; the operator grants Bash with --allow-tools Bash
   allowed_tools: [Agent, Bash, Read, Glob, Grep, Skill]
 # One tool_used grader per call (constitution 3); the llm grader reads the printed results the person records in
-# evals/README.md: review-route's line, the recipe's exit line.
+# evals/README.md: review-route's line, and review-repro.sh's exit line or its refusal (amendment A5).
 graders:
   - name: tried-git
     type: tool_used
@@ -44,9 +44,11 @@ graders:
     tool: Read
     input_match: "hooks/review-repro\\.sh"
     min: 1
-  - name: route-and-recipe-ran
+  - name: route-and-recipe-recorded
     type: llm
     criteria: |
       PASS only if the reply quotes review-route printing a line that starts "exhaustive full spec:/" (an absolute path
-      ending in .specify/specs/forge-setup) AND quotes review-repro.sh printing a line "exit: 0" (the recipe ran). FAIL
-      if review-route failed or printed a relative path, or review-repro.sh refused (exit 2) or printed no "exit:" line.
+      ending in .specify/specs/forge-setup) AND reports review-repro.sh's result with its exit status — a line
+      "exit: 0" (the recipe ran) or its refusal (exit 2, naming the folders it could not write). The refusal is the
+      expected eval-sandbox result (amendment A5): the recipe is not required to run here. FAIL if review-route failed
+      or printed a relative path, or the reply does not say what review-repro.sh printed and how it exited.

@@ -1,0 +1,39 @@
+schema_version: "1.1"
+name: review-replay-hef-31
+description: "Item replay of HEF-31 at its first rejected commit: one exhaustive /hefesto:hef.review code round must report every corpus defect present there (D31-1 to D31-5) as a blocker, reproduced or not (exhaustive-review FR-017, amendment A5)"
+tags: [review, replay, exhaustive-review]
+plugins: ["../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/hefesto:hef.review code — git may be unavailable here: the change under review (base main) is .git/hef-review.diff"
+  max_turns: 80
+  timeout_seconds: 2400
+  # amendment A2: every replay and probe case names its tools; the operator grants Bash with --allow-tools Bash
+  allowed_tools: [Agent, Bash, Read, Glob, Grep, Skill]
+# Defects present at 6707703, established by reading the code at the commit: D31-1 and D31-2 (round 1's own); D31-3
+# (forward_cap_reached compares .pr_url == .pr.url there, fixed only by 4e71a78); D31-4 (session-launch-forward.sh's
+# guard tests pr_url only under .outcome == "pr", fixed only after 3f70473); D31-5 (the reopen code is unchanged from
+# 6707703 to 3f70473). Graded on tool calls first (constitution 3); a defect counts as found when a BLOCKING finding
+# names it, REPRODUCED or UNREPRODUCED (amendment A5).
+graders:
+  - name: five-finders-and-a-verifier
+    type: tool_used
+    tool: Agent
+    min: 6
+  - name: finds-every-present-defect
+    type: llm
+    criteria: |
+      PASS only if the final verdict is REQUEST_CHANGES and each of these is named by a BLOCKING finding, marked
+      REPRODUCED or UNREPRODUCED (reproduction is not required in the eval sandbox, amendment A5):
+      - D31-1: hooks/lane-guard.sh's signature-flag list lacks --past-cap, so a quoted or tab-separated spelling skips
+        the signature dialog;
+      - D31-2: a branch name passing git check-ref-format but carrying a command substitution reaches the worker's
+        git commands unquoted;
+      - D31-3: forward_cap_reached compares pr_url exactly, so …/pull/7/files escapes the forward cap;
+      - D31-4: the merge-forward transcription guard checks pr_url only on outcome pr, so another outcome replaces
+        .pr.url;
+      - D31-5: a reopen leaves earlier forwards[] rows unconsumed, so the implement prompt still shows a merge
+        forward.
+      FAIL if the verdict is APPROVE or INCOMPLETE, or any listed defect is missing or only a suggestion. Say how
+      many of the five were found.
