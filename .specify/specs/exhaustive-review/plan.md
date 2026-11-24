@@ -3,6 +3,18 @@
 <!-- Date: 2026-11-23 -->
 <!-- Revised 2026-11-23: plan review round 1 (11 changes) + the owner's answers to decisions 3 and 11; round 2 (13 changes); round 3 (6 changes); round 4 (4 changes); round 5 (4 changes); round 6's 3 changes applied as the owner's amendments on approval (A1–A3) -->
 
+## Amendment A3 (owner, 2026-11-23) — read before the sections below
+
+Amendment A3 — the recipe channel (owner decision, 2026-11-23, after eval probe 2): in the eval sandbox the temp
+folder is read-only, so a heredoc cannot be created and review-repro.sh never starts (evals/README.md, "Probes"). The
+recipe therefore reaches review-repro.sh as ONE single-quoted argument: `<abs hooks>/review-repro.sh '<recipe>'`.
+Heredoc/stdin input stays supported where it works (the verify worker, probe 1). This SUPERSEDES, for the recipe only:
+plan.md:45 ("There is no argument-form fallback"), FR-006's "recipe on stdin", FR-022's "a quoted heredoc" for
+review-repro.sh, spec.md:138-144 and Sketch 6. In a lane, lane-guard.sh admits only the exact two-word head: the
+plugin's absolute review-repro.sh path plus one single-quoted string with no `'` inside, with the same near-miss
+denials as the heredoc exception, each with a mutation test. code-review-check's report keeps its heredoc (FR-011
+unchanged) unless the d22-3 replay shows it failing in the eval sandbox. Task T016a implements this.
+
 ## Research Notes
 
 See `research.md` (truth map + replay corpus with rejected SHAs). Key facts: the verify run already runs
