@@ -128,9 +128,7 @@ one line, `exhaustive <route> <source> spec:<abs dir>` or `single <route> <sourc
 **Preflight** (after `exhaustive`, before any spawn). Run with the Bash tool, as one plain command:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh <<'HEF_REPRO_RECIPE_END'
-true
-HEF_REPRO_RECIPE_END
+${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh 'true'
 ```
 
 - Exit 0 → the exhaustive round.
@@ -143,8 +141,9 @@ HEF_REPRO_RECIPE_END
 
 ### Exhaustive round — five finders by lens, a verifier, one verdict
 
-The spec folder is the route line's `spec:<abs dir>`; write it into every brief below as `<spec dir>`. The helper
-path in the briefs is written here already resolved — subagents get no substitution.
+The spec folder is the route line's `spec:<abs dir>`; write it into every brief below as `<spec dir>`. Write
+`<abs hooks>` in the briefs as the absolute hooks folder the preflight call above ran from
+(`${CLAUDE_PLUGIN_ROOT}/hooks`, already resolved in that call) — subagents get no substitution.
 
 **1. Five finders, ONE message, foreground** (`run_in_background: false`). Use the Task tool to spawn
 `code-reviewer` five times in the same message: four with the brief below and `lens: <name>` for
@@ -156,7 +155,8 @@ plus the pre-flight output:
 > The spec is in `<spec dir>`: read `spec.md` and `plan.md` there. Review the current branch against its base (the pre-flight
 > `pr-files` output; when git is unavailable, `.git/hef-review.diff` holds the change). Report every candidate defect
 > in your lens that you can back with a `file:line` and a recipe — the verifier filters, you do not. Recipes run via
-> `${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh` in a scratch copy of the worktree, cwd-relative. Nothing found →
+> `<abs hooks>/review-repro.sh '<recipe>'` in a scratch copy of the worktree, cwd-relative — so a recipe never
+> contains a single quote. Nothing found →
 > `none — checked: <what>`. No verdict, no status. Do not edit files. Focus, if given: **$ARGUMENTS**.
 
 **2. Silent finder.** A finder that returned nothing usable (an error, empty, no lens section) is re-spawned **once**
@@ -173,8 +173,8 @@ this round's finders — all in ONE message, foreground. Each brief, verbatim, t
 
 > Role: **verifier** (see "Verifier role" in your instructions). The spec is in `<spec dir>`. For each candidate
 > below, run its recipe as one Bash call with `timeout: 300000`, exactly:
-> `${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh <<'HEF_REPRO_RECIPE_END'`, the recipe, then the line
-> `HEF_REPRO_RECIPE_END`. Give each exactly one status — `REPRODUCED`, `REFUTED` or `UNREPRODUCED` — with the exit
+> `<abs hooks>/review-repro.sh '<the recipe>'` — the recipe as ONE single-quoted argument, nothing before or after
+> it, no heredoc. Give each exactly one status — `REPRODUCED`, `REFUTED` or `UNREPRODUCED` — with the exit
 > line and output (or the reason) quoted. Never edit a file, never add a finding, never write a verdict.
 
 A verifier that returned nothing usable is re-spawned once; a candidate still without a status stays without one,

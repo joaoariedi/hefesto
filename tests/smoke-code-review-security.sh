@@ -30,7 +30,11 @@ chmod 555 "$rs_t/home-sbx/.cache/hefesto"
 # $rs_t/rc; run from the linked worktree
 rs_run() {
   local rc=0 home="$1"; shift; [ "$home" = x ] && home="$rs_t/home-sbx"
-  (cd "$rs_wt" && printf '%s\n' "$RS_RECIPE" | env HOME="$home" TMPDIR="$rs_t/tmp" "$@" bash "${RS_HOOKS:-$REPO/hooks}/review-repro.sh") >"$rs_t/out" 2>"$rs_t/err" || rc=$?
+  if [ -n "${RS_ARG:-}" ]; then   # amendment A3: the recipe as one argument, stdin empty
+    (cd "$rs_wt" && env HOME="$home" TMPDIR="$rs_t/tmp" "$@" bash "${RS_HOOKS:-$REPO/hooks}/review-repro.sh" "$RS_RECIPE" ${RS_ARG2:+"$RS_ARG2"} </dev/null) >"$rs_t/out" 2>"$rs_t/err" || rc=$?
+  else
+    (cd "$rs_wt" && printf '%s\n' "$RS_RECIPE" | env HOME="$home" TMPDIR="$rs_t/tmp" "$@" bash "${RS_HOOKS:-$REPO/hooks}/review-repro.sh") >"$rs_t/out" 2>"$rs_t/err" || rc=$?
+  fi
   echo "$rc" >"$rs_t/rc"
 }
 rs_no() { bad "$1 — rc $(cat "$rs_t/rc"), out: $(head -c 300 "$rs_t/out" | tr '\n' '|'), err: $(head -c 300 "$rs_t/err" | tr '\n' '|')"; x_fail=1; }
@@ -79,8 +83,18 @@ rs_t_cap() {
   [ "$(cat "$rs_t/rc")" = 0 ] && grep -qx 'exit: 124' "$rs_t/out" && ! grep -q late "$rs_t/out" || rs_no "a timed-out recipe → exit: 124, nothing after"
   rs_left "after a timed-out recipe"
 }
-for rs_fn in rs_t_git rs_t_guard rs_t_refuse rs_t_cap; do "$rs_fn"; done
-[ "$x_fail" -eq 0 ] && ok "review-repro.sh: git config/commit act on the copy's own repository (real config, index, HEAD unchanged); created/modified/deleted/same-size-rewritten worktree files → exit 3 naming them; an ignored build output passes; a writable or missing cache → exit 2; output capped at 60 lines and 8 KiB; a timed-out recipe reported; no scratch copy left on any path (exhaustive-review/FR-006)"
+# exhaustive-review/FR-006 (amendment A3): the recipe as ONE argument runs like stdin's; the guard holds; extra args refused
+rs_t_arg() {
+  RS_ARG=1 RS_RECIPE='cat a.txt; echo "two words"' rs_run x
+  [ "$(cat "$rs_t/rc")" = 0 ] && grep -qx 'exit: 0' "$rs_t/out" && grep -qx 'aaaa' "$rs_t/out" && grep -qx 'two words' "$rs_t/out" || rs_no "an argument recipe runs on the copy (exit: 0, its output)"
+  RS_ARG=1 RS_RECIPE="echo n > '$rs_wt/new.txt'" rs_run x; [ "$(cat "$rs_t/rc")" = 3 ] && grep -qx 'created new.txt' "$rs_t/err" || rs_no "an argument recipe writing the worktree → exit 3"; rs_restore
+  RS_ARG=1 RS_ARG2='echo second' RS_RECIPE='echo ran' rs_run x
+  [ "$(cat "$rs_t/rc")" = 2 ] && ! grep -q ran "$rs_t/out" || rs_no "two arguments → exit 2, nothing run"
+  RS_ARG=1 RS_RECIPE=' ' rs_run x; [ "$(cat "$rs_t/rc")" = 2 ] || rs_no "a blank argument recipe → exit 2"
+  rs_left "after an argument recipe"
+}
+for rs_fn in rs_t_git rs_t_guard rs_t_refuse rs_t_cap rs_t_arg; do "$rs_fn"; done
+[ "$x_fail" -eq 0 ] && ok "review-repro.sh: git config/commit act on the copy's own repository (real config, index, HEAD unchanged); created/modified/deleted/same-size-rewritten worktree files → exit 3 naming them; an ignored build output passes; a writable or missing cache → exit 2; output capped at 60 lines and 8 KiB; a timed-out recipe reported; the recipe as one argument runs (amendment A3), two arguments refused; no scratch copy left on any path (exhaustive-review/FR-006)"
 x_fail=0
 rs_mut() { # label sed-expr test-fn — a mutant of review-repro.sh must turn test-fn red
   local md red; md="$(mktemp -d)"; ln -s "$REPO/hooks/lane-lib.sh" "$md/lane-lib.sh"; sed "$2" "$REPO/hooks/review-repro.sh" >"$md/review-repro.sh"
@@ -93,7 +107,9 @@ rs_mut "FR-006 the cache existence check dropped" 's/^\[ -d "\$CACHE" \] ||/true
 rs_mut "FR-006 the worktree guard dropped" 's/^exit 3$/exit 0/' rs_t_guard
 rs_mut "FR-006 the copy keeps no repository of its own" 's/git init -q \. \&\&/false \&\&/' rs_t_git
 rs_mut "FR-006 the scratch copy is not removed" "s/^trap .*EXIT\$/:/" rs_t_git
-[ "$x_fail" -eq 0 ] && ok "review-repro.sh: 5 mutants killed (exhaustive-review/FR-006)"
+rs_mut "FR-006 A3 the argument is ignored (stdin read instead)" "s/^  1) printf '%s\\\\n' \"\$1\" >/  1) cat >/" rs_t_arg
+rs_mut "FR-006 A3 extra arguments accepted" 's/^  \*) refuse "\$# arguments/  *) printf "%s\\n" "$1" >"$SCRATCH\/.hef-recipe.sh"; : "/' rs_t_arg
+[ "$x_fail" -eq 0 ] && ok "review-repro.sh: 7 mutants killed (exhaustive-review/FR-006)"
 chmod -R u+w "$rs_t" 2>/dev/null
 
 # --- lane-guard.sh: the review round's heredoc exception (FR-022) ---------------------------------------------------------
@@ -146,9 +162,38 @@ lg_t_deny() { # exhaustive-review/FR-022: every other near miss is denied as tod
     lg_want deny "$(lg_hd "HOME=/x $h" "gh pr merge 7")"
   done
 }
-LG_TESTS="lg_t_admit lg_t_early lg_t_count lg_t_abs lg_t_deny"
+# exhaustive-review/FR-022 (amendment A3): review-repro.sh with its recipe as ONE single-quoted argument
+lg_t_arg_admit() {
+  lg_want none "$LG_RR 'gh pr view 7 --json state; hooks/lane-build.sh make; mytool x'"
+  lg_want none "$LG_RR '. hooks/pr-watch.sh"$'\n'"gh pr merge 7 is data here; echo \"\$(date)\"'"
+}
+lg_t_arg_tail() { # nothing after the closing quote
+  lg_want deny "$LG_RR 'x'; gh pr merge 7"
+  lg_want deny "$LG_RR 'x' 'gh pr merge 7'"
+  lg_want deny "$LG_RR 'x'"$'\n'"gh pr merge 7"
+  lg_want deny "$LG_RR 'gh pr view' extra"
+}
+lg_t_arg_head() { # nothing before the absolute path
+  lg_want deny "HOME=/x $LG_RR 'gh pr view'"
+  lg_want deny "/usr/bin/env $LG_RR 'gh pr view'"
+  lg_want deny "gh pr comment 7 --body $LG_RR 'gh pr view'"
+}
+lg_t_arg_quote() { # one single-quoted string, no ' inside it
+  lg_want deny "$LG_RR 'a'\\''; gh pr merge 7; echo '\\''b'"
+  lg_want deny "$LG_RR 'a'\\''gh pr merge 7'"
+}
+lg_t_arg_deny() { # every other near miss
+  lg_want deny "$LG_RR \"gh pr view 7\""
+  lg_want deny "$LG_RR gh pr view 7"
+  lg_want deny "./hooks/review-repro.sh 'gh pr view'"
+  lg_want deny "$LG_CRC 'gh pr view'"
+  lg_want deny "$REPO/hooks/run-follow.sh 'gh pr view'"
+  lg_want deny "$LG_RR 'CLAUDE_CODE_SESSION_ID=x gh pr view'"
+  lg_want deny "$LG_RR 'gh pr view 7'" true
+}
+LG_TESTS="lg_t_admit lg_t_early lg_t_count lg_t_abs lg_t_deny lg_t_arg_admit lg_t_arg_tail lg_t_arg_head lg_t_arg_quote lg_t_arg_deny"
 for lg_fn in $LG_TESTS; do "$lg_fn"; done
-[ "$x_fail" -eq 0 ] && ok "lane-guard: code-review-check and review-repro.sh heredocs pass with gh, a custom excluded command, or gh + lane-build in the body; an extra or leading word, a relative path, an unquoted or early delimiter, a command after it, another helper, a sandbox-disabled retry, CLAUDE_CODE_SESSION_ID= and an excluded command naming the helper are denied (exhaustive-review/FR-022)"
+[ "$x_fail" -eq 0 ] && ok "lane-guard: code-review-check and review-repro.sh heredocs pass with gh, a custom excluded command, or gh + lane-build in the body; an extra or leading word, a relative path, an unquoted or early delimiter, a command after it, another helper, a sandbox-disabled retry, CLAUDE_CODE_SESSION_ID= and an excluded command naming the helper are denied; review-repro.sh's one single-quoted argument passes with the same words in it, and anything after or before it, a quote inside it, a double-quoted or unquoted recipe, a relative path, another helper and a sandbox-disabled retry are denied (exhaustive-review/FR-022, amendment A3)"
 x_fail=0
 lg_mut() { # label sed-expr test-fn — a mutant of lane-guard.sh must turn test-fn red
   local md red; md="$(mktemp -d)"; ln -s "$REPO/hooks/lane-lib.sh" "$md/lane-lib.sh"; sed "$2" "$REPO/hooks/lane-guard.sh" >"$md/lane-guard.sh"
@@ -162,3 +207,11 @@ lg_mut "FR-022 a glob over the whole head instead of the word count" 's/case "\$
 lg_mut "FR-022 the absolute-path test dropped" '/an absolute path first: no word/d' lg_t_abs
 lg_mut "FR-022 a sandbox-disabled retry admitted" '/never with the sandbox off/d' lg_t_deny
 [ "$x_fail" -eq 0 ] && ok "lane-guard: 5 mutants of the heredoc exception killed (exhaustive-review/FR-022)"
+x_fail=0
+lg_q="'"
+lg_mut "FR-022 A3 the argument form's early exit dropped" 's/^review_arg_ok && exit 0$/true/' lg_t_arg_admit
+lg_mut "FR-022 A3 the end anchor dropped" 's/\*\\\$"$/*"/' lg_t_arg_tail
+lg_mut "FR-022 A3 the start anchor dropped" 's/local re="^\//local re="\//' lg_t_arg_head
+lg_mut "FR-022 A3 a quote allowed inside the argument" "s/${lg_q}[[]^${lg_q}[]][*]${lg_q}/${lg_q}.*${lg_q}/" lg_t_arg_quote
+lg_mut "FR-022 A3 a sandbox-disabled retry admitted" '/^review_arg_ok() {$/,/^}$/{/never with the sandbox off/d;}' lg_t_arg_deny
+[ "$x_fail" -eq 0 ] && ok "lane-guard: 5 mutants of the argument exception killed (exhaustive-review/FR-022, amendment A3)"

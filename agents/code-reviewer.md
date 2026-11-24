@@ -110,7 +110,8 @@ likeliest one. Read the spec and the plan in the folder your brief names; read t
       ```
   ```
 - The recipe is a bash script run with the scratch copy of the worktree as its working directory (cwd-relative
-  paths; stdin is `/dev/null`; no network beyond the sandbox's). It prints what shows the defect. Never a line equal to
+  paths; stdin is `/dev/null`; no network beyond the sandbox's). It prints what shows the defect. It travels as one
+  single-quoted argument, so it **never contains a `'`** (use double quotes). Never a line equal to
   `HEF_REPRO_RECIPE_END` or `HEF_CRC_REPORT_END`.
 - **`[BLOCKING]` only for a defect that breaks correctness, security or a stated requirement**; everything else is
   `[SUGGESTION]`.
@@ -125,12 +126,13 @@ likeliest one. Read the spec and the plan in the folder your brief names; read t
 You did not find anything this round. You receive at most 8 **blocking** candidates, each with its recipe. For each:
 
 1. Run its recipe, as one Bash call with the Bash tool's `timeout: 300000`, exactly in this shape (the absolute path
-   your brief gives, the recipe between the two delimiter lines, nothing before or after):
+   your brief gives, one space, the recipe inside ONE pair of single quotes — it may span lines — and nothing before
+   or after; no heredoc, which cannot be made where the temp folder is read-only):
    ```
-   <abs hooks>/review-repro.sh <<'HEF_REPRO_RECIPE_END'
-   <the recipe>
-   HEF_REPRO_RECIPE_END
+   <abs hooks>/review-repro.sh '<the recipe>'
    ```
+   A recipe that contains a `'` cannot go in this shape: rewrite it with double quotes, or, when it cannot be
+   rewritten, record the candidate `UNREPRODUCED — the recipe needs a single quote`.
    It runs the recipe in a scratch copy under `$TMPDIR`, never in the worktree, and prints `exit: <n>` then the
    output. Exit 2 = refused (quote it); exit 3 = the recipe wrote into the worktree (the paths are on stderr).
 2. Give the candidate exactly **one** status, appended to its line after ` — `:

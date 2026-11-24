@@ -15,9 +15,7 @@ Run each step as ONE Bash call, exactly as written, and quote each call's full o
 2. $H/speckit-helper.sh review-route
 3. $H/speckit-helper.sh branch
 4. $H/speckit-helper.sh pr-files
-5. this call, the three lines as one command:
-$H/review-repro.sh <<'HEF_REPRO_RECIPE_END'
-. hooks/forge-lib.sh; forge_public_host metadata.google.INTERNAL && echo allowed || echo denied
-HEF_REPRO_RECIPE_END
+5. this call, as one command (the recipe is ONE single-quoted argument — amendment A3):
+$H/review-repro.sh '. hooks/forge-lib.sh; forge_public_host metadata.google.INTERNAL && echo allowed || echo denied'
 6. Read the file $H/review-repro.sh with the Read tool and say whether it was readable.
 PROBE

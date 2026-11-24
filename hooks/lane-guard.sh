@@ -109,6 +109,19 @@ review_heredoc_ok() {
 }
 review_heredoc_ok && exit 0
 
+# Amendment A3 (HEF-58, eval probe 2): review-repro.sh also takes its recipe as ONE single-quoted argument, because the
+# eval sandbox cannot create a heredoc's temporary file. Admitted only as the exact two words: an absolute path (plain
+# path characters) ending in /hooks/review-repro.sh, one space, then one single-quoted string with no `'` inside — a
+# single-quoted string is literal to the shell, so nothing in it runs or expands, and with no `'` inside it cannot be
+# closed early to append a command. Same rules as above: never with the sandbox off, after the CLAUDE_CODE_SESSION_ID
+# deny, no decision printed (the review-repro.sh:* allow rule still decides).
+review_arg_ok() {
+  local re="^/[A-Za-z0-9_.+@:/-]*/hooks/review-repro\\.sh '[^']*'[[:space:]]*\$"
+  [ "$DDS" = true ] && return 1                                        # never with the sandbox off
+  [[ "$CMD" =~ $re ]]                                                  # anchored at both ends: nothing before or after
+}
+review_arg_ok && exit 0
+
 # #162: the lanes' build cache is written by sandboxed commands, so nothing that runs outside the sandbox may build with
 # it or run its wrapper — an excluded command (an approved action's included: this comes before any grant) or a retry
 # with the sandbox disabled. "lane-cache" as a substring catches a relative spelling of the path too.

@@ -262,20 +262,29 @@ cr_t_struct_volume() {
   grep -qF 'Outside the finder and verifier roles: **Evidence over assertion, and scope over volume.**' "$a" || cr_sno "Rule 0 keeps 'scope over volume' outside the two roles"
 }
 # exhaustive-review/FR-019 FR-022: every documented helper heredoc is one plain command from the plugin's hooks
+# amendment A3: review-repro.sh takes its recipe as ONE single-quoted argument — documented never as a heredoc
 cr_t_struct_calls() {
-  local c="${1:-$REPO/commands/hef.review.md}" line h n=0
+  local c="${1:-$REPO/commands/hef.review.md}" a="${2:-$REPO/agents/code-reviewer.md}" line h n=0
+  local re_rr="^(\\\$\\{CLAUDE_PLUGIN_ROOT\\}/hooks|<abs hooks>)/review-repro\\.sh '[^']*'\$"
   while IFS= read -r line; do
     h="${line%%<<*}"; h="${h#> }"; h="${h#\`}"
-    [[ "$h" =~ ^\$\{CLAUDE_PLUGIN_ROOT\}/hooks/(speckit-helper\.sh\ code-review-check|review-repro\.sh)\ $ ]] \
+    [[ "$h" =~ ^\$\{CLAUDE_PLUGIN_ROOT\}/hooks/speckit-helper\.sh\ code-review-check\ $ ]] \
       || cr_sno "a documented helper heredoc must start with \${CLAUDE_PLUGIN_ROOT}/hooks/ and hold nothing else before << (no | ; &&): $line"
     n=$((n + 1))
-  done < <(grep -E "<<'HEF_(CRC_REPORT|REPRO_RECIPE)_END'" "$c")
-  [ "$n" -ge 3 ] || cr_sno "hef.review.md must document the preflight, the verifier's and the check's heredoc calls (found $n)"
+  done < <(grep -E "<<'HEF_CRC_REPORT_END'" "$c")
+  while IFS= read -r line; do
+    h="${line#> }"; h="${h#\`}"; h="${h%%\`*}"
+    [[ "$h" =~ $re_rr ]] || cr_sno "a documented review-repro.sh call must be the hooks path plus one single-quoted argument, nothing else: $line"
+    n=$((n + 1))
+  done < <(grep -E "review-repro\.sh '" "$c")
+  [ "$n" -ge 3 ] || cr_sno "hef.review.md must document the preflight, the verifier's and the check's calls (found $n)"
+  ! grep -qE 'review-repro\.sh <<' "$c" "$a" || cr_sno "review-repro.sh is documented with a heredoc — amendment A3: one single-quoted argument"
+  grep -qF "<abs hooks>/review-repro.sh '<the recipe>'" "$a" || cr_sno "the verifier role must run recipes as one single-quoted argument (amendment A3)"
 }
 # exhaustive-review/FR-021 (A1): the preflight and both of its outcomes
 cr_t_struct_preflight() {
   local c="${1:-$REPO/commands/hef.review.md}"
-  grep -A1 -F "review-repro.sh <<'HEF_REPRO_RECIPE_END'" "$c" | grep -qx 'true' || cr_sno "the preflight runs review-repro.sh with 'true'"
+  grep -qxF "\${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh 'true'" "$c" || cr_sno "the preflight runs review-repro.sh with 'true'"
   grep -qF 'is **not** `ledger:<ID>`' "$c" && grep -qF "exhaustive round unavailable: <the helper's message> — fix:" "$c" \
     || cr_sno "the preflight's exit 2 on a no-ledger branch: the single reviewer with a cause-and-fix line"
   grep -qF 'the source is `ledger:<ID>` → the review is `INCOMPLETE`' "$c" || cr_sno "the preflight's exit 2 on a ledger item: INCOMPLETE naming the cause"
@@ -298,8 +307,11 @@ cr_smut "FR-003 the finder brief asks for fewer findings" commands/hef.review.md
 cr_smut "FR-003 the verifier role keeps scope over volume" agents/code-reviewer.md '/^You did not find anything this round/s/$/ Scope over volume./' cr_t_struct_volume
 cr_smut "FR-021 the verifier brief loses the spec folder" commands/hef.review.md '/^> Role: \*\*verifier\*\*/s/The spec is in/The spec lives in/' cr_t_struct_volume
 cr_smut "FR-019 a pipe before the check's heredoc" commands/hef.review.md "s/code-review-check <<'HEF_CRC/code-review-check | cat <<'HEF_CRC/" cr_t_struct_calls
-cr_smut "FR-021 (A1) the preflight dropped" commands/hef.review.md '/^\*\*Preflight\*\*/,/^HEF_REPRO_RECIPE_END$/d' cr_t_struct_preflight
-[ "$x_fail" -eq 0 ] && ok "structure: 8 mutants killed (exhaustive-review/FR-019)"
+cr_smut "FR-021 (A1) the preflight dropped" commands/hef.review.md '/^\*\*Preflight\*\*/,/review-repro\.sh .true.$/d' cr_t_struct_preflight
+cr_smut "FR-022 (A3) the verifier brief back to a heredoc" commands/hef.review.md "s/review-repro.sh '<the recipe>'/review-repro.sh <<'HEF_REPRO_RECIPE_END'/" cr_t_struct_calls
+cr_smut "FR-022 (A3) the verifier role back to a heredoc" agents/code-reviewer.md "s/review-repro.sh '<the recipe>'/review-repro.sh <<'HEF_REPRO_RECIPE_END'/" cr_t_struct_calls
+cr_smut "FR-022 (A3) a command after the preflight's argument" commands/hef.review.md "s/review-repro.sh 'true'\$/review-repro.sh 'true'; true/" cr_t_struct_calls
+[ "$x_fail" -eq 0 ] && ok "structure: 11 mutants killed (exhaustive-review/FR-019)"
 
 # exhaustive-review SC-002: while this feature is unmerged (its lib absent at the merge base), the launcher, its fixture
 # and plan mode stay byte-unchanged. Scoped so that a later item may change them: once merged, the base has the lib.

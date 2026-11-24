@@ -37,7 +37,7 @@ graders:
   - name: ran-a-recipe
     type: tool_used
     tool: Bash
-    input_match: "review-repro\\.sh\\s+<<'HEF_REPRO_RECIPE_END'"
+    input_match: "review-repro\\.sh\\s+'"
     min: 1
   - name: read-the-plugin-hooks
     type: tool_used

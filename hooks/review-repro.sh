@@ -1,9 +1,13 @@
 #!/bin/bash
 # review-repro.sh — run ONE reproduction recipe of the exhaustive code-review round (HEF-58 exhaustive-review FR-006).
 #
-#   <hooks>/review-repro.sh <<'HEF_REPRO_RECIPE_END'
+#   <hooks>/review-repro.sh '<the recipe>'           — one single-quoted argument (amendment A3)
+#   <hooks>/review-repro.sh <<'HEF_REPRO_RECIPE_END'   — or on stdin, where the shell can make a heredoc
 #   <the recipe>
 #   HEF_REPRO_RECIPE_END
+#
+# Amendment A3 (HEF-58, eval probe 2): in the eval sandbox the temp folder is read-only, so the shell cannot create a
+# heredoc's temporary file and this helper never starts. The argument form needs no temporary file of the shell's.
 #
 # The verifier works read-only on the worktree, and a verify worker may not `bash -c`, write a fixture or mkdir a
 # scratch folder (plan, truth map): this helper is its one channel. The recipe runs with stdin from /dev/null, in a
@@ -24,7 +28,7 @@ refuse() { echo "review-repro.sh: $*" >&2; exit 2; }
 # where no sandbox lets anything write ($(hef_cache) itself — a worker writes only worker-cache/<repo>, a lane only
 # lane-cache/<key>) means this call is NOT sandboxed. A caller who controls the environment and runs unsandboxed can
 # defeat it; it stops the careless path (a retry with the sandbox off), and lane-guard.sh refuses
-# dangerouslyDisableSandbox on this helper's heredoc.
+# dangerouslyDisableSandbox on this helper's heredoc and argument forms.
 CACHE="$(hef_cache)"
 [ -d "$CACHE" ] || refuse "$CACHE is missing, so the sandbox cannot be probed — run hefesto-setup.sh"
 PROBE="$CACHE/.repro-probe.$$"
@@ -35,8 +39,12 @@ TOP="$(git rev-parse --show-toplevel 2>/dev/null)" && USE_GIT=1 || { TOP="$(pwd 
 [ -d "$TOP" ] || refuse "no worktree to copy (cwd: $PWD)"
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/hef-repro.XXXXXXXX")" || refuse "cannot make a scratch folder under ${TMPDIR:-/tmp}"
 trap 'chmod -R u+w "$SCRATCH" 2>/dev/null; rm -rf "$SCRATCH"' EXIT
-cat >"$SCRATCH/.hef-recipe.sh"
-grep -q '[^[:space:]]' "$SCRATCH/.hef-recipe.sh" || refuse "empty recipe on stdin — pass it as a quoted heredoc"
+case $# in
+  0) cat >"$SCRATCH/.hef-recipe.sh" ;;
+  1) printf '%s\n' "$1" >"$SCRATCH/.hef-recipe.sh" ;;
+  *) refuse "$# arguments — pass the recipe as ONE single-quoted argument (or on stdin), nothing else" ;;
+esac
+grep -q '[^[:space:]]' "$SCRATCH/.hef-recipe.sh" || refuse "empty recipe — pass it as one single-quoted argument or a quoted heredoc"
 
 rr_files() { # NUL-separated paths relative to $TOP: tracked + unignored (never .git, never an ignored build output)
   if [ "$USE_GIT" = 1 ]; then git -C "$TOP" ls-files -z --cached --others --exclude-standard
