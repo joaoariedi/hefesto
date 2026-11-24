@@ -3,6 +3,15 @@
 <!-- Date: 2026-11-23 -->
 <!-- Revised 2026-11-23: plan review round 1 (11 changes) + the owner's answers to decisions 3 and 11; round 2 (13 changes); round 3 (6 changes); round 4 (4 changes); round 5 (4 changes); round 6's 3 changes applied as the owner's amendments on approval (A1–A3) -->
 
+## Amendment A4 (owner, 2026-11-24) — read before the sections below
+
+Amendment A4 — reproduction in the eval sandbox (owner decision, 2026-11-24, after the second probe 2): the eval
+sandbox gives the model a fresh $HOME with no ~/.cache/hefesto and a read-only temp folder, so review-repro.sh refused
+(exit 2) before running the recipe. A real verify worker has both (probe 1). Wanted: each replay case's scaffold
+(tests/fixtures/review-replay.sh, run as the person with --scaffold) creates "$HOME/.cache/hefesto" for the eval home;
+review-repro.sh makes its scratch copy under its cache folder when the temp folder is not writable, and still refuses
+loudly when neither is; the 18 replay cases stay as planned. Task T016b implements this.
+
 ## Amendment A3 (owner, 2026-11-23) — read before the sections below
 
 Amendment A3 — the recipe channel (owner decision, 2026-11-23, after eval probe 2): in the eval sandbox the temp

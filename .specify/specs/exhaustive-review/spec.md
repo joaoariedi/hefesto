@@ -254,6 +254,15 @@ found one by one — measures it, with each replay round's cost recorded beside 
 
 ## Clarifications
 
+### Session 2026-11-24 (amendment A4, the owner's decision after the second probe 2)
+
+- Amendment A4 — reproduction in the eval sandbox (owner decision, 2026-11-24, after the second probe 2): the eval
+  sandbox gives the model a fresh $HOME with no ~/.cache/hefesto and a read-only temp folder, so review-repro.sh refused
+  (exit 2) before running the recipe. A real verify worker has both (probe 1). Wanted: each replay case's scaffold
+  (tests/fixtures/review-replay.sh, run as the person with --scaffold) creates "$HOME/.cache/hefesto" for the eval home;
+  review-repro.sh makes its scratch copy under its cache folder when the temp folder is not writable, and still refuses
+  loudly when neither is; the 18 replay cases stay as planned. Task T016b implements this.
+
 ### Session 2026-11-23 (amendment A3, the owner's decision after eval probe 2)
 
 - Amendment A3 — the recipe channel (owner decision, 2026-11-23, after eval probe 2): in the eval sandbox the temp
