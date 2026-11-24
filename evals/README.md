@@ -94,6 +94,13 @@ Person-run permission checks the exhaustive review (HEF-58, `exhaustive-review`)
   (the probe has no subagent). Per amendment A2 the build stays blocked until the channel works here: the recipe goes
   as an argument, not a heredoc. The replay case (`review-replay-d22-3`) did not run: the command evaluated only the
   first case given — run it alone.
+- **Probe 2, second and third runs (2026-11-24, one case per call, `--scaffold --ablation none`, ~$0.65 each).**
+  With amendment A3 the recipe reached `review-repro.sh` as one single-quoted argument; it refused (exit 2) because
+  the eval home had no `~/.cache/hefesto`. With amendment A4 (the scaffold creates it; scratch under the cache when the
+  temp folder is read-only) it refused again: neither the temp folder nor any folder under the cache is writable to
+  the model here. **Reproduction is unavailable in the eval sandbox.** The owner decided (amendment A5) that the
+  replay evals grade findings, REPRODUCED or UNREPRODUCED; reproduction is proven by probe 1 and measured by real
+  verify runs. `review-route`, the pre-flight calls and reading the plugin's hooks all work here; `git` is denied.
 - **Probe 1, lane mode — open.** The same three calls in a verify lane of a `--lanes` project were not run: the only
   four-lane projects were busy. The owner accepted the headless pass on 2026-11-23; the lane mode is checked the first
   time a `--lanes` project runs a verify with this review.

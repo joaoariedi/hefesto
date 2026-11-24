@@ -3,6 +3,19 @@
 <!-- Date: 2026-11-23 -->
 <!-- Revised 2026-11-23: plan review round 1 (11 changes) + the owner's answers to decisions 3 and 11; round 2 (13 changes); round 3 (6 changes); round 4 (4 changes); round 5 (4 changes); round 6's 3 changes applied as the owner's amendments on approval (A1–A3) -->
 
+## Amendment A5 (owner, 2026-11-24) — read before the sections below
+
+Amendment A5 — evals grade findings, not reproduction (owner decision, 2026-11-24, after the third probe 2): the
+eval sandbox has no writable temp folder and no writable folder under the cache, so review-repro.sh cannot make a
+scratch copy there and no recipe runs (evals/README.md, "Probes"). Reproduction in a real verify worker is proven by
+probe 1 and is measured by real verify runs, not by the evals. So, in the replay evals only: a corpus defect counts as
+found when a BLOCKING finding names it, whether REPRODUCED or UNREPRODUCED (under decision 3 an UNREPRODUCED blocker
+still blocks, so the verdict REQUEST_CHANGES is still graded); the `tool_used Bash input_match review-repro.sh`
+grader is dropped from the cases (the verifier may still try a recipe); every case's llm criteria say so. FR-016 and
+FR-019 change accordingly; review-repro.sh, its refusals and amendments A3/A4 stay as built. T016 is done with probe 2
+recorded as "reproduction unavailable in the eval sandbox"; the build continues at T017 (task T016c applies A5 to the
+two existing cases first). No more probe rounds.
+
 ## Amendment A4 (owner, 2026-11-24) — read before the sections below
 
 Amendment A4 — reproduction in the eval sandbox (owner decision, 2026-11-24, after the second probe 2): the eval
