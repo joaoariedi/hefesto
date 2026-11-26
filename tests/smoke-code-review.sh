@@ -281,13 +281,18 @@ cr_t_struct_calls() {
   ! grep -qE 'review-repro\.sh <<' "$c" "$a" || cr_sno "review-repro.sh is documented with a heredoc — amendment A3: one single-quoted argument"
   grep -qF "<abs hooks>/review-repro.sh '<the recipe>'" "$a" || cr_sno "the verifier role must run recipes as one single-quoted argument (amendment A3)"
 }
-# exhaustive-review/FR-021 (A1): the preflight and both of its outcomes
+# exhaustive-review/FR-021 (A1, A6): the preflight; on its refusal the round still runs, reproduction unavailable
 cr_t_struct_preflight() {
-  local c="${1:-$REPO/commands/hef.review.md}"
+  local c="${1:-$REPO/commands/hef.review.md}" a="${2:-$REPO/agents/code-reviewer.md}"
   grep -qxF "\${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh 'true'" "$c" || cr_sno "the preflight runs review-repro.sh with 'true'"
-  grep -qF 'is **not** `ledger:<ID>`' "$c" && grep -qF "exhaustive round unavailable: <the helper's message> — fix:" "$c" \
-    || cr_sno "the preflight's exit 2 on a no-ledger branch: the single reviewer with a cause-and-fix line"
-  grep -qF 'the source is `ledger:<ID>` → the review is `INCOMPLETE`' "$c" || cr_sno "the preflight's exit 2 on a ledger item: INCOMPLETE naming the cause"
+  grep -qF 'the exhaustive round **still runs, with reproduction unavailable**, whatever the route' "$c" \
+    && grep -qF 'Never the single reviewer and never `INCOMPLETE` for this cause' "$c" \
+    || cr_sno "A6: the preflight's exit 2 keeps the exhaustive round — no single-reviewer fallback, no INCOMPLETE"
+  grep -qF "reproduction unavailable: <the helper's message> — fix:" "$c" || cr_sno "A6: the refusal's cause-and-fix line is kept in the report"
+  grep -qF '`UNREPRODUCED — reproduction unavailable: <the preflight' "$c" && grep -qF 'Run no recipe.' "$c" \
+    || cr_sno "A6: the reproduction-unavailable verifier brief marks every blocker UNREPRODUCED with the refusal"
+  grep -qF 'run no recipe:' "$a" || cr_sno "A6: the verifier role knows the reproduction-unavailable brief"
+  ! grep -qF 'exhaustive round unavailable' "$c" || cr_sno "A6: the A1 single-reviewer fallback is still documented"
 }
 # exhaustive-review/FR-001 exhaustive-review/FR-002 exhaustive-review/FR-003 exhaustive-review/FR-004
 # exhaustive-review/FR-005: the round's steps — five finders in one foreground message, every candidate with a recipe,
@@ -311,7 +316,7 @@ cr_t_struct_relay() {
   grep -qF '`INCOMPLETE` is gate `review` `FAIL`, with the' "$c" || cr_sno "FR-014: INCOMPLETE is gate review FAIL in a verify run"
 }
 for cr_fn in cr_t_struct_round cr_t_struct_volume cr_t_struct_calls cr_t_struct_preflight cr_t_struct_steps cr_t_struct_relay; do "$cr_fn"; done
-[ "$x_fail" -eq 0 ] && ok "hef.review.md and code-reviewer.md: four lenses, a cross-tier finder at model: opus beside the fable pin, a verifier step, no fewer-findings wording in the finder/verifier briefs (kept by the single reviewer and Rule 0), both briefs name the spec folder, every documented heredoc is a plain CLAUDE_PLUGIN_ROOT/hooks call, the A1 preflight with both outcomes (exhaustive-review/FR-019, FR-015, FR-021)"
+[ "$x_fail" -eq 0 ] && ok "hef.review.md and code-reviewer.md: four lenses, a cross-tier finder at model: opus beside the fable pin, a verifier step, no fewer-findings wording in the finder/verifier briefs (kept by the single reviewer and Rule 0), both briefs name the spec folder, every documented heredoc is a plain CLAUDE_PLUGIN_ROOT/hooks call, the A1 preflight, and on its refusal the round still runs without reproduction (A6) (exhaustive-review/FR-019, FR-015, FR-021)"
 x_fail=0
 cr_smut() { # label file(commands/…|agents/…) sed-expr test-fn — a mutant copy of the file must turn test-fn red
   local d red; d="$(mktemp -d)"
@@ -329,6 +334,9 @@ cr_smut "FR-003 the verifier role keeps scope over volume" agents/code-reviewer.
 cr_smut "FR-021 the verifier brief loses the spec folder" commands/hef.review.md '/^> Role: \*\*verifier\*\*/s/The spec is in/The spec lives in/' cr_t_struct_volume
 cr_smut "FR-019 a pipe before the check's heredoc" commands/hef.review.md "s/code-review-check <<'HEF_CRC/code-review-check | cat <<'HEF_CRC/" cr_t_struct_calls
 cr_smut "FR-021 (A1) the preflight dropped" commands/hef.review.md '/^\*\*Preflight\*\*/,/review-repro\.sh .true.$/d' cr_t_struct_preflight
+cr_smut "FR-021 (A6) the refusal falls back to the single reviewer" commands/hef.review.md 's/Never the single reviewer and never `INCOMPLETE` for this cause/A branch goes to the single reviewer (exhaustive round unavailable)/' cr_t_struct_preflight
+cr_smut "FR-021 (A6) the unavailable brief runs recipes" commands/hef.review.md 's/Run no recipe\./Run each recipe./' cr_t_struct_preflight
+cr_smut "FR-021 (A6) the verifier role forgets the unavailable brief" agents/code-reviewer.md 's/run no recipe:/run each recipe:/' cr_t_struct_preflight
 cr_smut "FR-022 (A3) the verifier brief back to a heredoc" commands/hef.review.md "s/review-repro.sh '<the recipe>'/review-repro.sh <<'HEF_REPRO_RECIPE_END'/" cr_t_struct_calls
 cr_smut "FR-022 (A3) the verifier role back to a heredoc" agents/code-reviewer.md "s/review-repro.sh '<the recipe>'/review-repro.sh <<'HEF_REPRO_RECIPE_END'/" cr_t_struct_calls
 cr_smut "FR-022 (A3) a command after the preflight's argument" commands/hef.review.md "s/review-repro.sh 'true'\$/review-repro.sh 'true'; true/" cr_t_struct_calls
@@ -339,7 +347,7 @@ cr_smut "FR-005 verifiers take any number of blockers" commands/hef.review.md 's
 cr_smut "FR-011 the re-write allowed on content violations" commands/hef.review.md 's/When \*\*every\*\* violation is `\[shape\]`/When any violation remains/' cr_t_struct_relay
 cr_smut "FR-013 UNREPRODUCED blockers left out of Open questions" commands/hef.review.md 's/`## Open questions` listing every `UNREPRODUCED` blocker with its reason/`## Open questions`/' cr_t_struct_relay
 cr_smut "FR-014 INCOMPLETE reported as a pass in a verify run" commands/hef.review.md 's/`INCOMPLETE` is gate `review` `FAIL`/`INCOMPLETE` is gate `review` `PASS`/' cr_t_struct_relay
-[ "$x_fail" -eq 0 ] && ok "structure: 18 mutants killed (exhaustive-review/FR-019)"
+[ "$x_fail" -eq 0 ] && ok "structure: 21 mutants killed (exhaustive-review/FR-019)"
 
 # --- the replay cases' shape (T019) ----------------------------------------------------------------------------------
 # exhaustive-review/FR-016 exhaustive-review/FR-017 exhaustive-review/FR-019: 15 per-defect, 3 item and 3 control

@@ -144,6 +144,9 @@ You did not find anything this round. You receive at most 8 **blocking** candida
 3. You may fix a recipe that fails for a reason unrelated to the defect (a typo, a wrong path) and run it again; say
    so. Never edit a file, never add a finding, never write a verdict.
 
+When your brief says reproduction is unavailable in this round (the command's preflight was refused), run no recipe:
+give every candidate `UNREPRODUCED — reproduction unavailable: <the message your brief quotes>`.
+
 ## Exhaustive round report
 
 The command merges the finders and writes, in order (the helper `code-review-check` rejects anything else):

@@ -48,8 +48,9 @@ it is what caught the hand-bumped era:
   `hooks/review-repro.sh` on a scratch copy inside the sandbox and mark it `REPRODUCED`, `UNREPRODUCED` or
   `REFUTED`. `speckit-helper.sh code-review-check` decides the verdict from those statuses: an `UNREPRODUCED`
   blocker still blocks, and a malformed or incomplete report is `INCOMPLETE`, which a verify run records as gate
-  `review` FAIL. A preflight `review-repro.sh 'true'` call decides what happens where no recipe can run: a person's
-  branch falls back to the single reviewer with a cause line, and a ledger item is `INCOMPLETE`. `--inline`,
+  `review` FAIL. A preflight `review-repro.sh 'true'` call checks whether recipes can run. Where none can (outside
+  the sandbox, as in an eval), the round still runs with reproduction unavailable: every blocker is `UNREPRODUCED`
+  and still blocks, and the report opens with the cause and its fix. `--inline`,
   fix-routed items and branches without a spec keep the single reviewer, and plan mode is unchanged. In a lane,
   `lane-guard.sh` admits the check's heredoc and the `review-repro.sh '<recipe>'` call by their exact shapes, and
   `hefesto-setup.sh` allows `review-repro.sh`.

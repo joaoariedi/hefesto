@@ -131,13 +131,13 @@ one line, `exhaustive <route> <source> spec:<abs dir>` or `single <route> <sourc
 ${CLAUDE_PLUGIN_ROOT}/hooks/review-repro.sh 'true'
 ```
 
-- Exit 0 → the exhaustive round.
-- Exit 2 (not inside the OS sandbox, or `~/.cache/hefesto` missing — no recipe could run anywhere in this round):
-  - the route's source is **not** `ledger:<ID>` (a person's own branch, an eval scaffold) → the **Single reviewer**,
-    and its relayed report opens with one line:
-    `exhaustive round unavailable: <the helper's message> — fix: <run inside the sandbox | run hefesto-setup.sh>`;
-  - the source is `ledger:<ID>` → the review is `INCOMPLETE`: `## Verdict: INCOMPLETE`, then
-    `exhaustive round unavailable: <the helper's message>`. Never a fall-back to one reviewer for a ledger item.
+- Exit 0 → the exhaustive round, with reproduction.
+- Exit 2 (not inside the OS sandbox, or `~/.cache/hefesto` missing — no recipe could run anywhere in this round) →
+  the exhaustive round **still runs, with reproduction unavailable**, whatever the route's source (a ledger item, a
+  person's own branch, an eval scaffold). Never the single reviewer and never `INCOMPLETE` for this cause: step 4
+  sends the verifiers the "reproduction unavailable" brief, every blocker ends `UNREPRODUCED`, and an `UNREPRODUCED`
+  blocker still blocks. The relayed report opens with one line, and a verify run's summary carries it too:
+  `reproduction unavailable: <the helper's message> — fix: <run inside the sandbox | run hefesto-setup.sh>`.
 
 ### Exhaustive round — five finders by lens, a verifier, one verdict
 
@@ -176,6 +176,13 @@ this round's finders — all in ONE message, foreground. Each brief, verbatim, t
 > `<abs hooks>/review-repro.sh '<the recipe>'` — the recipe as ONE single-quoted argument, nothing before or after
 > it, no heredoc. Give each exactly one status — `REPRODUCED`, `REFUTED` or `UNREPRODUCED` — with the exit
 > line and output (or the reason) quoted. Never edit a file, never add a finding, never write a verdict.
+
+When the preflight exited 2, each verifier brief is instead, verbatim, then its candidates:
+
+> Role: **verifier** (see "Verifier role" in your instructions). The spec is in `<spec dir>`. Reproduction is
+> unavailable in this round: `<the preflight's message>`. Run no recipe. Give each candidate below exactly the status
+> `UNREPRODUCED — reproduction unavailable: <the preflight's message>`. Never edit a file, never add a finding, never
+> write a verdict.
 
 A verifier that returned nothing usable is re-spawned once; a candidate still without a status stays without one,
 and the check below makes the round `INCOMPLETE`.
