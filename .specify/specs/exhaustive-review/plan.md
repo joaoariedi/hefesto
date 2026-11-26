@@ -3,6 +3,17 @@
 <!-- Date: 2026-11-23 -->
 <!-- Revised 2026-11-23: plan review round 1 (11 changes) + the owner's answers to decisions 3 and 11; round 2 (13 changes); round 3 (6 changes); round 4 (4 changes); round 5 (4 changes); round 6's 3 changes applied as the owner's amendments on approval (A1–A3) -->
 
+## Amendment A6 (owner, 2026-11-26) — read before the sections below
+
+Amendment A6 — the five finders run when reproduction is unavailable (owner decision, 2026-11-26): A1's
+preflight sent a branch with no ledger entry to the single reviewer when `review-repro.sh 'true'` refused, and in the
+eval sandbox it always refuses (A5), so no replay would run the exhaustive round. Now the exhaustive round runs
+whenever the route is light or full, whatever the preflight says: when review-repro.sh refuses (exit 2), the round
+runs with reproduction unavailable — the verifier marks every blocker UNREPRODUCED with the refusal as its reason, and
+under decision 3 an UNREPRODUCED blocker still blocks. A1's single-reviewer fallback is removed; on a ledger item the
+review is no longer INCOMPLETE for this reason (it is the same round, without reproduction); the preflight's refusal
+is still reported in the summary with its cause and fix line. Task T023a implements this.
+
 ## Amendment A5 (owner, 2026-11-24) — read before the sections below
 
 Amendment A5 — evals grade findings, not reproduction (owner decision, 2026-11-24, after the third probe 2): the

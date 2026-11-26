@@ -40,6 +40,7 @@
 
 ## Phase 4: Polish
 - [x] T023 [US1] [FR-019] (2026-11-24: `bash tests/smoke.sh` 623 passed 0 failed; `node --test tests/workflow.test.js` 67/67; SC-002 diff empty; `graphify update .` refused by the headless permission mode — not run) Run the full `tests/smoke.sh` and `node --test tests/` (SC-005); confirm SC-002 with `git diff --stat main -- hooks/session-launch.sh tests/fixtures/launch-920.txt` and the plan-mode section unchanged; `graphify update .` `tests/smoke.sh`
+- [ ] T023a [US7] [FR-021] [FR-006] **Amendment A6** (spec Clarifications, plan "Amendment A6"): in `commands/hef.review.md`, when the `review-repro.sh 'true'` preflight refuses, the exhaustive round still runs on a light or full route (no single-reviewer fallback, no INCOMPLETE for this cause); the verifier brief marks every blocker UNREPRODUCED with the refusal as reason, and the summary keeps the refusal's cause and fix line; update the part-19 structural checks and mutants that asserted the old fallback; the replay graders (`tool_used Agent min 6`) stay. Run the suite as `bash tests/smoke.sh`. `commands/hef.review.md` `agents/code-reviewer.md` `tests/smoke-code-review.sh`
 - [ ] T024 [US5] [FR-018] Hand-off for SC-004: the person runs all 21 replay/control cases with `claude plugin eval … --allow-tools Bash --json` and fills the results table (cost, tokens, wall time, found/expected, blockers on merged heads) `evals/README.md`
 
 ---
