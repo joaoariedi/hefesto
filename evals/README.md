@@ -107,7 +107,7 @@ Results (FR-018) — `not yet measured` until a person runs the case:
 |------|----------|------------------|--------|-----------------------|-----|-----------|
 | review-replay-d22-1 | not yet measured | – / 1 | – | – | – | – |
 | review-replay-d22-2 | not yet measured | – / 1 | – | – | – | – |
-| review-replay-d22-3 | not yet measured | – / 1 | – | – | – | – |
+| review-replay-d22-3 | 2026-11-26 (3 runs) | 1 / 1 in 3 of 3 runs | ≥ 6 | – | 46.90 (15.60 a run) | 37 min (3 runs) |
 | review-replay-d22-4 | not yet measured | – / 1 | – | – | – | – |
 | review-replay-d22-5 | not yet measured | – / 1 | – | – | – | – |
 | review-replay-d22-6 | not yet measured | – / 1 | – | – | – | – |
@@ -120,15 +120,23 @@ Results (FR-018) — `not yet measured` until a person runs the case:
 | review-replay-d31-3 | not yet measured | – / 1 | – | – | – | – |
 | review-replay-d31-4 | not yet measured | – / 1 | – | – | – | – |
 | review-replay-d31-5 | not yet measured | – / 1 | – | – | – | – |
-| review-replay-hef-22 (D22-1, D22-3, D22-6) | not yet measured | – / 3 | – | – | – | – |
-| review-replay-hef-25 (D25-1, D25-2) | not yet measured | – / 2 | – | – | – | – |
-| review-replay-hef-31 (D31-1 … D31-5) | not yet measured | – / 5 | – | – | – | – |
+| review-replay-hef-22 (D22-1, D22-3, D22-6) | 2026-11-26 (1 run) | 3 / 3 | ≥ 6 | – | 17.05 | 12 min |
+| review-replay-hef-25 (D25-1, D25-2) | 2026-11-26 (1 run) | < 2 / 2 (judge FAIL 3/3; 3 blockers raised) | ≥ 6 | – | 17.71 | 14 min |
+| review-replay-hef-31 (D31-1 … D31-5) | 2026-11-26 (1 run) | < 5 / 5 (judge FAIL 3/3; 8 blockers raised, the `--past-cap` bypass among them) | ≥ 6 | – | 19.78 | 14 min |
 
 | Control | Run date | Verdict | Blockers on the merged head | Agents | Input / output tokens | USD | Wall time |
 |---------|----------|---------|-----------------------------|--------|-----------------------|-----|-----------|
-| review-control-hef-22 | not yet measured | – | – | – | – | – | – |
-| review-control-hef-25 | not yet measured | – | – | – | – | – | – |
-| review-control-hef-31 | not yet measured | – | – | – | – | – | – |
+| review-control-hef-22 | 2026-11-26 (1 run) | REQUEST_CHANGES | 4, all UNREPRODUCED | ≥ 6 | – | 18.21 | 12 min |
+| review-control-hef-25 | 2026-11-26 (1 run) | REQUEST_CHANGES | 9, all UNREPRODUCED | ≥ 6 | – | 17.49 | 14 min |
+| review-control-hef-31 | 2026-11-26 (1 run) | REQUEST_CHANGES | 5, all UNREPRODUCED (one is `session-launch.sh:325`, already in HEF-56) | ≥ 6 | – | 18.99 | 12 min |
+
+**Reading the 2026-11-26 runs** (the owner's T024 scope: d22-3 at 3 runs, the item replays and the controls at 1 run
+each; the 14 other per-defect cases not yet run). One exhaustive round finds the defect the old rounds needed several
+tries for (d22-3: 3 of 3), and finds every HEF-22 defect in one pass. On HEF-25 and HEF-31 it raises real blockers but
+misses at least one known defect each. Every control blocks its merged head: in the eval sandbox no recipe can run,
+so the verifier cannot refute a guess and every UNREPRODUCED blocker stands (decision 3). The controls therefore
+measure recall here, not precision; precision is measured where reproduction works — a real verify run. Some control
+blockers may be real defects in shipped code: triage them with HEF-56.
 
 ## Probes
 
