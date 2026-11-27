@@ -157,6 +157,12 @@ lg_t_admit() { # exhaustive-review/FR-022: admitted with gh, a custom excluded c
 lg_t_early() { # exhaustive-review/FR-022: an early delimiter ends the heredoc — what follows would run unread
   local h
   for h in "$LG_CRC" "$LG_RR"; do lg_want deny "$(lg_hd "$h" "x"$'\n'"HEF_DELIM_END"$'\n'"gh pr merge 7")"; done
+  local c  # verify-HEF-58 round 2: a CR/FF/VT after the quote makes `HEF_DELIM_END<c>` bash's delimiter, ended early
+  for c in $'\r' $'\f' $'\v'; do
+    for h in "$LG_CRC" "$LG_RR"; do
+      lg_want deny "$h <<'HEF_DELIM_END'$c"$'\n'"x"$'\n'"HEF_DELIM_END$c"$'\n'"gh pr merge 7"$'\n'"HEF_DELIM_END"
+    done
+  done
 }
 lg_t_count() { # exhaustive-review/FR-022: the head is exactly the helper's word list — no word before it
   lg_want deny "$(lg_hd "/usr/bin/env $LG_RR" "gh pr merge 7")"
@@ -226,7 +232,8 @@ lg_mut "FR-022 the one-delimiter-line count dropped" 's/\[ "\$n" = 1 \] || retur
 lg_mut "FR-022 a glob over the whole head instead of the word count" 's/case "\${#w\[@\]}:\${w\[0\]}" in/case "1:${w[*]}" in/' lg_t_count
 lg_mut "FR-022 the absolute-path test dropped" '/an absolute path first: no word/d' lg_t_abs
 lg_mut "FR-022 a sandbox-disabled retry admitted" '/never with the sandbox off/d' lg_t_deny
-[ "$x_fail" -eq 0 ] && ok "lane-guard: 5 mutants of the heredoc exception killed (exhaustive-review/FR-022)"
+lg_mut "FR-022 a CR/FF/VT after the delimiter quote admitted" 's/\[\[:blank:\]\]\*\$ \]\] || return 1$/[[:space:]]*$ ]] || return 1/' lg_t_early
+[ "$x_fail" -eq 0 ] && ok "lane-guard: 6 mutants of the heredoc exception killed (exhaustive-review/FR-022)"
 x_fail=0
 lg_q="'"
 lg_mut "FR-022 A3 the argument form's early exit dropped" 's/^review_arg_ok && exit 0$/true/' lg_t_arg_admit

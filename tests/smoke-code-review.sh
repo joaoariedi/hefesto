@@ -72,6 +72,7 @@ cr_t_lens() {      # exhaustive-review/FR-008: every lens reports findings or `n
 cr_t_finders() {   # exhaustive-review/FR-009: five finders, none silent — never a reduced quorum
   cr_expect "a silent finder" "$(cr_report "$CR_SILENT" "$CR_REFUTED")" 1 INCOMPLETE '\[content\] a finder is silent'
   cr_expect "four finders" "$(cr_report "${CR_FINDERS%; cross-tier*}" "$CR_REFUTED")" 1 INCOMPLETE '\[content\] Finders: needs five entries, has 4'
+  cr_expect "one finder five times" "$(cr_report 'Finders: test-integrity@fable ok; test-integrity@fable ok; test-integrity@fable ok; test-integrity@fable ok; test-integrity@fable ok' "$CR_REFUTED")" 1 INCOMPLETE '\[content\] a finder is listed twice'
 }
 cr_t_status() {    # exhaustive-review/FR-010 FR-005: every blocker has a verifier status; a suggestion needs none
   cr_expect "a status-less blocker" "$(cr_report "$CR_FINDERS" "$CR_NOSTATUS")" 1 INCOMPLETE '\[content\] blocking finding without a verifier status'

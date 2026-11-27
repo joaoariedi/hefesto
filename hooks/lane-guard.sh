@@ -94,7 +94,9 @@ review_heredoc_ok() {
   local -a w=()
   [ "$DDS" = true ] && return 1                                        # never with the sandbox off
   first="${CMD%%$'\n'*}"; last="${CMD##*$'\n'}"; [ "$first" != "$CMD" ] || return 1
-  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:space:]]*$ ]] || return 1
+  # [[:blank:]], not [[:space:]]: a CR/FF/VT after the quote joins bash's delimiter word (`HEF_END\r`), so a body
+  # line `HEF_END\r` ends the heredoc early and a command after it runs unread (verify-HEF-58 review, round 2)
+  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:blank:]]*$ ]] || return 1
   word="${BASH_REMATCH[1]}"; [ "$last" = "$word" ] || return 1
   while IFS= read -r line; do [ "$line" = "$word" ] && n=$((n + 1)); done <<<"$CMD"
   [ "$n" = 1 ] || return 1                                             # an earlier delimiter ends the heredoc early
@@ -134,7 +136,7 @@ fi
 heredoc_ok() {
   local first last word head
   first="${CMD%%$'\n'*}"; last="${CMD##*$'\n'}"
-  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:space:]]*$ ]] || return 1
+  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:blank:]]*$ ]] || return 1   # [[:blank:]]: see review_heredoc_ok
   word="${BASH_REMATCH[1]}"; [ "$last" = "$word" ] || return 1
   head="${first%<<*}"; plain_words "$head" || return 1
   starts_bare "$head" || return 1

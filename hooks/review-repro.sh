@@ -100,7 +100,8 @@ rr_print() { # $1 status, $2 output file → `exit: <n>` and the output, capped 
 rr_listing >"$SCRATCH/before"
 rr_copy
 TO=(); if command -v timeout >/dev/null 2>&1; then TO=(timeout 60); else echo "review-repro.sh: no timeout(1) here — the recipe runs untimed" >&2; fi
-rc=0; (cd "$SCRATCH/w" && ${TO[@]+"${TO[@]}"} bash "$SCRATCH/.hef-recipe.sh" </dev/null >"$SCRATCH/out" 2>&1) || rc=$?
+# unset OLDPWD: cd sets it to the real worktree, a path the recipe could write through (verify-HEF-58 scan)
+rc=0; (cd "$SCRATCH/w" && unset OLDPWD && ${TO[@]+"${TO[@]}"} bash "$SCRATCH/.hef-recipe.sh" </dev/null >"$SCRATCH/out" 2>&1) || rc=$?
 rr_listing >"$SCRATCH/after"
 rr_print "$rc" "$SCRATCH/out"
 CHANGED="$(rr_changes "$SCRATCH/before" "$SCRATCH/after")"

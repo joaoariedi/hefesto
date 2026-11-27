@@ -52,13 +52,17 @@ crc_lens_ok() {
 
 # FR-009: one `Finders:` line, five entries `<lens>@<tier> ok|silent[: why]`, none silent.
 crc_finders_ok() {
-  local fl e n=0 bad=0
+  local fl e lens n=0 bad=0 seen=" "
   fl="$(grep -m1 '^Finders:' <<<"$1")" || { crc_violation content "no Finders: line" "the report must open with the five finders"; return 1; }
   fl="${fl#Finders:}"
   while IFS= read -r e; do
     e="$(crc_trim "$e")"; [ -n "$e" ] || continue; n=$((n + 1))
-    if ! [[ "$e" =~ ^[a-z-]+@[a-z0-9._-]+\ (ok|silent)(:.*)?$ ]]; then crc_violation shape "malformed finder entry" "$e"; bad=1
-    elif [ "${BASH_REMATCH[1]}" = silent ]; then crc_violation content "a finder is silent" "$e"; bad=1; fi
+    if ! [[ "$e" =~ ^([a-z-]+)@[a-z0-9._-]+\ (ok|silent)(:.*)?$ ]]; then crc_violation shape "malformed finder entry" "$e"; bad=1; continue; fi
+    lens="${BASH_REMATCH[1]}"
+    # five DISTINCT finders: one finder named five times is not the quorum (verify-HEF-58 review, round 2)
+    if [[ "$seen" == *" $lens "* ]]; then crc_violation content "a finder is listed twice" "$e"; bad=1
+    elif [ "${BASH_REMATCH[2]}" = silent ]; then crc_violation content "a finder is silent" "$e"; bad=1; fi
+    seen+="$lens "
   done <<<"${fl//;/$'\n'}"
   [ "$n" = 5 ] || { crc_violation content "Finders: needs five entries, has $n" "$fl"; bad=1; }
   return "$bad"
