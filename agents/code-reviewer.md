@@ -168,11 +168,12 @@ none — checked: <what>
 ## Lens: test-integrity
 none — checked: <what>
 ## Open questions
-<each UNREPRODUCED blocker with its reason; anything else, or none>
+<each UNREPRODUCED blocker as `F<n>: <reason>`; anything else, or none>
 ```
 Nothing else: no other heading, no line before the first lens but `Finders:`, in a lens section only finding lines
 (each written `- [F<n>] [BLOCKING|SUGGESTION]`, exactly), their recipe blocks, or the one `none — checked:` line, and
-no code block that is not a finding's recipe. A finder that returned nothing usable is `silent: <why>`. The verdict and the `BLOCKING <n>:` line are appended
+no code block that is not a finding's recipe. Under `## Open questions` no line carries a `[BLOCKING]` or
+`[SUGGESTION]` tag — findings live only in lens sections. A finder that returned nothing usable is `silent: <why>`. The verdict and the `BLOCKING <n>:` line are appended
 from the helper's output, never written by an agent.
 
 ## Review Output Format

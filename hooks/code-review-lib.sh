@@ -137,10 +137,19 @@ crc_finding_id() {
   [[ "$1" =~ ^-\ \[(F[0-9]+)\] ]] && printf '%s' "${BASH_REMATCH[1]}"
 }
 
+# A line carrying a severity tag, in any case (`nocasematch` is in bash 3.2; `${t^^}` is not).
+crc_tagged() {
+  local r=1
+  shopt -s nocasematch; [[ "$1" =~ \[[[:space:]]*(BLOCKING|SUGGESTION)[[:space:]]*\] ]] && r=0; shopt -u nocasematch
+  return "$r"
+}
+
 # Fail closed, so no blocker is skipped as prose (verify-HEF-58 review): before the first heading only the `Finders:`
 # line; only the headings crc_heading_ok names; in a lens section, outside a recipe, a finding (as crc_finding_id
 # parses it, with its recipe block) or a `none` line — `* [F2]`, `2. [F2]`, `- **[F2]**`, `- [BLOCKING]` are refused.
-# Anywhere, an unclosed block. (Open questions may cite F<n> freely — only lens sections hold findings.)
+# Anywhere, an unclosed block. Open questions may cite F<n> by id, but a line there carrying a `[BLOCKING]` or
+# `[SUGGESTION]` tag (any case) is refused: no reader counts findings outside a lens, so a REPRODUCED blocker written
+# there was approved as prose (verify-HEF-58 review, round 4).
 crc_lines_ok() {
   local line t fence=0 bad=0 want="" in=pre
   while IFS= read -r line; do
@@ -162,7 +171,10 @@ crc_lines_ok() {
       [[ "$line" == "Finders:"* ]] || { crc_violation shape "a line before the first lens that is not the Finders: line" "$t"; bad=1; }
       continue
     fi
-    [ "$in" = lens ] || continue
+    if [ "$in" = oq ]; then
+      crc_tagged "$t" && { crc_violation shape "a finding outside a lens section" "$t"; bad=1; }
+      continue
+    fi
     if [[ "$t" =~ ^-\ \[F[0-9]+\] ]]; then
       want="$(crc_finding_id "$t")" || { crc_violation shape "malformed finding line" "$t"; bad=1; }
     elif ! crc_none_line "$t"; then
