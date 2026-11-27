@@ -112,7 +112,8 @@ likeliest one. Read the spec and the plan in the folder your brief names; read t
 - The recipe is a bash script run with the scratch copy of the worktree as its working directory (cwd-relative
   paths; stdin is `/dev/null`; no network beyond the sandbox's). It prints what shows the defect. It travels as one
   single-quoted argument, so it **never contains a `'`** (use double quotes). Never a line equal to
-  `HEF_REPRO_RECIPE_END` or `HEF_CRC_REPORT_END`.
+  `HEF_REPRO_RECIPE_END` or `HEF_CRC_REPORT_END`, and never a line that starts with three backticks (it would close
+  the block early; the check refuses it).
 - **`[BLOCKING]` only for a defect that breaks correctness, security or a stated requirement**; everything else is
   `[SUGGESTION]`.
 - Nothing in your lens → one line `none — checked: <what you examined>` (the files, the paths, the FRs). A bare
@@ -169,7 +170,9 @@ none — checked: <what>
 ## Open questions
 <each UNREPRODUCED blocker with its reason; anything else, or none>
 ```
-A finder that returned nothing usable is `silent: <why>`. The verdict and the `BLOCKING <n>:` line are appended
+Nothing else: no other heading, no line before the first lens but `Finders:`, in a lens section only finding lines
+(each written `- [F<n>] [BLOCKING|SUGGESTION]`, exactly), their recipe blocks, or the one `none — checked:` line, and
+no code block that is not a finding's recipe. A finder that returned nothing usable is `silent: <why>`. The verdict and the `BLOCKING <n>:` line are appended
 from the helper's output, never written by an agent.
 
 ## Review Output Format

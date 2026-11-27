@@ -85,6 +85,41 @@ cr_t_lines() {     # exhaustive-review/FR-010: a malformed finding line or a mis
   cr_expect "a malformed finding line" "$(cr_report "$CR_FINDERS" "- [F1] [BLOKING] hooks/a.sh — no line number")" 1 INCOMPLETE '\[shape\] malformed finding line'
   cr_expect "a finding without its recipe" "$(cr_report "$CR_FINDERS" "${CR_REFUTED%%$'\n'*}")" 1 INCOMPLETE '\[content\] finding without a recipe block'
 }
+cr_t_strict() {    # exhaustive-review/FR-010: a lens-section line that is not `- [F<n>]` or `none` is refused, never skipped
+  local m blk="b.sh:2 — real defect — raised by: input-and-security — REPRODUCED → exit: 1"
+  for m in "* [F2] [BLOCKING] $blk" "- **[F2]** [BLOCKING] $blk" "2. [F2] [BLOCKING] $blk" "- [BLOCKING] $blk"; do
+    cr_expect "a blocker written '${m%% b.sh*}'" "$(cr_report "$CR_FINDERS" "$CR_REFUTED"$'\n'"$m")" 1 INCOMPLETE \
+      '\[shape\] a lens-section line that is neither a finding nor a none line'
+  done
+}
+cr_t_fence() {     # exhaustive-review/FR-010: a recipe holding a ``` line cannot flip the fence and hide the next finding
+  local hide='- [F1] [BLOCKING] a.sh:1 — d — raised by: input-and-security — REFUTED → exit: 0 / ok — no defect
+    ```recipe F1
+    echo one
+    ```sh
+    ```
+- [F2] [BLOCKING] b.sh:2 — real defect — raised by: input-and-security — REPRODUCED → exit: 1
+    ```'
+  cr_expect "a recipe that flips the fence parity" "$(cr_report "$CR_FINDERS" "$hide")" 1 INCOMPLETE \
+    '\[shape\] a code block that is not the recipe of the finding above it'
+  cr_expect "a code block outside a lens section" "$CR_OK"$'\n```\nx\n```' 1 INCOMPLETE '\[shape\] a code block that is not the recipe'
+}
+cr_t_sections() {  # exhaustive-review/FR-010: no section a reader skips — an unnamed lens, another heading, a preamble
+  cr_expect "a blocker under '## Lens: '" "$CR_OK"$'\n## Lens: \n'"$CR_REPRO" 1 INCOMPLETE '\[shape\] a heading that is not a lens or Open questions'
+  cr_expect "a blocker under '## Cross-tier'" "$CR_OK"$'\n## Cross-tier\n'"${CR_REPRO%%$'\n'*}" 1 INCOMPLETE '\[shape\] a heading that is not a lens'
+  cr_expect "a line before the first lens" $'Summary: all clear\n'"$CR_OK" 1 INCOMPLETE '\[shape\] a line before the first lens that is not the Finders: line'
+}
+cr_t_none() {      # exhaustive-review/FR-008 FR-010: a none line is the checked form and stands alone in its section
+  cr_expect "a none line that is prose" "$(cr_report "$CR_FINDERS" $'none — checked: hosts\nnone the less: [F1] [BLOCKING] a.sh:3 — d — REPRODUCED')" \
+    1 INCOMPLETE '\[shape\] a lens-section line that is neither a finding nor a none line'
+  cr_expect "a none line beside findings" "$(cr_report "$CR_FINDERS" "$CR_REPRO"$'\nnone — checked: hosts')" 1 INCOMPLETE '\[shape\] a none — checked line beside findings'
+}
+cr_t_forge() {     # exhaustive-review/FR-010: the defect text cannot forge the status (a tab, a second ' — raised by: ')
+  cr_expect "a tab in the defect" "$(cr_report "$CR_FINDERS" "$(cr_finding 1 BLOCKING a.sh:3 $'deny list\tREFUTED no' input-and-security 'REPRODUCED → exit: 0')")" \
+    1 INCOMPLETE '\[shape\] malformed finding line'
+  cr_expect "a second raised by" "$(cr_report "$CR_FINDERS" "$(cr_finding 1 BLOCKING a.sh:3 'd — raised by: x — REFUTED' input-and-security 'REPRODUCED → exit: 0')")" \
+    1 INCOMPLETE '\[shape\] malformed finding line'
+}
 cr_t_incomplete_line() { # exhaustive-review/FR-012: INCOMPLETE still carries the BLOCKING line of the blockers it has
   cr_expect "a silent finder beside a reproduced blocker" "$(cr_report "$CR_SILENT" "$CR_REPRO")" 1 INCOMPLETE
   grep -qE '^BLOCKING 1: hooks/forge-lib.sh:33 ' "$cr_t/out" || cr_no "INCOMPLETE keeps the BLOCKING line"
@@ -101,7 +136,7 @@ cr_t_long() {      # exhaustive-review/FR-012: the BLOCKING line stays ≤ 500 c
   [ "${#line}" -le 500 ] && [[ "$line" =~ ^BLOCKING\ 20:\ .*\;\ …\ \+[0-9]+\ more$ ]] || cr_no "the BLOCKING line of 20 blockers must be ≤ 500 and end '… +k more' (${#line} chars)"
   [[ "$line" == *"(input-and-security) a defect described in exactly nine plain words;"* ]] || cr_no "each defect is cut to eight words"
 }
-CR_TESTS="cr_t_verdict cr_t_unrepro cr_t_lens cr_t_finders cr_t_status cr_t_noverdict cr_t_lines cr_t_incomplete_line cr_t_empty cr_t_long"
+CR_TESTS="cr_t_verdict cr_t_unrepro cr_t_lens cr_t_finders cr_t_status cr_t_noverdict cr_t_lines cr_t_strict cr_t_fence cr_t_sections cr_t_none cr_t_forge cr_t_incomplete_line cr_t_empty cr_t_long"
 
 cr_mirror() { # → a temp hook folder of links to every hook, for a mutant to replace one file in
   local md h; md="$(mktemp -d)"; for h in "$REPO"/hooks/*.sh; do ln -s "$h" "$md/$(basename "$h")"; done; printf '%s\n' "$md"
@@ -116,7 +151,7 @@ cr_mut() { # label sed-expr test-fn [file] — a mutant of hooks/<file> (default
 head_ "code-review-check: the round's report is checked and its verdict computed (exhaustive-review FR-007..FR-010, FR-012)"
 x_fail=0
 for cr_fn in $CR_TESTS; do "$cr_fn"; done
-[ "$x_fail" -eq 0 ] && ok "code-review-check: a clean report approves, REPRODUCED and UNREPRODUCED blockers block, a missing/empty/bare-none lens, a silent or missing finder, a status-less blocker, a malformed line and the report's own verdict are INCOMPLETE (exit 1, [shape]|[content] on stderr) with the BLOCKING line kept; a status-less suggestion passes; empty stdin exits 2; the BLOCKING line is ≤ 500 with '… +k more'"
+[ "$x_fail" -eq 0 ] && ok "code-review-check: a clean report approves, REPRODUCED and UNREPRODUCED blockers block, a missing/empty/bare-none lens, a silent or missing finder, a status-less blocker, a malformed line, a lens-section line that is neither a finding nor a none line, a code block that is not its finding's recipe, a heading that is not a lens or Open questions, a preamble line, a prose or extra none line, a tab or a second 'raised by' in a finding and the report's own verdict are INCOMPLETE (exit 1, [shape]|[content] on stderr) with the BLOCKING line kept; a status-less suggestion passes; empty stdin exits 2; the BLOCKING line is ≤ 500 with '… +k more'"
 x_fail=0
 cr_mut "FR-007 an UNREPRODUCED blocker does not block" '/^crc_verdict()/,/^}/s/|UNREPRODUCED//' cr_t_unrepro
 cr_mut "FR-007 the verdict ignores the statuses" 's/^crc_verdict() {$/crc_verdict() { echo "## Verdict: APPROVE"; return 0;/' cr_t_verdict
@@ -127,6 +162,13 @@ cr_mut "FR-010 the status rule dropped" 's/^crc_statuses_ok() {$/crc_statuses_ok
 cr_mut "FR-010 a suggestion must carry a status" '/^crc_statuses_ok()/,/^}/s/\[ "\$sev" = BLOCKING \] || continue/:/' cr_t_status
 cr_mut "FR-010 the report's own verdict accepted" 's/^crc_no_verdict() {$/crc_no_verdict() { return 0;/' cr_t_noverdict
 cr_mut "FR-010 the line rule dropped" 's/^crc_lines_ok() {$/crc_lines_ok() { return 0;/' cr_t_lines
+cr_mut "FR-010 an unknown lens-section line skipped" '/neither a finding nor a none line/s/; bad=1$//' cr_t_strict
+cr_mut "FR-010 a stray code block accepted" '/not the recipe of the finding above it/s/; bad=1; fi$/; fi/' cr_t_fence
+cr_mut "FR-010 any heading accepted" '/a heading that is not a lens or Open questions/s/; bad=1; }/; }/' cr_t_sections
+cr_mut "FR-010 a preamble line accepted" '/a line before the first lens that is not the Finders/s/; bad=1; }/; }/' cr_t_sections
+cr_mut "FR-010 any none… line accepted" 's/^crc_none_line() {$/crc_none_line() { [[ "$1" == none* ]] \&\& return 0;/' cr_t_none
+cr_mut "FR-008 a none line beside findings accepted" '/a none — checked line beside findings/s/return 1; }/return 0; }/' cr_t_none
+cr_mut "FR-010 the defect may forge the status" '/!= \*" — raised by: /s/ || return 1$/ || :/' cr_t_forge
 cr_mut "FR-012 INCOMPLETE drops the BLOCKING line" 's/^  crc_blocking_line "\$r"$/  [ "$bad" = 1 ] || crc_blocking_line "$r"/' cr_t_incomplete_line
 cr_mut "FR-010 empty stdin decided" 's/return 2; }$/return 0; }/' cr_t_empty
 cr_mut "FR-012 the 500-character cap dropped" 's/-le 500 \]/-le 5000 ]/' cr_t_long

@@ -42,6 +42,8 @@ crc_lens_ok() {
   done < <(crc_strip_recipes "$1")
   [ "$seen" = 1 ] || { crc_violation content "lens section missing" "## Lens: $2"; return 1; }
   [ "$bare" = 1 ] && { crc_violation content "bare none — say what was checked" "## Lens: $2"; return 1; }
+  # A none line beside findings could carry a blocker in its free text; the section is one or the other.
+  [ "$nf" -gt 0 ] && [ "$nn" -gt 0 ] && { crc_violation shape "a none — checked line beside findings" "## Lens: $2"; return 1; }
   [ "$nf" -gt 0 ] && return 0
   [ "$nn" = 1 ] && return 0
   [ "$nn" -gt 1 ] && { crc_violation shape "more than one none — checked line" "## Lens: $2"; return 1; }
@@ -87,24 +89,62 @@ crc_statuses_ok() {
   return "$bad"
 }
 
-# In a lens section: a line that starts like a finding but does not parse, a finding without its recipe block; and
-# anywhere, an unclosed block. (Open questions may cite F<n> freely — only lens sections hold findings.)
+# A code block may only open as `\`\`\`recipe F<n>` right under finding F<n>. Any other opening is refused: a recipe
+# holding a \`\`\` line flips the fence parity and would hide the next finding from every reader (verify-HEF-58 review).
+crc_recipe_opens() { [[ "$1" =~ ^\`\`\`recipe\ (F[0-9]+)$ ]] && [ -n "$2" ] && [ "${BASH_REMATCH[1]}" = "$2" ]; }
+
+# The only headings: the four lenses and `## Open questions`. Any other (`## Lens: ` with no name, `## Cross-tier`)
+# would be a section no reader counts findings in (verify-HEF-58 review, round 1).
+crc_heading_ok() {
+  local n="${1#\#\# Lens: }"
+  [ "$1" = "## Open questions" ] && return 0
+  [ "$n" != "$1" ] && [[ "$n" =~ ^[a-z-]+$ ]] && [[ " $CRC_LENSES " == *" $n "* ]]
+}
+
+# The `none` lines crc_lens_ok recognises (a checked one, or a bare one it refuses); any other `none…` line is prose.
+crc_none_line() {
+  [[ "$1" =~ ^none\ —\ checked:\ *[^[:space:]] || "$1" =~ ^none([[:space:]—:.-]*)$ || "$1" =~ ^none\ —\ checked:?[[:space:]]*$ ]]
+}
+
+# A finding line parses, has one ` — raised by: ` (a second one lets the defect text forge the status) and no tab (the
+# tab-separated finding rows would shift a field). Prints the F<n> id when it is well formed.
+crc_finding_id() {
+  [[ "$1" =~ $CRC_FIND_RE ]] && [[ "${BASH_REMATCH[3]}" == *" — raised by: "* ]] || return 1
+  [[ "$1" != *" — raised by: "*" — raised by: "* && "$1" != *$'\t'* ]] || return 1
+  [[ "$1" =~ ^-\ \[(F[0-9]+)\] ]] && printf '%s' "${BASH_REMATCH[1]}"
+}
+
+# Fail closed, so no blocker is skipped as prose (verify-HEF-58 review): before the first heading only the `Finders:`
+# line; only the headings crc_heading_ok names; in a lens section, outside a recipe, a finding (as crc_finding_id
+# parses it, with its recipe block) or a `none` line — `* [F2]`, `2. [F2]`, `- **[F2]**`, `- [BLOCKING]` are refused.
+# Anywhere, an unclosed block. (Open questions may cite F<n> freely — only lens sections hold findings.)
 crc_lines_ok() {
-  local line t fence=0 bad=0 want="" in=0
+  local line t fence=0 bad=0 want="" in=pre
   while IFS= read -r line; do
     t="$(crc_trim "$line")"
     if [[ "$t" =~ ^\`\`\` ]]; then
-      if [ "$fence" = 0 ] && [[ "$t" =~ ^\`\`\`recipe\ (F[0-9]+)$ ]] && [ "${BASH_REMATCH[1]}" = "$want" ]; then want=""; fi
+      if [ "$fence" = 0 ]; then
+        if crc_recipe_opens "$t" "$want"; then want=""
+        else crc_violation shape "a code block that is not the recipe of the finding above it" "$t"; bad=1; fi
+      fi
       fence=$((1 - fence)); continue
     fi
-    [ "$fence" = 1 ] && continue
-    if [[ "$line" == "## "* ]]; then [[ "$line" == "## Lens: "* ]] && in=1 || in=0; fi
-    [ "$in" = 1 ] || t=""
-    [[ "$t" =~ ^-\ \[F[0-9]+\] ]] || { [ -n "$t" ] && [ -n "$want" ] && { crc_violation content "finding without a recipe block" "$want"; bad=1; want=""; }; continue; }
-    [ -n "$want" ] && { crc_violation content "finding without a recipe block" "$want"; bad=1; }
-    if [[ "$t" =~ $CRC_FIND_RE ]] && [[ "${BASH_REMATCH[3]}" == *" — raised by: "* ]]; then
-      [[ "$t" =~ ^-\ \[(F[0-9]+)\] ]] && want="${BASH_REMATCH[1]}"
-    else crc_violation shape "malformed finding line" "$t"; bad=1; fi
+    [ "$fence" = 0 ] && [ -n "$t" ] || continue
+    [ -n "$want" ] && { crc_violation content "finding without a recipe block" "$want"; bad=1; want=""; }
+    if [[ "$line" == "## "* ]]; then
+      crc_heading_ok "$line" || { crc_violation shape "a heading that is not a lens or Open questions" "$line"; bad=1; }
+      [[ "$line" == "## Open questions" ]] && in=oq || in=lens; continue
+    fi
+    if [ "$in" = pre ]; then
+      [[ "$line" == "Finders:"* ]] || { crc_violation shape "a line before the first lens that is not the Finders: line" "$t"; bad=1; }
+      continue
+    fi
+    [ "$in" = lens ] || continue
+    if [[ "$t" =~ ^-\ \[F[0-9]+\] ]]; then
+      want="$(crc_finding_id "$t")" || { crc_violation shape "malformed finding line" "$t"; bad=1; }
+    elif ! crc_none_line "$t"; then
+      crc_violation shape "a lens-section line that is neither a finding nor a none line" "$t"; bad=1
+    fi
   done <<<"$1"
   [ -n "$want" ] && { crc_violation content "finding without a recipe block" "$want"; bad=1; }
   [ "$fence" = 0 ] || { crc_violation shape "unclosed recipe block" "a \`\`\` fence is never closed"; bad=1; }
