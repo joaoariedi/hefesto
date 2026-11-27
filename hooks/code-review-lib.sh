@@ -50,17 +50,36 @@ crc_lens_ok() {
   crc_violation content "lens section empty" "## Lens: $2"; return 1
 }
 
-# FR-009: one `Finders:` line, five entries `<lens>@<tier> ok|silent[: why]`, none silent.
+CRC_FINDERS="$CRC_LENSES cross-tier"
+
+# The report's one `Finders:` line, before the first heading. A second one, or one only under a later heading, is
+# refused: a first-match read let a line anywhere in the report stand for the quorum (verify-HEF-58 review, round 3).
+crc_finders_line() {
+  local line fl="" n=0 pre=1
+  while IFS= read -r line; do
+    [[ "$line" == "## "* ]] && pre=0
+    [[ "$line" == "Finders:"* ]] || continue
+    n=$((n + 1)); [ "$pre" = 1 ] && [ -z "$fl" ] && fl="$line"
+  done < <(crc_strip_recipes "$1")
+  [ "$n" -gt 0 ] || { crc_violation content "no Finders: line" "the report must open with the five finders"; return 1; }
+  [ "$n" = 1 ] || { crc_violation shape "more than one Finders: line" "$n found"; return 1; }
+  [ -n "$fl" ] || { crc_violation shape "the Finders: line is not before the first lens" "it must open the report"; return 1; }
+  printf '%s' "$fl"
+}
+
+# FR-009: one `Finders:` line, five entries `<finder>@<tier> ok|silent[: why]` — the four lenses and cross-tier, each
+# once — none silent. Any other name is not the quorum (`a@x ok` × 5 approved: verify-HEF-58 review, round 3).
 crc_finders_ok() {
   local fl e lens n=0 bad=0 seen=" "
-  fl="$(grep -m1 '^Finders:' <<<"$1")" || { crc_violation content "no Finders: line" "the report must open with the five finders"; return 1; }
+  fl="$(crc_finders_line "$1")" || return 1
   fl="${fl#Finders:}"
   while IFS= read -r e; do
     e="$(crc_trim "$e")"; [ -n "$e" ] || continue; n=$((n + 1))
     if ! [[ "$e" =~ ^([a-z-]+)@[a-z0-9._-]+\ (ok|silent)(:.*)?$ ]]; then crc_violation shape "malformed finder entry" "$e"; bad=1; continue; fi
     lens="${BASH_REMATCH[1]}"
     # five DISTINCT finders: one finder named five times is not the quorum (verify-HEF-58 review, round 2)
-    if [[ "$seen" == *" $lens "* ]]; then crc_violation content "a finder is listed twice" "$e"; bad=1
+    if [[ " $CRC_FINDERS " != *" $lens "* ]]; then crc_violation content "not one of the five finders ($CRC_FINDERS)" "$e"; bad=1
+    elif [[ "$seen" == *" $lens "* ]]; then crc_violation content "a finder is listed twice" "$e"; bad=1
     elif [ "${BASH_REMATCH[2]}" = silent ]; then crc_violation content "a finder is silent" "$e"; bad=1; fi
     seen+="$lens "
   done <<<"${fl//;/$'\n'}"
