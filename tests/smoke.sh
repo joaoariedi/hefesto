@@ -7109,6 +7109,8 @@ grep -qF '/sandbox' "$REPO/docs/install.md" || { bad "install.md no longer tells
 . "$REPO/tests/smoke-forward-routing.sh"   # part 17b: the routing mutations, then part 17's fixture removed (HEF-31 merge-forward FR-017)
 . "$REPO/tests/smoke-rework.sh"            # part 18: a verify FAIL goes back to the build stage, up to verify_rounds (HEF-57 verify-fix-loop)
 . "$REPO/tests/smoke-rework-ruling.sh"     # part 18b: a disputed finding, the person's ruling, and the verify it reaches (HEF-57 verify-fix-loop)
+. "$REPO/tests/smoke-code-review.sh"       # part 19: the exhaustive review round's check, route and shape (HEF-58 exhaustive-review)
+. "$REPO/tests/smoke-code-review-security.sh"  # part 19s: review-repro.sh and the lane-guard heredoc exception (HEF-58 exhaustive-review)
 
 # 9.3.0: a plugin command resolves only as /hefesto:hef.<name> (code.claude.com/docs/en/plugins/components.md), so a
 # command written for a person to type — or for a session to tell a person — is never the bare /hef.<name>.

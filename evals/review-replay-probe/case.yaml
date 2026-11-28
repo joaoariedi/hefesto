@@ -1,0 +1,54 @@
+schema_version: "1.1"
+name: review-replay-probe
+description: "Eval probe 2 for the review replay (exhaustive-review plan, 'Probes first'): what the eval sandbox allows — git, review-route through .git/HEAD, the review pre-flight, one review-repro.sh call whose refusal is the expected eval-sandbox result (amendment A5), and a read of the plugin's hooks"
+tags: [review, replay, probe, exhaustive-review]
+plugins: ["../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "Follow the steps in .git/hef-probe.md, in order. Do not skip a step because an earlier one failed; report every step's output and exit status, and do nothing else."
+  max_turns: 20
+  timeout_seconds: 600
+  # amendment A2: every replay and probe case names its tools; the operator grants Bash with --allow-tools Bash
+  allowed_tools: [Agent, Bash, Read, Glob, Grep, Skill]
+# One tool_used grader per call (constitution 3); the llm grader reads the printed results the person records in
+# evals/README.md: review-route's line, and review-repro.sh's exit line or its refusal (amendment A5).
+graders:
+  - name: tried-git
+    type: tool_used
+    tool: Bash
+    input_match: "git\\s+--version"
+    min: 1
+  - name: ran-review-route
+    type: tool_used
+    tool: Bash
+    input_match: "speckit-helper\\.sh\\s+review-route"
+    min: 1
+  - name: ran-preflight-branch
+    type: tool_used
+    tool: Bash
+    input_match: "speckit-helper\\.sh\\s+branch"
+    min: 1
+  - name: ran-preflight-pr-files
+    type: tool_used
+    tool: Bash
+    input_match: "speckit-helper\\.sh\\s+pr-files"
+    min: 1
+  - name: ran-a-recipe
+    type: tool_used
+    tool: Bash
+    input_match: "review-repro\\.sh\\s+'"
+    min: 1
+  - name: read-the-plugin-hooks
+    type: tool_used
+    tool: Read
+    input_match: "hooks/review-repro\\.sh"
+    min: 1
+  - name: route-and-recipe-recorded
+    type: llm
+    criteria: |
+      PASS only if the reply quotes review-route printing a line that starts "exhaustive full spec:/" (an absolute path
+      ending in .specify/specs/forge-setup) AND reports review-repro.sh's result with its exit status — a line
+      "exit: 0" (the recipe ran) or its refusal (exit 2, naming the folders it could not write). The refusal is the
+      expected eval-sandbox result (amendment A5): the recipe is not required to run here. FAIL if review-route failed
+      or printed a relative path, or the reply does not say what review-repro.sh printed and how it exited.

@@ -1,0 +1,36 @@
+schema_version: "1.1"
+name: review-replay-hef-22
+description: "Item replay of HEF-22 at its first rejected commit: one exhaustive /hefesto:hef.review code round must report every corpus defect present there (D22-1, D22-3, D22-6) as a blocker, reproduced or not (exhaustive-review FR-017, amendment A5)"
+tags: [review, replay, exhaustive-review]
+plugins: ["../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/hefesto:hef.review code — git may be unavailable here: the change under review (base main) is .git/hef-review.diff"
+  max_turns: 80
+  timeout_seconds: 2400
+  # amendment A2: every replay and probe case names its tools; the operator grants Bash with --allow-tools Bash
+  allowed_tools: [Agent, Bash, Read, Glob, Grep, Skill]
+# Defects present at ad63db8, established by reading the code at the commit: D22-1 (round 1's own), D22-3 (the
+# case-sensitive deny list in forge_public_host is already there) and D22-6 (forge_remote_url reads the pushurl first
+# and the rewrite is a pushInsteadOf). Absent: D22-2 (fg_case_livelock is not yet in the tests), D22-4 and D22-5
+# (added by round 2's and 3's fixes, f95e13b and 772239f). Graded on tool calls first (constitution 3); a defect
+# counts as found when a BLOCKING finding names it, REPRODUCED or UNREPRODUCED (amendment A5).
+graders:
+  - name: five-finders-and-a-verifier
+    type: tool_used
+    tool: Agent
+    min: 6
+  - name: finds-every-present-defect
+    type: llm
+    criteria: |
+      PASS only if the final verdict is REQUEST_CHANGES and each of these is named by a BLOCKING finding, marked
+      REPRODUCED or UNREPRODUCED (reproduction is not required in the eval sandbox, amendment A5):
+      - D22-1: a push rewrite is recorded in push_rewrites even when its .git/config write failed, or --remove removes
+        a pushInsteadOf rewrite the person added by hand;
+      - D22-3: hooks/forge-lib.sh's internal-host deny list (forge_public_host) is case-sensitive — an upper-case
+        spelling such as metadata.google.INTERNAL is accepted as a public host;
+      - D22-6: for a remote with an SSH pushurl, setup writes a pushInsteadOf rewrite git ignores, yet setup and
+        --check report success.
+      FAIL if the verdict is APPROVE or INCOMPLETE, or any listed defect is missing or only a suggestion. Say how
+      many of the three were found.

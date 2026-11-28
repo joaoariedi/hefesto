@@ -193,7 +193,7 @@ for i in "${!roots[@]}"; do h="$(hooks_of "${roots[$i]}" "${kinds[$i]}")"
   # ledger.sh publish (github-project-board NR-004; tests/smoke-github-board.sh checks every pattern below).
   allow+=("Bash($h/status-board.sh)" "Bash($h/status-board.sh --detailed:*)" "Bash($h/status-board.sh --check:*)" "Bash($h/status-board.sh --item:*)"
           "Bash($h/status-board.sh --add:*)" "Bash($h/status-board.sh --list:*)" "Bash($h/status-board.sh --init)" "Bash($h/status-board.sh --detect)" "Bash($h/status-board.sh --item-raw:*)" "Bash($h/hefesto-setup.sh --check)"
-          "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/run-follow.sh:*)")
+          "Bash($h/session-launch.sh:*)" "Bash($h/speckit-helper.sh:*)" "Bash($h/review-repro.sh:*)" "Bash($h/run-follow.sh:*)")
   for s in "${LEDGER_ALLOW[@]}"; do allow+=("Bash($h/ledger.sh $s:*)"); done
   for s in "${LEDGER_ALLOW_EXACT[@]}"; do allow+=("Bash($h/ledger.sh $s)"); done
   while IFS= read -r s; do ask+=("$s"); done < <(sign_asks "$h")
@@ -453,7 +453,7 @@ NEW="$(jq -c --argjson r "$RULES" --arg mode "$MODE" '
   # ours: under a known root, and naming one of the hefesto helpers — the other rules of a person under the
   # same folder are left alone
   def ours: (sub("^Bash\\((bash )?"; "")) as $s | any($r.prefixes[]; . as $p | ($s | startswith($p + "/"))
-    and ($s[($p | length):] | test("^/([^/ ]+/)*/?hooks/(status-board|ledger|session-launch|speckit-helper|hefesto-setup|run-follow|pr-watch)\\.sh( |:|\\)|$)")));
+    and ($s[($p | length):] | test("^/([^/ ]+/)*/?hooks/(status-board|ledger|session-launch|speckit-helper|hefesto-setup|run-follow|pr-watch|review-repro)\\.sh( |:|\\)|$)")));
   def addu($xs): (. // []) as $a | $a + [$xs[] | select(. as $x | $a | index([$x]) | not)];
   def strip: (. // []) | map(select((type == "string" and ours) | not));
   def gaugeours: (.statusLine.command? // "") as $c | ($c | type == "string") and ($c | test("/hooks/context-gauge[.]sh( --with-user)?$"))

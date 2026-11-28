@@ -36,6 +36,10 @@ Produces a structured review report with `APPROVE` / `REQUEST_CHANGES` / `NEEDS_
 
 **When to use**: Before PR creation, after implementation. Distinct from review-coordinator (which manages the PR lifecycle). Spawned by `/hefesto:hef.review`; `/hefesto:hef.verify` runs its stage 1 with the mechanical coverage matrix in hand.
 
+**Lenses and roles (the exhaustive round, HEF-58).** In code mode on an item routed `light` or `full`, `/hefesto:hef.review` spawns the agent in two more roles. A **finder** reads the change through one of four lenses (`input-and-security`, `state-and-lifecycle`, `spec-deviation`, `test-integrity`). Four finders run at the agent's pinned tier, plus a fifth **cross-tier** finder at `model: opus` that covers all four lenses. A finder reports every candidate defect with `file:line`, a reproduction recipe and a `BLOCKING`/`SUGGESTION` severity (or `none — checked: …` for a lens with nothing), and never a verdict. A **verifier** runs each blocking recipe through `hooks/review-repro.sh` and gives it one status (`REPRODUCED`, `UNREPRODUCED` or `REFUTED`). It never edits and never adds findings. `speckit-helper.sh code-review-check` then decides the verdict from those statuses, so the agent never writes the round's verdict itself. Outside these two roles (plan mode, the single reviewer, `/hefesto:hef.verify`'s stage 1) Rule 0's "scope over volume" still applies.
+
+Known limits of `review-repro.sh`: each recipe runs on a **full scratch copy** of the tracked and unignored files, checksummed before and after (two passes over the tree per recipe), so a large repository makes every recipe slower. It runs only inside the OS sandbox with a writable `~/.cache/hefesto` and refuses otherwise (exit 2). In a lane, a recipe body that spells `CLAUDE_CODE_SESSION_ID=` is denied by `lane-guard.sh`, so the finder role writes the name without the `=`.
+
 ### 📝 review-coordinator
 
 Manages the PR lifecycle up to the merge gate — creation, review coordination, feedback integration. Generates comprehensive PR descriptions with quality metrics. Supports GitHub and GitLab.

@@ -1,0 +1,26 @@
+schema_version: "1.1"
+name: review-control-hef-25
+description: "Control for HEF-25: one exhaustive /hefesto:hef.review code round at the item's merged head, measuring the verdict and the number of blockers it reports there — no pass/fail claim about the change (exhaustive-review FR-017)"
+tags: [review, replay, control, exhaustive-review]
+plugins: ["../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/hefesto:hef.review code — git may be unavailable here: the change under review (base main) is .git/hef-review.diff"
+  max_turns: 80
+  timeout_seconds: 2400
+  # amendment A2: every replay and probe case names its tools; the operator grants Bash with --allow-tools Bash
+  allowed_tools: [Agent, Bash, Read, Glob, Grep, Skill]
+# Measurement only (FR-017): the person records the verdict and the blocker count in evals/README.md's results table
+# ("blockers on the merged head"). The llm grader checks only that the round finished with a verdict.
+graders:
+  - name: five-finders-and-a-verifier
+    type: tool_used
+    tool: Agent
+    min: 6
+  - name: reports-a-verdict
+    type: llm
+    criteria: |
+      Measurement only — this grade makes no claim about the change. PASS if the reply ends the round with a verdict
+      line (APPROVE, REQUEST_CHANGES or INCOMPLETE) and a "BLOCKING <n>:" line, so the verdict and the number of
+      blockers can be recorded. FAIL if the round produced no verdict or no BLOCKING line.

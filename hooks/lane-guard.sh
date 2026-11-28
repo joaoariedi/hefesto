@@ -80,10 +80,67 @@ while IFS= read -r e; do
   { [[ "$CMD" =~ $re ]] || [[ "${CMD//\\/}" =~ $re ]]; } && { EXCL_HIT="$w"; break; }
 done < <(jq -r '.excluded[]? // empty' <<<"$REC")
 
+words() { printf '%s' "$1" | xargs printf '%s\n' 2>/dev/null; }   # split quoted words without a shell
+DDS="$(jq -r '.tool_input.dangerouslyDisableSandbox // false' <<<"$IN")"
+
+# FR-022 (HEF-58): the review round's two helpers take a report or a recipe as a quoted heredoc, and that text names
+# gh and other excluded words as data. The helpers are not excluded, so the call runs inside the sandbox. Admitted
+# only in this exact shape; then nothing below reads the body (the lane-build/lane-cache deny, the plain-words rule,
+# the grant and gh rules). Placed AFTER the CLAUDE_CODE_SESSION_ID deny, which stays in force for these bodies too.
+# No decision is printed: the permission rules (speckit-helper.sh:*, review-repro.sh:*) still decide, and they allow
+# the plugin's own path alone — a look-alike path ending in /hooks/review-repro.sh passes here and meets no allow rule.
+# verify-HEF-58, rounds 2 to 5: a CR, then a FF/VT, then a U+2003 under a UTF-8 locale after the delimiter quote joined
+# bash's delimiter word (`HEF_END<c>`), so a body line `HEF_END<c>` ended the heredoc early and a command after it ran
+# unread. An allow-list, not the next character found: both heredoc checks match under LC_ALL=C ([[:blank:]] is space
+# and tab only), and this refuses the command when its head line, or any line naming the delimiter, holds one byte
+# outside printable ASCII (0x20-0x7E) or tab. tr under LC_ALL=C counts bytes on every platform; bash's own classes
+# follow the caller's locale.
+heredoc_bytes_ok() { # $1 delimiter word → 0 when the head line and every line containing $1 are printable ASCII or tab
+  local line n=0
+  while IFS= read -r line; do
+    n=$((n + 1)); [ "$n" = 1 ] || [[ "$line" == *"$1"* ]] || continue
+    [ -z "$(printf '%s' "$line" | LC_ALL=C tr -d '\t -~')" ] || return 1
+  done <<<"$CMD"
+  return 0
+}
+review_heredoc_ok() {
+  local LC_ALL=C first last word head n=0 line
+  local -a w=()
+  [ "$DDS" = true ] && return 1                                        # never with the sandbox off
+  first="${CMD%%$'\n'*}"; last="${CMD##*$'\n'}"; [ "$first" != "$CMD" ] || return 1
+  # [[:blank:]] under LC_ALL=C, not [[:space:]]: any other blank after the quote joins bash's delimiter word (above)
+  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:blank:]]*$ ]] || return 1
+  word="${BASH_REMATCH[1]}"; [ "$last" = "$word" ] || return 1
+  heredoc_bytes_ok "$word" || return 1
+  while IFS= read -r line; do [ "$line" = "$word" ] && n=$((n + 1)); done <<<"$CMD"
+  [ "$n" = 1 ] || return 1                                             # an earlier delimiter ends the heredoc early
+  head="${first%<<*}"; plain_words "$head" || return 1
+  while IFS= read -r line; do w+=("$line"); done < <(words "$head")   # the exact word list
+  [[ "${w[0]:-}" == /* ]] || return 1                                  # an absolute path first: no word, no X=… before it
+  case "${#w[@]}:${w[0]}" in                                           # the count is part of the match — no `*` over spaces
+    1:*/hooks/review-repro.sh) return 0 ;;
+    2:*/hooks/speckit-helper.sh) [ "${w[1]}" = code-review-check ] && return 0 ;;
+  esac
+  return 1
+}
+review_heredoc_ok && exit 0
+
+# Amendment A3 (HEF-58, eval probe 2): review-repro.sh also takes its recipe as ONE single-quoted argument, because the
+# eval sandbox cannot create a heredoc's temporary file. Admitted only as the exact two words: an absolute path (plain
+# path characters) ending in /hooks/review-repro.sh, one space, then one single-quoted string with no `'` inside — a
+# single-quoted string is literal to the shell, so nothing in it runs or expands, and with no `'` inside it cannot be
+# closed early to append a command. Same rules as above: never with the sandbox off, after the CLAUDE_CODE_SESSION_ID
+# deny, no decision printed (the review-repro.sh:* allow rule still decides).
+review_arg_ok() {
+  local re="^/[A-Za-z0-9_.+@:/-]*/hooks/review-repro\\.sh '[^']*'[[:space:]]*\$"
+  [ "$DDS" = true ] && return 1                                        # never with the sandbox off
+  [[ "$CMD" =~ $re ]]                                                  # anchored at both ends: nothing before or after
+}
+review_arg_ok && exit 0
+
 # #162: the lanes' build cache is written by sandboxed commands, so nothing that runs outside the sandbox may build with
 # it or run its wrapper — an excluded command (an approved action's included: this comes before any grant) or a retry
 # with the sandbox disabled. "lane-cache" as a substring catches a relative spelling of the path too.
-DDS="$(jq -r '.tool_input.dangerouslyDisableSandbox // false' <<<"$IN")"
 LCMD="$(printf '%s' "$CMD" | tr '[:upper:]' '[:lower:]')"   # a macOS volume ignores case: LANE-CACHE is the same folder
 if { [ -n "$EXCL_HIT" ] || [ "$DDS" = true ]; } && [[ "$LCMD" == *lane-build* || "$LCMD" == *lane-cache* ]]; then
   deny "this command runs outside the sandbox and names the lane build cache or lane-build.sh — they are for sandboxed commands only (#162). Run the build sandboxed: <hooks>/lane-build.sh <command>. If the words only appear in text (a PR title, say), reword it."
@@ -91,17 +148,19 @@ fi
 
 # The orchestrator's person-only heredoc: `<ledger.sh> answer|revise|direct … <<'WORD'`, the body, then WORD alone.
 heredoc_ok() {
-  local first last word head
+  local LC_ALL=C first last word head n=0 line
   first="${CMD%%$'\n'*}"; last="${CMD##*$'\n'}"
-  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:space:]]*$ ]] || return 1
+  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:blank:]]*$ ]] || return 1   # LC_ALL=C [[:blank:]]: heredoc_bytes_ok
   word="${BASH_REMATCH[1]}"; [ "$last" = "$word" ] || return 1
+  heredoc_bytes_ok "$word" || return 1
+  while IFS= read -r line; do [ "$line" = "$word" ] && n=$((n + 1)); done <<<"$CMD"
+  [ "$n" = 1 ] || return 1                     # an earlier delimiter ends the heredoc early (verify-HEF-58 scan, :139)
   head="${first%<<*}"; plain_words "$head" || return 1
   starts_bare "$head" || return 1
   case "$EXCL_HIT" in */ledger.sh) ;; *) return 1 ;; esac
   case "$(words "$head" | sed -n 2p)" in answer|revise|direct) ;; *) return 1 ;; esac   # all person-only: the
   # --lanes rule below then lets only the orchestrator through
 }
-words() { printf '%s' "$1" | xargs printf '%s\n' 2>/dev/null; }   # split quoted words without a shell
 
 if [ -n "$EXCL_HIT" ]; then
   # the bare word first, exactly as the sandbox exclusion matches it: `"gh" …` or `\gh …` would run inside the sandbox

@@ -81,6 +81,101 @@ Evaluate the quality, safety, and maintainability of the code changes.
 - Enforce the Verification Iron Law (`rules/code-quality.md`): run the tests and show real output; use `/verify` to drive the app rather than trusting a green typecheck
 - Flag any test that modifies assertions to match buggy behavior
 
+## Lenses (exhaustive code review)
+
+`/hefesto:hef.review` code mode runs an **exhaustive round** for an item routed `light` or `full`: four finders, one
+per lens, a fifth cross-tier finder through all four, then a verifier. Its brief names your role (`finder`, with a
+`lens`, or `verifier`) and the absolute path of `review-repro.sh`. The four lenses, named exactly:
+
+- **input-and-security** — untrusted input, quoting into shells and git, parsing of external output, authorisation
+  and bypass spellings (case, quoting, tabs, a suffix the check does not anchor), secrets
+- **state-and-lifecycle** — what is written before a failure or a refusal, re-runs and idempotency, removal symmetry
+  (does `--remove` undo exactly what setup wrote?), ordering and races, a record left stale by a later move
+- **spec-deviation** — each FR and plan decision against the code: missing, partial, regressed, or reported as
+  success while not done
+- **test-integrity** — tests that cannot fail, are never run (an undefined function, a part never sourced), assert on
+  data the model can fake, or were weakened; the requirement a test cites against what it actually exercises
+
+## Finder role
+
+You are one of five finders; precision is the verifier's job, not yours. Report **every** candidate defect in your
+lens (the cross-tier finder: all four) that you can back with a `file:line` and a reproduction recipe — not only the
+likeliest one. Read the spec and the plan in the folder your brief names; read the diff and the code it touches.
+
+- One line per candidate, then its recipe as an indented fenced block tagged `recipe F<n>`:
+  ```
+  - [F1] [BLOCKING] hooks/forge-lib.sh:33 — internal-host deny list is case-sensitive — raised by: input-and-security
+      ```recipe F1
+      . hooks/forge-lib.sh; fg_host_denied metadata.google.INTERNAL && echo denied || echo allowed
+      ```
+  ```
+- The recipe is a bash script run with the scratch copy of the worktree as its working directory (cwd-relative
+  paths; stdin is `/dev/null`; no network beyond the sandbox's). It prints what shows the defect. It travels as one
+  single-quoted argument, so it **never contains a `'`** (use double quotes). Never a line equal to
+  `HEF_REPRO_RECIPE_END` or `HEF_CRC_REPORT_END`, and never a line that starts with three backticks (it would close
+  the block early; the check refuses it).
+- **`[BLOCKING]` only for a defect that breaks correctness, security or a stated requirement**; everything else is
+  `[SUGGESTION]`.
+- Nothing in your lens → one line `none — checked: <what you examined>` (the files, the paths, the FRs). A bare
+  `none` is not an answer.
+- **No verdict and no `BLOCKING <n>:` line** — the command's helper computes them. Leave the status off; the verifier
+  adds it.
+- Do not edit files. If you need to name the session-id variable, write `CLAUDE_CODE_SESSION_ID` without a `=`.
+
+## Verifier role
+
+You did not find anything this round. You receive at most 8 **blocking** candidates, each with its recipe. For each:
+
+1. Run its recipe, as one Bash call with the Bash tool's `timeout: 300000`, exactly in this shape (the absolute path
+   your brief gives, one space, the recipe inside ONE pair of single quotes — it may span lines — and nothing before
+   or after; no heredoc, which cannot be made where the temp folder is read-only):
+   ```
+   <abs hooks>/review-repro.sh '<the recipe>'
+   ```
+   A recipe that contains a `'` cannot go in this shape: rewrite it with double quotes, or, when it cannot be
+   rewritten, record the candidate `UNREPRODUCED — the recipe needs a single quote`.
+   It runs the recipe in a scratch copy under `$TMPDIR`, never in the worktree, and prints `exit: <n>` then the
+   output. Exit 2 = refused (quote it); exit 3 = the recipe wrote into the worktree (the paths are on stderr).
+2. Give the candidate exactly **one** status, appended to its line after ` — `:
+   - `REPRODUCED → <exit line> / <the output that shows it>` — the defect is shown;
+   - `REFUTED → <exit line> / <output> — <why this is no defect of its class>` — the recipe ran and shows no defect,
+     or shows something that is not a correctness, security or requirement defect (a reproduced nit does not block);
+   - `UNREPRODUCED — <why no reproduction was possible>` (host state, git denied, a refusal; on exit 3:
+     `UNREPRODUCED — the recipe wrote into the worktree: <paths>`). An `UNREPRODUCED` blocker still blocks.
+3. You may fix a recipe that fails for a reason unrelated to the defect (a typo, a wrong path) and run it again; say
+   so. Never edit a file, never add a finding, never write a verdict.
+
+When your brief says reproduction is unavailable in this round (the command's preflight was refused), run no recipe:
+give every candidate `UNREPRODUCED — reproduction unavailable: <the message your brief quotes>`.
+
+## Exhaustive round report
+
+The command merges the finders and writes, in order (the helper `code-review-check` rejects anything else):
+```
+Finders: input-and-security@<tier> ok; state-and-lifecycle@<tier> ok; spec-deviation@<tier> ok; test-integrity@<tier> ok; cross-tier@<tier> ok: all four lenses
+## Lens: input-and-security
+- [F1] [BLOCKING] <file:line> — <defect> — raised by: <lens>[, <lens>…] — <STATUS …>
+    ```recipe F1
+    <recipe>
+    ```
+## Lens: state-and-lifecycle
+none — checked: <what>
+## Lens: spec-deviation
+- [F2] [SUGGESTION] <file:line> — <defect> — raised by: <lens> — not verified — never blocks
+    ```recipe F2
+    <recipe>
+    ```
+## Lens: test-integrity
+none — checked: <what>
+## Open questions
+<each UNREPRODUCED blocker as `F<n>: <reason>`; anything else, or none>
+```
+Nothing else: no other heading, no line before the first lens but `Finders:`, in a lens section only finding lines
+(each written `- [F<n>] [BLOCKING|SUGGESTION]`, exactly), their recipe blocks, or the one `none — checked:` line, and
+no code block that is not a finding's recipe. Under `## Open questions` no line carries a `[BLOCKING]` or
+`[SUGGESTION]` tag — findings live only in lens sections. A finder that returned nothing usable is `silent: <why>`. The verdict and the `BLOCKING <n>:` line are appended
+from the helper's output, never written by an agent.
+
 ## Review Output Format
 
 ```
@@ -121,12 +216,12 @@ Scope: [CLEAN / CREEP DETECTED — list unexpected changes]
 
 ## Critical Rules
 
-0. **Evidence over assertion, and scope over volume.** A reviewer prompted to find gaps will
+0. Outside the finder and verifier roles: **Evidence over assertion, and scope over volume.** A reviewer prompted to find gaps will
    report some even when the work is sound — so flag only what affects correctness, security, or
    the stated requirements, and back every finding with something you ran (a test, a command, a
    `file:line` you read), not something you inferred. If `/hefesto:hef.verify` produced a coverage
    matrix, start from it rather than re-deriving it
-1. **Always complete both stages** — do not skip spec compliance even if no artifacts exist
+1. Outside the finder and verifier roles: **Always complete both stages** — do not skip spec compliance even if no artifacts exist
 2. **When no spec artifacts exist**, review against PR description, commit messages, or task descriptions
 3. **Enforce the Verification Iron Law** (`rules/code-quality.md`) — every claim backed by fresh command output; `/verify` exercises the real app
 4. **Use the `systematic-debugging` skill** if review reveals potential bugs requiring investigation
@@ -136,6 +231,8 @@ Scope: [CLEAN / CREEP DETECTED — list unexpected changes]
 8. **Categorize clearly**: Blocking vs Suggestion vs Nitpick has real workflow impact
 
 ## Verdict Criteria
+
+Outside the finder and verifier roles (there, the verdict is the command's helper's):
 
 - **APPROVE**: All requirements implemented, no blocking issues, tests pass
 - **REQUEST_CHANGES**: Blocking issues found (security, correctness, missing requirements)

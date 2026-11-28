@@ -378,6 +378,12 @@ gb_md="$(mktemp -d)"; sed 's|"Bash($h/status-board.sh --init)"|"Bash($h/status-b
 gb_red="$(x_fail=0; t_nr004s "$gb_md/s.sh" >/dev/null 2>&1; echo "$x_fail")"; [ "$gb_red" = 1 ] || { bad "mutant survived: an allow rule for --set-status added to setup"; x_fail=1; }
 cmp -s "$REPO/hooks/hefesto-setup.sh" "$gb_md/s.sh" && { bad "the allow-set mutant did not apply"; x_fail=1; }; rm -rf "$gb_md"
 [ "$x_fail" -eq 0 ] && ok "no allow rule in hefesto-setup.sh admits status-board.sh --set-status (its one caller is ledger.sh publish); 1 mutation caught (NR-004)"
+# exhaustive-review/FR-022 (HEF-58): the lanes' allow set runs the review round's recipe helper without a dialog in a
+# --strict lane — beside speckit-helper.sh:*, which already covers code-review-check
+gb_allow="$(grep -oE 'Bash\(\$h/[a-z-]+\.sh:\*\)' "$REPO/hooks/hefesto-setup.sh")"
+grep -qxF 'Bash($h/review-repro.sh:*)' <<<"$gb_allow" && grep -qxF 'Bash($h/speckit-helper.sh:*)' <<<"$gb_allow" \
+  && ok "hefesto-setup.sh's lane allow set holds review-repro.sh:* and speckit-helper.sh:* (exhaustive-review/FR-022)" \
+  || bad "hefesto-setup.sh's lane allow set must hold Bash(\$h/review-repro.sh:*) beside speckit-helper.sh:* (exhaustive-review/FR-022)"
 
 # --- code review 2026-11-04: the adoption path — repo case, --check, a failed --item, a padded id ----------------------
 head_ "GitHub Project board: a repo named in another case, --check on the lane config, and two sharp edges (FR-001, FR-008, FR-009, FR-011, FR-012)"
