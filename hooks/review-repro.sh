@@ -78,13 +78,17 @@ rr_copy() { # the files into $SCRATCH/w, then its own repository with a fixed id
     && git config core.hooksPath /dev/null && git config commit.gpgsign false \
     && git add -A && git commit -qm "review-repro scratch copy" --allow-empty) >/dev/null 2>&1
 }
-rr_changes() { # before after → "created|modified|deleted <path>" per changed path, on stdout
-  local b="$1" a="$2" p
-  cut -f1 "$b" >"$SCRATCH/pb"; cut -f1 "$a" >"$SCRATCH/pa"
-  LC_ALL=C comm -13 "$SCRATCH/pb" "$SCRATCH/pa" | while IFS= read -r p; do echo "created $p"; done
-  LC_ALL=C comm -23 "$SCRATCH/pb" "$SCRATCH/pa" | while IFS= read -r p; do echo "deleted $p"; done
-  LC_ALL=C comm -3 "$b" "$a" | sed "s/^$(printf '\t')//" | cut -f1 | LC_ALL=C sort -u >"$SCRATCH/pc"
-  LC_ALL=C comm -12 "$SCRATCH/pc" <(LC_ALL=C comm -12 "$SCRATCH/pb" "$SCRATCH/pa") | while IFS= read -r p; do echo "modified $p"; done
+# The two listings live in this shell's variables, never in a file: the recipe runs inside $SCRATCH, so a "before" file
+# there (the old $SCRATCH/before, ../before from the copy) could be rewritten to match a tracked file the recipe changed,
+# and the change passed as none (verify-HEF-58 review, round 4). Nothing the recipe touches is read to compare.
+rr_lines() { [ -z "$1" ] || printf '%s\n' "$1"; }   # $1 listing → its lines; an empty listing is no line at all
+rr_changes() { # before after (listings as text) → "created|modified|deleted <path>" per changed path, on stdout
+  local b="$1" a="$2" p pb pa pc
+  pb="$(rr_lines "$b" | cut -f1)"; pa="$(rr_lines "$a" | cut -f1)"
+  LC_ALL=C comm -13 <(rr_lines "$pb") <(rr_lines "$pa") | while IFS= read -r p; do echo "created $p"; done
+  LC_ALL=C comm -23 <(rr_lines "$pb") <(rr_lines "$pa") | while IFS= read -r p; do echo "deleted $p"; done
+  pc="$(LC_ALL=C comm -3 <(rr_lines "$b") <(rr_lines "$a") | sed "s/^$(printf '\t')//" | cut -f1 | LC_ALL=C sort -u)"
+  LC_ALL=C comm -12 <(rr_lines "$pc") <(LC_ALL=C comm -12 <(rr_lines "$pb") <(rr_lines "$pa")) | while IFS= read -r p; do echo "modified $p"; done
 }
 rr_print() { # $1 status, $2 output file → `exit: <n>` and the output, capped at 60 lines and 8 KiB
   local lines bytes shown
@@ -97,15 +101,16 @@ rr_print() { # $1 status, $2 output file → `exit: <n>` and the output, capped 
   return 0
 }
 
-rr_listing >"$SCRATCH/before"
+BEFORE="$(rr_listing)"
 rr_copy
 TO=(); if command -v timeout >/dev/null 2>&1; then TO=(timeout 60); else echo "review-repro.sh: no timeout(1) here — the recipe runs untimed" >&2; fi
 # unset OLDPWD: cd sets it to the real worktree, a path the recipe could write through (verify-HEF-58 scan)
 rc=0; (cd "$SCRATCH/w" && unset OLDPWD && ${TO[@]+"${TO[@]}"} bash "$SCRATCH/.hef-recipe.sh" </dev/null >"$SCRATCH/out" 2>&1) || rc=$?
-rr_listing >"$SCRATCH/after"
+AFTER="$(rr_listing)"
 rr_print "$rc" "$SCRATCH/out"
-CHANGED="$(rr_changes "$SCRATCH/before" "$SCRATCH/after")"
-[ -z "$CHANGED" ] && exit 0
+[ "$BEFORE" = "$AFTER" ] && exit 0                 # "unchanged" is the listings' own equality, never an empty name list
+CHANGED="$(rr_changes "$BEFORE" "$AFTER")"
+[ -n "$CHANGED" ] || CHANGED="modified (the listing changed; no path could be named)"
 printf '%s\n' "$CHANGED" >&2
 echo "review-repro.sh: the recipe wrote into the worktree — record the candidate UNREPRODUCED with these paths" >&2
 exit 3

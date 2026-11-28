@@ -89,15 +89,29 @@ DDS="$(jq -r '.tool_input.dangerouslyDisableSandbox // false' <<<"$IN")"
 # the grant and gh rules). Placed AFTER the CLAUDE_CODE_SESSION_ID deny, which stays in force for these bodies too.
 # No decision is printed: the permission rules (speckit-helper.sh:*, review-repro.sh:*) still decide, and they allow
 # the plugin's own path alone — a look-alike path ending in /hooks/review-repro.sh passes here and meets no allow rule.
+# verify-HEF-58, rounds 2 to 5: a CR, then a FF/VT, then a U+2003 under a UTF-8 locale after the delimiter quote joined
+# bash's delimiter word (`HEF_END<c>`), so a body line `HEF_END<c>` ended the heredoc early and a command after it ran
+# unread. An allow-list, not the next character found: both heredoc checks match under LC_ALL=C ([[:blank:]] is space
+# and tab only), and this refuses the command when its head line, or any line naming the delimiter, holds one byte
+# outside printable ASCII (0x20-0x7E) or tab. tr under LC_ALL=C counts bytes on every platform; bash's own classes
+# follow the caller's locale.
+heredoc_bytes_ok() { # $1 delimiter word → 0 when the head line and every line containing $1 are printable ASCII or tab
+  local line n=0
+  while IFS= read -r line; do
+    n=$((n + 1)); [ "$n" = 1 ] || [[ "$line" == *"$1"* ]] || continue
+    [ -z "$(printf '%s' "$line" | LC_ALL=C tr -d '\t -~')" ] || return 1
+  done <<<"$CMD"
+  return 0
+}
 review_heredoc_ok() {
-  local first last word head n=0 line
+  local LC_ALL=C first last word head n=0 line
   local -a w=()
   [ "$DDS" = true ] && return 1                                        # never with the sandbox off
   first="${CMD%%$'\n'*}"; last="${CMD##*$'\n'}"; [ "$first" != "$CMD" ] || return 1
-  # [[:blank:]], not [[:space:]]: a CR/FF/VT after the quote joins bash's delimiter word (`HEF_END\r`), so a body
-  # line `HEF_END\r` ends the heredoc early and a command after it runs unread (verify-HEF-58 review, round 2)
+  # [[:blank:]] under LC_ALL=C, not [[:space:]]: any other blank after the quote joins bash's delimiter word (above)
   [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:blank:]]*$ ]] || return 1
   word="${BASH_REMATCH[1]}"; [ "$last" = "$word" ] || return 1
+  heredoc_bytes_ok "$word" || return 1
   while IFS= read -r line; do [ "$line" = "$word" ] && n=$((n + 1)); done <<<"$CMD"
   [ "$n" = 1 ] || return 1                                             # an earlier delimiter ends the heredoc early
   head="${first%<<*}"; plain_words "$head" || return 1
@@ -134,10 +148,13 @@ fi
 
 # The orchestrator's person-only heredoc: `<ledger.sh> answer|revise|direct … <<'WORD'`, the body, then WORD alone.
 heredoc_ok() {
-  local first last word head
+  local LC_ALL=C first last word head n=0 line
   first="${CMD%%$'\n'*}"; last="${CMD##*$'\n'}"
-  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:blank:]]*$ ]] || return 1   # [[:blank:]]: see review_heredoc_ok
+  [[ "$first" =~ \<\<\'([A-Za-z_][A-Za-z0-9_]{3,40})\'[[:blank:]]*$ ]] || return 1   # LC_ALL=C [[:blank:]]: heredoc_bytes_ok
   word="${BASH_REMATCH[1]}"; [ "$last" = "$word" ] || return 1
+  heredoc_bytes_ok "$word" || return 1
+  while IFS= read -r line; do [ "$line" = "$word" ] && n=$((n + 1)); done <<<"$CMD"
+  [ "$n" = 1 ] || return 1                     # an earlier delimiter ends the heredoc early (verify-HEF-58 scan, :139)
   head="${first%<<*}"; plain_words "$head" || return 1
   starts_bare "$head" || return 1
   case "$EXCL_HIT" in */ledger.sh) ;; *) return 1 ;; esac

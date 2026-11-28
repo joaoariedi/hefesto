@@ -110,7 +110,20 @@ rs_t_rotmp() {
   [ "$(cat "$rs_t/rc")" = 2 ] && grep -q "neither $rs_t/tmp-ro nor any folder under $rs_t/home-sbx/.cache/hefesto is writable" "$rs_t/err" \
     && ! grep -q ran "$rs_t/out" || rs_no "neither the temp folder nor the cache writable → exit 2 naming both, nothing run"
 }
-for rs_fn in rs_t_git rs_t_guard rs_t_refuse rs_t_cap rs_t_arg rs_t_rotmp; do "$rs_fn"; done
+# verify-HEF-58 review, round 4: the recipe runs inside the scratch folder, so a "before" snapshot kept there (../before
+# from the copy) could be rewritten to match a tracked file the recipe changed — exit 0, the change unseen. The recipe
+# below rewrites a.txt, then writes the listing review-repro.sh used to keep in that file; the change must still be seen.
+rs_t_snapshot() {
+  RS_RECIPE="$(sed "s|@WT@|$rs_wt|g" <<'RS_SNAPSHOT_END'
+s="$(pwd)/.."; echo more >> '@WT@/a.txt'
+cd '@WT@' && git ls-files -z --cached --others --exclude-standard | xargs -0 cksum \
+  | sed -E "s/^([0-9]+) ([0-9]+) (.*)\$/\3$(printf '\t')\1 \2/" | LC_ALL=C sort >"$s/before"
+RS_SNAPSHOT_END
+)" rs_run x
+  [ "$(cat "$rs_t/rc")" = 3 ] && grep -qx 'modified a.txt' "$rs_t/err" || rs_no "a recipe that rewrites the old snapshot location and a tracked file → exit 3 'modified a.txt'"
+  rs_restore; rs_left "after a snapshot-rewriting recipe"
+}
+for rs_fn in rs_t_git rs_t_guard rs_t_refuse rs_t_cap rs_t_arg rs_t_rotmp rs_t_snapshot; do "$rs_fn"; done
 [ "$x_fail" -eq 0 ] && ok "review-repro.sh: git config/commit act on the copy's own repository (real config, index, HEAD unchanged); created/modified/deleted/same-size-rewritten worktree files → exit 3 naming them; an ignored build output passes; a writable or missing cache → exit 2; output capped at 60 lines and 8 KiB; a timed-out recipe reported; the recipe as one argument runs (amendment A3), two arguments refused; a read-only temp folder → the copy under the cache's writable folder, the recipe and its heredoc run, and neither writable → exit 2 naming both (amendment A4); no scratch copy left on any path (exhaustive-review/FR-006)"
 x_fail=0
 rs_mut() { # label sed-expr test-fn — a mutant of review-repro.sh must turn test-fn red
@@ -129,7 +142,9 @@ rs_mut "FR-006 A3 extra arguments accepted" 's/^  \*) refuse "\$# arguments/  *)
 rs_mut "FR-006 A4 no fallback under the cache" 's/^  for d in "\${TMPDIR:-\/tmp}" .*; do$/  for d in "${TMPDIR:-\/tmp}"; do/' rs_t_rotmp
 rs_mut "FR-006 A4 the recipe keeps the read-only temp folder" 's/mkdir "\$SCRATCH\/tmp" && export TMPDIR="\$SCRATCH\/tmp"/:/' rs_t_rotmp
 rs_mut "FR-006 A4 the refusal stops naming the cache" 's/ nor any folder under \$CACHE is writable here/ is writable/' rs_t_rotmp
-[ "$x_fail" -eq 0 ] && ok "review-repro.sh: 10 mutants killed (exhaustive-review/FR-006)"
+rs_mut "FR-006 the before snapshot kept in a file the recipe can reach" \
+  's/^BEFORE="\$(rr_listing)"$/rr_listing >"$SCRATCH\/before"/;s/rr_changes "\$BEFORE" "\$AFTER"/rr_changes "$(cat "$SCRATCH\/before")" "$AFTER"/' rs_t_snapshot
+[ "$x_fail" -eq 0 ] && ok "review-repro.sh: 11 mutants killed (exhaustive-review/FR-006)"
 chmod -R u+w "$rs_t" 2>/dev/null
 
 # --- lane-guard.sh: the review round's heredoc exception (FR-022) ---------------------------------------------------------
@@ -138,9 +153,14 @@ x_fail=0
 mkdir -p "$HOME/.cache/hefesto/sessions"
 jq -nc --arg h "$REPO/hooks" '{title: "repo-verify", role: "verify", name: "repo-verify", lanes: true, worker: false,
   excluded: ["gh *", "\($h)/ledger.sh *", "\($h)/session-launch.sh *", "mytool *"]}' >"$HOME/.cache/hefesto/sessions/sid-crlg-0001.json"
-lg_gd() { # lg_gd <command> [dds true|false] [hook] → deny | allow | none
-  local o; o="$(jq -nc --arg c "$1" --argjson d "${2:-false}" '{tool_name: "Bash", tool_input: {command: $c, dangerouslyDisableSandbox: $d}, session_id: "sid-crlg-0001", cwd: "/tmp"}' \
-    | bash "${3:-${LG_HOOK:-$REPO/hooks/lane-guard.sh}}" 2>/dev/null)"
+jq -nc --arg h "$REPO/hooks" '{title: "repo-orchestrator", role: "orchestrator", name: "repo-orchestrator", lanes: true, worker: false,
+  excluded: ["gh *", "\($h)/ledger.sh *", "\($h)/session-launch.sh *"]}' >"$HOME/.cache/hefesto/sessions/sid-crlg-0002.json"
+# The hook runs under a UTF-8 locale when this host has one: there [[:blank:]] also matches U+2003 and U+3000, the
+# hostile case of verify-HEF-58 round 5. No UTF-8 locale → the byte cases still run; the locale-only check is skipped.
+LG_U8=""; for lg_l in en_US.UTF-8 C.UTF-8; do [ "$(LC_ALL="$lg_l" locale charmap 2>/dev/null)" = UTF-8 ] && { LG_U8="$lg_l"; break; }; done
+lg_gd() { # lg_gd <command> [dds true|false] [hook] → deny | allow | none (session LG_SID, default the verify lane)
+  local o; o="$(jq -nc --arg c "$1" --argjson d "${2:-false}" --arg s "${LG_SID:-sid-crlg-0001}" '{tool_name: "Bash", tool_input: {command: $c, dangerouslyDisableSandbox: $d}, session_id: $s, cwd: "/tmp"}' \
+    | env ${LG_U8:+"LC_ALL=$LG_U8"} bash "${3:-${LG_HOOK:-$REPO/hooks/lane-guard.sh}}" 2>/dev/null)"
   [ -n "$o" ] || { echo none; return; }; jq -r '.hookSpecificOutput.permissionDecision // "none"' <<<"$o" 2>/dev/null || echo none
 }
 lg_want() { local got; got="$(lg_gd "$2" "${3:-false}")"; [ "$got" = "$1" ] || { bad "lane-guard: must be $1, got $got — $(head -c 200 <<<"$2" | tr '\n' '|')"; x_fail=1; }; }
@@ -157,12 +177,31 @@ lg_t_admit() { # exhaustive-review/FR-022: admitted with gh, a custom excluded c
 lg_t_early() { # exhaustive-review/FR-022: an early delimiter ends the heredoc — what follows would run unread
   local h
   for h in "$LG_CRC" "$LG_RR"; do lg_want deny "$(lg_hd "$h" "x"$'\n'"HEF_DELIM_END"$'\n'"gh pr merge 7")"; done
-  local c  # verify-HEF-58 round 2: a CR/FF/VT after the quote makes `HEF_DELIM_END<c>` bash's delimiter, ended early
-  for c in $'\r' $'\f' $'\v'; do
+  lg_t_early_ledger
+}
+lg_t_early_ledger() { # the orchestrator's ledger.sh heredoc too (verify-HEF-58 scan: heredoc_ok counted no delimiter lines)
+  LG_SID=sid-crlg-0002 lg_want deny "$(lg_hd "$REPO/hooks/ledger.sh answer HEF-1 --by Ana" "yes"$'\n'"HEF_ANS_END"$'\n'"touch /etc/hef-pwned" HEF_ANS_END)"
+}
+# verify-HEF-58 rounds 2 to 5: a byte after the quote joins bash's delimiter word, so `HEF_DELIM_END<c>` ends the heredoc
+# early. The class, not the instance: CR, FF, VT, NBSP, U+2003, U+3000, a zero-width space and a byte >= 0x80 (jq turns
+# a lone one into U+FFFD, as any JSON tool call would carry it — still a byte >= 0x80).
+LG_ODD=($'\r' $'\f' $'\v' "$(printf '\302\240')" "$(printf '\342\200\203')" "$(printf '\343\200\200')" "$(printf '\342\200\213')" "$(printf '\200')")
+lg_t_head() { # the byte on the head line, after the delimiter quote — both helpers and the orchestrator's ledger.sh heredoc
+  local c h
+  for c in "${LG_ODD[@]}"; do
     for h in "$LG_CRC" "$LG_RR"; do
       lg_want deny "$h <<'HEF_DELIM_END'$c"$'\n'"x"$'\n'"HEF_DELIM_END$c"$'\n'"gh pr merge 7"$'\n'"HEF_DELIM_END"
     done
+    LG_SID=sid-crlg-0002 lg_want deny "$REPO/hooks/ledger.sh answer HEF-1 --by Ana <<'HEF_ANS_END'$c"$'\n'"yes"$'\n'"HEF_ANS_END$c"$'\n'"touch /etc/hef-pwned"$'\n'"HEF_ANS_END"
   done
+}
+lg_t_cand() { # the byte on a body line naming the delimiter, the head line clean — refused too (a delimiter candidate)
+  local c h
+  for c in "${LG_ODD[@]}"; do
+    for h in "$LG_CRC" "$LG_RR"; do lg_want deny "$(lg_hd "$h" "x"$'\n'"HEF_DELIM_END$c"$'\n'"gh pr merge 7")"; done
+    LG_SID=sid-crlg-0002 lg_want deny "$(lg_hd "$REPO/hooks/ledger.sh answer HEF-1 --by Ana" "yes"$'\n'"HEF_ANS_END$c"$'\n'"touch /etc/hef-pwned" HEF_ANS_END)"
+  done
+  LG_SID=sid-crlg-0002 lg_want none "$(lg_hd "$REPO/hooks/ledger.sh answer HEF-1 --by Ana" "yes — a reply in the person's words" HEF_ANS_END)"   # non-ASCII elsewhere: data
 }
 lg_t_count() { # exhaustive-review/FR-022: the head is exactly the helper's word list — no word before it
   lg_want deny "$(lg_hd "/usr/bin/env $LG_RR" "gh pr merge 7")"
@@ -217,7 +256,7 @@ lg_t_arg_deny() { # every other near miss
   lg_want deny "$LG_RR 'CLAUDE_CODE_SESSION_ID=x gh pr view'"
   lg_want deny "$LG_RR 'gh pr view 7'" true
 }
-LG_TESTS="lg_t_admit lg_t_early lg_t_count lg_t_abs lg_t_deny lg_t_arg_admit lg_t_arg_tail lg_t_arg_head lg_t_arg_quote lg_t_arg_deny"
+LG_TESTS="lg_t_admit lg_t_early lg_t_head lg_t_cand lg_t_count lg_t_abs lg_t_deny lg_t_arg_admit lg_t_arg_tail lg_t_arg_head lg_t_arg_quote lg_t_arg_deny"
 for lg_fn in $LG_TESTS; do "$lg_fn"; done
 [ "$x_fail" -eq 0 ] && ok "lane-guard: code-review-check and review-repro.sh heredocs pass with gh, a custom excluded command, or gh + lane-build in the body; an extra or leading word, a relative path, an unquoted or early delimiter, a command after it, another helper, a sandbox-disabled retry, CLAUDE_CODE_SESSION_ID= and an excluded command naming the helper are denied; review-repro.sh's one single-quoted argument passes with the same words in it, and anything after or before it, a quote inside it, a double-quoted or unquoted recipe, a relative path, another helper and a sandbox-disabled retry are denied (exhaustive-review/FR-022, amendment A3)"
 x_fail=0
@@ -232,8 +271,23 @@ lg_mut "FR-022 the one-delimiter-line count dropped" 's/\[ "\$n" = 1 \] || retur
 lg_mut "FR-022 a glob over the whole head instead of the word count" 's/case "\${#w\[@\]}:\${w\[0\]}" in/case "1:${w[*]}" in/' lg_t_count
 lg_mut "FR-022 the absolute-path test dropped" '/an absolute path first: no word/d' lg_t_abs
 lg_mut "FR-022 a sandbox-disabled retry admitted" '/never with the sandbox off/d' lg_t_deny
-lg_mut "FR-022 a CR/FF/VT after the delimiter quote admitted" 's/\[\[:blank:\]\]\*\$ \]\] || return 1$/[[:space:]]*$ ]] || return 1/' lg_t_early
-[ "$x_fail" -eq 0 ] && ok "lane-guard: 6 mutants of the heredoc exception killed (exhaustive-review/FR-022)"
+lg_mut "FR-022 heredoc_ok's one-delimiter-line count dropped" '/verify-HEF-58 scan, :139/s/\[ "\$n" = 1 \] || return 1/true/' lg_t_early_ledger
+lg_mut "FR-022 the byte allow-list dropped (a delimiter-candidate line)" 's/heredoc_bytes_ok "\$word" || return 1/true/' lg_t_cand
+# The two rules overlap on the head line by design, so the locale rule is shown on its own: with the byte allow-list
+# off, LC_ALL=C alone still denies every head-line byte; with LC_ALL=C dropped too, U+2003 under UTF-8 gets through.
+if [ -n "$LG_U8" ]; then
+  lg_md="$(mktemp -d)"; ln -s "$REPO/hooks/lane-lib.sh" "$lg_md/lane-lib.sh"
+  sed 's/heredoc_bytes_ok "\$word" || return 1/true/' "$REPO/hooks/lane-guard.sh" >"$lg_md/lane-guard.sh"
+  [ "$(x_fail=0; LG_HOOK="$lg_md/lane-guard.sh" lg_t_head >/dev/null 2>&1; echo "$x_fail")" = 0 ] \
+    && ok "lane-guard: with the byte allow-list off, LC_ALL=C alone denies every head-line byte under $LG_U8" \
+    || { bad "lane-guard: with the byte allow-list off, a head-line byte got through under $LG_U8 — LC_ALL=C does not hold"; x_fail=1; }
+  rm -rf "$lg_md"
+  lg_mut "FR-022 LC_ALL=C dropped (with the byte allow-list off)" \
+    's/heredoc_bytes_ok "\$word" || return 1/true/;s/local LC_ALL=C /local /' lg_t_head
+else
+  ok "lane-guard: no UTF-8 locale on this host (en_US.UTF-8, C.UTF-8) — the LC_ALL=C-only check is skipped; the byte cases ran"
+fi
+[ "$x_fail" -eq 0 ] && ok "lane-guard: every mutant of the heredoc exception killed (exhaustive-review/FR-022, verify-HEF-58 round 5)"
 x_fail=0
 lg_q="'"
 lg_mut "FR-022 A3 the argument form's early exit dropped" 's/^review_arg_ok && exit 0$/true/' lg_t_arg_admit
